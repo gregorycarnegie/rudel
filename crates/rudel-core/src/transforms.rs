@@ -111,7 +111,7 @@ fn num_div(a: &Value, b: &Value) -> Value {
 
 impl Pattern {
     /// `_opIn`: structure from the left (this) pattern.
-    fn op_in<O>(&self, other: Pattern, op: O) -> Pattern
+    pub(crate) fn op_in<O>(&self, other: Pattern, op: O) -> Pattern
     where
         O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
     {
@@ -146,7 +146,7 @@ impl Pattern {
 
     // -- Structure ---------------------------------------------------------
 
-    fn _segment(&self, rate: Frac) -> Pattern {
+    pub(crate) fn _segment(&self, rate: Frac) -> Pattern {
         self.struct_pat(pure(Value::Bool(true))._fast(rate))
             .set_steps(Some(rate))
     }
@@ -225,7 +225,8 @@ impl Pattern {
         self.stack_with(&f(&shifted))
     }
 
-    /// Apply `f` every `n`th cycle (on cycle 0 of each group) (`every`).
+    /// Apply `f` every `n`th cycle, on the first cycle of each group
+    /// (`every`/`firstOf`).
     pub fn every<F>(&self, n: i64, f: F) -> Pattern
     where
         F: Fn(&Pattern) -> Pattern,
@@ -238,7 +239,29 @@ impl Pattern {
         for _ in 1..n {
             pats.push(self.clone());
         }
-        crate::pattern::slowcat(&pats)
+        crate::pattern::slowcat_prime(&pats)
+    }
+
+    /// Alias for [`every`](Self::every) (`firstOf`).
+    pub fn first_of<F>(&self, n: i64, f: F) -> Pattern
+    where
+        F: Fn(&Pattern) -> Pattern,
+    {
+        self.every(n, f)
+    }
+
+    /// Apply `f` every `n`th cycle, on the *last* cycle of each group
+    /// (`lastOf`).
+    pub fn last_of<F>(&self, n: i64, f: F) -> Pattern
+    where
+        F: Fn(&Pattern) -> Pattern,
+    {
+        if n <= 0 {
+            return self.clone();
+        }
+        let mut pats: Vec<Pattern> = (0..n - 1).map(|_| self.clone()).collect();
+        pats.push(f(self));
+        crate::pattern::slowcat_prime(&pats)
     }
 
     // -- Randomness --------------------------------------------------------

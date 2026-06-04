@@ -572,6 +572,21 @@ pub fn cat(pats: &[Pattern]) -> Pattern {
     slowcat(pats)
 }
 
+/// Like `slowcat`, but skips cycles instead of preserving constituent cycle
+/// continuity (`slowcatPrime`). Used by `every`/`firstOf`/`lastOf`.
+pub fn slowcat_prime(pats: &[Pattern]) -> Pattern {
+    let pats: Vec<Pattern> = pats.to_vec();
+    let len = pats.len() as i64;
+    Pattern::new(move |state| {
+        if len == 0 {
+            return vec![];
+        }
+        let pat_n = state.span.begin.sam().numer().rem_euclid(len) as usize;
+        pats[pat_n].query(state)
+    })
+    .split_queries()
+}
+
 /// Concatenate patterns, all crammed into one cycle (`fastcat`/`sequence`).
 pub fn fastcat(pats: &[Pattern]) -> Pattern {
     let n = pats.len();

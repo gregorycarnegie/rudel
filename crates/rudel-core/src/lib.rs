@@ -14,6 +14,7 @@ pub mod signal;
 pub mod state;
 pub mod timespan;
 pub mod transforms;
+pub mod transforms2;
 pub mod value;
 
 pub use fraction::Frac;
@@ -31,6 +32,8 @@ pub use value::Value;
 pub use signal::{cosine, irand, isaw, rand, rand2, run, saw, sine, sine2, square, time, tri};
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
+// Cycle-random combinators.
+pub use transforms2::{choose_cycles, randcat};
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{lpf, lpq, n, note, s, sound};
 
