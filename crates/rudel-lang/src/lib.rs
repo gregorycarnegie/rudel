@@ -49,117 +49,57 @@ fn first_arg(ctx: &MethodContext<KPattern>) -> KValue {
     ctx.args.first().cloned().unwrap_or(KValue::Null)
 }
 
-#[koto_impl]
-impl KPattern {
-    fn wrap(pat: Pattern) -> KValue {
-        KPattern(pat).into()
-    }
+macro_rules! kpattern_methods {
+    (
+        pattern_arg: [$($pattern_arg_method:ident),* $(,)?],
+        no_arg: [$($no_arg_method:ident),* $(,)?],
+        i64_arg: [$($i64_arg_method:ident),* $(,)?],
+    ) => {
+        #[koto_impl]
+        impl KPattern {
+            fn wrap(pat: Pattern) -> KValue {
+                KPattern(pat).into()
+            }
 
-    #[koto_method]
-    fn fast(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.fast(arg)))
-    }
-    #[koto_method]
-    fn slow(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.slow(arg)))
-    }
-    #[koto_method]
-    fn rev(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        Ok(Self::wrap(ctx.instance()?.0.rev()))
-    }
-    #[koto_method]
-    fn ply(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.ply(arg)))
-    }
-    #[koto_method]
-    fn segment(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.segment(arg)))
-    }
-    #[koto_method]
-    fn palindrome(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        Ok(Self::wrap(ctx.instance()?.0.palindrome()))
-    }
-    #[koto_method]
-    fn degrade(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        Ok(Self::wrap(ctx.instance()?.0.degrade()))
-    }
-    #[koto_method]
-    fn iter(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let n = arg_to_f64(&first_arg(&ctx)) as i64;
-        Ok(Self::wrap(ctx.instance()?.0.iter(n)))
-    }
-    #[koto_method]
-    fn euclid(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let p = arg_to_f64(&ctx.args.first().cloned().unwrap_or(KValue::Null)) as i64;
-        let s = arg_to_f64(&ctx.args.get(1).cloned().unwrap_or(KValue::Null)) as i64;
-        Ok(Self::wrap(ctx.instance()?.0.euclid(p, s)))
-    }
+            $(
+                #[koto_method]
+                fn $pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let arg = arg_to_pattern(&first_arg(&ctx));
+                    Ok(Self::wrap(ctx.instance()?.0.$pattern_arg_method(arg)))
+                }
+            )*
 
-    // value / control methods
-    #[koto_method]
-    fn add(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.add(arg)))
-    }
-    #[koto_method]
-    fn sub(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.sub(arg)))
-    }
-    #[koto_method]
-    fn mul(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.mul(arg)))
-    }
-    #[koto_method]
-    fn note(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.note(arg)))
-    }
-    #[koto_method]
-    fn n(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.n(arg)))
-    }
-    #[koto_method]
-    fn s(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.s(arg)))
-    }
-    #[koto_method]
-    fn gain(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.gain(arg)))
-    }
-    #[koto_method]
-    fn pan(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.pan(arg)))
-    }
-    #[koto_method]
-    fn speed(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.speed(arg)))
-    }
-    #[koto_method]
-    fn cutoff(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.cutoff(arg)))
-    }
-    #[koto_method]
-    fn room(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.room(arg)))
-    }
-    #[koto_method]
-    fn delay(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-        let arg = arg_to_pattern(&first_arg(&ctx));
-        Ok(Self::wrap(ctx.instance()?.0.delay(arg)))
-    }
+            $(
+                #[koto_method]
+                fn $no_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    Ok(Self::wrap(ctx.instance()?.0.$no_arg_method()))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let n = arg_to_f64(&first_arg(&ctx)) as i64;
+                    Ok(Self::wrap(ctx.instance()?.0.$i64_arg_method(n)))
+                }
+            )*
+
+            #[koto_method]
+            fn euclid(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let p = arg_to_f64(&ctx.args.first().cloned().unwrap_or(KValue::Null)) as i64;
+                let s = arg_to_f64(&ctx.args.get(1).cloned().unwrap_or(KValue::Null)) as i64;
+                Ok(Self::wrap(ctx.instance()?.0.euclid(p, s)))
+            }
+        }
+    };
+}
+
+kpattern_methods! {
+    pattern_arg: [
+        fast, slow, ply, segment, add, sub, mul, note, n, s, gain, pan, speed, cutoff, room, delay,
+    ],
+    no_arg: [rev, palindrome, degrade],
+    i64_arg: [iter],
 }
 
 /// Add the rudel top-level functions to a Koto prelude.
