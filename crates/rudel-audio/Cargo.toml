@@ -1,0 +1,17 @@
+[package]
+name = "rudel-audio"
+description = "Real-time clock, scheduler and cpal output for Rudel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rudel-core = { path = "../rudel-core" }
+rudel-dsp = { path = "../rudel-dsp" }
+cpal = "0.17.3"
+crossbeam-channel = "0.5.15"
+
+[dev-dependencies]
+rudel-mini = { path = "../rudel-mini" }

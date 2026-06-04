@@ -1,0 +1,11 @@
+[package]
+name = "rudel-dsp"
+description = "Synthesis voices for Rudel (a Rust fork of Strudel)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rudel-core = { path = "../rudel-core" }
