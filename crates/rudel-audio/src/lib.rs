@@ -5,16 +5,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 pub mod events;
+pub mod samples;
 
 pub use events::{NoteEvent, collect_events, to_control_map};
+pub use samples::SampleBank;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
 use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
-use rudel_dsp::Voice;
-use std::sync::Arc;
+use rudel_dsp::VoiceLike;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 /// A simple stereo feedback delay line for the `delay` send bus.
@@ -58,7 +60,7 @@ fn load_f64(a: &AtomicU64) -> f64 {
 struct Mixer {
     rx: Receiver<NoteEvent>,
     pending: Vec<NoteEvent>,
-    active: Vec<Voice>,
+    active: Vec<Box<dyn VoiceLike>>,
     sample_clock: u64,
     sample_rate: f32,
     played: Arc<AtomicU64>,
@@ -77,7 +79,7 @@ impl Mixer {
         while i < self.pending.len() {
             if self.pending[i].onset_seconds <= now {
                 let ev = self.pending.swap_remove(i);
-                self.active.push(Voice::new(ev.params, self.sample_rate));
+                self.active.push(ev.spec.into_voice(self.sample_rate));
             } else {
                 i += 1;
             }
@@ -117,9 +119,10 @@ impl Mixer {
 /// A running audio engine: owns the cpal stream and a scheduler thread.
 pub struct Engine {
     _stream: cpal::Stream,
-    pattern: Arc<std::sync::RwLock<Pattern>>,
+    pattern: Arc<RwLock<Pattern>>,
     cps: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
+    bank: Arc<RwLock<SampleBank>>,
     sample_rate: f32,
 }
 
@@ -138,10 +141,11 @@ impl Engine {
 
         let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
         let played = Arc::new(AtomicU64::new(0));
-        let pattern = Arc::new(std::sync::RwLock::new(rudel_core::silence()));
+        let pattern = Arc::new(RwLock::new(rudel_core::silence()));
         let cps = Arc::new(AtomicU64::new(0));
         store_f64(&cps, 0.5); // Strudel default cps
         let running = Arc::new(AtomicBool::new(true));
+        let bank = Arc::new(RwLock::new(SampleBank::new()));
 
         let mut mixer = Mixer {
             rx,
@@ -186,8 +190,9 @@ impl Engine {
             let cps = cps.clone();
             let running = running.clone();
             let played = played.clone();
+            let bank = bank.clone();
             std::thread::spawn(move || {
-                scheduler_loop(pattern, cps, running, played, tx, sample_rate)
+                scheduler_loop(pattern, cps, running, played, bank, tx, sample_rate)
             });
         }
 
@@ -196,8 +201,19 @@ impl Engine {
             pattern,
             cps,
             running,
+            bank,
             sample_rate,
         })
+    }
+
+    /// Load a directory of samples (subfolders become sound names).
+    pub fn load_samples(&self, dir: impl AsRef<std::path::Path>) -> Result<usize, String> {
+        self.bank.write().unwrap().load_dir(dir.as_ref())
+    }
+
+    /// Register a single decoded sample under `name`.
+    pub fn register_sample(&self, name: &str, sample: std::sync::Arc<rudel_dsp::Sample>) {
+        self.bank.write().unwrap().register(name, sample);
     }
 
     /// Swap in a new pattern (live update).
@@ -249,11 +265,13 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scheduler_loop(
-    pattern: Arc<std::sync::RwLock<Pattern>>,
+    pattern: Arc<RwLock<Pattern>>,
     cps: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     played: Arc<AtomicU64>,
+    bank: Arc<RwLock<SampleBank>>,
     tx: Sender<NoteEvent>,
     sample_rate: f32,
 ) {
@@ -265,7 +283,8 @@ fn scheduler_loop(
         let target_cycle = (now + lookahead) * cps_now;
         if target_cycle > scheduled_cycle {
             let pat = pattern.read().unwrap().clone();
-            for ev in collect_events(&pat, cps_now, scheduled_cycle, target_cycle) {
+            let bank = bank.read().unwrap();
+            for ev in collect_events(&pat, cps_now, scheduled_cycle, target_cycle, &bank) {
                 let _ = tx.send(ev);
             }
             scheduled_cycle = target_cycle;
@@ -277,7 +296,6 @@ fn scheduler_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rudel_core::Frac;
 
     #[test]
     fn stereo_delay_echoes_after_its_time() {
@@ -309,7 +327,7 @@ mod tests {
         };
         // a short note with a big reverb send
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69))).room(1.0);
-        for ev in collect_events(&pat, 4.0, 0.0, 1.0) {
+        for ev in collect_events(&pat, 4.0, 0.0, 1.0, &SampleBank::new()) {
             tx.send(ev).unwrap();
         }
         drop(tx);
@@ -341,7 +359,7 @@ mod tests {
             reverb: build_reverb(44100.0),
         };
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)));
-        let events = collect_events(&pat, 1.0, 0.0, 1.0);
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &SampleBank::new());
         for ev in events {
             tx.send(ev).unwrap();
         }
@@ -353,6 +371,5 @@ mod tests {
             peak = peak.max(l.abs());
         }
         assert!(peak > 0.0, "scheduled note should produce sound");
-        let _ = Frac::zero();
     }
 }
