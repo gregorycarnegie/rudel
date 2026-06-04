@@ -76,6 +76,14 @@ pub struct VoiceParams {
     pub adsr: Adsr,
     /// Hold time in seconds (the note's `whole` duration), before release.
     pub duration: f32,
+    /// Low-pass cutoff in Hz (`cutoff`/`lpf`). `None` leaves the voice open.
+    pub cutoff: Option<f32>,
+    /// Low-pass resonance / Q (`resonance`/`lpq`).
+    pub resonance: f32,
+    /// Reverb send amount (`room`), 0..1.
+    pub room: f32,
+    /// Delay send amount (`delay`), 0..1.
+    pub delay: f32,
 }
 
 impl Default for VoiceParams {
@@ -87,6 +95,10 @@ impl Default for VoiceParams {
             pan: 0.5,
             adsr: Adsr::default(),
             duration: 0.25,
+            cutoff: None,
+            resonance: 0.707,
+            room: 0.0,
+            delay: 0.0,
         }
     }
 }
@@ -131,7 +143,58 @@ impl VoiceParams {
         if let Some(r) = map.get("release").and_then(|v| v.as_f64()) {
             p.adsr.release = r as f32;
         }
+        if let Some(c) = map.get("cutoff").and_then(|v| v.as_f64()) {
+            p.cutoff = Some(c as f32);
+        }
+        if let Some(q) = map.get("resonance").and_then(|v| v.as_f64()) {
+            p.resonance = (q as f32).max(0.1);
+        }
+        if let Some(room) = map.get("room").and_then(|v| v.as_f64()) {
+            p.room = room as f32;
+        }
+        if let Some(d) = map.get("delay").and_then(|v| v.as_f64()) {
+            p.delay = d as f32;
+        }
         p
+    }
+}
+
+/// A transposed-direct-form-II biquad, used for the per-voice low-pass filter
+/// (RBJ cookbook coefficients).
+#[derive(Clone, Copy)]
+struct Biquad {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    z1: f32,
+    z2: f32,
+}
+
+impl Biquad {
+    fn lowpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
+        let cutoff = cutoff.clamp(20.0, sample_rate * 0.45);
+        let w0 = 2.0 * PI * cutoff / sample_rate;
+        let (sin, cos) = w0.sin_cos();
+        let alpha = sin / (2.0 * q.max(0.1));
+        let a0 = 1.0 + alpha;
+        Biquad {
+            b0: (1.0 - cos) / 2.0 / a0,
+            b1: (1.0 - cos) / a0,
+            b2: (1.0 - cos) / 2.0 / a0,
+            a1: (-2.0 * cos) / a0,
+            a2: (1.0 - alpha) / a0,
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    fn process(&mut self, x: f32) -> f32 {
+        let y = self.b0 * x + self.z1;
+        self.z1 = self.b1 * x - self.a1 * y + self.z2;
+        self.z2 = self.b2 * x - self.a2 * y;
+        y
     }
 }
 
@@ -205,6 +268,7 @@ pub struct Voice {
     left_gain: f32,
     right_gain: f32,
     hold_end: f32,
+    filter: Option<Biquad>,
     done: bool,
 }
 
@@ -215,6 +279,9 @@ impl Voice {
         let left_gain = (pan * PI / 2.0).cos();
         let right_gain = (pan * PI / 2.0).sin();
         let hold_end = params.duration.max(params.adsr.attack);
+        let filter = params
+            .cutoff
+            .map(|c| Biquad::lowpass(sample_rate, c, params.resonance));
         Voice {
             params,
             sample_rate,
@@ -223,8 +290,18 @@ impl Voice {
             left_gain,
             right_gain,
             hold_end,
+            filter,
             done: false,
         }
+    }
+
+    /// Reverb send amount for this voice (`room`).
+    pub fn room(&self) -> f32 {
+        self.params.room
+    }
+    /// Delay send amount for this voice (`delay`).
+    pub fn delay_send(&self) -> f32 {
+        self.params.delay
     }
 
     fn envelope(&self) -> f32 {
@@ -254,8 +331,12 @@ impl Voice {
             return (0.0, 0.0);
         }
         let env = self.envelope();
+        let mut osc = self.params.waveform.sample(self.phase);
+        if let Some(f) = &mut self.filter {
+            osc = f.process(osc);
+        }
         // 0.3 matches Strudel's synth turn-down (gainNode(0.3)).
-        let s = self.params.waveform.sample(self.phase) * env * self.params.gain * 0.3;
+        let s = osc * env * self.params.gain * 0.3;
 
         self.phase = (self.phase + self.params.freq / self.sample_rate).rem_euclid(1.0);
         self.t += 1.0 / self.sample_rate;
@@ -306,6 +387,37 @@ mod tests {
         }
         assert!(peak > 0.0, "voice should produce non-silent output");
         assert!(v.is_done(), "voice should finish after its envelope");
+    }
+
+    #[test]
+    fn lowpass_attenuates_high_frequencies() {
+        // A high tone through a low cutoff should be much quieter than open.
+        let mut open = Voice::new(
+            VoiceParams {
+                freq: 6000.0,
+                duration: 1.0,
+                ..Default::default()
+            },
+            44100.0,
+        );
+        let mut filtered = Voice::new(
+            VoiceParams {
+                freq: 6000.0,
+                duration: 1.0,
+                cutoff: Some(200.0),
+                ..Default::default()
+            },
+            44100.0,
+        );
+        let (mut e_open, mut e_filt) = (0.0f32, 0.0f32);
+        for _ in 0..8000 {
+            e_open += open.tick().0.abs();
+            e_filt += filtered.tick().0.abs();
+        }
+        assert!(
+            e_filt < e_open * 0.5,
+            "filtered energy {e_filt} should be well below open {e_open}"
+        );
     }
 
     #[test]

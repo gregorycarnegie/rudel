@@ -557,7 +557,7 @@ pub fn slowcat(pats: &[Pattern]) -> Pattern {
     let len = pats.len() as i64;
     Pattern::new(move |state| {
         let span = state.span;
-        let pat_n = span.begin.sam().numer().rem_euclid(len) as usize;
+        let pat_n = span.begin.sam().numer().rem_euclid(len as i128) as usize;
         let pat = &pats[pat_n];
         // Keep cycles from constituent patterns from being skipped.
         let offset = span.begin.floor() - (span.begin / Frac::int(len)).floor();
@@ -581,7 +581,7 @@ pub fn slowcat_prime(pats: &[Pattern]) -> Pattern {
         if len == 0 {
             return vec![];
         }
-        let pat_n = state.span.begin.sam().numer().rem_euclid(len) as usize;
+        let pat_n = state.span.begin.sam().numer().rem_euclid(len as i128) as usize;
         pats[pat_n].query(state)
     })
     .split_queries()

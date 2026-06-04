@@ -17,10 +17,16 @@ fn main() {
     };
     engine.set_cps(0.5);
 
-    // A little melody with a euclidean bass-ish line, using the built-in synths.
+    // A melody with reverb over a filtered, delayed bass line.
     let pat = rudel_core::stack(&[
-        rudel_core::note("c4 e4 g4 b4").s("triangle"),
-        rudel_core::note("c2 ~ g2 ~").s("saw").gain(0.6),
+        rudel_core::note("c4 e4 g4 b4 a4 g4 e4 d4")
+            .s("triangle")
+            .room(0.6),
+        rudel_core::note("c2 ~ g2 ~")
+            .s("saw")
+            .cutoff("300 900 1800 600")
+            .gain(0.6)
+            .delay(0.4),
     ]);
     engine.set_pattern(pat);
 

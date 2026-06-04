@@ -3,51 +3,64 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use num_integer::Integer;
-use num_rational::Rational64;
+use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
+/// The integer backing [`Frac`]. `i128` gives ample headroom so deep
+/// `lcm`/`compress` arithmetic doesn't overflow (the `Rational64` version did).
+type Rat = Ratio<i128>;
+
 /// A rational number used for all time values in the pattern engine.
 ///
-/// Wraps [`Rational64`]. Mirrors the `Fraction.prototype.*` helpers Strudel
+/// Wraps `Ratio<i128>`. Mirrors the `Fraction.prototype.*` helpers Strudel
 /// attaches in `fraction.mjs` (`sam`, `nextSam`, `cyclePos`, ...).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Frac(pub Rational64);
+pub struct Frac(pub Rat);
+
+/// Grid used to quantize `f64` inputs into bounded rationals (1µ-cycle).
+const FROM_F64_DENOM: i128 = 1_000_000;
 
 impl Frac {
     pub fn new(numer: i64, denom: i64) -> Self {
-        Frac(Rational64::new(numer, denom))
+        Frac(Rat::new(numer as i128, denom as i128))
     }
 
     pub fn int(n: i64) -> Self {
-        Frac(Rational64::from_integer(n))
+        Frac(Rat::from_integer(n as i128))
     }
 
-    /// Convert from an `f64` parameter value. Exact for typical dyadic/decimal
-    /// inputs; falls back to zero if not representable.
+    /// Convert from an `f64` parameter value. Integers are exact; other values
+    /// are quantized to a fixed grid so the resulting rational stays small —
+    /// exact `f64` fractions have denominator 2^52 and overflow under pattern
+    /// arithmetic.
     pub fn from_f64(x: f64) -> Self {
-        if x == x.trunc() && x.abs() < i64::MAX as f64 {
+        if !x.is_finite() {
+            return Frac::zero();
+        }
+        if x == x.trunc() && x.abs() < 9.0e18 {
             return Frac::int(x as i64);
         }
-        Rational64::approximate_float(x)
-            .map(Frac)
-            .unwrap_or_else(Frac::zero)
+        Frac(Rat::new(
+            (x * FROM_F64_DENOM as f64).round() as i128,
+            FROM_F64_DENOM,
+        ))
     }
 
     pub fn zero() -> Self {
-        Frac(Rational64::zero())
+        Frac(Rat::zero())
     }
 
     pub fn one() -> Self {
-        Frac(Rational64::from_integer(1))
+        Frac(Rat::from_integer(1))
     }
 
-    pub fn numer(&self) -> i64 {
+    pub fn numer(&self) -> i128 {
         *self.0.numer()
     }
 
-    pub fn denom(&self) -> i64 {
+    pub fn denom(&self) -> i128 {
         *self.0.denom()
     }
 
@@ -94,14 +107,14 @@ impl Frac {
     pub fn gcd(self, other: Frac) -> Frac {
         let n = self.numer().gcd(&other.numer());
         let d = self.denom().lcm(&other.denom());
-        Frac(Rational64::new(n, d))
+        Frac(Rat::new(n, d))
     }
 
     /// lcm of two rationals: lcm(n1,n2) / gcd(d1,d2)
     pub fn lcm(self, other: Frac) -> Frac {
         let n = self.numer().lcm(&other.numer());
         let d = self.denom().gcd(&other.denom());
-        Frac(Rational64::new(n, d))
+        Frac(Rat::new(n, d))
     }
 }
 

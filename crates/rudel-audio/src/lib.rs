@@ -10,11 +10,41 @@ pub use events::{NoteEvent, collect_events, to_control_map};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
+use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
 use rudel_dsp::Voice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
+
+/// A simple stereo feedback delay line for the `delay` send bus.
+struct StereoDelay {
+    left: Vec<f32>,
+    right: Vec<f32>,
+    idx: usize,
+    feedback: f32,
+}
+
+impl StereoDelay {
+    fn new(sample_rate: f32, time: f32, feedback: f32) -> StereoDelay {
+        let len = (sample_rate * time).max(1.0) as usize;
+        StereoDelay {
+            left: vec![0.0; len],
+            right: vec![0.0; len],
+            idx: 0,
+            feedback,
+        }
+    }
+
+    fn process(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
+        let out_l = self.left[self.idx];
+        let out_r = self.right[self.idx];
+        self.left[self.idx] = in_l + out_l * self.feedback;
+        self.right[self.idx] = in_r + out_r * self.feedback;
+        self.idx = (self.idx + 1) % self.left.len();
+        (out_l, out_r)
+    }
+}
 
 fn store_f64(a: &AtomicU64, v: f64) {
     a.store(v.to_bits(), Ordering::Relaxed);
@@ -32,6 +62,8 @@ struct Mixer {
     sample_clock: u64,
     sample_rate: f32,
     played: Arc<AtomicU64>,
+    delay: StereoDelay,
+    reverb: Box<dyn AudioUnit>,
 }
 
 impl Mixer {
@@ -51,17 +83,34 @@ impl Mixer {
             }
         }
 
-        let (mut l, mut r) = (0.0f32, 0.0f32);
+        // dry mix plus reverb (room) and delay sends
+        let (mut dl, mut dr) = (0.0f32, 0.0f32);
+        let (mut rl, mut rr) = (0.0f32, 0.0f32);
+        let (mut el, mut er) = (0.0f32, 0.0f32);
         self.active.retain_mut(|v| {
             let (a, b) = v.tick();
-            l += a;
-            r += b;
+            dl += a;
+            dr += b;
+            let room = v.room();
+            if room > 0.0 {
+                rl += a * room;
+                rr += b * room;
+            }
+            let dsend = v.delay_send();
+            if dsend > 0.0 {
+                el += a * dsend;
+                er += b * dsend;
+            }
             !v.is_done()
         });
 
+        let (delay_l, delay_r) = self.delay.process(el, er);
+        let mut rout = [0.0f32; 2];
+        self.reverb.tick(&[rl, rr], &mut rout);
+
         self.sample_clock += 1;
         self.played.store(self.sample_clock, Ordering::Relaxed);
-        (l, r)
+        (dl + delay_l + rout[0], dr + delay_r + rout[1])
     }
 }
 
@@ -101,6 +150,8 @@ impl Engine {
             sample_clock: 0,
             sample_rate,
             played: played.clone(),
+            delay: StereoDelay::new(sample_rate, 1.0 / 6.0, 0.4),
+            reverb: build_reverb(sample_rate),
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
@@ -170,6 +221,14 @@ impl Drop for Engine {
     }
 }
 
+/// Build the global FDN reverb (fundsp), configured for the sample rate.
+fn build_reverb(sample_rate: f32) -> Box<dyn AudioUnit> {
+    // room size 10m, ~1.5s tail, moderate damping
+    let mut unit = Box::new(reverb_stereo(10.0, 1.5, 0.5));
+    unit.set_sample_rate(sample_rate as f64);
+    unit
+}
+
 fn write_frames<T>(data: &mut [T], channels: usize, mixer: &mut Mixer)
 where
     T: cpal::Sample + cpal::FromSample<f32>,
@@ -221,6 +280,52 @@ mod tests {
     use rudel_core::Frac;
 
     #[test]
+    fn stereo_delay_echoes_after_its_time() {
+        let mut d = StereoDelay::new(1000.0, 0.01, 0.5); // 10-sample delay
+        let (o0, _) = d.process(1.0, 0.0); // impulse in
+        assert_eq!(o0, 0.0, "no output before the delay time");
+        let mut max_echo = 0.0f32;
+        for _ in 0..20 {
+            max_echo = max_echo.max(d.process(0.0, 0.0).0);
+        }
+        assert!(
+            max_echo > 0.0,
+            "impulse should re-emerge after the delay time"
+        );
+    }
+
+    #[test]
+    fn reverb_send_produces_a_tail() {
+        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let mut mixer = Mixer {
+            rx,
+            pending: Vec::new(),
+            active: Vec::new(),
+            sample_clock: 0,
+            sample_rate: 44100.0,
+            played: Arc::new(AtomicU64::new(0)),
+            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
+            reverb: build_reverb(44100.0),
+        };
+        // a short note with a big reverb send
+        let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69))).room(1.0);
+        for ev in collect_events(&pat, 4.0, 0.0, 1.0) {
+            tx.send(ev).unwrap();
+        }
+        drop(tx);
+
+        // play past the (short) note, then measure the tail afterwards
+        for _ in 0..6000 {
+            mixer.render_frame();
+        }
+        let mut tail = 0.0f32;
+        for _ in 0..4000 {
+            tail += mixer.render_frame().0.abs();
+        }
+        assert!(tail > 0.0, "reverb should ring out after the note ends");
+    }
+
+    #[test]
     fn mixer_renders_a_scheduled_note() {
         // Drive a Mixer directly (no audio device) and confirm a scheduled
         // note produces non-silent output once its onset passes.
@@ -232,6 +337,8 @@ mod tests {
             sample_clock: 0,
             sample_rate: 44100.0,
             played: Arc::new(AtomicU64::new(0)),
+            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
+            reverb: build_reverb(44100.0),
         };
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)));
         let events = collect_events(&pat, 1.0, 0.0, 1.0);
