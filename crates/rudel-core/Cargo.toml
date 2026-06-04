@@ -1,0 +1,13 @@
+[package]
+name = "rudel-core"
+description = "Core pattern engine for Rudel (a Rust fork of Strudel/TidalCycles)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+num-rational.workspace = true
+num-integer.workspace = true
+num-traits.workspace = true

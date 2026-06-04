@@ -1,0 +1,17 @@
+# Rudel — a Rust fork of Strudel (https://codeberg.org/uzu/strudel)
+# Licensed under the GNU Affero General Public License v3.0 or later, as is Strudel.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/local/rudel"
+rust-version = "1.92"
+
+[workspace.dependencies]
+num-rational = "0.4.2"
+num-integer = "0.1.46"
+num-traits = "0.2.19"
