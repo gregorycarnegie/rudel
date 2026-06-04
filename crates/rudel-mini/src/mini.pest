@@ -1,0 +1,41 @@
+// mini.pest - Strudel mini-notation grammar, ported from packages/mini/krill.pegjs.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" | "\u{00A0}" }
+
+mini = { SOI ~ stack_or_choose ~ EOI }
+
+// A sequence, optionally followed by stack (,) / choose (|) / feet (.) tails.
+stack_or_choose = { sequence ~ ( stack_tail | choose_tail | dot_tail )? }
+stack_tail  = { ("," ~ sequence)+ }
+choose_tail = { ("|" ~ sequence)+ }
+dot_tail    = { ("." ~ sequence)+ }
+
+sequence = { steps_marker? ~ slice_with_ops+ }
+steps_marker = { "^" }
+
+slice_with_ops = { slice ~ slice_op* }
+
+slice = { rest | step | sub_cycle | slow_sequence | polymeter }
+
+sub_cycle     = { "[" ~ stack_or_choose ~ "]" }
+slow_sequence = { "<" ~ poly_stack ~ ">" }
+polymeter     = { "{" ~ poly_stack ~ "}" ~ polymeter_steps? }
+poly_stack    = { sequence ~ ("," ~ sequence)* }
+polymeter_steps = { "%" ~ slice }
+
+rest   = @{ "~" | ("-" ~ !ASCII_DIGIT) }
+step   = @{ number | word }
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+word   = @{ ("#" | ASCII_ALPHA) ~ (ASCII_ALPHANUMERIC | "#" | "-")* }
+
+slice_op = _{ op_fast | op_slow | op_replicate | op_weight | op_degrade | op_euclid | op_range | op_tail }
+op_fast      = { "*" ~ factor }
+op_slow      = { "/" ~ factor }
+op_replicate = { "!" ~ number? }
+op_weight    = { ("@" ~ number?) | "_" }
+op_degrade   = { "?" ~ number? }
+op_euclid    = { "(" ~ sequence ~ "," ~ sequence ~ ("," ~ sequence)? ~ ")" }
+op_range     = { ".." ~ slice }
+op_tail      = { ":" ~ slice }
+factor       = { slice }

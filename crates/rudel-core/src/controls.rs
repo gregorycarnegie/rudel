@@ -40,6 +40,15 @@ pub fn s(pat: impl IntoPattern) -> Pattern {
             }
             Value::Map(m)
         }
+        // mini-notation produces a list for `bd:3`
+        Value::List(ref items) if !items.is_empty() => {
+            let mut m = BTreeMap::new();
+            m.insert("s".to_string(), items[0].clone());
+            if let Some(idx) = items.get(1) {
+                m.insert("n".to_string(), idx.clone());
+            }
+            Value::Map(m)
+        }
         Value::Map(_) => v,
         other => single("s", other),
     })

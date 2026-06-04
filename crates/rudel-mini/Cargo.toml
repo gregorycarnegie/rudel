@@ -1,0 +1,13 @@
+[package]
+name = "rudel-mini"
+description = "Mini-notation parser for Rudel (ported from Strudel's krill grammar)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rudel-core = { path = "../rudel-core" }
+pest = "2.8.6"
+pest_derive = "2.8.6"

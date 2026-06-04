@@ -602,3 +602,41 @@ pub fn fastcat(pats: &[Pattern]) -> Pattern {
 pub fn sequence(pats: &[Pattern]) -> Pattern {
     fastcat(pats)
 }
+
+/// Weighted concatenation: each `(weight, pattern)` pair fills a proportional
+/// slice of the cycle (`timeCat`). Used by mini-notation `@`/`_` weights.
+pub fn timecat(pairs: &[(Frac, Pattern)]) -> Pattern {
+    let total: Frac = pairs.iter().fold(Frac::zero(), |acc, (w, _)| acc + *w);
+    if total == Frac::zero() {
+        return silence();
+    }
+    let mut begin = Frac::zero();
+    let mut pats = Vec::with_capacity(pairs.len());
+    for (w, p) in pairs {
+        let end = begin + *w / total;
+        pats.push(p._compress(begin, end));
+        begin = end;
+    }
+    stack(&pats).set_steps(Some(total))
+}
+
+// ---------------------------------------------------------------------------
+// Settable string parser (mini-notation). rudel-mini installs a hook here so
+// that `&str` arguments parse as mini-notation, mirroring Strudel's
+// `setStringParser`. Without a hook, strings become `pure` values.
+
+type StringParser = fn(&str) -> Pattern;
+static STRING_PARSER: std::sync::RwLock<Option<StringParser>> = std::sync::RwLock::new(None);
+
+/// Install the mini-notation parser used to interpret `&str` patterns.
+pub fn set_string_parser(parser: StringParser) {
+    *STRING_PARSER.write().unwrap() = Some(parser);
+}
+
+/// Parse a string into a pattern via the installed parser, or `pure` if none.
+pub fn parse_string(s: &str) -> Pattern {
+    match *STRING_PARSER.read().unwrap() {
+        Some(parser) => parser(s),
+        None => pure(Value::Str(s.to_string())),
+    }
+}

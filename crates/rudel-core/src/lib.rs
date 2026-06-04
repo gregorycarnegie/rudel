@@ -20,8 +20,8 @@ pub mod value;
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
 pub use pattern::{
-    Pattern, cat, fastcat, gap, nothing, pure, reify, sequence, silence, slowcat, stack,
-    value_to_pattern,
+    Pattern, cat, fastcat, gap, nothing, parse_string, pure, reify, sequence, set_string_parser,
+    silence, slowcat, slowcat_prime, stack, timecat, value_to_pattern,
 };
 pub use state::State;
 pub use timespan::TimeSpan;

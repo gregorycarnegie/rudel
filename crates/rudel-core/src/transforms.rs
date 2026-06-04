@@ -44,8 +44,12 @@ impl IntoPattern for i32 {
 }
 impl IntoPattern for &str {
     fn into_pattern(self) -> Pattern {
-        // mini-notation parsing will hook in here in Phase 2.
-        pure(Value::Str(self.to_string()))
+        crate::pattern::parse_string(self)
+    }
+}
+impl IntoPattern for String {
+    fn into_pattern(self) -> Pattern {
+        crate::pattern::parse_string(&self)
     }
 }
 
