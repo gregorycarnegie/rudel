@@ -1,0 +1,19 @@
+[package]
+name = "rudel-app"
+description = "Native live-coding editor for Rudel (egui + audio)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "rudel"
+path = "src/main.rs"
+
+[dependencies]
+rudel-core = { path = "../rudel-core" }
+rudel-mini = { path = "../rudel-mini" }
+rudel-lang = { path = "../rudel-lang" }
+rudel-audio = { path = "../rudel-audio" }
+eframe = "0.34.3"
