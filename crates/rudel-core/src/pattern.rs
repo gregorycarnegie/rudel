@@ -17,6 +17,9 @@ type QueryFn = Arc<dyn Fn(&State) -> Vec<Hap> + Send + Sync>;
 pub struct Pattern {
     query: QueryFn,
     pub steps: Option<Frac>,
+    /// Set when this pattern is a `pure` value, enabling the patternify
+    /// fast-path (Strudel's `__pure`). Cleared by transforms.
+    pub pure_value: Option<Box<Value>>,
 }
 
 impl Pattern {
@@ -27,6 +30,7 @@ impl Pattern {
         Pattern {
             query: Arc::new(query),
             steps: None,
+            pure_value: None,
         }
     }
 
@@ -163,6 +167,23 @@ impl Pattern {
     /// Keep only haps with an onset.
     pub fn onsets_only(&self) -> Pattern {
         self.with_haps(|haps, _| haps.into_iter().filter(|h| h.has_onset()).collect())
+    }
+
+    /// Keep only haps whose hap passes `pred` (`filterHaps`).
+    pub fn filter_haps<F>(&self, pred: F) -> Pattern
+    where
+        F: Fn(&Hap) -> bool + Send + Sync + 'static,
+    {
+        self.with_haps(move |haps, _| haps.into_iter().filter(|h| pred(h)).collect())
+            .set_steps(self.steps)
+    }
+
+    /// Keep only haps whose value passes `pred` (`filterValues`).
+    pub fn filter_values<F>(&self, pred: F) -> Pattern
+    where
+        F: Fn(&Value) -> bool + Send + Sync + 'static,
+    {
+        self.filter_haps(move |h| pred(&h.value))
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -325,7 +346,7 @@ impl Pattern {
             let mut out = Vec::new();
             for outer in haps {
                 let inner_pat =
-                    value_to_pattern(outer.value.clone()).focus_span(outer.whole_or_part());
+                    value_to_pattern(outer.value.clone())._focus_span(outer.whole_or_part());
                 for inner in inner_pat.query(&state.set_span(outer.part)) {
                     let whole = match (inner.whole, outer.whole) {
                         (Some(i), Some(o)) => match i.intersection(&o) {
@@ -356,8 +377,12 @@ impl Pattern {
 
     //////////////////////////////////////////////////////////////////////
     // Time transforms
+    //
+    // These are the raw (unpatternified) ops, named with a leading `_` as in
+    // Strudel. The patternified, argument-lifting public versions (`fast`,
+    // `slow`, ...) live in `transforms.rs`.
 
-    pub fn fast(&self, factor: Frac) -> Pattern {
+    pub fn _fast(&self, factor: Frac) -> Pattern {
         if factor == Frac::zero() {
             return silence();
         }
@@ -366,20 +391,20 @@ impl Pattern {
             .set_steps(self.steps)
     }
 
-    pub fn slow(&self, factor: Frac) -> Pattern {
+    pub fn _slow(&self, factor: Frac) -> Pattern {
         if factor == Frac::zero() {
             return silence();
         }
-        self.fast(Frac::one() / factor)
+        self._fast(Frac::one() / factor)
     }
 
-    pub fn early(&self, offset: Frac) -> Pattern {
+    pub fn _early(&self, offset: Frac) -> Pattern {
         self.with_query_time(move |t| t + offset)
             .with_hap_time(move |t| t - offset)
     }
 
-    pub fn late(&self, offset: Frac) -> Pattern {
-        self.early(-offset)
+    pub fn _late(&self, offset: Frac) -> Pattern {
+        self._early(-offset)
     }
 
     pub fn rev(&self) -> Pattern {
@@ -404,7 +429,7 @@ impl Pattern {
     }
 
     /// `fastGap`: speed up but leave a gap, rather than repeating.
-    pub fn fast_gap(&self, factor: Frac) -> Pattern {
+    pub fn _fast_gap(&self, factor: Frac) -> Pattern {
         let pat = self.clone();
         let qf = move |span: TimeSpan| -> Option<TimeSpan> {
             let cycle = span.begin.sam();
@@ -434,25 +459,25 @@ impl Pattern {
     }
 
     /// `focus`: like compress but without gaps; focus span can exceed a cycle.
-    pub fn focus(&self, b: Frac, e: Frac) -> Pattern {
-        self.early(b.sam()).fast(Frac::one() / (e - b)).late(b)
+    pub fn _focus(&self, b: Frac, e: Frac) -> Pattern {
+        self._early(b.sam())._fast(Frac::one() / (e - b))._late(b)
     }
 
-    pub fn focus_span(&self, span: TimeSpan) -> Pattern {
-        self.focus(span.begin, span.end)
+    pub fn _focus_span(&self, span: TimeSpan) -> Pattern {
+        self._focus(span.begin, span.end)
     }
 
     /// `compress`: squeeze each cycle into `[b, e]`, leaving a gap.
-    pub fn compress(&self, b: Frac, e: Frac) -> Pattern {
+    pub fn _compress(&self, b: Frac, e: Frac) -> Pattern {
         if b > e || b > Frac::one() || e > Frac::one() || b < Frac::zero() || e < Frac::zero() {
             return silence();
         }
-        self.fast_gap(Frac::one() / (e - b)).late(b)
+        self._fast_gap(Frac::one() / (e - b))._late(b)
     }
 
     /// Repeat each event `factor` times within its own span (`ply`).
-    pub fn ply(&self, factor: Frac) -> Pattern {
-        let result = self.squeeze_bind(move |v| Value::Pat(Box::new(pure(v).fast(factor))));
+    pub fn _ply(&self, factor: Frac) -> Pattern {
+        let result = self.squeeze_bind(move |v| Value::Pat(Box::new(pure(v)._fast(factor))));
         result.set_steps(self.steps.map(|s| factor * s))
     }
 
@@ -482,7 +507,8 @@ pub fn reify(value: Value) -> Pattern {
 
 /// A pattern that repeats `value` once per cycle.
 pub fn pure(value: Value) -> Pattern {
-    Pattern::new(move |state| {
+    let pure_value = Some(Box::new(value.clone()));
+    let mut pat = Pattern::new(move |state| {
         state
             .span
             .span_cycles()
@@ -490,7 +516,9 @@ pub fn pure(value: Value) -> Pattern {
             .map(|sub| Hap::new(Some(whole_cycle(sub.begin)), sub, value.clone()))
             .collect()
     })
-    .set_steps(Some(Frac::one()))
+    .set_steps(Some(Frac::one()));
+    pat.pure_value = pure_value;
+    pat
 }
 
 fn whole_cycle(t: Frac) -> TimeSpan {
@@ -550,7 +578,7 @@ pub fn fastcat(pats: &[Pattern]) -> Pattern {
     let mut result = slowcat(pats);
     if n > 1 {
         result = result
-            .fast(Frac::int(n as i64))
+            ._fast(Frac::int(n as i64))
             .set_steps(Some(Frac::int(n as i64)));
     }
     result

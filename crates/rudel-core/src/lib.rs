@@ -5,11 +5,15 @@
 // A `Pattern` is a pure function `State -> Vec<Hap>`; everything is built from
 // the functor / applicative / monad combinators in `pattern`.
 
+pub mod controls;
+pub mod euclid;
 pub mod fraction;
 pub mod hap;
 pub mod pattern;
+pub mod signal;
 pub mod state;
 pub mod timespan;
+pub mod transforms;
 pub mod value;
 
 pub use fraction::Frac;
@@ -20,7 +24,15 @@ pub use pattern::{
 };
 pub use state::State;
 pub use timespan::TimeSpan;
+pub use transforms::IntoPattern;
 pub use value::Value;
+
+// Signals and randomness.
+pub use signal::{cosine, irand, isaw, rand, rand2, run, saw, sine, sine2, square, time, tri};
+// Euclidean rhythms.
+pub use euclid::{bjorklund, euclid_bools};
+// Controls (also available as chaining methods on `Pattern`).
+pub use controls::{lpf, lpq, n, note, s, sound};
 
 /// Convenience: build a `pure` pattern from anything convertible to a [`Value`].
 pub fn p(v: impl Into<Value>) -> Pattern {
@@ -151,6 +163,82 @@ mod tests {
             values,
             vec![Value::Int(0), Value::Int(0), Value::Int(1), Value::Int(1)]
         );
+    }
+
+    #[test]
+    fn struct_keeps_values_on_bool_onsets() {
+        // "a".struct("x ~ x") => a at step 0 and step 2
+        let pat = p("a").struct_pat(seq([true, false, true]));
+        let haps = pat.query_arc(Frac::zero(), Frac::one());
+        let parts: Vec<(Frac, Value)> = haps
+            .iter()
+            .map(|h| (h.part.begin, h.value.clone()))
+            .collect();
+        assert_eq!(
+            parts,
+            vec![
+                (Frac::new(0, 3), Value::Str("a".into())),
+                (Frac::new(2, 3), Value::Str("a".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn mask_silences_false_regions() {
+        // "0 1 2 3".mask("1 0") keeps the first half only
+        let pat = seq([0, 1, 2, 3]).mask(seq([true, false]));
+        assert_eq!(sorted_values(&pat), vec![Value::Int(0), Value::Int(1)]);
+    }
+
+    #[test]
+    fn add_lifts_constant() {
+        let pat = seq([0, 1, 2]).add(10);
+        assert_eq!(
+            sorted_values(&pat),
+            vec![Value::Int(10), Value::Int(11), Value::Int(12)]
+        );
+    }
+
+    #[test]
+    fn segment_discretizes_a_signal() {
+        let pat = saw().segment(4);
+        let haps = pat.query_arc(Frac::zero(), Frac::one());
+        assert_eq!(haps.len(), 4);
+        // saw sampled at left edge of each of the 4 segments: 0, 1/4, 1/2, 3/4
+        let vals: Vec<f64> = haps.iter().map(|h| h.value.as_f64().unwrap()).collect();
+        assert_eq!(vals, vec![0.0, 0.25, 0.5, 0.75]);
+    }
+
+    #[test]
+    fn euclid_3_8_has_three_onsets() {
+        let pat = p("x").euclid(3, 8);
+        let onsets = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .filter(|h| h.has_onset())
+            .count();
+        assert_eq!(onsets, 3);
+    }
+
+    #[test]
+    fn every_applies_on_first_of_n() {
+        // every(2, +10): cycle 0 -> 10, cycle 1 -> 0
+        let pat = p(0).every(2, |p| p.add(10));
+        assert_eq!(
+            pat.query_arc(Frac::zero(), Frac::one())[0].value,
+            Value::Int(10)
+        );
+        assert_eq!(
+            pat.query_arc(Frac::one(), Frac::int(2))[0].value,
+            Value::Int(0)
+        );
+    }
+
+    #[test]
+    fn fast_patternified_pure_arg() {
+        // .fast(2) where 2 is lifted from i64 takes the pure fast-path
+        let pat = p(1).fast(2);
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
     }
 
     #[test]

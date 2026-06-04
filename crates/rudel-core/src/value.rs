@@ -64,6 +64,31 @@ impl Value {
         }
     }
 
+    /// Coerce to a [`Frac`] for use as a time/parameter value. Non-numeric
+    /// values fall back to zero.
+    pub fn to_frac(&self) -> Frac {
+        match self {
+            Value::Frac(f) => *f,
+            Value::Int(n) => Frac::int(*n),
+            other => Frac::from_f64(other.as_f64().unwrap_or(0.0)),
+        }
+    }
+
+    /// Truthiness used by `struct`/`mask` and boolean patterns. Mirrors the
+    /// values mini-notation produces: `t`/`x`/`true`/non-zero are true,
+    /// `f`/`~`/`false`/`0`/empty are false.
+    pub fn truthy(&self) -> bool {
+        match self {
+            Value::Bool(b) => *b,
+            Value::Int(n) => *n != 0,
+            Value::F64(n) => *n != 0.0,
+            Value::Frac(f) => *f != Frac::zero(),
+            Value::Null => false,
+            Value::Str(s) => !matches!(s.as_str(), "f" | "~" | "false" | "0" | ""),
+            _ => true,
+        }
+    }
+
     /// Apply, assuming this is a `Func`. Panics if it isn't (mirrors JS calling
     /// a non-function, which throws).
     pub fn apply(&self, arg: Value) -> Value {

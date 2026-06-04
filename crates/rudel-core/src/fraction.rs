@@ -24,6 +24,17 @@ impl Frac {
         Frac(Rational64::from_integer(n))
     }
 
+    /// Convert from an `f64` parameter value. Exact for typical dyadic/decimal
+    /// inputs; falls back to zero if not representable.
+    pub fn from_f64(x: f64) -> Self {
+        if x == x.trunc() && x.abs() < i64::MAX as f64 {
+            return Frac::int(x as i64);
+        }
+        Rational64::approximate_float(x)
+            .map(Frac)
+            .unwrap_or_else(Frac::zero)
+    }
+
     pub fn zero() -> Self {
         Frac(Rational64::zero())
     }
