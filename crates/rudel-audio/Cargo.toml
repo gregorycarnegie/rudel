@@ -16,3 +16,4 @@ fundsp = "0.23.0"
 
 [dev-dependencies]
 rudel-mini = { path = "../rudel-mini" }
+rudel-lang = { path = "../rudel-lang" }

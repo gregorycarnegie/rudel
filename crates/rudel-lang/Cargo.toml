@@ -1,0 +1,13 @@
+[package]
+name = "rudel-lang"
+description = "Koto scripting bindings for live-coding Rudel patterns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rudel-core = { path = "../rudel-core" }
+rudel-mini = { path = "../rudel-mini" }
+koto = "0.16.1"
