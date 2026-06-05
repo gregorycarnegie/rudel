@@ -438,11 +438,16 @@ macro_rules! kpattern_methods {
 
 kpattern_methods! {
     pattern_arg: [
-        fast, slow, ply, segment, add, sub, mul, div, modulo, pow, set, mask, struct_pat,
+        fast, slow, ply, segment, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         note, n, s, gain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
         delaytime, delayfeedback, attack, decay, sustain, release, vowel, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
+        // alignment matrix (`in` is the default plain op; these are the rest)
+        add_out, add_mix, add_squeeze, add_squeezeout, add_reset, add_restart,
+        sub_out, mul_out, mul_squeeze, div_out,
+        set_out, set_mix, set_squeeze, set_squeezeout,
+        keep_out, keep_squeeze,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
@@ -621,6 +626,21 @@ mod tests {
             other => other.as_f64().unwrap(),
         };
         assert_eq!(note, 67.0);
+    }
+
+    #[test]
+    fn alignment_via_koto() {
+        // add.out takes structure from the right pattern -> 3 onsets
+        let pat = eval(r#"seq(0, 1).add_out("10 20 30")"#).expect("eval");
+        let onsets = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .filter(|h| h.has_onset())
+            .count();
+        assert_eq!(onsets, 3);
+        // set.squeeze merges the s control into each note event -> 4 haps
+        let pat = eval(r#"note("0 1").set_squeeze(s("a b"))"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1).len(), 4);
     }
 
     #[test]

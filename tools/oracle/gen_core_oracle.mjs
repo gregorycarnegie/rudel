@@ -32,6 +32,18 @@ const CASES = {
   add_const: mini('0 1 2').add(10),
   degrade: mini('0 1 2 3 4 5 6 7').degradeBy(0.5),
   superimpose: mini('0 1').superimpose((x) => x.add(7)),
+
+  // alignment matrix: operator x alignment
+  add_out: mini('0 1').add.out(mini('10 20 30')),
+  add_mix: mini('0 1 2').add.mix(mini('10 20')),
+  add_squeeze: mini('0 1').add.squeeze(mini('10 20')),
+  add_squeezeout: mini('0 1').add.squeezeout(mini('10 20')),
+  add_reset: mini('0 10 20 30').add.reset(mini('0 100')),
+  add_restart: mini('0 10 20 30').add.restart(mini('0 100')),
+  mul_out: mini('1 2').mul.out(mini('10 20 30')),
+  set_squeeze: note(mini('0 1')).set.squeeze(s(mini('a b'))),
+  set_out: note(mini('0 1')).set.out(s(mini('a b c'))),
+  keep_out: note(mini('0 1')).keep.out(s(mini('a b c'))),
 };
 const CYCLES = 4;
 

@@ -78,4 +78,12 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
         `superimpose`).
       Caught and fixed a real bug: euclidean rotation was rotating the wrong
       direction (Strudel rotates right by `rotation`).
-- [ ] Full `.add.out` / `.set.squeeze` alignment matrix.
+- [x] Alignment matrix (`.add.out` / `.set.squeeze` / …). Engine primitives
+      `op_in`/`op_out`/`op_mix`/`op_squeeze`/`op_squeeze_out`/`op_reset`/
+      `op_restart` (+ `reset_join`/`restart_join`) plus an `Align` enum and
+      `op_align`. Exposed `<op>_<align>` methods for add/sub/mul/div/set/keep
+      (a macro generates out/mix/squeeze/squeezeout/reset/restart; `in` stays the
+      plain method). Bound a curated set in Koto; parity-checked against Strudel
+      in `transform_parity.rs` (add.out/mix/squeeze/squeezeout/reset/restart,
+      mul.out, set.out/mix/squeeze, keep.out). `poly` not yet ported (needs the
+      steps-based `extend`).

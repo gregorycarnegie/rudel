@@ -27,7 +27,7 @@ pub use pattern::{
 };
 pub use state::State;
 pub use timespan::TimeSpan;
-pub use transforms::IntoPattern;
+pub use transforms::{Align, IntoPattern};
 pub use value::Value;
 
 // Signals and randomness.

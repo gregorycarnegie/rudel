@@ -9,6 +9,10 @@ use crate::signal::rand;
 use crate::value::Value;
 use std::sync::Arc;
 
+/// A shared two-argument value combiner (the per-element op behind `add`, `set`,
+/// ... before map-structural composition).
+type ValueOp = Arc<dyn Fn(&Value, &Value) -> Value + Send + Sync>;
+
 /// Anything that can be lifted into a pattern argument.
 pub trait IntoPattern {
     fn into_pattern(self) -> Pattern;
@@ -113,19 +117,179 @@ fn num_div(a: &Value, b: &Value) -> Value {
     Value::F64(a.as_f64().unwrap_or(0.0) / b.as_f64().unwrap_or(1.0))
 }
 
+/// The eight pattern alignments Strudel exposes on each operator
+/// (`.add.out`, `.set.squeeze`, ...). `Poly` is not yet ported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    /// Structure from the left (this) pattern. The default.
+    In,
+    /// Structure from the right (other) pattern.
+    Out,
+    /// Structure from the intersection of both.
+    Mix,
+    /// Squeeze one cycle of `other` into each event of this pattern.
+    Squeeze,
+    /// Squeeze one cycle of this pattern into each event of `other`.
+    SqueezeOut,
+    /// Retrigger this pattern at each onset of `other`, aligned to cycle pos.
+    Reset,
+    /// Retrigger this pattern at each onset of `other`, aligned to cycle zero.
+    Restart,
+}
+
+/// Generate the six non-default alignment methods for one operator, e.g.
+/// `add_out`, `add_squeeze`, ... The default (`in`) variant stays as the plain
+/// `add`/`sub`/... method.
+macro_rules! aligned_variants {
+    ($op:expr; $out:ident $mix:ident $sq:ident $sqo:ident $reset:ident $restart:ident) => {
+        #[doc = "Structure from the right (`out` alignment)."]
+        pub fn $out(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::Out, $op)
+        }
+        #[doc = "Structure from the intersection of both (`mix` alignment)."]
+        pub fn $mix(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::Mix, $op)
+        }
+        #[doc = "Squeeze one cycle of `other` into each event (`squeeze`)."]
+        pub fn $sq(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::Squeeze, $op)
+        }
+        #[doc = "Squeeze one cycle of this into each event of `other` (`squeezeOut`)."]
+        pub fn $sqo(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::SqueezeOut, $op)
+        }
+        #[doc = "Retrigger this pattern at each onset of `other` (`reset`)."]
+        pub fn $reset(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::Reset, $op)
+        }
+        #[doc = "Retrigger from cycle zero at each onset of `other` (`restart`)."]
+        pub fn $restart(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::Restart, $op)
+        }
+    };
+}
+
 impl Pattern {
+    /// Lift a value combiner into the curried, map-structural form the
+    /// applicative ops apply (`a => b => _composeOp(a, b, op)`).
+    fn compose_curry(op: ValueOp) -> impl Fn(Value) -> Value + Send + Sync + 'static {
+        move |a| {
+            let op = op.clone();
+            Value::func(move |b| compose_op(&a, &b, &*op))
+        }
+    }
+
     /// `_opIn`: structure from the left (this) pattern.
     pub(crate) fn op_in<O>(&self, other: Pattern, op: O) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        self.fmap(Self::compose_curry(Arc::new(op))).app_left(&other)
+    }
+
+    /// `_opOut`: structure from the right (other) pattern.
+    pub(crate) fn op_out<O>(&self, other: Pattern, op: O) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        self.fmap(Self::compose_curry(Arc::new(op)))
+            .app_right(&other)
+    }
+
+    /// `_opMix`: structure from both (intersection of wholes).
+    pub(crate) fn op_mix<O>(&self, other: Pattern, op: O) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        self.fmap(Self::compose_curry(Arc::new(op))).app_both(&other)
+    }
+
+    /// `_opSqueeze`: squeeze one cycle of `other` into each of this pattern's
+    /// events.
+    pub(crate) fn op_squeeze<O>(&self, other: Pattern, op: O) -> Pattern
     where
         O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
     {
         let op = Arc::new(op);
         self.fmap(move |a| {
             let op = op.clone();
-            Value::func(move |b| compose_op(&a, &b, &*op))
+            let other = other.clone();
+            Value::Pat(Box::new(other.fmap(move |b| compose_op(&a, &b, &*op))))
         })
-        .app_left(&other)
+        .squeeze_join()
     }
+
+    /// `_opSqueezeOut`: squeeze one cycle of this pattern into each of `other`'s
+    /// events (this pattern keeps the value orientation: `compose_op(this, other)`).
+    pub(crate) fn op_squeeze_out<O>(&self, other: Pattern, op: O) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        let op = Arc::new(op);
+        let this = self.clone();
+        other
+            .fmap(move |a| {
+                let op = op.clone();
+                let this = this.clone();
+                Value::Pat(Box::new(this.fmap(move |b| compose_op(&b, &a, &*op))))
+            })
+            .squeeze_join()
+    }
+
+    /// `_opReset`/`_opRestart`: retrigger this pattern at each onset of `other`.
+    fn op_reset_impl<O>(&self, other: Pattern, op: O, restart: bool) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        let op = Arc::new(op);
+        let this = self.clone();
+        let joined = other.fmap(move |b| {
+            let op = op.clone();
+            let this = this.clone();
+            Value::Pat(Box::new(this.fmap(move |a| compose_op(&a, &b, &*op))))
+        });
+        if restart {
+            joined.restart_join()
+        } else {
+            joined.reset_join()
+        }
+    }
+
+    /// Combine this pattern with `other` using value-combiner `op` under the
+    /// given [`Align`]ment.
+    pub(crate) fn op_align<O>(&self, other: Pattern, align: Align, op: O) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        match align {
+            Align::In => self.op_in(other, op),
+            Align::Out => self.op_out(other, op),
+            Align::Mix => self.op_mix(other, op),
+            Align::Squeeze => self.op_squeeze(other, op),
+            Align::SqueezeOut => self.op_squeeze_out(other, op),
+            Align::Reset => self.op_reset_impl(other, op, false),
+            Align::Restart => self.op_reset_impl(other, op, true),
+        }
+    }
+
+    // -- Alignment matrix --------------------------------------------------
+    // Each operator's default (`in`) variant is the plain method (`add`, `set`,
+    // ...); these generate the remaining alignments (`add_out`, `set_squeeze`, ...).
+
+    /// `keep`: keep this pattern's values, taking only keys from `other` that
+    /// are not already set here (the inverse of [`set`](Self::set)).
+    pub fn keep(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), |a: &Value, _b: &Value| a.clone())
+    }
+
+    aligned_variants!(num_add; add_out add_mix add_squeeze add_squeezeout add_reset add_restart);
+    aligned_variants!(num_sub; sub_out sub_mix sub_squeeze sub_squeezeout sub_reset sub_restart);
+    aligned_variants!(num_mul; mul_out mul_mix mul_squeeze mul_squeezeout mul_reset mul_restart);
+    aligned_variants!(num_div; div_out div_mix div_squeeze div_squeezeout div_reset div_restart);
+    aligned_variants!(|_a: &Value, b: &Value| b.clone();
+        set_out set_mix set_squeeze set_squeezeout set_reset set_restart);
+    aligned_variants!(|a: &Value, _b: &Value| a.clone();
+        keep_out keep_mix keep_squeeze keep_squeezeout keep_reset keep_restart);
 
     // -- Time transforms (patternified) ------------------------------------
 
@@ -292,5 +456,88 @@ impl Pattern {
             rand().fmap(|v| Value::F64(1.0 - v.as_f64().unwrap_or(0.0))),
             x,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::{fastcat, pure};
+    use std::collections::BTreeMap;
+
+    fn vals(pat: &Pattern) -> Vec<Value> {
+        let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+        haps.sort_by_key(|h| h.part.begin);
+        haps.into_iter().map(|h| h.value).collect()
+    }
+
+    fn seq(items: &[i64]) -> Pattern {
+        fastcat(&items.iter().map(|&n| pure(Value::Int(n))).collect::<Vec<_>>())
+    }
+
+    fn onsets(pat: &Pattern) -> usize {
+        pat.query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .filter(|h| h.has_onset())
+            .count()
+    }
+
+    #[test]
+    fn add_in_takes_left_structure() {
+        // "0 1".add("10 20 30") -> 2 onsets (structure from left)
+        assert_eq!(onsets(&seq(&[0, 1]).add(seq(&[10, 20, 30]))), 2);
+    }
+
+    #[test]
+    fn add_out_takes_right_structure() {
+        // "0 1".add.out("10 20 30") -> 3 onsets (structure from right)
+        assert_eq!(onsets(&seq(&[0, 1]).add_out(seq(&[10, 20, 30]))), 3);
+    }
+
+    #[test]
+    fn add_squeeze_fits_other_per_event() {
+        // each of the 2 events gets a full cycle of "10 20" squeezed in -> 4 haps
+        let pat = seq(&[0, 1]).add_squeeze(seq(&[10, 20]));
+        assert_eq!(
+            vals(&pat),
+            vec![Value::Int(10), Value::Int(20), Value::Int(11), Value::Int(21)]
+        );
+    }
+
+    #[test]
+    fn set_squeeze_merges_maps() {
+        // {note:0} set.squeeze {s:a}{s:b} -> per note event, two {note,s} haps
+        let note = pure(Value::Map(BTreeMap::from([("note".into(), Value::Int(0))])));
+        let s = fastcat(&[
+            pure(Value::Map(BTreeMap::from([("s".into(), Value::Str("a".into()))]))),
+            pure(Value::Map(BTreeMap::from([("s".into(), Value::Str("b".into()))]))),
+        ]);
+        let pat = note.set_squeeze(s);
+        let got = vals(&pat);
+        assert_eq!(got.len(), 2);
+        match &got[0] {
+            Value::Map(m) => {
+                assert_eq!(m.get("note"), Some(&Value::Int(0)));
+                assert_eq!(m.get("s"), Some(&Value::Str("a".into())));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keep_prefers_left_value() {
+        // {s:bd} keep {s:sd, n:1} -> keeps s:bd, gains n:1
+        let a = pure(Value::Map(BTreeMap::from([("s".into(), Value::Str("bd".into()))])));
+        let b = pure(Value::Map(BTreeMap::from([
+            ("s".into(), Value::Str("sd".into())),
+            ("n".into(), Value::Int(1)),
+        ])));
+        match &vals(&a.keep(b))[0] {
+            Value::Map(m) => {
+                assert_eq!(m.get("s"), Some(&Value::Str("bd".into())));
+                assert_eq!(m.get("n"), Some(&Value::Int(1)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
     }
 }

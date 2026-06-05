@@ -375,6 +375,55 @@ impl Pattern {
         self.fmap(func).squeeze_join()
     }
 
+    /// `resetJoin`/`restartJoin`: flatten a pattern of patterns by retriggering
+    /// each inner pattern at the onsets of the outer pattern. `reset` aligns the
+    /// inner pattern's cycle position to the onset; `restart` aligns the inner
+    /// pattern's cycle zero to the onset.
+    fn reset_join_impl(&self, restart: bool) -> Pattern {
+        let pat_of_pats = self.clone();
+        Pattern::new(move |state| {
+            let mut out = Vec::new();
+            for outer in pat_of_pats.discrete_only().query(state) {
+                let Some(owhole) = outer.whole else { continue };
+                let shift = if restart {
+                    owhole.begin
+                } else {
+                    owhole.begin.cycle_pos()
+                };
+                let inner_pat = value_to_pattern(outer.value.clone())._late(shift);
+                for inner in inner_pat.query(state) {
+                    let whole = match inner.whole {
+                        Some(iw) => match iw.intersection(&owhole) {
+                            Some(w) => Some(w),
+                            None => continue,
+                        },
+                        None => None,
+                    };
+                    let Some(part) = inner.part.intersection(&outer.part) else {
+                        continue;
+                    };
+                    out.push(
+                        Hap::new(whole, part, inner.value.clone())
+                            .with_context(outer.context.combine(&inner.context)),
+                    );
+                }
+            }
+            out
+        })
+    }
+
+    /// Retrigger inner patterns at outer onsets, aligned to cycle position
+    /// (`resetJoin`).
+    pub fn reset_join(&self) -> Pattern {
+        self.reset_join_impl(false)
+    }
+
+    /// Retrigger inner patterns at outer onsets, aligned to cycle zero
+    /// (`restartJoin`).
+    pub fn restart_join(&self) -> Pattern {
+        self.reset_join_impl(true)
+    }
+
     //////////////////////////////////////////////////////////////////////
     // Time transforms
     //

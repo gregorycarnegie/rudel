@@ -36,6 +36,16 @@ fn build(label: &str) -> Pattern {
         "add_const" => p("0 1 2").add(10),
         "degrade" => p("0 1 2 3 4 5 6 7").degrade_by(0.5),
         "superimpose" => p("0 1").superimpose(|x| x.add(7)),
+        "add_out" => p("0 1").add_out(p("10 20 30")),
+        "add_mix" => p("0 1 2").add_mix(p("10 20")),
+        "add_squeeze" => p("0 1").add_squeeze(p("10 20")),
+        "add_squeezeout" => p("0 1").add_squeezeout(p("10 20")),
+        "add_reset" => p("0 10 20 30").add_reset(p("0 100")),
+        "add_restart" => p("0 10 20 30").add_restart(p("0 100")),
+        "mul_out" => p("1 2").mul_out(p("10 20 30")),
+        "set_squeeze" => note(p("0 1")).set_squeeze(s(p("a b"))),
+        "set_out" => note(p("0 1")).set_out(s(p("a b c"))),
+        "keep_out" => note(p("0 1")).keep_out(s(p("a b c"))),
         other => panic!("unknown golden label {other:?}"),
     }
 }
