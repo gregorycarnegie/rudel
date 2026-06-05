@@ -3,6 +3,138 @@
 Remaining / deferred work. Phases 0–6 (engine → mini-notation → voices →
 scheduler/audio → samples/effects → Koto live-eval → egui app) are complete.
 
+---
+
+# Gap audit vs Strudel learn pages
+
+Function-by-function audit against the Strudel learn pages
+(<https://patterns.slab.org/>) and the `strudel/` source. Legend:
+
+- `[x]` usable from Koto now
+- `[~]` implemented in the engine (`rudel-core`) but **not yet bound in Koto** —
+  usually a one-line addition to the `kpattern_methods!` lists / prelude
+- `[ ]` not implemented (needs engine and/or DSP work)
+
+## Biggest quick wins (engine done, just bind in Koto)
+
+- [ ] **Signals**: `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2`
+      `irand` `run` `time` are all in `rudel-core` but only `perlin` is in the
+      Koto prelude. Bind the rest as prelude fns.
+- [ ] **Factories**: `slowcat` `fastcat`/`fastCat` `timecat`/`timeCat`
+      `randcat` `choose_cycles` `pure` `gap` exist in the engine; only
+      `stack`/`cat`/`seq` are bound. Bind the rest.
+- [ ] **Transforms in engine, unbound**: `hurry` `focus` `layer` `apply`
+      `range2` `press_by` `undegrade_by` `degrade_by` `some_cycles`(arg)
+      `euclid_rot` (euclid with rotation) `iter_back`(✓bound) — bind the missing.
+
+## learn/notes & learn/tonal
+
+- [x] `note` / `n`, note names + octaves, MIDI numbers
+- [x] `scale("C:major")`, scale-degree numbers, `#`/`b` step accidentals
+- [x] `transpose`/`trans`, `scaleTranspose`/`strans`, `chord()` (chord symbols)
+- [ ] `voicing` / `voicings` / `rootNotes` (tonaljs voicing dictionaries)
+- [ ] `arp` / `arpeggiate`, `arpWith`
+- [ ] enharmonic interval-string transpose (`"3M"`), `mode`/`anchor` stepping
+- [ ] `mtranspose` / `ctranspose` / `degreeToNote`, `toScale` (custom scales)
+
+## learn/sounds & learn/samples
+
+- [x] `s`/`sound`, sample index via `:`/`n`, `gain`, `pan`
+- [x] synthesized drums (`bd sd rim cp hh oh lt mt ht rd cr`) — rudel extension
+- [x] `chop` `striate` `slice` `splice` `loopAt` `fit` `begin` `end` `speed` `unit`
+- [x] sample-folder loading (app button; `Engine::load_samples`)
+- [ ] `samples(url/json)` loader (remote/JSON sample maps, `bank`, aliases)
+- [ ] `cut` (cut groups / choke), `loop` / `loopBegin` / `loopEnd`
+- [ ] `bank` control (drum-machine name prefix)
+
+## learn/synths
+
+- [x] waveforms `sine` `sawtooth` `square` `triangle`
+- [x] ADSR: `attack`/`att` `decay`/`dec` `sustain`/`sus` `release`/`rel`
+- [ ] `ad` / `ar` / `adsr` shortcut controls; `hold`
+- [ ] noise sources `white` `pink` `brown` (+ `noise` control)
+- [ ] `supersaw` (`unison` `spread` `detune`)
+- [ ] FM (`fm` `fmh` `fmi` ...), additive, `zzfx`, wavetables
+- [ ] vibrato (`vib` `vibmod`), pitch env (`penv` `pattack` `pcurve` ...)
+- [ ] `pw` pulse-width, `noise` amount
+
+## learn/effects
+
+- [x] low-pass `cutoff`/`lpf` + `resonance`/`lpq`
+- [x] high-pass `hcutoff`/`hpf` + `hresonance`/`hpq`; band-pass `bandf`/`bpf` + `bandq`/`bpq`
+- [x] reverb `room`/`size`; delay `delay`/`delaytime`/`delayfeedback`
+- [x] `pan`, `jux`/`juxBy`, `speed`, `orbit`, `gain`
+- [~] `vowel` `shape` `crush` `coarse` `distort` — controls bind, **no DSP yet**
+      (silently pass through)
+- [ ] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease` (+ hp/bp)
+- [ ] `phaser*`, `tremolo*`, `compressor*`, `postgain`, `dry`, `squiz`, `fshift`
+- [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)
+
+## functions/value-modifiers
+
+- [x] `add` `sub` `mul` `div` `mod`(`modulo`) `pow` `set` `keep`
+- [x] `round` `floor` `ceil` `range` `rangex` `ratio` `toBipolar` `fromBipolar`
+- [x] alignment matrix (`.add.out`/`.set.squeeze`/… in/out/mix/squeeze/squeezeout/reset/restart/poly)
+- [~] `range2` (engine has it, not bound)
+
+## learn/time-modifiers
+
+- [x] `fast` `slow` `rev` `iter` `iterBack` `ply` `palindrome` `off` `early` `late`
+- [x] `compress` `zoom` `fastGap` `inside` `outside` `swingBy`/`swing` `repeatCycles`
+      `press`/`pressBy` `brak`
+- [~] `hurry` `focus` (engine has them, not bound)
+- [ ] `ribbon`/`rib`, `compressSpan`/`focusSpan`/`zoomArc`, `pace`, `flux`, `seg`
+
+## learn/signals
+
+- [~] `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2` `irand` `run`
+      `time` — engine has them; bind in Koto (see quick wins)
+- [x] `perlin`; `segment`/`range` on signals
+- [ ] bipolar variants `saw2`/`square2`/`tri2`/`isaw2`, `sine2`/`cosine2` (bind)
+- [ ] `envL`/`envLR`/`envEq`…, `mousex`/`mousey` (n/a native)
+
+## learn/conditional-modifiers
+
+- [x] `every`/`firstOf`/`lastOf`, `when`, `chunk`/`chunkBack`
+- [x] `sometimes`/`sometimesBy`/`often`/`rarely`/`almostAlways`/`almostNever`/`always`/`never`
+- [x] `someCycles`/`someCyclesBy`, `degrade`/`degradeBy`/`undegrade`, `mask`, `struct`
+- [x] `euclid`, `euclidRot` (rotation; bound only as 2-arg `euclid` — bind 3-arg/`euclidRot`)
+- [ ] `euclidLegato`, `whenKey`/`keyDown` (keyboard), `ifp`
+
+## learn/accumulation
+
+- [x] `stack`, `superimpose`, `off`, `echo`/`stut`, `jux`/`juxBy`
+- [~] `layer` (engine has it, not bound)
+- [ ] `overlay`, `wchoose`/`wchooseCycles`/`wrandcat`, `arrange`, `scan`
+
+## learn/factories
+
+- [x] `stack` `cat`(slowcat) `seq`(fastcat) `silence`
+- [~] `slowcat` `fastcat` `timecat` `randcat` `choose_cycles` `pure` `gap` (bind)
+- [ ] `polymeter`/`pm`, `arrange`, `stepcat`/`ncat`, `run` factory, `chooseCycles`
+
+## learn/mini-notation (parser — parity-tested)
+
+- [x] sequences, `[ ]` sub-groups, `*`/`/`, `!`/`@`/`_` (elongate), `[,]` stacks,
+      `~`, `<>` alternation, `.` groups, euclid `(p,s,r)`, `..` ranges,
+      `{}%` polymeter, `?` degrade, `:` sample index, `|` random choice
+- [ ] chord names in mini-notation (`c:maj7`), `:` with non-numeric tails
+
+## learn/input-output
+
+- [x] MIDI out (`rudel-midi`), OSC/SuperDirt out (`rudel-osc`), app output selector
+- [ ] `.midi(...)` / `.osc(...)` as Koto pattern methods (route per-pattern)
+- [ ] MIDI input / clock-in, MIDI CC mapping helpers
+- [ ] `osc` custom address/host/port from controls (`oschost`/`oscport`)
+
+## learn/code (REPL ergonomics)
+
+- [x] live eval + hot-swap, error surfacing, cps slider, reference pane
+- [ ] autocomplete / sound+control hints in the editor
+- [ ] per-pattern naming (`$:` / `p()` style multi-pattern), comments-as-mute
+
+---
+
 ## Live-eval (rudel-lang)
 
 - [x] Higher-order Koto combinators with function args — `every(n, f)`, `jux(f)`,
