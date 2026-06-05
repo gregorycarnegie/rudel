@@ -28,6 +28,13 @@ impl SampleBank {
         self.map.contains_key(name)
     }
 
+    /// All registered sound names, sorted.
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.map.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     /// Fetch the `index`-th sample for `name` (wrapping if out of range).
     pub fn get(&self, name: &str, index: usize) -> Option<Arc<Sample>> {
         let v = self.map.get(name)?;

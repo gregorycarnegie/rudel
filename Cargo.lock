@@ -3361,7 +3361,9 @@ dependencies = [
  "rudel-audio",
  "rudel-core",
  "rudel-lang",
+ "rudel-midi",
  "rudel-mini",
+ "rudel-osc",
 ]
 
 [[package]]

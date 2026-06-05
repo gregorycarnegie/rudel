@@ -65,10 +65,16 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
 
 ## App (rudel-app) polish
 
-- [ ] UI button to load a sample folder into the `SampleBank` at runtime.
-- [ ] Live cycle playhead / position indicator on the visualizer.
-- [ ] Per-orbit / multi-pattern display.
-- [ ] Surface available sound names + controls (autocomplete or a reference pane).
+- [x] UI to load a sample folder into the `SampleBank` at runtime (path field +
+      "Load folder"; reports count and refreshes the sound list).
+- [x] Live cycle playhead on the visualizer (`Engine::position_cycles`, repaints
+      while playing).
+- [x] Per-orbit / multi-pattern display (haps grouped into labelled bands by
+      their `orbit` control).
+- [x] Reference pane listing available sounds (synth waveforms + loaded sample
+      names) and control names.
+- [x] Bonus: output selector (Audio / MIDI / OSC) wiring in `rudel-midi` /
+      `rudel-osc`, with lazy connection and graceful fallback to audio.
 
 ## Engine parity
 

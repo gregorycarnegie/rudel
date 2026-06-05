@@ -123,6 +123,7 @@ pub struct Engine {
     cps: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     bank: Arc<RwLock<SampleBank>>,
+    played: Arc<AtomicU64>,
     sample_rate: f32,
 }
 
@@ -202,6 +203,7 @@ impl Engine {
             cps,
             running,
             bank,
+            played,
             sample_rate,
         })
     }
@@ -228,6 +230,18 @@ impl Engine {
 
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate
+    }
+
+    /// Total elapsed cycles since the stream started (fractional). The visualizer
+    /// uses `position_cycles().fract()` as the within-cycle playhead.
+    pub fn position_cycles(&self) -> f64 {
+        let seconds = self.played.load(Ordering::Relaxed) as f64 / self.sample_rate as f64;
+        seconds * load_f64(&self.cps)
+    }
+
+    /// The sound names currently registered in the sample bank, sorted.
+    pub fn sample_names(&self) -> Vec<String> {
+        self.bank.read().unwrap().names()
     }
 }
 

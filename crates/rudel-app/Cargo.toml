@@ -16,4 +16,6 @@ rudel-core = { path = "../rudel-core" }
 rudel-mini = { path = "../rudel-mini" }
 rudel-lang = { path = "../rudel-lang" }
 rudel-audio = { path = "../rudel-audio" }
+rudel-midi = { path = "../rudel-midi" }
+rudel-osc = { path = "../rudel-osc" }
 eframe = "0.34.3"
