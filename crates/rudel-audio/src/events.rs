@@ -4,7 +4,7 @@
 
 use crate::samples::SampleBank;
 use rudel_core::{Pattern, Value, query_controls};
-use rudel_dsp::{SamplerParams, VoiceParams, VoiceSpec};
+use rudel_dsp::{DrumKind, DrumParams, SamplerParams, VoiceParams, VoiceSpec};
 use std::collections::BTreeMap;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
@@ -18,14 +18,21 @@ pub struct NoteEvent {
 
 /// Resolve a control map into either a sampler or synth voice spec.
 fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> VoiceSpec {
-    if let Some(name) = map.get("s").and_then(|v| v.as_str())
-        && bank.contains(name)
-    {
-        let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
-        if let Some(sample) = bank.get(name, index) {
-            let mut params = SamplerParams::new(sample);
+    if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
+        // Loaded samples win over the built-in drum synth, which wins over the
+        // plain oscillator synth.
+        if bank.contains(name) {
+            let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
+            if let Some(sample) = bank.get(name, index) {
+                let mut params = SamplerParams::new(sample);
+                params.apply_controls(map);
+                return VoiceSpec::Sampler(params);
+            }
+        }
+        if let Some(kind) = DrumKind::from_name(name) {
+            let mut params = DrumParams::new(kind);
             params.apply_controls(map);
-            return VoiceSpec::Sampler(params);
+            return VoiceSpec::Drum(params);
         }
     }
     VoiceSpec::Synth(VoiceParams::from_controls(map, duration))
@@ -108,5 +115,28 @@ mod tests {
         let bank = SampleBank::new();
         let events = collect_events(&pure(Value::Str("sine".into())), 1.0, 0.0, 1.0, &bank);
         assert!(matches!(events[0].spec, VoiceSpec::Synth(_)));
+    }
+
+    #[test]
+    fn drum_name_resolves_to_drum_synth() {
+        // With no sample loaded, "bd" uses the built-in drum synth, not a note.
+        let bank = SampleBank::new();
+        let events = collect_events(&pure(Value::Str("bd".into())), 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Drum(_)));
+    }
+
+    #[test]
+    fn loaded_sample_overrides_drum_synth() {
+        // A loaded "bd" sample takes priority over the built-in drum.
+        let mut bank = SampleBank::new();
+        bank.register(
+            "bd",
+            Arc::new(Sample {
+                data: vec![0.5; 100],
+                sample_rate: 44100.0,
+            }),
+        );
+        let events = collect_events(&pure(Value::Str("bd".into())), 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Sampler(_)));
     }
 }

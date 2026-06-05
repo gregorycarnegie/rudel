@@ -12,12 +12,20 @@ use rudel_osc::{OscEngine, OscOut};
 use std::collections::BTreeMap;
 
 const DEFAULT_CODE: &str = r#"stack(
+  s("bd ~ bd bd").gain(0.9),
+  s("~ sd ~ sd"),
+  s("hh*8").gain(0.5),
   note("c4 e4 g4 b4 a4 g4 e4 d4").s("triangle").room(0.5),
-  note("c2 ~ g2 ~").s("saw").cutoff("400 1600").gain(0.6).delay(0.3)
+  note("c2 ~ g2 ~").s("saw").lpf("400 1600").gain(0.6).delay(0.3)
 )"#;
 
 /// Built-in synth waveforms (always available as `s(...)`).
 const WAVEFORMS: &[&str] = &["sine", "saw", "square", "triangle"];
+
+/// Built-in synthesized drum sounds (always available as `s(...)`).
+const DRUMS: &[&str] = &[
+    "bd", "sd", "rim", "cp", "hh", "oh", "lt", "mt", "ht", "rd", "cr",
+];
 
 /// Control names exposed by the engine, for the reference pane.
 const CONTROLS: &[&str] = &[
@@ -29,6 +37,16 @@ const CONTROLS: &[&str] = &[
     "speed",
     "cutoff",
     "resonance",
+    "lpf",
+    "lpq",
+    "hcutoff",
+    "hresonance",
+    "hpf",
+    "hpq",
+    "bandf",
+    "bandq",
+    "bpf",
+    "bpq",
     "room",
     "size",
     "shape",
@@ -386,6 +404,11 @@ impl RudelApp {
                             ui.weak("synths");
                             for w in WAVEFORMS {
                                 ui.monospace(*w);
+                            }
+                            ui.separator();
+                            ui.weak("drums");
+                            for d in DRUMS {
+                                ui.monospace(*d);
                             }
                             if !self.sample_names.is_empty() {
                                 ui.separator();

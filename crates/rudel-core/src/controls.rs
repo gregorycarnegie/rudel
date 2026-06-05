@@ -96,6 +96,10 @@ controls!(
     crush,
     cutoff,
     resonance,
+    hcutoff,
+    hresonance,
+    bandf,
+    bandq,
     delay,
     delaytime,
     delayfeedback,
@@ -115,15 +119,46 @@ controls!(
     unit,
 );
 
-// A few common aliases.
-/// Alias for [`cutoff`] (low-pass filter frequency).
-pub fn lpf(pat: impl IntoPattern) -> Pattern {
-    cutoff(pat)
+// Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).
+macro_rules! control_aliases {
+    ($($alias:ident => $target:ident),* $(,)?) => {
+        $(
+            #[doc = concat!("Alias for [`", stringify!($target), "`].")]
+            pub fn $alias(pat: impl IntoPattern) -> Pattern {
+                $target(pat)
+            }
+        )*
+        impl Pattern {
+            $(
+                #[doc = concat!("Alias for [`", stringify!($target), "`](Self::", stringify!($target), ").")]
+                pub fn $alias(&self, x: impl IntoPattern) -> Pattern {
+                    self.$target(x)
+                }
+            )*
+        }
+    };
 }
-/// Alias for [`resonance`].
-pub fn lpq(pat: impl IntoPattern) -> Pattern {
-    resonance(pat)
-}
+
+control_aliases!(
+    lpf => cutoff,
+    lp => cutoff,
+    ctf => cutoff,
+    lpq => resonance,
+    hpf => hcutoff,
+    hp => hcutoff,
+    hpq => hresonance,
+    bpf => bandf,
+    bp => bandf,
+    bpq => bandq,
+    vel => velocity,
+    att => attack,
+    rel => release,
+    sus => sustain,
+    dec => decay,
+    delayt => delaytime,
+    delayfb => delayfeedback,
+    o => orbit,
+);
 
 #[cfg(test)]
 mod tests {

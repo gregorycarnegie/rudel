@@ -291,6 +291,16 @@ impl Pattern {
         .inner_join()
     }
 
+    /// Alias for [`transpose`](Self::transpose) (`trans`).
+    pub fn trans(&self, semis: impl IntoPattern) -> Pattern {
+        self.transpose(semis)
+    }
+
+    /// Alias for [`scale_transpose`](Self::scale_transpose) (`scaleTrans`/`strans`).
+    pub fn strans(&self, offset: impl IntoPattern) -> Pattern {
+        self.scale_transpose(offset)
+    }
+
     /// Transpose each note by `offset` steps *within* the scale tagged by a
     /// previous `.scale(...)` (`scaleTranspose`).
     pub fn scale_transpose(&self, offset: impl IntoPattern) -> Pattern {

@@ -445,6 +445,10 @@ kpattern_methods! {
         note, n, s, gain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
         delaytime, delayfeedback, attack, decay, sustain, release, vowel, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
+        hcutoff, hresonance, bandf, bandq,
+        // filter / envelope / misc aliases
+        lpf, lp, ctf, lpq, hpf, hp, hpq, bpf, bp, bpq, vel, att, rel, sus, dec,
+        delayt, delayfb, o, trans, strans,
         // alignment matrix (`in` is the default plain op; these are the rest)
         add_out, add_mix, add_squeeze, add_squeezeout, add_reset, add_restart,
         sub_out, mul_out, mul_squeeze, div_out,
@@ -629,6 +633,19 @@ mod tests {
             other => other.as_f64().unwrap(),
         };
         assert_eq!(note, 67.0);
+    }
+
+    #[test]
+    fn filter_and_transpose_aliases_resolve() {
+        // Previously-missing aliases should now evaluate without error.
+        for src in [
+            r#"note("c2").lpf(800).lpq(0.5)"#,
+            r#"note("c2").hpf(400).bpf("200 800")"#,
+            r#"note("c2").trans(7)"#,
+            r#"note("c2").s("sawtooth").attack(0.1).decay(0.1).sustain(0.2).release(0.1)"#,
+        ] {
+            assert!(eval(src).is_ok(), "should eval: {src}");
+        }
     }
 
     #[test]
