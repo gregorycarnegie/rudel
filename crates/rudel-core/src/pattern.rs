@@ -424,6 +424,22 @@ impl Pattern {
         self.reset_join_impl(true)
     }
 
+    /// `polyJoin`: flatten a pattern of patterns polymetrically — each inner
+    /// pattern is `extend`ed so its step count matches the outer pattern's,
+    /// then outer-joined.
+    pub fn poly_join(&self) -> Pattern {
+        let outer_steps = self.steps;
+        self.fmap(move |v| {
+            let inner = value_to_pattern(v);
+            let factor = match (outer_steps, inner.steps) {
+                (Some(a), Some(b)) if b != crate::fraction::Frac::zero() => a / b,
+                _ => crate::fraction::Frac::one(),
+            };
+            Value::Pat(Box::new(inner.extend(factor)))
+        })
+        .outer_join()
+    }
+
     //////////////////////////////////////////////////////////////////////
     // Time transforms
     //

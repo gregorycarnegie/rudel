@@ -44,6 +44,8 @@ const CASES = {
   set_squeeze: note(mini('0 1')).set.squeeze(s(mini('a b'))),
   set_out: note(mini('0 1')).set.out(s(mini('a b c'))),
   keep_out: note(mini('0 1')).keep.out(s(mini('a b c'))),
+  add_poly: mini('0 1 2').add.poly(mini('10 20')),
+  set_poly: note(mini('0 1 2')).set.poly(s(mini('a b'))),
 };
 const CYCLES = 4;
 

@@ -46,6 +46,8 @@ fn build(label: &str) -> Pattern {
         "set_squeeze" => note(p("0 1")).set_squeeze(s(p("a b"))),
         "set_out" => note(p("0 1")).set_out(s(p("a b c"))),
         "keep_out" => note(p("0 1")).keep_out(s(p("a b c"))),
+        "add_poly" => p("0 1 2").add_poly(p("10 20")),
+        "set_poly" => note(p("0 1 2")).set_poly(s(p("a b"))),
         other => panic!("unknown golden label {other:?}"),
     }
 }

@@ -448,12 +448,13 @@ kpattern_methods! {
         sub_out, mul_out, mul_squeeze, div_out,
         set_out, set_mix, set_squeeze, set_squeezeout,
         keep_out, keep_squeeze,
+        add_poly, mul_poly, set_poly, keep_poly,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
         to_bipolar, from_bipolar, ratio,
     ],
-    i64_arg: [iter, iter_back, repeat_cycles],
+    i64_arg: [iter, iter_back, repeat_cycles, expand, extend],
     fn_arg: [
         superimpose, jux, sometimes, often, rarely, almost_always, almost_never, some_cycles,
     ],

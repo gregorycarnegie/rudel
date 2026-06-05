@@ -135,13 +135,19 @@ pub enum Align {
     Reset,
     /// Retrigger this pattern at each onset of `other`, aligned to cycle zero.
     Restart,
+    /// Polymetric: align step counts via `extend`, then outer-join.
+    Poly,
 }
 
 /// Generate the six non-default alignment methods for one operator, e.g.
 /// `add_out`, `add_squeeze`, ... The default (`in`) variant stays as the plain
 /// `add`/`sub`/... method.
 macro_rules! aligned_variants {
-    ($op:expr; $out:ident $mix:ident $sq:ident $sqo:ident $reset:ident $restart:ident) => {
+    ($op:expr; $out:ident $mix:ident $sq:ident $sqo:ident $reset:ident $restart:ident $poly:ident) => {
+        #[doc = "Polymetric alignment (`poly`)."]
+        pub fn $poly(&self, other: impl IntoPattern) -> Pattern {
+            self.op_align(other.into_pattern(), Align::Poly, $op)
+        }
         #[doc = "Structure from the right (`out` alignment)."]
         pub fn $out(&self, other: impl IntoPattern) -> Pattern {
             self.op_align(other.into_pattern(), Align::Out, $op)
@@ -255,6 +261,21 @@ impl Pattern {
         }
     }
 
+    /// `_opPoly`: combine polymetrically. Note the orientation matches Strudel
+    /// (`compose_op(other, this)`): `this` provides the outer structure.
+    pub(crate) fn op_poly<O>(&self, other: Pattern, op: O) -> Pattern
+    where
+        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
+    {
+        let op = Arc::new(op);
+        self.fmap(move |b| {
+            let op = op.clone();
+            let other = other.clone();
+            Value::Pat(Box::new(other.fmap(move |a| compose_op(&a, &b, &*op))))
+        })
+        .poly_join()
+    }
+
     /// Combine this pattern with `other` using value-combiner `op` under the
     /// given [`Align`]ment.
     pub(crate) fn op_align<O>(&self, other: Pattern, align: Align, op: O) -> Pattern
@@ -269,6 +290,7 @@ impl Pattern {
             Align::SqueezeOut => self.op_squeeze_out(other, op),
             Align::Reset => self.op_reset_impl(other, op, false),
             Align::Restart => self.op_reset_impl(other, op, true),
+            Align::Poly => self.op_poly(other, op),
         }
     }
 
@@ -282,14 +304,28 @@ impl Pattern {
         self.op_in(other.into_pattern(), |a: &Value, _b: &Value| a.clone())
     }
 
-    aligned_variants!(num_add; add_out add_mix add_squeeze add_squeezeout add_reset add_restart);
-    aligned_variants!(num_sub; sub_out sub_mix sub_squeeze sub_squeezeout sub_reset sub_restart);
-    aligned_variants!(num_mul; mul_out mul_mix mul_squeeze mul_squeezeout mul_reset mul_restart);
-    aligned_variants!(num_div; div_out div_mix div_squeeze div_squeezeout div_reset div_restart);
+    /// `expand`: multiply the step count by `factor`, leaving timing unchanged.
+    pub fn expand(&self, factor: impl Into<Frac>) -> Pattern {
+        let f = factor.into();
+        let mut p = self.clone();
+        p.steps = p.steps.map(|s| s * f);
+        p
+    }
+
+    /// `extend`: like `fast`, but also scales the step count (`fast` + `expand`).
+    pub fn extend(&self, factor: impl Into<Frac>) -> Pattern {
+        let f = factor.into();
+        self._fast(f).expand(f)
+    }
+
+    aligned_variants!(num_add; add_out add_mix add_squeeze add_squeezeout add_reset add_restart add_poly);
+    aligned_variants!(num_sub; sub_out sub_mix sub_squeeze sub_squeezeout sub_reset sub_restart sub_poly);
+    aligned_variants!(num_mul; mul_out mul_mix mul_squeeze mul_squeezeout mul_reset mul_restart mul_poly);
+    aligned_variants!(num_div; div_out div_mix div_squeeze div_squeezeout div_reset div_restart div_poly);
     aligned_variants!(|_a: &Value, b: &Value| b.clone();
-        set_out set_mix set_squeeze set_squeezeout set_reset set_restart);
+        set_out set_mix set_squeeze set_squeezeout set_reset set_restart set_poly);
     aligned_variants!(|a: &Value, _b: &Value| a.clone();
-        keep_out keep_mix keep_squeeze keep_squeezeout keep_reset keep_restart);
+        keep_out keep_mix keep_squeeze keep_squeezeout keep_reset keep_restart keep_poly);
 
     // -- Time transforms (patternified) ------------------------------------
 
@@ -522,6 +558,31 @@ mod tests {
             }
             other => panic!("expected map, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn expand_scales_step_count_only() {
+        // "0 1" has 2 steps; expand(3) -> 6 steps, same timing (2 onsets/cycle)
+        let pat = seq(&[0, 1]).expand(3);
+        assert_eq!(pat.steps, Some(Frac::int(6)));
+        assert_eq!(onsets(&pat), 2);
+    }
+
+    #[test]
+    fn extend_is_fast_plus_expand() {
+        // extend(2) of "0 1" -> fast(2) (4 onsets/cycle) and steps 2*2 = 4
+        let pat = seq(&[0, 1]).extend(2);
+        assert_eq!(pat.steps, Some(Frac::int(4)));
+        assert_eq!(onsets(&pat), 4);
+    }
+
+    #[test]
+    fn add_poly_aligns_step_counts() {
+        // "0 1 2" (3 steps) add.poly "10 20" (2 steps): outer 3 steps drive it,
+        // the other is extended to 3 steps -> 3 onsets, first value 0+10.
+        let pat = seq(&[0, 1, 2]).add_poly(seq(&[10, 20]));
+        assert_eq!(onsets(&pat), 3);
+        assert_eq!(vals(&pat)[0], Value::Int(10));
     }
 
     #[test]
