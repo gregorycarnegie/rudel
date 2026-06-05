@@ -116,6 +116,40 @@ pub fn run(n: i64) -> Pattern {
     fastcat(&pats)
 }
 
+// ---------------------------------------------------------------------------
+// Perlin noise (signal.mjs `_perlin`/`perlin`).
+
+/// Quintic smoothstep `6x^5 - 15x^4 + 10x^3`, giving zero 1st/2nd derivatives
+/// at the endpoints (Ken Perlin's "smootherstep").
+fn smoother_step(x: f64) -> f64 {
+    6.0 * x.powi(5) - 15.0 * x.powi(4) + 10.0 * x.powi(3)
+}
+
+/// Perlin-style value noise at cycle time `t`: smoothly interpolate between the
+/// random values at the two surrounding integer times.
+pub fn perlin_at(t: f64, seed: f64) -> f64 {
+    let ta = t.floor();
+    let tb = ta + 1.0;
+    // getRandsAtTime(_, 1, seed) (legacy) == time_to_rand(time + seed).
+    let ra = time_to_rand(ta + seed);
+    let rb = time_to_rand(tb + seed);
+    ra + smoother_step(t - ta) * (rb - ra)
+}
+
+/// Continuous Perlin-noise signal in 0..1. Reads an optional `randSeed` control
+/// from the query state (defaulting to 0), mirroring Strudel.
+pub fn perlin() -> Pattern {
+    Pattern::new(|state| {
+        let seed = state
+            .controls
+            .get("randSeed")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let t = state.span.begin.to_f64();
+        vec![Hap::new(None, state.span, Value::F64(perlin_at(t, seed)))]
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +169,34 @@ mod tests {
             .as_f64()
             .unwrap();
         assert_eq!(v, v2);
+    }
+
+    #[test]
+    fn perlin_in_range_and_interpolates() {
+        let p = perlin();
+        // At integer times, perlin equals the underlying random value.
+        let at0 = p.query_arc(Frac::zero(), Frac::one())[0]
+            .value
+            .as_f64()
+            .unwrap();
+        assert_eq!(at0, time_to_rand(0.0));
+        // Sampled across a cycle it stays within [0, 1) and is deterministic.
+        for k in 0..16 {
+            let t = Frac::new(k, 16);
+            let v = perlin_at(t.to_f64(), 0.0);
+            assert!((0.0..1.0).contains(&v), "perlin out of range: {v}");
+        }
+        // Smootherstep endpoints: f(0)=0, f(1)=1.
+        assert_eq!(smoother_step(0.0), 0.0);
+        assert_eq!(smoother_step(1.0), 1.0);
+    }
+
+    #[test]
+    fn perlin_seed_changes_stream() {
+        // A different randSeed yields a different value at the same time.
+        let a = perlin_at(0.5, 0.0);
+        let b = perlin_at(0.5, 7.0);
+        assert_ne!(a, b);
     }
 
     #[test]

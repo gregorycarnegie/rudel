@@ -61,7 +61,12 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
 
 ## Engine parity
 
-- [ ] Port remaining `core/test` + `mini/test` snapshots from Strudel as a
-      bit-for-bit parity oracle (especially RNG-driven: `rand`/`degrade`/`perlin`).
+- [x] `perlin` noise signal (`signal::perlin`, quintic smootherstep, reads
+      `randSeed` from controls). Bound in Koto.
+- [~] Bit-for-bit parity oracle for the RNG-driven + analytic signals
+      (`crates/rudel-core/tests/parity_oracle.rs`, golden values from
+      `tools/gen_parity_oracle.mjs`): `rand`, `perlin`, `degradeBy` selection,
+      and `saw`/`isaw`/`sine`/`cosine`/`square` all match Strudel to 1e-12.
+      Still to do: port the structural `core/test` + `mini/test` snapshots
+      (needs Strudel's npm deps installed to dump references).
 - [ ] Full `.add.out` / `.set.squeeze` alignment matrix.
-- [ ] `perlin` noise signal.

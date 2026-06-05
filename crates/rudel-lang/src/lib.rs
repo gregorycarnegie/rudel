@@ -470,6 +470,7 @@ fn register(prelude: &KMap) {
         Ok(KPattern(rudel_core::sound(arg_to_pattern(&arg0(ctx)))).into())
     });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
+    prelude.add_fn("perlin", |_| Ok(KPattern(rudel_core::perlin()).into()));
     prelude.add_fn("stack", |ctx| {
         let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
         Ok(KPattern(rudel_core::stack(&pats)).into())

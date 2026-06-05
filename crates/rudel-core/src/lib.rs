@@ -31,7 +31,9 @@ pub use transforms::IntoPattern;
 pub use value::Value;
 
 // Signals and randomness.
-pub use signal::{cosine, irand, isaw, rand, rand2, run, saw, sine, sine2, square, time, tri};
+pub use signal::{
+    cosine, irand, isaw, perlin, rand, rand2, run, saw, sine, sine2, square, time, tri,
+};
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
