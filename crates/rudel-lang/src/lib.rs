@@ -99,7 +99,9 @@ impl Callback {
             .borrow_mut()
             .call_function(self.func.clone(), CallArgs::Single(arg));
         match call {
-            Ok(KValue::Object(o)) if o.is_a::<KPattern>() => o.cast::<KPattern>().unwrap().0.clone(),
+            Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
+                o.cast::<KPattern>().unwrap().0.clone()
+            }
             Ok(_) => p.clone(),
             Err(e) => {
                 if self.err.borrow().is_none() {

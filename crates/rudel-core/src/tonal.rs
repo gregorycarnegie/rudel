@@ -296,9 +296,7 @@ impl Pattern {
     pub fn scale_transpose(&self, offset: impl IntoPattern) -> Pattern {
         let arg = offset.into_pattern();
         let pat = self.clone();
-        let apply = move |off: i32| {
-            pat.with_hap(move |hap| scale_transpose_hap(hap, off))
-        };
+        let apply = move |off: i32| pat.with_hap(move |hap| scale_transpose_hap(hap, off));
         if let Some(v) = &arg.pure_value {
             return apply(v.as_f64().unwrap_or(0.0) as i32);
         }
@@ -311,8 +309,10 @@ impl Pattern {
     pub fn chord(&self) -> Pattern {
         self.bind(|v| match v.as_str().and_then(chord_notes) {
             Some(notes) => {
-                let pats: Vec<Pattern> =
-                    notes.into_iter().map(|m| pure(Value::Int(m as i64))).collect();
+                let pats: Vec<Pattern> = notes
+                    .into_iter()
+                    .map(|m| pure(Value::Int(m as i64)))
+                    .collect();
                 stack(&pats)
             }
             None => silence(),
@@ -422,7 +422,9 @@ fn scale_transpose_hap(hap: Hap, offset: i32) -> Hap {
             }
             Value::Map(m)
         }
-        other => match value_to_midi(&other).and_then(|m| scale_offset(&scale, offset, m.round() as i32)) {
+        other => match value_to_midi(&other)
+            .and_then(|m| scale_offset(&scale, offset, m.round() as i32))
+        {
             Some(new) => Value::F64(new as f64),
             None => other,
         },
@@ -476,8 +478,12 @@ mod tests {
 
     #[test]
     fn scale_transform_on_n_pattern() {
-        let pat = n(sequence(&[pure(Value::Int(0)), pure(Value::Int(2)), pure(Value::Int(4))]))
-            .scale("C:major");
+        let pat = n(sequence(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(2)),
+            pure(Value::Int(4)),
+        ]))
+        .scale("C:major");
         assert_eq!(notes(&pat), vec![48.0, 52.0, 55.0]);
     }
 
@@ -494,9 +500,7 @@ mod tests {
     #[test]
     fn scale_transpose_moves_within_scale() {
         // degree 0 of C major (=48), scaleTranspose +2 -> degree 2 (=52)
-        let pat = n(pure(Value::Int(0)))
-            .scale("C:major")
-            .scale_transpose(2);
+        let pat = n(pure(Value::Int(0))).scale("C:major").scale_transpose(2);
         assert_eq!(notes(&pat), vec![52.0]);
     }
 

@@ -21,9 +21,35 @@ const WAVEFORMS: &[&str] = &["sine", "saw", "square", "triangle"];
 
 /// Control names exposed by the engine, for the reference pane.
 const CONTROLS: &[&str] = &[
-    "note", "n", "s", "gain", "pan", "speed", "cutoff", "resonance", "room", "size", "shape",
-    "crush", "delay", "delaytime", "delayfeedback", "attack", "decay", "sustain", "release",
-    "vowel", "accelerate", "coarse", "orbit", "velocity", "begin", "end", "legato", "clip", "unit",
+    "note",
+    "n",
+    "s",
+    "gain",
+    "pan",
+    "speed",
+    "cutoff",
+    "resonance",
+    "room",
+    "size",
+    "shape",
+    "crush",
+    "delay",
+    "delaytime",
+    "delayfeedback",
+    "attack",
+    "decay",
+    "sustain",
+    "release",
+    "vowel",
+    "accelerate",
+    "coarse",
+    "orbit",
+    "velocity",
+    "begin",
+    "end",
+    "legato",
+    "clip",
+    "unit",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -304,7 +330,9 @@ impl RudelApp {
                     }
                     Output::Osc => {
                         ui.label("target");
-                        ui.add(egui::TextEdit::singleline(&mut self.osc_target).desired_width(140.0));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.osc_target).desired_width(140.0),
+                        );
                     }
                     Output::Audio => {}
                 }
@@ -515,7 +543,10 @@ fn value_short(v: &Value) -> String {
     match v {
         Value::Str(s) => s.clone(),
         Value::Int(n) => n.to_string(),
-        Value::F64(x) => format!("{x:.3}").trim_end_matches('0').trim_end_matches('.').to_string(),
+        Value::F64(x) => format!("{x:.3}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string(),
         other => format!("{other:?}"),
     }
 }

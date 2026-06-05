@@ -245,7 +245,12 @@ fn run_scheduler(
         let target_cycle = (now + LOOKAHEAD) * cps_now;
         if target_cycle > scheduled_cycle {
             let pat = pattern.read().unwrap().clone();
-            pending.extend(schedule_window(&pat, cps_now, scheduled_cycle, target_cycle));
+            pending.extend(schedule_window(
+                &pat,
+                cps_now,
+                scheduled_cycle,
+                target_cycle,
+            ));
             pending.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
             scheduled_cycle = target_cycle;
         }
@@ -309,15 +314,24 @@ mod tests {
         assert_eq!(msg.args[5], OscArg::Float(1.0));
         // midinote derived from note name a4 = 69
         let pairs: Vec<_> = msg.args.chunks(2).collect();
-        assert!(pairs.iter().any(|c| c[0] == OscArg::Str("midinote".into())
-            && c[1] == OscArg::Float(69.0)));
-        assert!(pairs.iter().any(|c| c[0] == OscArg::Str("s".into())
-            && c[1] == OscArg::Str("piano".into())));
+        assert!(
+            pairs
+                .iter()
+                .any(|c| c[0] == OscArg::Str("midinote".into()) && c[1] == OscArg::Float(69.0))
+        );
+        assert!(
+            pairs
+                .iter()
+                .any(|c| c[0] == OscArg::Str("s".into()) && c[1] == OscArg::Str("piano".into()))
+        );
     }
 
     #[test]
     fn schedule_window_orders_events() {
-        let pat = s(sequence(&[pure(Value::Str("bd".into())), pure(Value::Str("sd".into()))]));
+        let pat = s(sequence(&[
+            pure(Value::Str("bd".into())),
+            pure(Value::Str("sd".into())),
+        ]));
         let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].at_seconds, 0.0);
@@ -347,7 +361,8 @@ mod tests {
     #[test]
     fn engine_sends_to_a_local_listener() {
         let recv = UdpSocket::bind("127.0.0.1:0").unwrap();
-        recv.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        recv.set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
         let addr = recv.local_addr().unwrap().to_string();
         let out = OscOut::connect(&addr).unwrap();
         let pat = note(pure(Value::Int(60)));

@@ -190,7 +190,8 @@ impl Pattern {
     where
         O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
     {
-        self.fmap(Self::compose_curry(Arc::new(op))).app_left(&other)
+        self.fmap(Self::compose_curry(Arc::new(op)))
+            .app_left(&other)
     }
 
     /// `_opOut`: structure from the right (other) pattern.
@@ -207,7 +208,8 @@ impl Pattern {
     where
         O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
     {
-        self.fmap(Self::compose_curry(Arc::new(op))).app_both(&other)
+        self.fmap(Self::compose_curry(Arc::new(op)))
+            .app_both(&other)
     }
 
     /// `_opSqueeze`: squeeze one cycle of `other` into each of this pattern's
@@ -508,7 +510,12 @@ mod tests {
     }
 
     fn seq(items: &[i64]) -> Pattern {
-        fastcat(&items.iter().map(|&n| pure(Value::Int(n))).collect::<Vec<_>>())
+        fastcat(
+            &items
+                .iter()
+                .map(|&n| pure(Value::Int(n)))
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn onsets(pat: &Pattern) -> usize {
@@ -536,7 +543,12 @@ mod tests {
         let pat = seq(&[0, 1]).add_squeeze(seq(&[10, 20]));
         assert_eq!(
             vals(&pat),
-            vec![Value::Int(10), Value::Int(20), Value::Int(11), Value::Int(21)]
+            vec![
+                Value::Int(10),
+                Value::Int(20),
+                Value::Int(11),
+                Value::Int(21)
+            ]
         );
     }
 
@@ -545,8 +557,14 @@ mod tests {
         // {note:0} set.squeeze {s:a}{s:b} -> per note event, two {note,s} haps
         let note = pure(Value::Map(BTreeMap::from([("note".into(), Value::Int(0))])));
         let s = fastcat(&[
-            pure(Value::Map(BTreeMap::from([("s".into(), Value::Str("a".into()))]))),
-            pure(Value::Map(BTreeMap::from([("s".into(), Value::Str("b".into()))]))),
+            pure(Value::Map(BTreeMap::from([(
+                "s".into(),
+                Value::Str("a".into()),
+            )]))),
+            pure(Value::Map(BTreeMap::from([(
+                "s".into(),
+                Value::Str("b".into()),
+            )]))),
         ]);
         let pat = note.set_squeeze(s);
         let got = vals(&pat);
@@ -588,7 +606,10 @@ mod tests {
     #[test]
     fn keep_prefers_left_value() {
         // {s:bd} keep {s:sd, n:1} -> keeps s:bd, gains n:1
-        let a = pure(Value::Map(BTreeMap::from([("s".into(), Value::Str("bd".into()))])));
+        let a = pure(Value::Map(BTreeMap::from([(
+            "s".into(),
+            Value::Str("bd".into()),
+        )])));
         let b = pure(Value::Map(BTreeMap::from([
             ("s".into(), Value::Str("sd".into())),
             ("n".into(), Value::Int(1)),

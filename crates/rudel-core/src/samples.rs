@@ -94,7 +94,9 @@ impl Pattern {
             })
             .collect();
         let slice_pat = slowcat(&slices);
-        self.set(slice_pat)._fast(Frac::int(n)).set_steps(self.steps_times(n))
+        self.set(slice_pat)
+            ._fast(Frac::int(n))
+            .set_steps(self.steps_times(n))
     }
 
     /// Slice the sample into `n` pieces and trigger them by a pattern of indices
@@ -109,9 +111,7 @@ impl Pattern {
                 let nval = nval.clone();
                 ipat.outer_bind(move |ival| {
                     let nval = nval.clone();
-                    opat.outer_bind(move |oval| {
-                        pure(slice_value(&nval, &ival, &oval))
-                    })
+                    opat.outer_bind(move |oval| pure(slice_value(&nval, &ival, &oval)))
                 })
             })
             .set_steps(steps)

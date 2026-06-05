@@ -28,8 +28,10 @@ pub fn canon_value(v: &Value) -> String {
             format!("[{}]", inner.join(","))
         }
         Value::Map(m) => {
-            let mut parts: Vec<String> =
-                m.iter().map(|(k, v)| format!("{k}={}", canon_value(v))).collect();
+            let mut parts: Vec<String> = m
+                .iter()
+                .map(|(k, v)| format!("{k}={}", canon_value(v)))
+                .collect();
             parts.sort();
             format!("{{{}}}", parts.join(","))
         }
@@ -50,8 +52,10 @@ pub fn canon_json(v: &serde_json::Value) -> String {
             format!("[{}]", inner.join(","))
         }
         J::Object(m) => {
-            let mut parts: Vec<String> =
-                m.iter().map(|(k, v)| format!("{k}={}", canon_json(v))).collect();
+            let mut parts: Vec<String> = m
+                .iter()
+                .map(|(k, v)| format!("{k}={}", canon_json(v)))
+                .collect();
             parts.sort();
             format!("{{{}}}", parts.join(","))
         }

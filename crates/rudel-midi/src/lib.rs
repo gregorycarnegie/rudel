@@ -296,7 +296,12 @@ fn run_scheduler<S: MidiSink>(
         let target_cycle = (now + LOOKAHEAD) * cps_now;
         if target_cycle > scheduled_cycle {
             let pat = pattern.read().unwrap().clone();
-            pending.extend(schedule_window(&pat, cps_now, scheduled_cycle, target_cycle));
+            pending.extend(schedule_window(
+                &pat,
+                cps_now,
+                scheduled_cycle,
+                target_cycle,
+            ));
             pending.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
             scheduled_cycle = target_cycle;
         }
@@ -318,7 +323,10 @@ mod tests {
     use rudel_core::{Frac, note, pure, sequence, silence};
 
     fn map(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -403,7 +411,8 @@ mod tests {
         drop(engine);
         let got = log.lock().unwrap();
         assert!(
-            got.iter().any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON)),
+            got.iter()
+                .any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON)),
             "expected at least one note-on, got {got:?}"
         );
         let _ = (Frac::zero(), silence()); // keep imports tidy across cfgs
