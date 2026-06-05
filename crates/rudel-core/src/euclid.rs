@@ -75,7 +75,9 @@ fn euclid_rot(pulses: i64, steps: i64, rotation: i64) -> Vec<bool> {
         return b;
     }
     let len = b.len() as i64;
-    let r = rotation.rem_euclid(len) as usize;
+    // Strudel rotates the sequence *right* by `rotation` (`rotate(b, -rotation)`),
+    // so a positive rotation shifts onsets to later steps.
+    let r = (-rotation).rem_euclid(len) as usize;
     let mut out = b[r..].to_vec();
     out.extend_from_slice(&b[..r]);
     out

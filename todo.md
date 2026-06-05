@@ -63,10 +63,19 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
 
 - [x] `perlin` noise signal (`signal::perlin`, quintic smootherstep, reads
       `randSeed` from controls). Bound in Koto.
-- [~] Bit-for-bit parity oracle for the RNG-driven + analytic signals
-      (`crates/rudel-core/tests/parity_oracle.rs`, golden values from
-      `tools/gen_parity_oracle.mjs`): `rand`, `perlin`, `degradeBy` selection,
-      and `saw`/`isaw`/`sine`/`cosine`/`square` all match Strudel to 1e-12.
-      Still to do: port the structural `core/test` + `mini/test` snapshots
-      (needs Strudel's npm deps installed to dump references).
+- [x] Bit-for-bit parity oracle, golden values dumped from Strudel's real
+      engine (`tools/oracle/`, `tools/gen_parity_oracle.mjs`):
+      - RNG + analytic signals (`crates/rudel-core/tests/parity_oracle.rs`):
+        `rand`, `perlin`, `degradeBy`, `saw`/`isaw`/`sine`/`cosine`/`square`
+        match to 1e-12.
+      - mini-notation (`crates/rudel-mini/tests/mini_parity.rs`): 29 patterns
+        covering sequences, sub-groups, `*`/`/`, `!`/`@`, `[,]` stacks, `~`,
+        `<>` alternation, `.` groups, euclid `(p,s,r)`, `..` ranges, polymeter
+        `{}%`, `?` degrade, `:` sample-index.
+      - core transforms (`crates/rudel-mini/tests/transform_parity.rs`):
+        18 cases (`rev`/`fast`/`slow`/`ply`/`iter`/`palindrome`/`every`/`off`/
+        `chop`/`striate`/`chunk`/`within`/`struct`/`mask`/`jux`/`add`/`degrade`/
+        `superimpose`).
+      Caught and fixed a real bug: euclidean rotation was rotating the wrong
+      direction (Strudel rotates right by `rotation`).
 - [ ] Full `.add.out` / `.set.squeeze` alignment matrix.

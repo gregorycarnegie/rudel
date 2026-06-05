@@ -3313,6 +3313,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "rudel-core",
+ "serde_json",
 ]
 
 [[package]]
