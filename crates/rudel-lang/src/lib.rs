@@ -398,6 +398,40 @@ macro_rules! kpattern_methods {
             fn fit(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                 Ok(Self::wrap(ctx.instance()?.0.fit()))
             }
+
+            // -- Tonal: scales, transpose, chords -----------------------------
+
+            /// `scale(name)`: map scale-degree numbers to notes in `name`
+            /// (e.g. `"C:major"`). The name is taken literally rather than as
+            /// mini-notation, so `:` separates root from scale type.
+            #[koto_method]
+            fn scale(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let name = match first_arg(&ctx) {
+                    KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
+                    other => arg_to_pattern(&other),
+                };
+                Ok(Self::wrap(ctx.instance()?.0.scale(name)))
+            }
+
+            /// `transpose(semitones)`: shift each note by a number of semitones.
+            #[koto_method]
+            fn transpose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let semis = arg_to_pattern(&first_arg(&ctx));
+                Ok(Self::wrap(ctx.instance()?.0.transpose(semis)))
+            }
+
+            /// `scale_transpose(offset)`: transpose within the tagged scale.
+            #[koto_method]
+            fn scale_transpose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let offset = arg_to_pattern(&first_arg(&ctx));
+                Ok(Self::wrap(ctx.instance()?.0.scale_transpose(offset)))
+            }
+
+            /// `chord()`: expand chord names into stacks of simultaneous notes.
+            #[koto_method]
+            fn chord(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                Ok(Self::wrap(ctx.instance()?.0.chord()))
+            }
         }
     };
 }
@@ -560,6 +594,32 @@ mod tests {
     fn range_scales_signal() {
         let pat = eval(r#"seq(0, 1).range(10, 20)"#).expect("eval");
         assert_eq!(values(&pat, 0, 1), vec![Value::F64(10.0), Value::F64(20.0)]);
+    }
+
+    #[test]
+    fn scale_via_koto() {
+        // n("0 2 4").scale("C:major") -> C3 E3 G3 = 48 52 55
+        let pat = eval(r#"n("0 2 4").scale("C:major")"#).expect("eval");
+        let mut got: Vec<f64> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| match h.value {
+                Value::Map(m) => m.get("note").and_then(|v| v.as_f64()).unwrap(),
+                other => other.as_f64().unwrap(),
+            })
+            .collect();
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(got, vec![48.0, 52.0, 55.0]);
+    }
+
+    #[test]
+    fn transpose_via_koto() {
+        let pat = eval(r#"note(60).transpose(7)"#).expect("eval");
+        let note = match &pat.query_arc(Frac::zero(), Frac::one())[0].value {
+            Value::Map(m) => m.get("note").and_then(|v| v.as_f64()).unwrap(),
+            other => other.as_f64().unwrap(),
+        };
+        assert_eq!(note, 67.0);
     }
 
     #[test]

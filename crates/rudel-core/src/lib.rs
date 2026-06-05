@@ -14,6 +14,7 @@ pub mod samples;
 pub mod signal;
 pub mod state;
 pub mod timespan;
+pub mod tonal;
 pub mod transforms;
 pub mod transforms2;
 pub mod value;
@@ -37,6 +38,8 @@ pub use euclid::{bjorklund, euclid_bools};
 pub use transforms2::{choose_cycles, randcat};
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{lpf, lpq, n, note, s, sound};
+// Tonal: note names, scales, chords.
+pub use tonal::{chord_notes, note_to_midi, scale_offset, scale_step};
 
 /// Convenience: build a `pure` pattern from anything convertible to a [`Value`].
 pub fn p(v: impl Into<Value>) -> Pattern {

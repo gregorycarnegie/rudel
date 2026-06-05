@@ -229,46 +229,9 @@ pub fn note_to_freq(value: &Value) -> Option<f32> {
 }
 
 /// Parse a note name like `c`, `cs4`, `c#4`, `eb3`, `Gb2` to a MIDI number.
+/// Delegates to the canonical implementation in `rudel_core::tonal`.
 pub fn note_name_to_midi(s: &str) -> Option<i32> {
-    let mut chars = s.chars().peekable();
-    let letter = chars.next()?.to_ascii_lowercase();
-    let base = match letter {
-        'c' => 0,
-        'd' => 2,
-        'e' => 4,
-        'f' => 5,
-        'g' => 7,
-        'a' => 9,
-        'b' => 11,
-        _ => return None,
-    };
-    let mut semis = base;
-    let mut octave: i32 = 3; // default octave (Strudel uses 3 when omitted)
-    let mut octave_seen = false;
-    let mut octave_str = String::new();
-    while let Some(&c) = chars.peek() {
-        match c {
-            's' | '#' => {
-                semis += 1;
-                chars.next();
-            }
-            'b' => {
-                semis -= 1;
-                chars.next();
-            }
-            '-' | '0'..='9' => {
-                octave_str.push(c);
-                octave_seen = true;
-                chars.next();
-            }
-            _ => return None,
-        }
-    }
-    if octave_seen {
-        octave = octave_str.parse().ok()?;
-    }
-    // a4 = 69; midi = (octave + 1) * 12 + semis
-    Some((octave + 1) * 12 + semis)
+    rudel_core::note_to_midi(s)
 }
 
 /// A single sounding note.

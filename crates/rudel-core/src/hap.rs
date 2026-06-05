@@ -11,13 +11,18 @@ use crate::value::Value;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Context {
     pub locations: Vec<(usize, usize)>,
+    /// The scale tagged by `.scale(...)`, used by scale-aware transforms such as
+    /// `scaleTranspose`.
+    pub scale: Option<String>,
 }
 
 impl Context {
     pub fn combine(&self, other: &Context) -> Context {
         let mut locations = self.locations.clone();
         locations.extend(other.locations.iter().copied());
-        Context { locations }
+        // Keep whichever side carries a scale tag (the later/other one wins).
+        let scale = other.scale.clone().or_else(|| self.scale.clone());
+        Context { locations, scale }
     }
 }
 

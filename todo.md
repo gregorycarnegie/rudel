@@ -31,11 +31,21 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
       engine + DSP; now also bound in Koto). `unit: 'c'` handling added to the
       DSP `SamplerVoice` so `loopAt`/`fit`/`splice` time-stretch correctly.
 
-## Tonal / scales (new module in rudel-core)
+## Tonal / scales (`rudel-core/src/tonal.rs`)
 
-- [ ] Note-name → MIDI for the full set (port Strudel's `tonal` package).
-- [ ] `scale("C:major")` + `scale` control and scale-degree mapping.
-- [ ] `transpose`, `note`-by-scale-degree, chord helpers.
+- [x] Note-name → MIDI (`note_to_midi`, default octave 3, sharps/flats); the
+      DSP `note_name_to_midi` now delegates to it. ~24 scale types inlined
+      (church modes, pentatonics, blues, bebop, diminished, …).
+- [x] `scale("C:major")` (root:type syntax, patternifiable) + scale-degree
+      mapping with octave wrapping and `#`/`b` step accidentals; note names are
+      quantised to the scale. Scale is tagged on the hap context.
+- [x] `transpose` (semitones), `scale_transpose` (within the tagged scale), and
+      `chord()` (chord-symbol → stacked notes, ~20 chord qualities). All bound
+      in Koto.
+
+> Not yet ported: enharmonic-correct interval-string transpose (e.g. `"3M"`),
+> `@tonaljs` voicing dictionaries (`renderVoicing`), and `anchor`-based scale
+> stepping. Numeric/semitone paths cover the common cases.
 
 ## I/O (Phase 7, optional)
 
