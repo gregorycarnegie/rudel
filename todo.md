@@ -5,21 +5,31 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
 
 ## Live-eval (rudel-lang)
 
-- [ ] Higher-order Koto combinators with function args — `every(n, f)`, `jux(f)`,
-      `sometimes(f)`, `off(t, f)`, `superimpose(f)`, `within(a, b, f)`. Needs
-      Koto-callback marshaling (wrap a `KValue` function as a Rust
-      `Fn(Pattern) -> Pattern`). The engine already implements all of these.
-- [ ] Expose remaining transforms already in the engine but not yet bound in Koto
-      (e.g. `chunk`, `inside`/`outside`, `echo`/`stut`, `swing`, `range`).
+- [x] Higher-order Koto combinators with function args — `every(n, f)`, `jux(f)`,
+      `sometimes(f)`, `off(t, f)`, `superimpose(f)`, `within(a, b, f)`. Done via a
+      `Callback` marshaler (spawns a shared VM and drives the `KValue` function
+      eagerly, surfacing the first error). Also bound: `first_of`/`last_of`,
+      `chunk`/`chunk_back`, `inside`/`outside`, `jux_by`, `sometimes_by`/`often`/
+      `rarely`/`almost_always`/`almost_never`, `some_cycles`/`some_cycles_by`, `when`.
+- [x] Expose remaining transforms already in the engine but not yet bound in Koto:
+      `chunk`, `inside`/`outside`, `echo`/`stut`, `swing`/`swing_by`, `range`/
+      `range2`/`rangex`, `compress`, `zoom`, plus a broad set of patternified
+      controls and value ops (`div`, `modulo`, `pow`, `set`, `mask`, `struct_pat`,
+      `early`/`late`, `iter_back`, `repeat_cycles`, `rev`/`revv`, `press`, `brak`,
+      `round`/`floor`/`ceil`, …) and all the named sample controls.
 
 ## Sample manipulation (rudel-core / rudel-dsp / rudel-audio)
 
-- [ ] `chop(n)` — slice a sample into n equal pieces across the event.
-- [ ] `striate(n)` — interleave n slices across the cycle.
-- [ ] `slice(n, ip)` / `splice` — index into n slices of a sample.
-- [ ] `loopAt(cycles)` — stretch a sample to span N cycles (sets speed/unit).
-- [ ] `fit` — map sample indices across the events in a cycle.
-- [ ] `begin` / `end` controls — play a sub-range of a sample.
+- [x] `chop(n)` — slice a sample into n equal pieces across the event.
+- [x] `striate(n)` — interleave n slices across the cycle.
+- [x] `slice(n, ip)` / `splice` — index into n slices of a sample (n may be a
+      list of split points). `splice` sets `speed`/`unit` per slice.
+- [x] `loopAt(cycles)` (`loop_at`) — stretch a sample to span N cycles
+      (sets speed/unit; reads `_cps` from query state).
+- [x] `fit` — stretch each sample to fill its own event duration.
+- [x] `begin` / `end` controls — play a sub-range of a sample (already in the
+      engine + DSP; now also bound in Koto). `unit: 'c'` handling added to the
+      DSP `SamplerVoice` so `loopAt`/`fit`/`splice` time-stretch correctly.
 
 ## Tonal / scales (new module in rudel-core)
 

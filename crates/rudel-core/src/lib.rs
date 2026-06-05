@@ -10,6 +10,7 @@ pub mod euclid;
 pub mod fraction;
 pub mod hap;
 pub mod pattern;
+pub mod samples;
 pub mod signal;
 pub mod state;
 pub mod timespan;

@@ -112,6 +112,7 @@ controls!(
     end,
     legato,
     clip,
+    unit,
 );
 
 // A few common aliases.

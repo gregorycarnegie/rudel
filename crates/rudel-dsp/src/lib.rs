@@ -404,6 +404,10 @@ pub struct SamplerParams {
     /// Start/end positions as fractions of the sample (0..1).
     pub begin: f32,
     pub end: f32,
+    /// When true (`unit: 'c'`), `speed` is interpreted in cycles: the effective
+    /// playback rate is multiplied by the sample's duration in seconds. Used by
+    /// `loopAt`/`fit`/`splice` to time-stretch a sample.
+    pub unit_cycles: bool,
 }
 
 impl SamplerParams {
@@ -422,6 +426,7 @@ impl SamplerParams {
             duration: 0.0,
             begin: 0.0,
             end: 1.0,
+            unit_cycles: false,
         }
     }
 
@@ -453,6 +458,9 @@ impl SamplerParams {
         }
         if let Some(e) = map.get("end").and_then(|v| v.as_f64()) {
             self.end = (e as f32).clamp(0.0, 1.0);
+        }
+        if let Some(u) = map.get("unit").and_then(|v| v.as_str()) {
+            self.unit_cycles = u == "c";
         }
         if let Some(a) = map.get("attack").and_then(|v| v.as_f64()) {
             self.attack = a as f32;
@@ -489,8 +497,16 @@ impl SamplerVoice {
         let begin = (params.begin as f64 * len as f64).clamp(0.0, len as f64);
         let end = (params.end as f64 * len as f64).clamp(begin, len as f64);
         let pan = params.pan.clamp(0.0, 1.0);
+        // With `unit: 'c'` the speed is in cycles, so scale by the sample's
+        // duration in seconds (matches superdough: rate *= buffer.duration).
+        let speed = if params.unit_cycles {
+            let duration_secs = len as f64 / params.sample.sample_rate as f64;
+            params.speed as f64 * duration_secs
+        } else {
+            params.speed as f64
+        };
         // resample ratio: source rate vs engine rate, times speed
-        let step = (params.sample.sample_rate as f64 / sample_rate as f64) * params.speed as f64;
+        let step = (params.sample.sample_rate as f64 / sample_rate as f64) * speed;
         let natural = if step != 0.0 {
             (end - begin).abs() / step.abs() / sample_rate as f64
         } else {

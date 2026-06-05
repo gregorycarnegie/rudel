@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::samples::SampleBank;
-use rudel_core::{Frac, Pattern, Value};
+use rudel_core::{Frac, Pattern, State, TimeSpan, Value};
 use rudel_dsp::{SamplerParams, VoiceParams, VoiceSpec};
 use std::collections::BTreeMap;
 
@@ -61,8 +61,12 @@ pub fn collect_events(
     }
     let begin = Frac::from_f64(begin_cycle);
     let end = Frac::from_f64(end_cycle);
+    // Expose cps to cps-dependent transforms (loopAt/fit/splice) via `_cps`,
+    // mirroring Strudel's `state.controls._cps`.
+    let controls = BTreeMap::from([("_cps".to_string(), Value::F64(cps))]);
+    let state = State::with_controls(TimeSpan::new(begin, end), controls);
     let mut out = Vec::new();
-    for hap in pattern.query_arc(begin, end) {
+    for hap in pattern.query(&state) {
         let Some(whole) = hap.whole else {
             continue; // skip continuous haps
         };
