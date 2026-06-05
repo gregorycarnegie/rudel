@@ -3,32 +3,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::samples::SampleBank;
-use rudel_core::{Frac, Pattern, State, TimeSpan, Value};
+use rudel_core::{Pattern, Value, query_controls};
 use rudel_dsp::{SamplerParams, VoiceParams, VoiceSpec};
 use std::collections::BTreeMap;
+
+// Re-exported for back-compat; the canonical version lives in rudel-core.
+pub use rudel_core::to_control_map;
 
 /// A note to be played at `onset_seconds` (in the audio clock's timeline).
 pub struct NoteEvent {
     pub onset_seconds: f64,
     pub spec: VoiceSpec,
-}
-
-/// Normalize a hap value into a control map: maps pass through; bare strings
-/// become `{s}`; bare numbers become `{note}`.
-pub fn to_control_map(value: &Value) -> BTreeMap<String, Value> {
-    match value {
-        Value::Map(m) => m.clone(),
-        Value::Str(_) => BTreeMap::from([("s".to_string(), value.clone())]),
-        Value::List(items) if !items.is_empty() => {
-            // e.g. a raw "bd:3" list -> {s, n}
-            let mut m = BTreeMap::from([("s".to_string(), items[0].clone())]);
-            if let Some(n) = items.get(1) {
-                m.insert("n".to_string(), n.clone());
-            }
-            m
-        }
-        other => BTreeMap::from([("note".to_string(), other.clone())]),
-    }
 }
 
 /// Resolve a control map into either a sampler or synth voice spec.
@@ -56,36 +41,13 @@ pub fn collect_events(
     end_cycle: f64,
     bank: &SampleBank,
 ) -> Vec<NoteEvent> {
-    if cps <= 0.0 || end_cycle <= begin_cycle {
-        return Vec::new();
-    }
-    let begin = Frac::from_f64(begin_cycle);
-    let end = Frac::from_f64(end_cycle);
-    // Expose cps to cps-dependent transforms (loopAt/fit/splice) via `_cps`,
-    // mirroring Strudel's `state.controls._cps`.
-    let controls = BTreeMap::from([("_cps".to_string(), Value::F64(cps))]);
-    let state = State::with_controls(TimeSpan::new(begin, end), controls);
-    let mut out = Vec::new();
-    for hap in pattern.query(&state) {
-        let Some(whole) = hap.whole else {
-            continue; // skip continuous haps
-        };
-        if !hap.has_onset() {
-            continue;
-        }
-        let onset_cycle = whole.begin.to_f64();
-        if onset_cycle < begin_cycle || onset_cycle >= end_cycle {
-            continue; // avoid duplicates across adjacent windows
-        }
-        let onset_seconds = onset_cycle / cps;
-        let duration = (hap.duration().to_f64() / cps) as f32;
-        let map = to_control_map(&hap.value);
-        out.push(NoteEvent {
-            onset_seconds,
-            spec: spec_for(&map, duration, bank),
-        });
-    }
-    out
+    query_controls(pattern, cps, begin_cycle, end_cycle)
+        .into_iter()
+        .map(|ev| NoteEvent {
+            onset_seconds: ev.onset_seconds,
+            spec: spec_for(&ev.controls, ev.duration_seconds as f32, bank),
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ pub mod euclid;
 pub mod fraction;
 pub mod hap;
 pub mod pattern;
+pub mod query;
 pub mod samples;
 pub mod signal;
 pub mod state;
@@ -42,6 +43,8 @@ pub use transforms2::{choose_cycles, randcat};
 pub use controls::{lpf, lpq, n, note, s, sound};
 // Tonal: note names, scales, chords.
 pub use tonal::{chord_notes, note_to_midi, scale_offset, scale_step};
+// Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
+pub use query::{ControlEvent, query_controls, to_control_map};
 
 /// Convenience: build a `pure` pattern from anything convertible to a [`Value`].
 pub fn p(v: impl Into<Value>) -> Pattern {

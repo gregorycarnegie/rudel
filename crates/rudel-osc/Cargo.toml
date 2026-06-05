@@ -1,6 +1,6 @@
 [package]
-name = "rudel-mini"
-description = "Mini-notation parser for Rudel (ported from Strudel's krill grammar)"
+name = "rudel-osc"
+description = "OSC output (SuperDirt-compatible) for Rudel (a Rust fork of Strudel)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,8 +9,3 @@ rust-version.workspace = true
 
 [dependencies]
 rudel-core = { path = "../rudel-core" }
-pest = "2.8.6"
-pest_derive = "2.8.6"
-
-[dev-dependencies]
-serde_json = "1.0.150"

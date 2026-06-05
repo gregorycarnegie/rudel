@@ -47,10 +47,21 @@ scheduler/audio → samples/effects → Koto live-eval → egui app) are complet
 > `@tonaljs` voicing dictionaries (`renderVoicing`), and `anchor`-based scale
 > stepping. Numeric/semitone paths cover the common cases.
 
-## I/O (Phase 7, optional)
+## I/O (Phase 7)
 
-- [ ] `rudel-midi` — MIDI output via `midir` (note on/off, CC, clock).
-- [ ] OSC output (SuperDirt-compatible) for external synths.
+- [x] `rudel-midi` — MIDI output via `midir`. Pure control-map → `MidiNote`
+      mapping (note/name, velocity from velocity|gain, channel from
+      midichan|channel, `ccn`/`ccv`, `progNum`), `schedule_window` emitting
+      timed note-on/off, a `MidiOut` port wrapper, and a real-time `MidiEngine`
+      thread driving a `MidiSink`. Shared event extraction with the audio engine
+      via `rudel_core::query_controls`.
+- [x] OSC output (SuperDirt-compatible) — `rudel-osc`. Hand-rolled OSC 1.0
+      encoder (no extra deps), `/dirt/play` message builder (prepends
+      `cps`/`cycle`/`delta`, adds `midinote`, undoes `unit:'c'` speed), UDP
+      `OscOut`, and an `OscEngine` scheduler. Tested over UDP loopback.
+
+> Both back-ends are standalone crates depending only on `rudel-core`; wiring
+> them into `rudel-app` (output selector) is left as app-polish follow-up.
 
 ## App (rudel-app) polish
 
