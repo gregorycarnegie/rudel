@@ -1,8 +1,15 @@
 # rudel
 
-A Rust fork of [Strudel](https://codeberg.org/uzu/strudel) (itself the JS port of
-[TidalCycles](https://tidalcycles.org/)): live-coding algorithmic music patterns,
-natively, with a Koto scripting layer and native audio.
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](https://www.gnu.org/licenses/agpl-3.0.en.html)
+[![Rust edition: 2024](https://img.shields.io/badge/rust%20edition-2024-orange)](Cargo.toml)
+[![MSRV: 1.92](https://img.shields.io/badge/MSRV-1.92-orange)](Cargo.toml)
+[![Workspace: 8 crates](https://img.shields.io/badge/workspace-8%20crates-informational)](#workspace)
+[![Checks: test + clippy](https://img.shields.io/badge/checks-test%20%2B%20clippy-brightgreen)](#tests)
+
+Rudel is a native Rust fork of [Strudel](https://codeberg.org/uzu/strudel)
+(itself the JS port of [TidalCycles](https://tidalcycles.org/)): live-coded,
+algorithmic music patterns with a Koto scripting layer, native audio, MIDI out,
+and SuperDirt-compatible OSC out.
 
 > Licensed under **AGPL-3.0-or-later**, the same as Strudel. Sound bank licensing
 > follows the source samples you load.
@@ -11,57 +18,82 @@ natively, with a Koto scripting layer and native audio.
 
 | Crate | Role |
 |-------|------|
-| [`rudel-core`](crates/rudel-core) | The pattern engine: `Pattern = State -> Vec<Hap>`, functor/applicative/monad combinators, ~90 transforms, signals (with Strudel's legacy RNG), controls, Euclidean rhythms. Time is exact rational (`Ratio<i128>`). |
-| [`rudel-mini`](crates/rudel-mini) | Mini-notation parser (a `pest` grammar ported from Strudel's `krill.pegjs`): `"bd [hh hh] <sd cp>*2"`. |
-| [`rudel-dsp`](crates/rudel-dsp) | Synthesis voices: oscillators + ADSR + pan + biquad low-pass, and a sample-playback voice. |
-| [`rudel-audio`](crates/rudel-audio) | Lookahead scheduler (cycle↔sample clock) + `cpal` output, a `SampleBank`, and `fundsp` reverb / delay effects. |
-| [`rudel-lang`](crates/rudel-lang) | [Koto](https://koto.dev) bindings exposing the builder API for live evaluation. |
-| [`rudel-app`](crates/rudel-app) | Native `egui` editor: type Koto, Ctrl+Enter to hot-swap the pattern, with a one-cycle visualizer. |
+| [`rudel-core`](crates/rudel-core) | Pure pattern engine: `Pattern = State -> Vec<Hap>`, exact rational time, combinators, controls, signals, sample transforms, tonal helpers, and scheduler-neutral event extraction. |
+| [`rudel-mini`](crates/rudel-mini) | `pest` mini-notation parser ported from Strudel's `krill.pegjs`: sequences, groups, rests, alternation, stacks, choices, Euclidean rhythms, ranges, polymeter, degradation, and sample indices. |
+| [`rudel-dsp`](crates/rudel-dsp) | Offline-testable voices: synth oscillators, noise, built-in drums, sampler playback, filters, envelopes, panning, and per-voice post effects. |
+| [`rudel-audio`](crates/rudel-audio) | Real-time audio engine: lookahead scheduler, `cpal` output, sample bank loading, mixer, delay, and `fundsp` reverb. |
+| [`rudel-lang`](crates/rudel-lang) | [Koto](https://koto.dev) bindings for Rudel patterns, controls, signals, factories, higher-order callbacks, sample transforms, and tonal operations. |
+| [`rudel-midi`](crates/rudel-midi) | MIDI output: control-map to note/CC/program messages, timed windows, port wrapper, and real-time scheduler. |
+| [`rudel-osc`](crates/rudel-osc) | SuperDirt OSC output: hand-rolled OSC 1.0 encoding, `/dirt/play` messages, UDP sender, and real-time scheduler. |
+| [`rudel-app`](crates/rudel-app) | Native `egui` editor with Koto live evaluation, audio/MIDI/OSC output selection, sample loading, and a one-cycle visualizer grouped by orbit. |
 
 ## Run the app
 
 ```bash
-cargo run -p rudel    # the rudel-app binary
+cargo run --release -p rudel-app
 ```
 
-Type a pattern in the editor and press **Ctrl+Enter** (then **Play**):
+Type a pattern in the editor, press **Ctrl+Enter** to evaluate, then press
+**Play**:
 
 ```koto
 stack(
+  s("bd ~ bd bd").gain(0.9),
+  s("~ sd ~ sd"),
+  s("hh*8").gain(0.5),
   note("c4 e4 g4 b4").s("triangle").room(0.5),
-  note("c2 ~ g2 ~").s("saw").cutoff("400 1600").gain(0.6).delay(0.3)
+  note("c2 ~ g2 ~").s("saw").lpf("400 1600").gain(0.6).delay(0.3)
 )
 ```
+
+The app starts with native audio. Use the output selector for MIDI or OSC; OSC
+defaults to `127.0.0.1:57120` for local SuperDirt.
 
 ## Examples
 
 ```bash
-cargo run -p rudel-audio --example play      # synth demo
+cargo run -p rudel-audio --example play
 cargo run -p rudel-audio --example live -- 'note("c e g").fast(2).room(0.4)'
-cargo run -p rudel-audio --example samples -- path/to/samples   # subfolders = sound names
+cargo run -p rudel-audio --example samples -- path/to/samples
 ```
+
+For sample folders, immediate subdirectories become sound names and files inside
+them become sample indices.
 
 ## Using the library
 
 ```rust
 use rudel_core::*;
-rudel_mini::install();                  // make &str parse as mini-notation
 
-let pat = note("c3 [e3 g3] <c4 e4>")
-    .s("piano")
+let pat = note(seq([60, 64, 67, 71]))
+    .s("triangle")
     .jux(|p| p.rev())
     .every(4, |p| p.fast(2))
     .gain(0.8);
 ```
 
-## Status
+Install mini-notation when you want strings to parse like Strudel patterns:
 
-Phases 0–6 complete: engine → mini-notation → voices → scheduler/audio →
-samples/effects → Koto live-eval → egui app. ~67 tests, clippy-clean.
+```rust
+rudel_mini::install();
 
-Not yet ported: higher-order Koto combinators (`every`/`jux` from script),
-sample-manipulation transforms (`chop`/`striate`/`loopAt`), the `tonal`/scale
-family, and MIDI/OSC I/O.
+let pat = note("c3 [e3 g3] <c4 e4>")
+    .s("saw")
+    .chop(4)
+    .room(0.4);
+```
+
+## Current Status
+
+Rudel has a usable native live-coding path today: pattern engine, mini-notation,
+synth/drum/sample audio, effects, Koto live evaluation, an `egui` app, MIDI out,
+and SuperDirt-compatible OSC out. The core, mini parser, transforms, audio event
+scheduling, MIDI, OSC, and Koto bindings are covered by unit, integration, and
+Strudel parity tests.
+
+Still evolving: richer synth families, more Strudel sample-bank loading modes,
+MIDI input/clock-in, per-pattern routing helpers, deeper editor ergonomics, and
+the long tail of Strudel/Tidal compatibility.
 
 ## Tests
 
@@ -69,3 +101,10 @@ family, and MIDI/OSC I/O.
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+Parity oracle notes live in [`tools/oracle/README.md`](tools/oracle/README.md).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, check commands, parity
+oracle guidance, and contribution conventions.

@@ -477,6 +477,11 @@ kpattern_methods! {
         delaytime, delayfeedback, attack, decay, sustain, release, vowel, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
         hcutoff, hresonance, bandf, bandq,
+        // filter envelopes + short aliases
+        lpenv, lpattack, lpdecay, lpsustain, lprelease,
+        hpenv, hpattack, hpdecay, hpsustain, hprelease,
+        bpenv, bpattack, bpdecay, bpsustain, bprelease, fanchor,
+        lpe, lpa, lpd, lps, lpr, hpe, hpa, hpd, hps, hpr, bpe, bpa, bpd, bps, bpr,
         // filter / envelope / misc aliases
         lpf, lp, ctf, lpq, hpf, hp, hpq, bpf, bp, bpq, vel, att, rel, sus, dec,
         delayt, delayfb, o, trans, strans,
@@ -789,6 +794,18 @@ mod tests {
             r#"note("c2").hpf(400).bpf("200 800")"#,
             r#"note("c2").trans(7)"#,
             r#"note("c2").s("sawtooth").attack(0.1).decay(0.1).sustain(0.2).release(0.1)"#,
+        ] {
+            assert!(eval(src).is_ok(), "should eval: {src}");
+        }
+    }
+
+    #[test]
+    fn filter_envelopes_and_noise_resolve() {
+        for src in [
+            r#"note("c2").s("sawtooth").lpf(200).lpenv(4).lpa(0.1).lpd(0.2)"#,
+            r#"note("c2").hpf(2000).hpenv(-3)"#,
+            r#"s("white pink brown").lpf(1000)"#,
+            r#"note("c2").s("saw").vowel("<a e i o>")"#,
         ] {
             assert!(eval(src).is_ok(), "should eval: {src}");
         }

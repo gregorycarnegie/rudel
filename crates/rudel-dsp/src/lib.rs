@@ -162,18 +162,12 @@ pub struct VoiceParams {
     pub adsr: Adsr,
     /// Hold time in seconds (the note's `whole` duration), before release.
     pub duration: f32,
-    /// Low-pass cutoff in Hz (`cutoff`/`lpf`). `None` leaves the voice open.
-    pub cutoff: Option<f32>,
-    /// Low-pass resonance / Q (`resonance`/`lpq`).
-    pub resonance: f32,
-    /// High-pass cutoff in Hz (`hcutoff`/`hpf`).
-    pub hcutoff: Option<f32>,
-    /// High-pass resonance / Q (`hresonance`/`hpq`).
-    pub hresonance: f32,
-    /// Band-pass center in Hz (`bandf`/`bpf`).
-    pub bandf: Option<f32>,
-    /// Band-pass Q (`bandq`/`bpq`).
-    pub bandq: f32,
+    /// Low-pass filter (`cutoff`/`lpf` + `lpenv`/`lpattack`/...).
+    pub lp: FilterParams,
+    /// High-pass filter (`hcutoff`/`hpf` + `hpenv`/...).
+    pub hp: FilterParams,
+    /// Band-pass filter (`bandf`/`bpf` + `bpenv`/...).
+    pub bp: FilterParams,
     /// Reverb send amount (`room`), 0..1.
     pub room: f32,
     /// Delay send amount (`delay`), 0..1.
@@ -190,12 +184,12 @@ impl Default for VoiceParams {
             pan: 0.5,
             adsr: Adsr::default(),
             duration: 0.25,
-            cutoff: None,
-            resonance: 0.707,
-            hcutoff: None,
-            hresonance: 0.707,
-            bandf: None,
-            bandq: 1.0,
+            lp: FilterParams::default(),
+            hp: FilterParams::default(),
+            bp: FilterParams {
+                q: 1.0,
+                ..FilterParams::default()
+            },
             room: 0.0,
             delay: 0.0,
         }
@@ -244,23 +238,42 @@ impl VoiceParams {
         if let Some(r) = map.get("release").and_then(|v| v.as_f64()) {
             p.adsr.release = r as f32;
         }
-        if let Some(c) = map.get("cutoff").and_then(|v| v.as_f64()) {
-            p.cutoff = Some(c as f32);
+        let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
+        // Low-pass (cutoff/lpf) + its envelope.
+        p.lp.freq = get("cutoff");
+        if let Some(q) = get("resonance") {
+            p.lp.q = q.max(0.1);
         }
-        if let Some(q) = map.get("resonance").and_then(|v| v.as_f64()) {
-            p.resonance = (q as f32).max(0.1);
+        p.lp.env = get("lpenv");
+        p.lp.attack = get("lpattack");
+        p.lp.decay = get("lpdecay");
+        p.lp.sustain = get("lpsustain");
+        p.lp.release = get("lprelease");
+        // High-pass (hcutoff/hpf) + its envelope.
+        p.hp.freq = get("hcutoff");
+        if let Some(q) = get("hresonance") {
+            p.hp.q = q.max(0.1);
         }
-        if let Some(c) = map.get("hcutoff").and_then(|v| v.as_f64()) {
-            p.hcutoff = Some(c as f32);
+        p.hp.env = get("hpenv");
+        p.hp.attack = get("hpattack");
+        p.hp.decay = get("hpdecay");
+        p.hp.sustain = get("hpsustain");
+        p.hp.release = get("hprelease");
+        // Band-pass (bandf/bpf) + its envelope.
+        p.bp.freq = get("bandf");
+        if let Some(q) = get("bandq") {
+            p.bp.q = q.max(0.1);
         }
-        if let Some(q) = map.get("hresonance").and_then(|v| v.as_f64()) {
-            p.hresonance = (q as f32).max(0.1);
-        }
-        if let Some(c) = map.get("bandf").and_then(|v| v.as_f64()) {
-            p.bandf = Some(c as f32);
-        }
-        if let Some(q) = map.get("bandq").and_then(|v| v.as_f64()) {
-            p.bandq = (q as f32).max(0.1);
+        p.bp.env = get("bpenv");
+        p.bp.attack = get("bpattack");
+        p.bp.decay = get("bpdecay");
+        p.bp.sustain = get("bpsustain");
+        p.bp.release = get("bprelease");
+        // Shared filter-envelope anchor (`fanchor`).
+        if let Some(a) = get("fanchor") {
+            p.lp.anchor = a;
+            p.hp.anchor = a;
+            p.bp.anchor = a;
         }
         if let Some(room) = map.get("room").and_then(|v| v.as_f64()) {
             p.room = room as f32;
@@ -285,57 +298,58 @@ struct Biquad {
     z2: f32,
 }
 
+/// Which RBJ biquad to compute.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FilterKind {
+    Low,
+    High,
+    Band,
+}
+
 impl Biquad {
-    fn lowpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
-        let cutoff = cutoff.clamp(20.0, sample_rate * 0.45);
-        let w0 = 2.0 * PI * cutoff / sample_rate;
-        let (sin, cos) = w0.sin_cos();
-        let alpha = sin / (2.0 * q.max(0.1));
-        let a0 = 1.0 + alpha;
-        Biquad {
-            b0: (1.0 - cos) / 2.0 / a0,
-            b1: (1.0 - cos) / a0,
-            b2: (1.0 - cos) / 2.0 / a0,
-            a1: (-2.0 * cos) / a0,
-            a2: (1.0 - alpha) / a0,
-            z1: 0.0,
-            z2: 0.0,
-        }
-    }
-
-    fn highpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
-        let cutoff = cutoff.clamp(20.0, sample_rate * 0.45);
-        let w0 = 2.0 * PI * cutoff / sample_rate;
-        let (sin, cos) = w0.sin_cos();
-        let alpha = sin / (2.0 * q.max(0.1));
-        let a0 = 1.0 + alpha;
-        Biquad {
-            b0: (1.0 + cos) / 2.0 / a0,
-            b1: -(1.0 + cos) / a0,
-            b2: (1.0 + cos) / 2.0 / a0,
-            a1: (-2.0 * cos) / a0,
-            a2: (1.0 - alpha) / a0,
-            z1: 0.0,
-            z2: 0.0,
-        }
-    }
-
-    fn bandpass(sample_rate: f32, center: f32, q: f32) -> Biquad {
-        let center = center.clamp(20.0, sample_rate * 0.45);
-        let w0 = 2.0 * PI * center / sample_rate;
-        let (sin, cos) = w0.sin_cos();
-        let alpha = sin / (2.0 * q.max(0.1));
-        let a0 = 1.0 + alpha;
-        // constant 0 dB peak gain (b0 = alpha)
-        Biquad {
-            b0: alpha / a0,
+    fn new(kind: FilterKind, sample_rate: f32, freq: f32, q: f32) -> Biquad {
+        let mut b = Biquad {
+            b0: 1.0,
             b1: 0.0,
-            b2: -alpha / a0,
-            a1: (-2.0 * cos) / a0,
-            a2: (1.0 - alpha) / a0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
             z1: 0.0,
             z2: 0.0,
-        }
+        };
+        b.update(kind, sample_rate, freq, q);
+        b
+    }
+
+    fn lowpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
+        Biquad::new(FilterKind::Low, sample_rate, cutoff, q)
+    }
+    fn highpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
+        Biquad::new(FilterKind::High, sample_rate, cutoff, q)
+    }
+    fn bandpass(sample_rate: f32, center: f32, q: f32) -> Biquad {
+        Biquad::new(FilterKind::Band, sample_rate, center, q)
+    }
+
+    /// Recompute the RBJ coefficients in place, preserving the filter state
+    /// (`z1`/`z2`) so the cutoff can be modulated per sample.
+    fn update(&mut self, kind: FilterKind, sample_rate: f32, freq: f32, q: f32) {
+        let freq = freq.clamp(20.0, sample_rate * 0.45);
+        let w0 = 2.0 * PI * freq / sample_rate;
+        let (sin, cos) = w0.sin_cos();
+        let alpha = sin / (2.0 * q.max(0.1));
+        let a0 = 1.0 + alpha;
+        let (b0, b1, b2) = match kind {
+            FilterKind::Low => ((1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0),
+            FilterKind::High => ((1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0),
+            // constant 0 dB peak gain (b0 = alpha)
+            FilterKind::Band => (alpha, 0.0, -alpha),
+        };
+        self.b0 = b0 / a0;
+        self.b1 = b1 / a0;
+        self.b2 = b2 / a0;
+        self.a1 = (-2.0 * cos) / a0;
+        self.a2 = (1.0 - alpha) / a0;
     }
 
     fn process(&mut self, x: f32) -> f32 {
@@ -343,6 +357,121 @@ impl Biquad {
         self.z1 = self.b1 * x - self.a1 * y + self.z2;
         self.z2 = self.b2 * x - self.a2 * y;
         y
+    }
+}
+
+/// Per-filter parameters (low/high/band) including an optional cutoff envelope.
+#[derive(Clone, Copy, Debug)]
+pub struct FilterParams {
+    /// Cutoff / center frequency in Hz; `None` disables this filter.
+    pub freq: Option<f32>,
+    pub q: f32,
+    /// Envelope amount in octaves (`lpenv`/`hpenv`/`bpenv`).
+    pub env: Option<f32>,
+    pub attack: Option<f32>,
+    pub decay: Option<f32>,
+    pub sustain: Option<f32>,
+    pub release: Option<f32>,
+    /// `fanchor`: where the base cutoff sits within the sweep (0 = bottom).
+    pub anchor: f32,
+}
+
+impl Default for FilterParams {
+    fn default() -> Self {
+        FilterParams {
+            freq: None,
+            q: 0.707,
+            env: None,
+            attack: None,
+            decay: None,
+            sustain: None,
+            release: None,
+            anchor: 0.0,
+        }
+    }
+}
+
+impl FilterParams {
+    fn has_env(&self) -> bool {
+        self.env.is_some()
+            || self.attack.is_some()
+            || self.decay.is_some()
+            || self.sustain.is_some()
+            || self.release.is_some()
+    }
+}
+
+/// A voice filter slot: a biquad plus an optional cutoff envelope sweep.
+struct VoiceFilter {
+    kind: FilterKind,
+    q: f32,
+    biquad: Biquad,
+    /// `(adsr, min_hz, max_hz)` when a cutoff envelope is active.
+    env: Option<(Adsr, f32, f32)>,
+}
+
+impl VoiceFilter {
+    fn new(kind: FilterKind, fp: &FilterParams, sample_rate: f32) -> VoiceFilter {
+        let base = fp.freq.unwrap_or(1000.0);
+        let q = fp.q.max(0.1);
+        let env = if fp.has_env() {
+            // superdough: min = 2^-offset * f, max = 2^(|env|-offset) * f
+            let env_oct = fp.env.unwrap_or(1.0);
+            let abs = env_oct.abs();
+            let offset = abs * fp.anchor;
+            let mut min = (2f32.powf(-offset) * base).clamp(0.0, 20000.0);
+            let mut max = (2f32.powf(abs - offset) * base).clamp(0.0, 20000.0);
+            if env_oct < 0.0 {
+                std::mem::swap(&mut min, &mut max);
+            }
+            // filter ADSR defaults (superdough): [0.005, 0.14, 0, 0.1]
+            let adsr = Adsr {
+                attack: fp.attack.unwrap_or(0.005),
+                decay: fp.decay.unwrap_or(0.14),
+                sustain: fp.sustain.unwrap_or(0.0),
+                release: fp.release.unwrap_or(0.1),
+            };
+            Some((adsr, min, max))
+        } else {
+            None
+        };
+        VoiceFilter {
+            kind,
+            q,
+            biquad: Biquad::new(kind, sample_rate, base, q),
+            env,
+        }
+    }
+
+    fn process(&mut self, x: f32, t: f32, hold_end: f32, sample_rate: f32) -> f32 {
+        if let Some((adsr, min, max)) = self.env {
+            let shape = adsr_value(&adsr, t, hold_end);
+            let freq = min + shape * (max - min);
+            self.biquad.update(self.kind, sample_rate, freq, self.q);
+        }
+        self.biquad.process(x)
+    }
+}
+
+/// Linear ADSR shape in 0..1 at time `t` (seconds), with the note held until
+/// `hold_end` then released. Shared by the amp envelope and filter envelopes.
+fn adsr_value(adsr: &Adsr, t: f32, hold_end: f32) -> f32 {
+    let Adsr {
+        attack,
+        decay,
+        sustain,
+        release,
+    } = *adsr;
+    if t < attack {
+        t / attack.max(1e-9)
+    } else if t < attack + decay {
+        1.0 - (1.0 - sustain) * ((t - attack) / decay.max(1e-9))
+    } else if t < hold_end {
+        sustain
+    } else if t < hold_end + release {
+        sustain * (1.0 - (t - hold_end) / release.max(1e-9))
+    } else {
+        0.0
     }
 }
 
@@ -380,7 +509,7 @@ pub struct Voice {
     right_gain: f32,
     hold_end: f32,
     /// Filter chain (low/high/band-pass), applied in order to the oscillator.
-    filters: Vec<Biquad>,
+    filters: Vec<VoiceFilter>,
     noise: NoiseGen,
     done: bool,
 }
@@ -393,14 +522,14 @@ impl Voice {
         let right_gain = (pan * PI / 2.0).sin();
         let hold_end = params.duration.max(params.adsr.attack);
         let mut filters = Vec::new();
-        if let Some(c) = params.cutoff {
-            filters.push(Biquad::lowpass(sample_rate, c, params.resonance));
+        if params.lp.freq.is_some() {
+            filters.push(VoiceFilter::new(FilterKind::Low, &params.lp, sample_rate));
         }
-        if let Some(c) = params.hcutoff {
-            filters.push(Biquad::highpass(sample_rate, c, params.hresonance));
+        if params.hp.freq.is_some() {
+            filters.push(VoiceFilter::new(FilterKind::High, &params.hp, sample_rate));
         }
-        if let Some(c) = params.bandf {
-            filters.push(Biquad::bandpass(sample_rate, c, params.bandq));
+        if params.bp.freq.is_some() {
+            filters.push(VoiceFilter::new(FilterKind::Band, &params.bp, sample_rate));
         }
         Voice {
             params,
@@ -426,24 +555,7 @@ impl Voice {
     }
 
     fn envelope(&self) -> f32 {
-        let Adsr {
-            attack,
-            decay,
-            sustain,
-            release,
-        } = self.params.adsr;
-        let t = self.t;
-        if t < attack {
-            t / attack.max(1e-9)
-        } else if t < attack + decay {
-            1.0 - (1.0 - sustain) * ((t - attack) / decay.max(1e-9))
-        } else if t < self.hold_end {
-            sustain
-        } else if t < self.hold_end + release {
-            sustain * (1.0 - (t - self.hold_end) / release.max(1e-9))
-        } else {
-            0.0
-        }
+        adsr_value(&self.params.adsr, self.t, self.hold_end)
     }
 
     /// Render the next stereo sample `(left, right)`.
@@ -456,8 +568,9 @@ impl Voice {
             Some(kind) => self.noise.next(kind),
             None => self.params.waveform.sample(self.phase),
         };
+        let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         for f in &mut self.filters {
-            osc = f.process(osc);
+            osc = f.process(osc, t, hold_end, sr);
         }
         // 0.3 matches Strudel's synth turn-down (gainNode(0.3)).
         let s = osc * env * self.params.gain * 0.3;
@@ -1453,7 +1566,10 @@ mod tests {
                 VoiceParams {
                     freq: 100.0,
                     duration: 1.0,
-                    hcutoff,
+                    hp: FilterParams {
+                        freq: hcutoff,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 44100.0,
@@ -1466,6 +1582,39 @@ mod tests {
             e_filt += filtered.tick().0.abs();
         }
         assert!(e_filt < e_open * 0.5, "highpass should cut the low tone");
+    }
+
+    #[test]
+    fn filter_envelope_opens_cutoff() {
+        // A 4kHz tone is killed by a static lp at 200Hz; with lpenv the cutoff
+        // sweeps up during the attack and lets much more through.
+        let mk = |env: Option<f32>, attack: Option<f32>| {
+            Voice::new(
+                VoiceParams {
+                    freq: 4000.0,
+                    duration: 1.0,
+                    lp: FilterParams {
+                        freq: Some(200.0),
+                        env,
+                        attack,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                44100.0,
+            )
+        };
+        let mut stat = mk(None, None);
+        let mut swept = mk(Some(6.0), Some(0.2)); // opens ~6 octaves over 0.2s
+        let (mut e_stat, mut e_swept) = (0.0f32, 0.0f32);
+        for _ in 0..4410 {
+            e_stat += stat.tick().0.abs();
+            e_swept += swept.tick().0.abs();
+        }
+        assert!(
+            e_swept > e_stat * 2.0,
+            "filter env should open the cutoff (swept {e_swept} vs static {e_stat})"
+        );
     }
 
     #[test]
@@ -1483,7 +1632,10 @@ mod tests {
             VoiceParams {
                 freq: 6000.0,
                 duration: 1.0,
-                cutoff: Some(200.0),
+                lp: FilterParams {
+                    freq: Some(200.0),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             44100.0,

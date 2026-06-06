@@ -70,7 +70,9 @@ Function-by-function audit against the Strudel learn pages
       per-voice `PostFx` matching superdough's worklet formulas
 - [x] `vowel` formant filter (a/e/i/o/u; 5 parallel band-pass + makeup gain,
       per-channel, in `PostFx`)
-- [ ] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease` (+ hp/bp)
+- [x] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease`
+      (+ `hp*`/`bp*` and `fanchor`): per-sample cutoff sweep `min..max` =
+      `2^-offset·f .. 2^(|env|-offset)·f` driven by the filter's own ADSR
 - [ ] `phaser*`, `tremolo*`, `compressor*`, `postgain`, `dry`, `squiz`, `fshift`
 - [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)
 
