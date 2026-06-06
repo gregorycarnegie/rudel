@@ -145,6 +145,15 @@ controls!(
     ad,
     ar,
     hold,
+    // vibrato + pitch envelope
+    vib,
+    vibmod,
+    penv,
+    pattack,
+    pdecay,
+    psustain,
+    prelease,
+    panchor,
 );
 
 // Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).
@@ -202,6 +211,13 @@ control_aliases!(
     bpd => bpdecay,
     bps => bpsustain,
     bpr => bprelease,
+    // vibrato + pitch-envelope aliases
+    vibrato => vib,
+    vmod => vibmod,
+    patt => pattack,
+    pdec => pdecay,
+    psus => psustain,
+    prel => prelease,
 );
 
 #[cfg(test)]

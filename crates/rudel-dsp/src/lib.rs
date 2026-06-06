@@ -167,6 +167,18 @@ pub struct VoiceParams {
     pub fm: Option<f32>,
     /// FM harmonicity ratio (`fmh`), modulator freq / carrier freq.
     pub fmh: f32,
+    /// Vibrato rate in Hz (`vib`); `None`/0 = off.
+    pub vib: Option<f32>,
+    /// Vibrato depth in semitones (`vibmod`).
+    pub vibmod: f32,
+    /// Pitch-envelope amount in semitones (`penv`).
+    pub penv: Option<f32>,
+    pub pattack: Option<f32>,
+    pub pdecay: Option<f32>,
+    pub psustain: Option<f32>,
+    pub prelease: Option<f32>,
+    /// Pitch-envelope anchor (`panchor`); defaults to the pitch sustain.
+    pub panchor: Option<f32>,
     pub freq: f32,
     pub gain: f32,
     /// 0.0 = hard left, 1.0 = hard right.
@@ -199,6 +211,14 @@ impl Default for VoiceParams {
             spread: 0.2,
             fm: None,
             fmh: 1.0,
+            vib: None,
+            vibmod: 0.5,
+            penv: None,
+            pattack: None,
+            pdecay: None,
+            psustain: None,
+            prelease: None,
+            panchor: None,
             freq: 440.0,
             gain: 1.0,
             pan: 0.5,
@@ -253,6 +273,20 @@ impl VoiceParams {
         if let Some(h) = map.get("fmh").and_then(|v| v.as_f64()) {
             p.fmh = h as f32;
         }
+        // Vibrato (`vib` rate Hz, `vibmod` depth semitones).
+        if let Some(r) = map.get("vib").and_then(|v| v.as_f64()) {
+            p.vib = Some(r as f32);
+        }
+        if let Some(d) = map.get("vibmod").and_then(|v| v.as_f64()) {
+            p.vibmod = d as f32;
+        }
+        // Pitch envelope (`penv` semitones + `p{attack,decay,sustain,release}`).
+        p.penv = map.get("penv").and_then(|v| v.as_f64()).map(|x| x as f32);
+        p.pattack = map.get("pattack").and_then(|v| v.as_f64()).map(|x| x as f32);
+        p.pdecay = map.get("pdecay").and_then(|v| v.as_f64()).map(|x| x as f32);
+        p.psustain = map.get("psustain").and_then(|v| v.as_f64()).map(|x| x as f32);
+        p.prelease = map.get("prelease").and_then(|v| v.as_f64()).map(|x| x as f32);
+        p.panchor = map.get("panchor").and_then(|v| v.as_f64()).map(|x| x as f32);
         if let Some(freq) = map.get("freq").and_then(|v| v.as_f64()) {
             p.freq = freq as f32;
         } else if let Some(n) = map.get("note") {
@@ -600,6 +634,8 @@ pub struct Voice {
     mod_phase: f32,
     /// Per-voice phases for the super-saw source.
     super_phases: Vec<f32>,
+    /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
+    pitch_env: Option<(Adsr, f32, f32)>,
     done: bool,
 }
 
@@ -628,6 +664,27 @@ impl Voice {
         } else {
             Vec::new()
         };
+        // Pitch envelope (superdough getPitchEnvelope): sweep detune in cents.
+        let pitch_active = params.penv.is_some()
+            || params.pattack.is_some()
+            || params.pdecay.is_some()
+            || params.psustain.is_some()
+            || params.prelease.is_some();
+        let pitch_env = if pitch_active {
+            let adsr = Adsr {
+                attack: params.pattack.unwrap_or(0.2),
+                decay: params.pdecay.unwrap_or(0.001),
+                sustain: params.psustain.unwrap_or(1.0),
+                release: params.prelease.unwrap_or(0.001),
+            };
+            let penv = params.penv.unwrap_or(1.0); // semitones
+            let anchor = params.panchor.unwrap_or(adsr.sustain);
+            let min = -penv * anchor;
+            let max = penv - penv * anchor;
+            Some((adsr, min, max))
+        } else {
+            None
+        };
         Voice {
             params,
             sample_rate,
@@ -640,6 +697,7 @@ impl Voice {
             noise: NoiseGen::new(),
             mod_phase: 0.0,
             super_phases,
+            pitch_env,
             done: false,
         }
     }
@@ -657,13 +715,34 @@ impl Voice {
         adsr_value(&self.params.adsr, self.t, self.hold_end)
     }
 
+    /// Pitch multiplier from vibrato + pitch envelope (applied to the carrier).
+    fn pitch_mult(&self) -> f32 {
+        let mut semis = 0.0;
+        if let Some(rate) = self.params.vib
+            && rate > 0.0
+        {
+            semis += self.params.vibmod * (2.0 * PI * rate * self.t).sin();
+        }
+        if let Some((adsr, min, max)) = self.pitch_env {
+            let shape = adsr_value(&adsr, self.t, self.hold_end);
+            semis += min + shape * (max - min);
+        }
+        if semis == 0.0 {
+            1.0
+        } else {
+            2f32.powf(semis / 12.0)
+        }
+    }
+
     /// Produce the next source sample and advance the oscillator phase(s).
     fn next_source(&mut self) -> f32 {
         let sr = self.sample_rate;
+        let pitch = self.pitch_mult();
         if self.params.supersaw {
             let voices = self.params.unison.max(1);
             // main detune (cents -> semitones)
-            let base = self.params.freq * 2f32.powf((self.params.detune / 100.0) / 12.0);
+            let base =
+                self.params.freq * pitch * 2f32.powf((self.params.detune / 100.0) / 12.0);
             let scale = if voices > 1 {
                 self.params.spread / (voices as f32 - 1.0)
             } else {
@@ -683,14 +762,15 @@ impl Voice {
             return self.noise.next(kind);
         }
         // Oscillator, optionally frequency-modulated.
+        let carrier = self.params.freq * pitch;
         let s = self.params.waveform.sample(self.phase);
         let inc = if let Some(index) = self.params.fm {
-            let modfreq = self.params.freq * self.params.fmh;
+            let modfreq = carrier * self.params.fmh;
             let modv = (2.0 * PI * self.mod_phase).sin();
             self.mod_phase = (self.mod_phase + modfreq / sr).rem_euclid(1.0);
-            (self.params.freq + index * modfreq * modv) / sr
+            (carrier + index * modfreq * modv) / sr
         } else {
-            self.params.freq / sr
+            carrier / sr
         };
         self.phase = (self.phase + inc).rem_euclid(1.0);
         s
@@ -1206,7 +1286,7 @@ impl VoiceLike for DrumVoice {
 
 /// What to play for a note: a synth voice, a sampler voice, or a drum voice.
 pub enum VoiceSpec {
-    Synth(VoiceParams),
+    Synth(Box<VoiceParams>),
     Sampler(SamplerParams),
     Drum(DrumParams),
 }
@@ -1214,7 +1294,7 @@ pub enum VoiceSpec {
 impl VoiceSpec {
     pub fn into_voice(self, sample_rate: f32) -> Box<dyn VoiceLike> {
         match self {
-            VoiceSpec::Synth(p) => Box::new(Voice::new(p, sample_rate)),
+            VoiceSpec::Synth(p) => Box::new(Voice::new(*p, sample_rate)),
             VoiceSpec::Sampler(p) => Box::new(SamplerVoice::new(p, sample_rate)),
             VoiceSpec::Drum(p) => Box::new(DrumVoice::new(p, sample_rate)),
         }
@@ -1634,6 +1714,47 @@ mod tests {
             diff += (plain.tick().0 - modulated.tick().0).abs();
         }
         assert!(diff > 0.0, "FM should change the carrier signal");
+    }
+
+    #[test]
+    fn vibrato_and_pitch_env_change_pitch() {
+        let base = || VoiceParams {
+            waveform: Waveform::Sine,
+            freq: 220.0,
+            duration: 1.0,
+            ..Default::default()
+        };
+        // vibrato vs none
+        let mut plain = Voice::new(base(), 44100.0);
+        let mut vibd = Voice::new(
+            VoiceParams {
+                vib: Some(6.0),
+                vibmod: 1.0,
+                ..base()
+            },
+            44100.0,
+        );
+        let mut diff = 0.0f32;
+        for _ in 0..4000 {
+            diff += (plain.tick().0 - vibd.tick().0).abs();
+        }
+        assert!(diff > 0.0, "vibrato should change the pitch over time");
+
+        // pitch envelope vs none
+        let mut penvd = Voice::new(
+            VoiceParams {
+                penv: Some(12.0),
+                pattack: Some(0.2),
+                ..base()
+            },
+            44100.0,
+        );
+        let mut plain2 = Voice::new(base(), 44100.0);
+        let mut diff2 = 0.0f32;
+        for _ in 0..4000 {
+            diff2 += (plain2.tick().0 - penvd.tick().0).abs();
+        }
+        assert!(diff2 > 0.0, "pitch envelope should bend the pitch");
     }
 
     #[test]

@@ -37,7 +37,7 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
             return VoiceSpec::Drum(params);
         }
     }
-    VoiceSpec::Synth(VoiceParams::from_controls(map, duration))
+    VoiceSpec::Synth(Box::new(VoiceParams::from_controls(map, duration)))
 }
 
 /// Query `pattern` over the cycle window `[begin_cycle, end_cycle)` and return

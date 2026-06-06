@@ -60,8 +60,9 @@ Function-by-function audit against the Strudel learn pages
 - [ ] `supersaw` (`unison` `spread` `detune`)
 - [x] single-operator FM (`fm`/`fmi`/`fmh`); [ ] multi-operator FM matrix,
       additive, `zzfx`, wavetables
-- [ ] vibrato (`vib` `vibmod`), pitch env (`penv` `pattack` `pcurve` ...)
-- [ ] `pw` pulse-width, `noise` amount
+- [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
+      (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
+- [ ] `pcurve` (env curve shapes), `pw` pulse-width, `noise` mix amount
 
 ## learn/effects
 
