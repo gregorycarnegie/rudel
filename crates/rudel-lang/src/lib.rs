@@ -8,6 +8,8 @@ use koto::prelude::*;
 use koto::runtime::{Error as KotoError, KotoObject, Result as KotoResult};
 use rudel_core::{Frac, Pattern, Value};
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A Koto wrapper around a rudel [`Pattern`].
 #[derive(Clone, KotoCopy, KotoType)]
@@ -64,6 +66,29 @@ fn arg_to_f64(value: &KValue) -> f64 {
 
 fn arg_to_frac(value: &KValue) -> Frac {
     Frac::from_f64(arg_to_f64(value))
+}
+
+/// A stable string key for a chord value, used to memoise `arp_with` callback
+/// results so the (non-`Send`) Koto VM is only touched at construction time.
+fn value_sig(v: &Value) -> String {
+    match v {
+        Value::Null => "_".into(),
+        Value::Bool(b) => format!("b{b}"),
+        Value::Int(n) => format!("i{n}"),
+        Value::F64(x) => format!("f{x}"),
+        Value::Frac(f) => format!("r{}/{}", f.numer(), f.denom()),
+        Value::Str(s) => format!("s{s}"),
+        Value::List(xs) => format!("[{}]", xs.iter().map(value_sig).collect::<Vec<_>>().join(",")),
+        Value::Map(m) => format!(
+            "{{{}}}",
+            m.iter()
+                .map(|(k, v)| format!("{k}={}", value_sig(v)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        Value::Func(_) => "fn".into(),
+        Value::Pat(_) => "pat".into(),
+    }
 }
 
 /// Collect callable arguments for `layer`: a single list/tuple is expanded into
@@ -401,6 +426,45 @@ macro_rules! kpattern_methods {
                     return Err(e);
                 }
                 Ok(KPattern::wrap(rudel_core::stack(&results)))
+            }
+
+            // `pat.arp_with(|chord| ...)`: arpeggiate chords, transforming each
+            // chord (presented as a sequence of its notes) with a callback.
+            //
+            // The callback can't run in the (Send+Sync) query path because the
+            // Koto VM isn't Send, so we evaluate it eagerly here: probe the
+            // distinct chords over the first `PROBE` cycles, run the callback on
+            // each, and bake the results into a lookup the query path consults.
+            // Chords first appearing after the probe window fall back to silence.
+            #[koto_method]
+            fn arp_with(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                const PROBE: i64 = 16;
+                let collected = ctx.instance()?.0.collect();
+                let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+                let mut table: HashMap<String, Pattern> = HashMap::new();
+                for cycle in 0..PROBE {
+                    for hap in collected.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
+                        if let Value::List(notes) = &hap.value {
+                            let sig = value_sig(&hap.value);
+                            if !table.contains_key(&sig) {
+                                let pats: Vec<Pattern> =
+                                    notes.iter().cloned().map(rudel_core::pure).collect();
+                                let chord = rudel_core::fastcat(&pats);
+                                table.insert(sig, cb.apply(&chord));
+                            }
+                        }
+                    }
+                }
+                cb.finish()?;
+                let table = Arc::new(table);
+                let result = collected.inner_bind(move |value| match &value {
+                    Value::List(_) => table
+                        .get(&value_sig(&value))
+                        .cloned()
+                        .unwrap_or_else(rudel_core::silence),
+                    _ => rudel_core::silence(),
+                });
+                Ok(KPattern::wrap(result))
             }
 
             // `pat.voicings("lefthand")`: voice chords with a named dictionary.
@@ -992,6 +1056,28 @@ mod tests {
                 Value::Int(3),
             ]
         );
+    }
+
+    #[test]
+    fn arp_with_via_koto() {
+        // the chord is presented to the callback as a sequence of its notes;
+        // identity == arpeggiate
+        let pat = eval(r#"stack(5, 7, 9).arp_with(|c| c)"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![Value::Int(5), Value::Int(7), Value::Int(9)]
+        );
+        // reversing the chord sequence per chord
+        let pat = eval(r#"stack(0, 1, 2).arp_with(|c| c.rev())"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![Value::Int(2), Value::Int(1), Value::Int(0)]
+        );
+        // works per-cycle across an alternation of different chords (probe
+        // window discovers both chords)
+        let pat = eval(r#"seq("<[0,1] [2,3]>").arp_with(|c| c.rev())"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(1), Value::Int(0)]);
+        assert_eq!(values(&pat, 1, 2), vec![Value::Int(3), Value::Int(2)]);
     }
 
     #[test]

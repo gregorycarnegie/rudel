@@ -39,9 +39,13 @@ Function-by-function audit against the Strudel learn pages
       normalisation (`maj7`→`^7`, `min7`→`m7`, …) since mini can't spell `^`.
       Not ported: deprecated `voicings()` voice-leading (external package) + the
       523-line iReal dictionary.
-- [~] `arp` (index pattern selects chord notes), `arpeggiate` (play chord in
-      sequence); `arp_with` in the engine (callback over chord values, not yet
-      bound in Koto). Built on a new `collect` (group simultaneous haps).
+- [x] `arp` (index pattern selects chord notes), `arpeggiate` (play chord in
+      sequence), `arp_with(|chord| …)` (per-chord callback; chord presented as a
+      note sequence). Built on a new `collect` (group simultaneous haps).
+      `arp_with` is bound via an eager probe-and-bake: the Koto VM isn't `Send`
+      so the callback can't run in the query path, so distinct chords over the
+      first 16 cycles are memoised at construction (chords appearing only later
+      fall back to silence).
 - [ ] enharmonic interval-string transpose (`"3M"`), `mode`/`anchor` stepping
 - [ ] `mtranspose` / `ctranspose` / `degreeToNote`, `toScale` (custom scales)
 
