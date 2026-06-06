@@ -92,7 +92,8 @@ Function-by-function audit against the Strudel learn pages
 - [x] `fast` `slow` `rev` `iter` `iterBack` `ply` `palindrome` `off` `early` `late`
 - [x] `compress` `zoom` `fastGap` `inside` `outside` `swingBy`/`swing` `repeatCycles`
       `press`/`pressBy` `brak` `hurry` `focus`
-- [ ] `ribbon`/`rib`, `compressSpan`/`focusSpan`/`zoomArc`, `pace`, `flux`, `seg`
+- [x] `pace` (stretch to a target step count, preserving step metadata)
+- [ ] `ribbon`/`rib`, `compressSpan`/`focusSpan`/`zoomArc`, `flux`, `seg`
 
 ## learn/signals
 
@@ -112,15 +113,18 @@ Function-by-function audit against the Strudel learn pages
 ## learn/accumulation
 
 - [x] `stack`, `superimpose`, `off`, `echo`/`stut`, `jux`/`juxBy`
-- [~] `layer` (engine has it, not bound)
-- [ ] `overlay`, `wchoose`/`wchooseCycles`/`wrandcat`, `arrange`, `scan`
+- [x] `layer` (bound: `pat.layer([f, g, …])` stacks each callback's result)
+- [x] `overlay` (method), `arrange` (factory)
+- [ ] `wchoose`/`wchooseCycles`/`wrandcat`, `scan`
 
 ## learn/factories
 
 - [x] `stack` `cat`(slowcat) `seq`(fastcat) `fastcat` `slowcat` `randcat`
       `chooseCycles` `pure` `gap` `silence`
-- [~] `timecat` (weighted pairs — engine has it, awkward to bind)
-- [ ] `polymeter`/`pm`, `arrange`, `stepcat`/`ncat`, `run` factory
+- [x] `timecat`/`stepcat` (weighted pairs: bare patterns weight by step count,
+      or pass `[weight, pat]` pairs), `arrange` (`[cycles, pat]` sections),
+      `polymeter`/`pm` (`pace`-align to LCM steps)
+- [ ] `stepcat`/`ncat` step-list variants (`stepalt`, `take`/`drop`), `run` factory
 
 ## learn/mini-notation (parser — parity-tested)
 

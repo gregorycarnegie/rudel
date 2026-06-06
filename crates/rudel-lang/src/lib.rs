@@ -66,6 +66,38 @@ fn arg_to_frac(value: &KValue) -> Frac {
     Frac::from_f64(arg_to_f64(value))
 }
 
+/// Collect callable arguments for `layer`: a single list/tuple is expanded into
+/// its elements, otherwise the varargs are used as-is.
+fn collect_callables(args: &[KValue]) -> Vec<KValue> {
+    match args {
+        [KValue::List(l)] => l.data().iter().cloned().collect(),
+        [KValue::Tuple(t)] => t.data().to_vec(),
+        _ => args.to_vec(),
+    }
+}
+
+/// Interpret an argument as a `(weight, pattern)` pair for `stepcat`/`arrange`.
+/// A two-element list/tuple `[weight, pat]` sets the weight explicitly;
+/// otherwise the pattern's own step count is used (defaulting to `1`).
+fn arg_to_weighted_pair(value: &KValue) -> (Frac, Pattern) {
+    let explicit = match value {
+        KValue::List(l) => {
+            let d = l.data();
+            (d.len() == 2).then(|| (arg_to_frac(&d[0]), arg_to_pattern(&d[1])))
+        }
+        KValue::Tuple(t) => {
+            let d = t.data();
+            (d.len() == 2).then(|| (arg_to_frac(&d[0]), arg_to_pattern(&d[1])))
+        }
+        _ => None,
+    };
+    explicit.unwrap_or_else(|| {
+        let pat = arg_to_pattern(value);
+        let weight = pat.steps.unwrap_or_else(Frac::one);
+        (weight, pat)
+    })
+}
+
 fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
     ctx.args.get(i).cloned().unwrap_or(KValue::Null)
 }
@@ -328,6 +360,28 @@ macro_rules! kpattern_methods {
                 }
             )*
 
+            // `pat.layer([f, g, ...])`: stack the results of applying each
+            // function in the list to the pattern. Accepts a list/tuple of
+            // callables, or bare callable args.
+            #[koto_method]
+            fn layer(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let pat = ctx.instance()?.0.clone();
+                let funcs = collect_callables(&ctx.args);
+                let mut results = Vec::with_capacity(funcs.len());
+                let mut first_err = None;
+                for func in funcs {
+                    let cb = Callback::new(&ctx, func);
+                    results.push(cb.apply(&pat));
+                    if let Err(e) = cb.finish() {
+                        first_err.get_or_insert(e);
+                    }
+                }
+                if let Some(e) = first_err {
+                    return Err(e);
+                }
+                Ok(KPattern::wrap(rudel_core::stack(&results)))
+            }
+
             #[koto_method]
             fn scale(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                 let name = match method_arg(&ctx, 0) {
@@ -368,13 +422,14 @@ kpattern_methods! {
         keep_out, keep_squeeze,
         add_poly, mul_poly, set_poly, keep_poly,
         transpose, scale_transpose,
+        overlay,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
         to_bipolar, from_bipolar, ratio, fit, chord,
     ],
     i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate],
-    frac_arg: [hurry, press_by, swing, loop_at],
+    frac_arg: [hurry, press_by, swing, loop_at, pace],
     pattern_pattern_arg: [slice, splice],
     frac_frac_arg: [focus, swing_by, compress, zoom],
     f64_f64_arg: [range, range2, rangex],
@@ -445,6 +500,26 @@ fn register(prelude: &KMap) {
         let n = arg_to_f64(&arg0(ctx)) as i64;
         Ok(KPattern(rudel_core::gap(Frac::int(n.max(0)))).into())
     });
+    // stepcat / timecat: weighted stepwise concatenation. Each arg is either a
+    // pattern (weight = its step count) or a `[weight, pattern]` pair.
+    let stepcat = |ctx: &mut CallContext| {
+        let pairs: Vec<(Frac, Pattern)> = ctx.args().iter().map(arg_to_weighted_pair).collect();
+        Ok(KPattern(rudel_core::timecat(&pairs)).into())
+    };
+    prelude.add_fn("stepcat", stepcat);
+    prelude.add_fn("timecat", stepcat);
+    // arrange: each arg is a `[cycles, pattern]` section laid out on a timeline.
+    prelude.add_fn("arrange", |ctx| {
+        let sections: Vec<(Frac, Pattern)> = ctx.args().iter().map(arg_to_weighted_pair).collect();
+        Ok(KPattern(rudel_core::arrange(&sections)).into())
+    });
+    // polymeter / pm: align patterns to a common (LCM) step count.
+    let polymeter = |ctx: &mut CallContext| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::polymeter(&pats)).into())
+    };
+    prelude.add_fn("polymeter", polymeter);
+    prelude.add_fn("pm", polymeter);
 
     // -- Signals --------------------------------------------------------
     // Continuous signals are exposed as pattern *values* (like Strudel), so
@@ -766,6 +841,43 @@ mod tests {
             Value::Map(m) => assert_eq!(m.get("begin"), Some(&Value::F64(0.0))),
             other => panic!("expected map, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn layer_stacks_callback_results() {
+        // layer([|x| x.add(0), |x| x.add(7)]) over a single value -> two haps
+        let pat = eval(r#"seq(0).layer([|x| x.add(0), |x| x.add(7)])"#).expect("eval");
+        let mut got = values(&pat, 0, 1);
+        got.sort_by_key(|v| v.as_f64().unwrap() as i64);
+        assert_eq!(got, vec![Value::Int(0), Value::Int(7)]);
+    }
+
+    #[test]
+    fn factories_stepcat_arrange_polymeter() {
+        // stepcat("0 1 2", "3 4") -> 5 evenly-weighted steps
+        let pat = eval(r#"stepcat("0 1 2", "3 4")"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 5);
+        // explicit [weight, pat] pairs: "0"@3 then "1" -> 2 onsets, 0 dominates
+        let pat = eval(r#"stepcat([3, "0"], [1, "1"])"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(0), Value::Int(1)]);
+        // arrange: "0" for 2 cycles, "1" for 1
+        let pat = eval(r#"arrange([2, "0"], [1, "1"])"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
+        assert_eq!(values(&pat, 2, 3)[0], Value::Int(1));
+        // polymeter / pm align to lcm(3,2)=6 steps -> 12 haps stacked
+        let pat = eval(r#"polymeter("0 1 2", "4 5")"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 12);
+        assert!(eval(r#"pm("0 1", "2 3 4")"#).is_ok());
+    }
+
+    #[test]
+    fn overlay_and_pace_via_koto() {
+        let pat = eval(r#"seq(0).overlay(7)"#).expect("eval");
+        let mut got = values(&pat, 0, 1);
+        got.sort_by_key(|v| v.as_f64().unwrap() as i64);
+        assert_eq!(got, vec![Value::Int(0), Value::Int(7)]);
+        let pat = eval(r#"seq(0, 1, 2).pace(4)"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
     }
 
     #[test]

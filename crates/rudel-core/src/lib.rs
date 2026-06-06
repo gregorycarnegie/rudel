@@ -22,8 +22,8 @@ pub mod value;
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
 pub use pattern::{
-    Pattern, cat, fastcat, gap, nothing, parse_string, pure, reify, sequence, set_string_parser,
-    silence, slowcat, slowcat_prime, stack, timecat, value_to_pattern,
+    Pattern, arrange, cat, fastcat, gap, nothing, parse_string, polymeter, pure, reify, sequence,
+    set_string_parser, silence, slowcat, slowcat_prime, stack, stepcat, timecat, value_to_pattern,
 };
 pub use state::State;
 pub use timespan::TimeSpan;
@@ -265,5 +265,70 @@ mod tests {
             .map(|h| h.value)
             .collect();
         assert_eq!(values, vec![Value::Int(10), Value::Int(11), Value::Int(12)]);
+    }
+
+    #[test]
+    fn stepcat_concatenates_by_steps() {
+        // stepcat("0 1 2", "3 4") == "0 1 2 3 4": a 5-step weighted cat.
+        let a = seq([0, 1, 2]);
+        let b = seq([3, 4]);
+        let pat = stepcat(&[a, b]);
+        assert_eq!(pat.steps, Some(Frac::int(5)));
+        let values: Vec<Value> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| h.value)
+            .collect();
+        assert_eq!(
+            values,
+            vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4),
+            ]
+        );
+    }
+
+    #[test]
+    fn arrange_lays_sections_over_cycles() {
+        // arrange([2, "0"], [1, "1"]): "0" for two cycles, "1" for one, total 3.
+        let pat = arrange(&[(Frac::int(2), p(0)), (Frac::int(1), p(1))]);
+        assert_eq!(arc(&pat, 0, 1)[0].2, Value::Int(0));
+        assert_eq!(arc(&pat, 1, 2)[0].2, Value::Int(0));
+        assert_eq!(arc(&pat, 2, 3)[0].2, Value::Int(1));
+        // and it loops every 3 cycles
+        assert_eq!(arc(&pat, 3, 4)[0].2, Value::Int(0));
+    }
+
+    #[test]
+    fn polymeter_aligns_to_lcm_steps() {
+        // polymeter("0 1 2", "a b"): steps lcm(3,2) = 6.
+        let a = seq([0, 1, 2]);
+        let b = fastcat(&[pure(Value::Str("a".into())), pure(Value::Str("b".into()))]);
+        let pat = polymeter(&[a, b]);
+        assert_eq!(pat.steps, Some(Frac::int(6)));
+        // 6 steps from each of the two stacked patterns = 12 haps per cycle.
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 12);
+    }
+
+    #[test]
+    fn overlay_stacks_two_patterns() {
+        let pat = p(0).overlay(p(7));
+        let values: Vec<Value> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| h.value)
+            .collect();
+        assert!(values.contains(&Value::Int(0)) && values.contains(&Value::Int(7)));
+    }
+
+    #[test]
+    fn pace_sets_step_count() {
+        // "0 1 2" (3 steps) paced to 4 steps -> 4 events, steps = 4.
+        let pat = seq([0, 1, 2]).pace(Frac::int(4));
+        assert_eq!(pat.steps, Some(Frac::int(4)));
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
     }
 }

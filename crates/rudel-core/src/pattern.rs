@@ -550,6 +550,23 @@ impl Pattern {
     pub fn stack_with(&self, other: &Pattern) -> Pattern {
         stack(&[self.clone(), other.clone()])
     }
+
+    /// Stack `other` on top of this pattern (`overlay`). Like [`stack_with`] but
+    /// accepts anything patternifiable (numbers, mini-notation strings, …).
+    pub fn overlay(&self, other: impl crate::transforms::IntoPattern) -> Pattern {
+        self.stack_with(&other.into_pattern())
+    }
+
+    /// Speed the pattern up/down so it has `target` steps per cycle, preserving
+    /// its step count metadata (`pace`). A pattern with no step count, or zero
+    /// steps, is returned unchanged / as silence respectively.
+    pub fn pace(&self, target: Frac) -> Pattern {
+        match self.steps {
+            None => self.clone(),
+            Some(s) if s == Frac::zero() => silence(),
+            Some(s) => self._fast(target / s).set_steps(Some(target)),
+        }
+    }
 }
 
 /// Turn a [`Value`] into a [`Pattern`]: patterns pass through, everything else
@@ -683,6 +700,52 @@ pub fn timecat(pairs: &[(Frac, Pattern)]) -> Pattern {
         begin = end;
     }
     stack(&pats).set_steps(Some(total))
+}
+
+/// Stepwise concatenation (`stepcat`/`timeCat`): like [`fastcat`] but each
+/// pattern occupies a slice proportional to its own step count (defaulting to
+/// `1` when unknown). `stepcat("bd sd cp", "hh hh")` is the same as
+/// `"bd sd cp hh hh"`.
+pub fn stepcat(pats: &[Pattern]) -> Pattern {
+    let pairs: Vec<(Frac, Pattern)> = pats
+        .iter()
+        .map(|p| (p.steps.unwrap_or_else(Frac::one), p.clone()))
+        .collect();
+    timecat(&pairs)
+}
+
+/// Arrange `(cycles, pattern)` sections over a timeline (`arrange`). Each
+/// section is sped up to fill its own cycle, then the whole thing is slowed so
+/// every section spans the requested number of cycles.
+pub fn arrange(sections: &[(Frac, Pattern)]) -> Pattern {
+    let total: Frac = sections.iter().fold(Frac::zero(), |a, (c, _)| a + *c);
+    if total == Frac::zero() {
+        return silence();
+    }
+    let pairs: Vec<(Frac, Pattern)> = sections
+        .iter()
+        .map(|(cycles, pat)| (*cycles, pat._fast(*cycles)))
+        .collect();
+    timecat(&pairs)._slow(total)
+}
+
+/// Align patterns to a common step count (the LCM of their step counts),
+/// creating polymeters (`polymeter`/`pm`). Patterns without a step count are
+/// ignored, mirroring Strudel.
+pub fn polymeter(pats: &[Pattern]) -> Pattern {
+    let steps_list: Vec<Frac> = pats.iter().filter_map(|p| p.steps).collect();
+    let Some(steps) = steps_list.into_iter().reduce(|a, b| a.lcm(b)) else {
+        return silence();
+    };
+    if steps == Frac::zero() {
+        return silence();
+    }
+    let paced: Vec<Pattern> = pats
+        .iter()
+        .filter(|p| p.steps.is_some())
+        .map(|p| p.pace(steps))
+        .collect();
+    stack(&paced).set_steps(Some(steps))
 }
 
 // ---------------------------------------------------------------------------
