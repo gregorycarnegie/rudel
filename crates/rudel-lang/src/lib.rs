@@ -21,6 +21,12 @@ impl From<KPattern> for KValue {
     }
 }
 
+impl KPattern {
+    fn wrap(pat: Pattern) -> KValue {
+        KPattern(pat).into()
+    }
+}
+
 /// Convert a Koto argument into a pattern: numbers become `pure` values,
 /// strings parse as mini-notation, and patterns pass through.
 fn arg_to_pattern(value: &KValue) -> Pattern {
@@ -60,12 +66,32 @@ fn arg_to_frac(value: &KValue) -> Frac {
     Frac::from_f64(arg_to_f64(value))
 }
 
-fn first_arg(ctx: &MethodContext<KPattern>) -> KValue {
-    ctx.args.first().cloned().unwrap_or(KValue::Null)
+fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
+    ctx.args.get(i).cloned().unwrap_or(KValue::Null)
 }
 
-fn nth_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
-    ctx.args.get(i).cloned().unwrap_or(KValue::Null)
+fn method_pattern_arg(ctx: &MethodContext<KPattern>, i: usize) -> Pattern {
+    arg_to_pattern(&method_arg(ctx, i))
+}
+
+fn method_f64_arg(ctx: &MethodContext<KPattern>, i: usize) -> f64 {
+    arg_to_f64(&method_arg(ctx, i))
+}
+
+fn method_i64_arg(ctx: &MethodContext<KPattern>, i: usize) -> i64 {
+    method_f64_arg(ctx, i) as i64
+}
+
+fn method_frac_arg(ctx: &MethodContext<KPattern>, i: usize) -> Frac {
+    arg_to_frac(&method_arg(ctx, i))
+}
+
+fn with_instance(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern) -> Pattern,
+) -> KotoResult<KValue> {
+    let instance = ctx.instance()?;
+    Ok(KPattern::wrap(f(&instance.0)))
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the
@@ -121,40 +147,134 @@ impl Callback {
     }
 }
 
+fn with_callback(
+    ctx: &MethodContext<KPattern>,
+    callback_arg: usize,
+    f: impl FnOnce(Pattern, &Callback) -> Pattern,
+) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(ctx, method_arg(ctx, callback_arg));
+    let result = f(pat, &cb);
+    cb.finish()?;
+    Ok(KPattern::wrap(result))
+}
+
 macro_rules! kpattern_methods {
     (
         pattern_arg: [$($pattern_arg_method:ident),* $(,)?],
         no_arg: [$($no_arg_method:ident),* $(,)?],
         i64_arg: [$($i64_arg_method:ident),* $(,)?],
+        frac_arg: [$($frac_arg_method:ident),* $(,)?],
+        pattern_pattern_arg: [$($pattern_pattern_arg_method:ident),* $(,)?],
+        frac_frac_arg: [$($frac_frac_arg_method:ident),* $(,)?],
+        f64_f64_arg: [$($f64_f64_arg_method:ident),* $(,)?],
+        i64_i64_arg: [$($i64_i64_arg_method:ident),* $(,)?],
+        i64_i64_i64_arg: [$($i64_i64_i64_arg_method:ident),* $(,)?],
+        i64_frac_f64_arg: [$($i64_frac_f64_arg_method:ident),* $(,)?],
+        i64_f64_frac_arg: [$($i64_f64_frac_arg_method:ident),* $(,)?],
         fn_arg: [$($fn_arg_method:ident),* $(,)?],
         i64_fn_arg: [$($i64_fn_arg_method:ident),* $(,)?],
+        frac_fn_arg: [$($frac_fn_arg_method:ident),* $(,)?],
+        f64_fn_arg: [$($f64_fn_arg_method:ident),* $(,)?],
+        pattern_fn_arg: [$($pattern_fn_arg_method:ident),* $(,)?],
+        frac_frac_fn_arg: [$($frac_frac_fn_arg_method:ident),* $(,)?],
     ) => {
         #[koto_impl]
         impl KPattern {
-            fn wrap(pat: Pattern) -> KValue {
-                KPattern(pat).into()
-            }
-
             $(
                 #[koto_method]
                 fn $pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let arg = arg_to_pattern(&first_arg(&ctx));
-                    Ok(Self::wrap(ctx.instance()?.0.$pattern_arg_method(arg)))
+                    let arg = method_pattern_arg(&ctx, 0);
+                    with_instance(&ctx, |pat| pat.$pattern_arg_method(arg))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $no_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    Ok(Self::wrap(ctx.instance()?.0.$no_arg_method()))
+                    with_instance(&ctx, |pat| pat.$no_arg_method())
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = arg_to_f64(&first_arg(&ctx)) as i64;
-                    Ok(Self::wrap(ctx.instance()?.0.$i64_arg_method(n)))
+                    let n = method_i64_arg(&ctx, 0);
+                    with_instance(&ctx, |pat| pat.$i64_arg_method(n))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let n = method_frac_arg(&ctx, 0);
+                    with_instance(&ctx, |pat| pat.$frac_arg_method(n))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $pattern_pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_pattern_arg(&ctx, 0);
+                    let b = method_pattern_arg(&ctx, 1);
+                    with_instance(&ctx, |pat| pat.$pattern_pattern_arg_method(a, b))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $frac_frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_frac_arg(&ctx, 0);
+                    let b = method_frac_arg(&ctx, 1);
+                    with_instance(&ctx, |pat| pat.$frac_frac_arg_method(a, b))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $f64_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_f64_arg(&ctx, 0);
+                    let b = method_f64_arg(&ctx, 1);
+                    with_instance(&ctx, |pat| pat.$f64_f64_arg_method(a, b))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $i64_i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_i64_arg(&ctx, 0);
+                    let b = method_i64_arg(&ctx, 1);
+                    with_instance(&ctx, |pat| pat.$i64_i64_arg_method(a, b))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $i64_i64_i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_i64_arg(&ctx, 0);
+                    let b = method_i64_arg(&ctx, 1);
+                    let c = method_i64_arg(&ctx, 2);
+                    with_instance(&ctx, |pat| pat.$i64_i64_i64_arg_method(a, b, c))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $i64_frac_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_i64_arg(&ctx, 0);
+                    let b = method_frac_arg(&ctx, 1);
+                    let c = method_f64_arg(&ctx, 2);
+                    with_instance(&ctx, |pat| pat.$i64_frac_f64_arg_method(a, b, c))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $i64_f64_frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_i64_arg(&ctx, 0);
+                    let b = method_f64_arg(&ctx, 1);
+                    let c = method_frac_arg(&ctx, 2);
+                    with_instance(&ctx, |pat| pat.$i64_f64_frac_arg_method(a, b, c))
                 }
             )*
 
@@ -162,11 +282,7 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 fn $fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let pat = ctx.instance()?.0.clone();
-                    let cb = Callback::new(&ctx, first_arg(&ctx));
-                    let result = pat.$fn_arg_method(|p| cb.apply(p));
-                    cb.finish()?;
-                    Ok(Self::wrap(result))
+                    with_callback(&ctx, 0, |pat, cb| pat.$fn_arg_method(|p| cb.apply(p)))
                 }
             )*
 
@@ -174,296 +290,51 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 fn $i64_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = arg_to_f64(&first_arg(&ctx)) as i64;
-                    let pat = ctx.instance()?.0.clone();
-                    let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                    let result = pat.$i64_fn_arg_method(n, |p| cb.apply(p));
-                    cb.finish()?;
-                    Ok(Self::wrap(result))
+                    let n = method_i64_arg(&ctx, 0);
+                    with_callback(&ctx, 1, |pat, cb| pat.$i64_fn_arg_method(n, |p| cb.apply(p)))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $frac_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let n = method_frac_arg(&ctx, 0);
+                    with_callback(&ctx, 1, |pat, cb| pat.$frac_fn_arg_method(n, |p| cb.apply(p)))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $f64_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let n = method_f64_arg(&ctx, 0);
+                    with_callback(&ctx, 1, |pat, cb| pat.$f64_fn_arg_method(n, |p| cb.apply(p)))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $pattern_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let arg = method_pattern_arg(&ctx, 0);
+                    with_callback(&ctx, 1, |pat, cb| pat.$pattern_fn_arg_method(arg, |p| cb.apply(p)))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $frac_frac_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let a = method_frac_arg(&ctx, 0);
+                    let b = method_frac_arg(&ctx, 1);
+                    with_callback(&ctx, 2, |pat, cb| pat.$frac_frac_fn_arg_method(a, b, |p| cb.apply(p)))
                 }
             )*
 
             #[koto_method]
-            fn euclid(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let p = arg_to_f64(&first_arg(&ctx)) as i64;
-                let s = arg_to_f64(&nth_arg(&ctx, 1)) as i64;
-                Ok(Self::wrap(ctx.instance()?.0.euclid(p, s)))
-            }
-
-            /// `euclid_rot(pulses, steps, rotation)`: Euclidean rhythm, rotated.
-            #[koto_method]
-            fn euclid_rot(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let p = arg_to_f64(&first_arg(&ctx)) as i64;
-                let s = arg_to_f64(&nth_arg(&ctx, 1)) as i64;
-                let r = arg_to_f64(&nth_arg(&ctx, 2)) as i64;
-                Ok(Self::wrap(ctx.instance()?.0.euclid_rot(p, s, r)))
-            }
-
-            /// `hurry(r)`: speed up the pattern and the sample playback together.
-            #[koto_method]
-            fn hurry(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let r = arg_to_frac(&first_arg(&ctx));
-                Ok(Self::wrap(ctx.instance()?.0.hurry(r)))
-            }
-
-            /// `focus(b, e)`: like `compress` but gap-less; can exceed a cycle.
-            #[koto_method]
-            fn focus(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let b = arg_to_frac(&first_arg(&ctx));
-                let e = arg_to_frac(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.focus(b, e)))
-            }
-
-            /// `press_by(r)`: shift each event `r` of the way into its timespan.
-            #[koto_method]
-            fn press_by(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let r = arg_to_frac(&first_arg(&ctx));
-                Ok(Self::wrap(ctx.instance()?.0.press_by(r)))
-            }
-
-            // -- Higher-order combinators with non-uniform signatures ---------
-
-            /// `off(time, f)`: stack a transformed copy shifted later in time.
-            #[koto_method]
-            fn off(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let time = arg_to_pattern(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.off(time, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `within(a, b, f)`: apply `f` only to the `[a, b]` slice of a cycle.
-            #[koto_method]
-            fn within(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let a = arg_to_frac(&first_arg(&ctx));
-                let b = arg_to_frac(&nth_arg(&ctx, 1));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 2));
-                let result = pat.within(a, b, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `inside(n, f)`: apply `f` to a slowed view, then speed back up.
-            #[koto_method]
-            fn inside(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_frac(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.inside(n, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `outside(n, f)`: apply `f` to a sped-up view, then slow back down.
-            #[koto_method]
-            fn outside(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_frac(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.outside(n, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `jux_by(amount, f)`: pan-split copies and transform the right one.
-            #[koto_method]
-            fn jux_by(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let by = arg_to_f64(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.jux_by(by, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `sometimes_by(prob, f)`: apply `f` to a `prob` fraction of events.
-            #[koto_method]
-            fn sometimes_by(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let prob = arg_to_f64(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.sometimes_by(prob, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `some_cycles_by(prob, f)`: apply `f` on a `prob` fraction of cycles.
-            #[koto_method]
-            fn some_cycles_by(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let prob = arg_to_f64(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.some_cycles_by(prob, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            /// `when(bools, f)`: apply `f` where the boolean pattern is true.
-            #[koto_method]
-            fn when(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let bools = arg_to_pattern(&first_arg(&ctx));
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, nth_arg(&ctx, 1));
-                let result = pat.when(bools, |p| cb.apply(p));
-                cb.finish()?;
-                Ok(Self::wrap(result))
-            }
-
-            // -- Scalar transforms exposed from the engine --------------------
-
-            /// `range(min, max)`: scale a unipolar (0..1) signal into `min..max`.
-            #[koto_method]
-            fn range(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let min = arg_to_f64(&first_arg(&ctx));
-                let max = arg_to_f64(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.range(min, max)))
-            }
-
-            /// `range2(min, max)`: scale a bipolar (-1..1) signal into `min..max`.
-            #[koto_method]
-            fn range2(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let min = arg_to_f64(&first_arg(&ctx));
-                let max = arg_to_f64(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.range2(min, max)))
-            }
-
-            /// `rangex(min, max)`: exponential range scaling.
-            #[koto_method]
-            fn rangex(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let min = arg_to_f64(&first_arg(&ctx));
-                let max = arg_to_f64(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.rangex(min, max)))
-            }
-
-            /// `swing(n)`: delay the off-beats of `n` slices per cycle.
-            #[koto_method]
-            fn swing(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_frac(&first_arg(&ctx));
-                Ok(Self::wrap(ctx.instance()?.0.swing(n)))
-            }
-
-            /// `swing_by(amount, n)`: like `swing`, with an explicit shift amount.
-            #[koto_method]
-            fn swing_by(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let amount = arg_to_frac(&first_arg(&ctx));
-                let n = arg_to_frac(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.swing_by(amount, n)))
-            }
-
-            /// `echo(times, time, feedback)`: stack decaying delayed copies.
-            #[koto_method]
-            fn echo(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let times = arg_to_f64(&first_arg(&ctx)) as i64;
-                let time = arg_to_frac(&nth_arg(&ctx, 1));
-                let feedback = arg_to_f64(&nth_arg(&ctx, 2));
-                Ok(Self::wrap(ctx.instance()?.0.echo(times, time, feedback)))
-            }
-
-            /// `stut(times, feedback, time)`: `echo` with the legacy arg order.
-            #[koto_method]
-            fn stut(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let times = arg_to_f64(&first_arg(&ctx)) as i64;
-                let feedback = arg_to_f64(&nth_arg(&ctx, 1));
-                let time = arg_to_frac(&nth_arg(&ctx, 2));
-                Ok(Self::wrap(ctx.instance()?.0.stut(times, feedback, time)))
-            }
-
-            /// `compress(b, e)`: squeeze each cycle into the `[b, e]` window.
-            #[koto_method]
-            fn compress(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let b = arg_to_frac(&first_arg(&ctx));
-                let e = arg_to_frac(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.compress(b, e)))
-            }
-
-            /// `zoom(s, e)`: play the `[s, e]` slice of a cycle over the full cycle.
-            #[koto_method]
-            fn zoom(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let s = arg_to_frac(&first_arg(&ctx));
-                let e = arg_to_frac(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.zoom(s, e)))
-            }
-
-            // -- Sample manipulation ------------------------------------------
-
-            /// `chop(n)`: slice each sample into `n` pieces played in order.
-            #[koto_method]
-            fn chop(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_f64(&first_arg(&ctx)) as i64;
-                Ok(Self::wrap(ctx.instance()?.0.chop(n)))
-            }
-
-            /// `striate(n)`: interleave `n` sample slices across the cycle.
-            #[koto_method]
-            fn striate(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_f64(&first_arg(&ctx)) as i64;
-                Ok(Self::wrap(ctx.instance()?.0.striate(n)))
-            }
-
-            /// `slice(n, i)`: trigger slice `i` of `n` sample pieces.
-            #[koto_method]
-            fn slice(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_pattern(&first_arg(&ctx));
-                let i = arg_to_pattern(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.slice(n, i)))
-            }
-
-            /// `splice(n, i)`: like `slice`, time-stretching each slice to its step.
-            #[koto_method]
-            fn splice(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let n = arg_to_pattern(&first_arg(&ctx));
-                let i = arg_to_pattern(&nth_arg(&ctx, 1));
-                Ok(Self::wrap(ctx.instance()?.0.splice(n, i)))
-            }
-
-            /// `loop_at(cycles)`: stretch a sample to span `cycles` cycles.
-            #[koto_method]
-            fn loop_at(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let cycles = arg_to_frac(&first_arg(&ctx));
-                Ok(Self::wrap(ctx.instance()?.0.loop_at(cycles)))
-            }
-
-            /// `fit()`: stretch each sample to fill its own event duration.
-            #[koto_method]
-            fn fit(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                Ok(Self::wrap(ctx.instance()?.0.fit()))
-            }
-
-            // -- Tonal: scales, transpose, chords -----------------------------
-
-            /// `scale(name)`: map scale-degree numbers to notes in `name`
-            /// (e.g. `"C:major"`). The name is taken literally rather than as
-            /// mini-notation, so `:` separates root from scale type.
-            #[koto_method]
             fn scale(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let name = match first_arg(&ctx) {
+                let name = match method_arg(&ctx, 0) {
                     KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
                     other => arg_to_pattern(&other),
                 };
-                Ok(Self::wrap(ctx.instance()?.0.scale(name)))
-            }
-
-            /// `transpose(semitones)`: shift each note by a number of semitones.
-            #[koto_method]
-            fn transpose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let semis = arg_to_pattern(&first_arg(&ctx));
-                Ok(Self::wrap(ctx.instance()?.0.transpose(semis)))
-            }
-
-            /// `scale_transpose(offset)`: transpose within the tagged scale.
-            #[koto_method]
-            fn scale_transpose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let offset = arg_to_pattern(&first_arg(&ctx));
-                Ok(Self::wrap(ctx.instance()?.0.scale_transpose(offset)))
-            }
-
-            /// `chord()`: expand chord names into stacks of simultaneous notes.
-            #[koto_method]
-            fn chord(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                Ok(Self::wrap(ctx.instance()?.0.chord()))
+                with_instance(&ctx, |pat| pat.scale(name))
             }
         }
     };
@@ -496,16 +367,29 @@ kpattern_methods! {
         set_out, set_mix, set_squeeze, set_squeezeout,
         keep_out, keep_squeeze,
         add_poly, mul_poly, set_poly, keep_poly,
+        transpose, scale_transpose,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio,
+        to_bipolar, from_bipolar, ratio, fit, chord,
     ],
-    i64_arg: [iter, iter_back, repeat_cycles, expand, extend],
+    i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate],
+    frac_arg: [hurry, press_by, swing, loop_at],
+    pattern_pattern_arg: [slice, splice],
+    frac_frac_arg: [focus, swing_by, compress, zoom],
+    f64_f64_arg: [range, range2, rangex],
+    i64_i64_arg: [euclid],
+    i64_i64_i64_arg: [euclid_rot],
+    i64_frac_f64_arg: [echo],
+    i64_f64_frac_arg: [stut],
     fn_arg: [
         superimpose, jux, sometimes, often, rarely, almost_always, almost_never, some_cycles,
     ],
     i64_fn_arg: [every, first_of, last_of, chunk, chunk_back],
+    frac_fn_arg: [inside, outside],
+    f64_fn_arg: [jux_by, sometimes_by, some_cycles_by],
+    pattern_fn_arg: [off, when],
+    frac_frac_fn_arg: [within],
 }
 
 /// Add the rudel top-level functions to a Koto prelude.
@@ -760,7 +644,12 @@ mod tests {
             vec![Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3)]
         );
         // rand / perlin / saw2 usable bare
-        for s in ["rand.segment(8)", "perlin.segment(8)", "saw2.segment(4)", "irand(8).segment(4)"] {
+        for s in [
+            "rand.segment(8)",
+            "perlin.segment(8)",
+            "saw2.segment(4)",
+            "irand(8).segment(4)",
+        ] {
             assert!(eval(s).is_ok(), "should eval: {s}");
         }
     }
@@ -772,8 +661,16 @@ mod tests {
         assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
         assert_eq!(values(&pat, 1, 2)[0], Value::Int(1));
         // pure literal, gap silence, fastcat/randcat resolve
-        assert_eq!(values(&eval("pure(60)").unwrap(), 0, 1), vec![Value::Int(60)]);
-        assert!(eval("gap(2)").unwrap().query_arc(Frac::zero(), Frac::one()).is_empty());
+        assert_eq!(
+            values(&eval("pure(60)").unwrap(), 0, 1),
+            vec![Value::Int(60)]
+        );
+        assert!(
+            eval("gap(2)")
+                .unwrap()
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
         for s in ["fastcat(0, 1, 2)", "randcat(0, 1)", "chooseCycles(0, 1)"] {
             assert!(eval(s).is_ok(), "should eval: {s}");
         }
