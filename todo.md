@@ -32,8 +32,11 @@ Function-by-function audit against the Strudel learn pages
 - [x] `note` / `n`, note names + octaves, MIDI numbers
 - [x] `scale("C:major")`, scale-degree numbers, `#`/`b` step accidentals
 - [x] `transpose`/`trans`, `scaleTranspose`/`strans`, `chord()` (chord symbols)
-- [ ] `voicing` / `voicings` / `rootNotes` (tonaljs voicing dictionaries)
-- [ ] `arp` / `arpeggiate`, `arpWith`
+- [ ] `voicing` / `voicings` / `rootNotes` (tonaljs voicing dictionaries —
+      ~500 lines of dictionaries + a voice-leading search; deferred)
+- [x] `arp` (index pattern selects chord notes), `arpeggiate` (play chord in
+      sequence); `arp_with` in the engine (callback over chord values, not yet
+      bound in Koto). Built on a new `collect` (group simultaneous haps).
 - [ ] enharmonic interval-string transpose (`"3M"`), `mode`/`anchor` stepping
 - [ ] `mtranspose` / `ctranspose` / `degreeToNote`, `toScale` (custom scales)
 

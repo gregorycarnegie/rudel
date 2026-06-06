@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::fraction::Frac;
+use crate::hap::{Context, Hap};
 use crate::pattern::{Pattern, fastcat, pure, silence, slowcat, stack, value_to_pattern};
 use crate::signal::rand;
 use crate::timespan::TimeSpan;
@@ -416,6 +417,71 @@ impl Pattern {
     pub fn focus(&self, b: impl Into<Frac>, e: impl Into<Frac>) -> Pattern {
         self._focus(frac(b), frac(e))
     }
+
+    /// `collect`: group simultaneous (congruent) haps into a single hap whose
+    /// value is a [`Value::List`] of the grouped values, preserving order.
+    pub fn collect(&self) -> Pattern {
+        self.with_haps(|haps, _| {
+            let mut groups: Vec<(Option<TimeSpan>, TimeSpan, Vec<Value>, Context)> = Vec::new();
+            for hap in haps {
+                match groups
+                    .iter_mut()
+                    .find(|(w, p, _, _)| *w == hap.whole && *p == hap.part)
+                {
+                    Some(group) => group.2.push(hap.value),
+                    None => groups.push((hap.whole, hap.part, vec![hap.value], hap.context)),
+                }
+            }
+            groups
+                .into_iter()
+                .map(|(whole, part, values, ctx)| {
+                    Hap::new(whole, part, Value::List(values)).set_context(ctx)
+                })
+                .collect()
+        })
+    }
+
+    /// `arpWith`: collect simultaneous notes into chords, then for each chord
+    /// build a pattern with `func` (given the chord's values) and play it within
+    /// the chord's timespan.
+    pub fn arp_with<F>(&self, func: F) -> Pattern
+    where
+        F: Fn(&[Value]) -> Pattern + Send + Sync + 'static,
+    {
+        let func = Arc::new(func);
+        self.collect().inner_bind(move |list_val| {
+            let notes = match list_val {
+                Value::List(v) => v,
+                other => vec![other],
+            };
+            if notes.is_empty() {
+                silence()
+            } else {
+                func(&notes)
+            }
+        })
+    }
+
+    /// `arp`: arpeggiate chords by selecting their notes with an index pattern
+    /// (`haps[i % len]`), e.g. `note("<[c,eb,g]>").arp("0 1 2 1")`.
+    pub fn arp(&self, indices: impl IntoPattern) -> Pattern {
+        let indices = indices.into_pattern();
+        self.arp_with(move |notes| {
+            let notes = Arc::new(notes.to_vec());
+            indices.clone().fmap(move |idx| {
+                let i = idx.as_f64().unwrap_or(0.0).max(0.0) as usize;
+                notes[i % notes.len()].clone()
+            })
+        })
+    }
+
+    /// `arpeggiate`: play each chord's notes in sequence across its timespan.
+    pub fn arpeggiate(&self) -> Pattern {
+        self.arp_with(|notes| {
+            let pats: Vec<Pattern> = notes.iter().cloned().map(pure).collect();
+            fastcat(&pats)
+        })
+    }
 }
 
 fn seq2(a: Frac, b: Frac) -> Pattern {
@@ -689,6 +755,42 @@ mod tests {
         let got = values(&pat, 0, 1);
         assert_eq!(got.len(), 8);
         assert!(got.iter().all(|v| *v == Value::Int(5) || *v == Value::Int(9)));
+    }
+
+    #[test]
+    fn collect_groups_simultaneous_haps() {
+        // three stacked values collapse into one hap holding a list
+        let pat = stack(&[pure(Value::Int(0)), pure(Value::Int(1)), pure(Value::Int(2))]).collect();
+        let haps = pat.query_arc(Frac::zero(), Frac::one());
+        assert_eq!(haps.len(), 1);
+        assert_eq!(
+            haps[0].value,
+            Value::List(vec![Value::Int(0), Value::Int(1), Value::Int(2)])
+        );
+    }
+
+    #[test]
+    fn arp_selects_chord_notes_by_index() {
+        let chord = stack(&[pure(Value::Int(0)), pure(Value::Int(1)), pure(Value::Int(2))]);
+        // "0 1 2" walks up the chord
+        assert_eq!(
+            values(&chord.arp(seq([0, 1, 2])), 0, 1),
+            vec![Value::Int(0), Value::Int(1), Value::Int(2)]
+        );
+        // indices wrap and may reorder
+        assert_eq!(
+            values(&chord.arp(seq([2, 0, 3])), 0, 1),
+            vec![Value::Int(2), Value::Int(0), Value::Int(0)]
+        );
+    }
+
+    #[test]
+    fn arpeggiate_plays_chord_in_sequence() {
+        let chord = stack(&[pure(Value::Int(5)), pure(Value::Int(7)), pure(Value::Int(9))]);
+        assert_eq!(
+            values(&chord.arpeggiate(), 0, 1),
+            vec![Value::Int(5), Value::Int(7), Value::Int(9)]
+        );
     }
 
     #[test]

@@ -445,11 +445,11 @@ kpattern_methods! {
         keep_out, keep_squeeze,
         add_poly, mul_poly, set_poly, keep_poly,
         transpose, scale_transpose,
-        overlay,
+        overlay, arp,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, chord,
+        to_bipolar, from_bipolar, ratio, fit, chord, arpeggiate,
     ],
     i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate, take, drop],
     frac_arg: [hurry, press_by, swing, loop_at, pace],
@@ -982,6 +982,24 @@ mod tests {
                 Value::Int(3),
             ]
         );
+    }
+
+    #[test]
+    fn arp_and_arpeggiate_via_koto() {
+        // stack(0,1,2) is a chord; arp("0 1 2") walks up it
+        let pat = eval(r#"stack(0, 1, 2).arp("0 1 2")"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![Value::Int(0), Value::Int(1), Value::Int(2)]
+        );
+        // arpeggiate plays the chord notes in sequence
+        let pat = eval(r#"stack(5, 7, 9).arpeggiate()"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![Value::Int(5), Value::Int(7), Value::Int(9)]
+        );
+        // works on note chords from mini-notation too
+        assert!(eval(r#"note("[c,e,g]").arp("0 1 2 1")"#).is_ok());
     }
 
     #[test]
