@@ -1,4 +1,4 @@
-// transforms.rs - patternified, argument-lifting transforms.
+// transforms/core.rs - patternified, argument-lifting transforms.
 // These wrap the raw `_`-prefixed ops in pattern.rs the way Strudel's
 // `register` mechanism does: arguments can themselves be patterns.
 // SPDX-License-Identifier: AGPL-3.0-or-later

@@ -445,7 +445,7 @@ impl Pattern {
     //
     // These are the raw (unpatternified) ops, named with a leading `_` as in
     // Strudel. The patternified, argument-lifting public versions (`fast`,
-    // `slow`, ...) live in `transforms.rs`.
+    // `slow`, ...) live in the `transforms` module.
 
     pub fn _fast(&self, factor: Frac) -> Pattern {
         if factor == Frac::zero() {

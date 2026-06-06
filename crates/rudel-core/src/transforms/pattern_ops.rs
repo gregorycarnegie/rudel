@@ -1,5 +1,6 @@
-// transforms2.rs - the remaining Phase 1 transforms, building on the machinery
-// in transforms.rs. Ported from strudel/packages/core/{pattern,signal}.mjs.
+// transforms/pattern_ops.rs - pattern-level transform operations built on the
+// machinery in transforms/core.rs. Ported from
+// strudel/packages/core/{pattern,signal}.mjs.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::fraction::Frac;

@@ -17,7 +17,6 @@ pub mod state;
 pub mod timespan;
 pub mod tonal;
 pub mod transforms;
-pub mod transforms2;
 pub mod value;
 
 pub use fraction::Frac;
@@ -39,7 +38,7 @@ pub use signal::{
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
-pub use transforms2::{choose_cycles, randcat};
+pub use transforms::{choose_cycles, randcat, ratio_value};
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{lpf, lpq, n, note, s, sound};
 // Tonal: note names, scales, chords.
