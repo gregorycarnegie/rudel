@@ -134,6 +134,17 @@ controls!(
     legato,
     clip,
     unit,
+    // synth: supersaw + FM + ADSR shortcuts
+    unison,
+    detune,
+    spread,
+    fm,
+    fmh,
+    fmi,
+    adsr,
+    ad,
+    ar,
+    hold,
 );
 
 // Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).

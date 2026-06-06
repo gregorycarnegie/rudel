@@ -155,6 +155,18 @@ pub struct VoiceParams {
     pub waveform: Waveform,
     /// When set, the source is noise rather than the oscillator.
     pub noise: Option<NoiseKind>,
+    /// When true, the source is a detuned super-saw.
+    pub supersaw: bool,
+    /// Super-saw voice count (`unison`).
+    pub unison: usize,
+    /// Super-saw detune in cents (`detune`).
+    pub detune: f32,
+    /// Super-saw frequency spread in semitones (`spread`).
+    pub spread: f32,
+    /// FM modulation index (`fm`/`fmi`); `None` = no FM.
+    pub fm: Option<f32>,
+    /// FM harmonicity ratio (`fmh`), modulator freq / carrier freq.
+    pub fmh: f32,
     pub freq: f32,
     pub gain: f32,
     /// 0.0 = hard left, 1.0 = hard right.
@@ -162,6 +174,8 @@ pub struct VoiceParams {
     pub adsr: Adsr,
     /// Hold time in seconds (the note's `whole` duration), before release.
     pub duration: f32,
+    /// Extra sustain hold beyond the note duration (`hold`), in seconds.
+    pub hold: f32,
     /// Low-pass filter (`cutoff`/`lpf` + `lpenv`/`lpattack`/...).
     pub lp: FilterParams,
     /// High-pass filter (`hcutoff`/`hpf` + `hpenv`/...).
@@ -179,11 +193,18 @@ impl Default for VoiceParams {
         VoiceParams {
             waveform: Waveform::Sine,
             noise: None,
+            supersaw: false,
+            unison: 5,
+            detune: 0.0,
+            spread: 0.2,
+            fm: None,
+            fmh: 1.0,
             freq: 440.0,
             gain: 1.0,
             pan: 0.5,
             adsr: Adsr::default(),
             duration: 0.25,
+            hold: 0.0,
             lp: FilterParams::default(),
             hp: FilterParams::default(),
             bp: FilterParams {
@@ -204,11 +225,33 @@ impl VoiceParams {
             ..Default::default()
         };
         if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
-            if let Some(w) = Waveform::from_name(name) {
+            if name == "supersaw" {
+                p.supersaw = true;
+            } else if let Some(w) = Waveform::from_name(name) {
                 p.waveform = w;
             } else if let Some(nk) = NoiseKind::from_name(name) {
                 p.noise = Some(nk);
             }
+        }
+        if let Some(u) = map.get("unison").and_then(|v| v.as_f64()) {
+            p.unison = (u as usize).max(1);
+        }
+        if let Some(d) = map.get("detune").and_then(|v| v.as_f64()) {
+            p.detune = d as f32;
+        }
+        if let Some(s) = map.get("spread").and_then(|v| v.as_f64()) {
+            p.spread = s as f32;
+        }
+        // FM: `fm`/`fmi` modulation index, `fmh` harmonicity ratio.
+        if let Some(i) = map
+            .get("fm")
+            .or_else(|| map.get("fmi"))
+            .and_then(|v| v.as_f64())
+        {
+            p.fm = Some(i as f32);
+        }
+        if let Some(h) = map.get("fmh").and_then(|v| v.as_f64()) {
+            p.fmh = h as f32;
         }
         if let Some(freq) = map.get("freq").and_then(|v| v.as_f64()) {
             p.freq = freq as f32;
@@ -237,6 +280,48 @@ impl VoiceParams {
         }
         if let Some(r) = map.get("release").and_then(|v| v.as_f64()) {
             p.adsr.release = r as f32;
+        }
+        // ADSR shortcut controls accept a `:`-list, e.g. `adsr("0.1:0.1:0.5:0.2")`.
+        let list = |k: &str| -> Option<Vec<f32>> {
+            map.get(k).map(|v| match v {
+                Value::List(items) => items.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect(),
+                other => other.as_f64().map(|f| f as f32).into_iter().collect(),
+            })
+        };
+        if let Some(v) = list("adsr") {
+            if let Some(a) = v.first() {
+                p.adsr.attack = *a;
+            }
+            if let Some(d) = v.get(1) {
+                p.adsr.decay = *d;
+            }
+            if let Some(s) = v.get(2) {
+                p.adsr.sustain = *s;
+            }
+            if let Some(r) = v.get(3) {
+                p.adsr.release = *r;
+            }
+        }
+        if let Some(v) = list("ad") {
+            // attack/decay with no sustain (percussive)
+            if let Some(a) = v.first() {
+                p.adsr.attack = *a;
+            }
+            if let Some(d) = v.get(1) {
+                p.adsr.decay = *d;
+            }
+            p.adsr.sustain = 0.0;
+        }
+        if let Some(v) = list("ar") {
+            if let Some(a) = v.first() {
+                p.adsr.attack = *a;
+            }
+            if let Some(r) = v.get(1) {
+                p.adsr.release = *r;
+            }
+        }
+        if let Some(h) = map.get("hold").and_then(|v| v.as_f64()) {
+            p.hold = h as f32;
         }
         let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
         // Low-pass (cutoff/lpf) + its envelope.
@@ -511,6 +596,10 @@ pub struct Voice {
     /// Filter chain (low/high/band-pass), applied in order to the oscillator.
     filters: Vec<VoiceFilter>,
     noise: NoiseGen,
+    /// FM modulator phase.
+    mod_phase: f32,
+    /// Per-voice phases for the super-saw source.
+    super_phases: Vec<f32>,
     done: bool,
 }
 
@@ -520,7 +609,7 @@ impl Voice {
         // equal-power panning
         let left_gain = (pan * PI / 2.0).cos();
         let right_gain = (pan * PI / 2.0).sin();
-        let hold_end = params.duration.max(params.adsr.attack);
+        let hold_end = (params.duration + params.hold).max(params.adsr.attack);
         let mut filters = Vec::new();
         if params.lp.freq.is_some() {
             filters.push(VoiceFilter::new(FilterKind::Low, &params.lp, sample_rate));
@@ -531,6 +620,14 @@ impl Voice {
         if params.bp.freq.is_some() {
             filters.push(VoiceFilter::new(FilterKind::Band, &params.bp, sample_rate));
         }
+        // Spread the super-saw voices' initial phases for a fuller sound.
+        let super_phases = if params.supersaw {
+            (0..params.unison.max(1))
+                .map(|n| n as f32 / params.unison.max(1) as f32)
+                .collect()
+        } else {
+            Vec::new()
+        };
         Voice {
             params,
             sample_rate,
@@ -541,6 +638,8 @@ impl Voice {
             hold_end,
             filters,
             noise: NoiseGen::new(),
+            mod_phase: 0.0,
+            super_phases,
             done: false,
         }
     }
@@ -558,16 +657,52 @@ impl Voice {
         adsr_value(&self.params.adsr, self.t, self.hold_end)
     }
 
+    /// Produce the next source sample and advance the oscillator phase(s).
+    fn next_source(&mut self) -> f32 {
+        let sr = self.sample_rate;
+        if self.params.supersaw {
+            let voices = self.params.unison.max(1);
+            // main detune (cents -> semitones)
+            let base = self.params.freq * 2f32.powf((self.params.detune / 100.0) / 12.0);
+            let scale = if voices > 1 {
+                self.params.spread / (voices as f32 - 1.0)
+            } else {
+                0.0
+            };
+            let center = self.params.spread * 0.5;
+            let mut sum = 0.0;
+            for (n, ph) in self.super_phases.iter_mut().enumerate() {
+                let d = n as f32 * scale - center; // semitone detune for this voice
+                let f = base * 2f32.powf(d / 12.0);
+                sum += 2.0 * *ph - 1.0; // naive saw
+                *ph = (*ph + f / sr).rem_euclid(1.0);
+            }
+            return sum / (voices as f32).sqrt();
+        }
+        if let Some(kind) = self.params.noise {
+            return self.noise.next(kind);
+        }
+        // Oscillator, optionally frequency-modulated.
+        let s = self.params.waveform.sample(self.phase);
+        let inc = if let Some(index) = self.params.fm {
+            let modfreq = self.params.freq * self.params.fmh;
+            let modv = (2.0 * PI * self.mod_phase).sin();
+            self.mod_phase = (self.mod_phase + modfreq / sr).rem_euclid(1.0);
+            (self.params.freq + index * modfreq * modv) / sr
+        } else {
+            self.params.freq / sr
+        };
+        self.phase = (self.phase + inc).rem_euclid(1.0);
+        s
+    }
+
     /// Render the next stereo sample `(left, right)`.
     pub fn tick(&mut self) -> (f32, f32) {
         if self.done {
             return (0.0, 0.0);
         }
         let env = self.envelope();
-        let mut osc = match self.params.noise {
-            Some(kind) => self.noise.next(kind),
-            None => self.params.waveform.sample(self.phase),
-        };
+        let mut osc = self.next_source();
         let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         for f in &mut self.filters {
             osc = f.process(osc, t, hold_end, sr);
@@ -575,7 +710,6 @@ impl Voice {
         // 0.3 matches Strudel's synth turn-down (gainNode(0.3)).
         let s = osc * env * self.params.gain * 0.3;
 
-        self.phase = (self.phase + self.params.freq / self.sample_rate).rem_euclid(1.0);
         self.t += 1.0 / self.sample_rate;
         if self.t >= self.hold_end + self.params.adsr.release {
             self.done = true;
@@ -1459,6 +1593,65 @@ mod tests {
             }
             assert!(peak > 0.0, "{kind:?} noise should produce sound");
         }
+    }
+
+    #[test]
+    fn supersaw_produces_sound() {
+        let p = VoiceParams {
+            supersaw: true,
+            unison: 5,
+            spread: 0.4,
+            freq: 220.0,
+            duration: 0.2,
+            ..Default::default()
+        };
+        let mut v = Voice::new(p, 44100.0);
+        let mut peak = 0.0f32;
+        for _ in 0..4000 {
+            peak = peak.max(v.tick().0.abs());
+        }
+        assert!(peak > 0.0, "supersaw should produce sound");
+    }
+
+    #[test]
+    fn fm_changes_the_signal() {
+        let mk = |fm| {
+            Voice::new(
+                VoiceParams {
+                    waveform: Waveform::Sine,
+                    freq: 220.0,
+                    duration: 1.0,
+                    fm,
+                    fmh: 2.0,
+                    ..Default::default()
+                },
+                44100.0,
+            )
+        };
+        let (mut plain, mut modulated) = (mk(None), mk(Some(4.0)));
+        let mut diff = 0.0f32;
+        for _ in 0..2000 {
+            diff += (plain.tick().0 - modulated.tick().0).abs();
+        }
+        assert!(diff > 0.0, "FM should change the carrier signal");
+    }
+
+    #[test]
+    fn adsr_shortcut_parses_list() {
+        let map = BTreeMap::from([(
+            "adsr".to_string(),
+            Value::List(vec![
+                Value::F64(0.1),
+                Value::F64(0.2),
+                Value::F64(0.3),
+                Value::F64(0.4),
+            ]),
+        )]);
+        let p = VoiceParams::from_controls(&map, 0.5);
+        assert_eq!(p.adsr.attack, 0.1);
+        assert_eq!(p.adsr.decay, 0.2);
+        assert_eq!(p.adsr.sustain, 0.3);
+        assert_eq!(p.adsr.release, 0.4);
     }
 
     #[test]

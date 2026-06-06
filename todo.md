@@ -51,11 +51,15 @@ Function-by-function audit against the Strudel learn pages
 
 - [x] waveforms `sine` `sawtooth` `square` `triangle`
 - [x] ADSR: `attack`/`att` `decay`/`dec` `sustain`/`sus` `release`/`rel`
-- [ ] `ad` / `ar` / `adsr` shortcut controls; `hold`
+- [x] `ad` / `ar` / `adsr` shortcut controls (`:`-lists) + `hold`
 - [x] noise sources `white` `pink` `brown` (`s("white")`; stateful white/pink/
       brown generators in the synth voice)
+- [x] `supersaw` (`unison`/`detune`/`spread`) — N detuned saws summed
+- [x] single-operator FM (`fm`/`fmi` index, `fmh` ratio): carrier freq
+      modulated by `fmi·modfreq·sin`
 - [ ] `supersaw` (`unison` `spread` `detune`)
-- [ ] FM (`fm` `fmh` `fmi` ...), additive, `zzfx`, wavetables
+- [x] single-operator FM (`fm`/`fmi`/`fmh`); [ ] multi-operator FM matrix,
+      additive, `zzfx`, wavetables
 - [ ] vibrato (`vib` `vibmod`), pitch env (`penv` `pattack` `pcurve` ...)
 - [ ] `pw` pulse-width, `noise` amount
 

@@ -482,6 +482,8 @@ kpattern_methods! {
         hpenv, hpattack, hpdecay, hpsustain, hprelease,
         bpenv, bpattack, bpdecay, bpsustain, bprelease, fanchor,
         lpe, lpa, lpd, lps, lpr, hpe, hpa, hpd, hps, hpr, bpe, bpa, bpd, bps, bpr,
+        // supersaw + FM + ADSR shortcuts
+        unison, detune, spread, fm, fmh, fmi, adsr, ad, ar, hold,
         // filter / envelope / misc aliases
         lpf, lp, ctf, lpq, hpf, hp, hpq, bpf, bp, bpq, vel, att, rel, sus, dec,
         delayt, delayfb, o, trans, strans,
@@ -806,6 +808,18 @@ mod tests {
             r#"note("c2").hpf(2000).hpenv(-3)"#,
             r#"s("white pink brown").lpf(1000)"#,
             r#"note("c2").s("saw").vowel("<a e i o>")"#,
+        ] {
+            assert!(eval(src).is_ok(), "should eval: {src}");
+        }
+    }
+
+    #[test]
+    fn supersaw_fm_adsr_resolve() {
+        for src in [
+            r#"note("c2").s("supersaw").unison(7).detune(20).spread(0.4)"#,
+            r#"note("c3").s("sine").fm(4).fmh(2)"#,
+            r#"s("bd*4").adsr("0.01:0.1:0:0.1")"#,
+            r#"note("c3").s("saw").ad("0.01:0.2").hold(0.3)"#,
         ] {
             assert!(eval(src).is_ok(), "should eval: {src}");
         }
