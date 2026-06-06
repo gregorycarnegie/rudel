@@ -403,6 +403,16 @@ macro_rules! kpattern_methods {
                 Ok(KPattern::wrap(rudel_core::stack(&results)))
             }
 
+            // `pat.voicings("lefthand")`: voice chords with a named dictionary.
+            #[koto_method]
+            fn voicings(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let dict = match method_arg(&ctx, 0) {
+                    KValue::Str(s) => s.to_string(),
+                    _ => "legacy".to_string(),
+                };
+                with_instance(&ctx, |pat| pat.voicings(dict.clone()))
+            }
+
             #[koto_method]
             fn scale(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                 let name = match method_arg(&ctx, 0) {
@@ -449,9 +459,9 @@ kpattern_methods! {
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, chord, arpeggiate,
+        to_bipolar, from_bipolar, ratio, fit, chord, arpeggiate, voicing,
     ],
-    i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate, take, drop],
+    i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate, take, drop, root_notes],
     frac_arg: [hurry, press_by, swing, loop_at, pace],
     pattern_pattern_arg: [slice, splice],
     frac_frac_arg: [focus, swing_by, compress, zoom],
@@ -982,6 +992,28 @@ mod tests {
                 Value::Int(3),
             ]
         );
+    }
+
+    #[test]
+    fn voicing_via_koto() {
+        // a chord-symbol pattern voiced below a4: C triad -> C4 E4 G4.
+        // (mini-notation can't spell `^`, so use `maj7`/`m7`-style symbols, or
+        // pure("C^7") for the literal form.)
+        let pat = eval(r#"pure("C").voicing()"#).expect("eval");
+        let mut got = values(&pat, 0, 1);
+        got.sort_by_key(|v| v.as_f64().unwrap() as i64);
+        assert_eq!(got, vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]);
+        // named dictionary, literal ^ spelling via pure
+        let pat = eval(r#"pure("C^7").voicings("lefthand")"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
+        // maj7 spelling routes through the same dictionary key
+        let pat = eval(r#"pure("Cmaj7").voicings("lefthand")"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
+        // rootNotes maps a chord to its root in an octave
+        let pat = eval(r#"pure("Am7").root_notes(3)"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::F64(57.0)]); // A3
+        // chord progressions resolve through mini-notation alternation
+        assert!(eval(r#"seq("<Cmaj7 A7 Dm7 G7>").voicing()"#).is_ok());
     }
 
     #[test]

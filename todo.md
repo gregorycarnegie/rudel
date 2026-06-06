@@ -32,9 +32,14 @@ Function-by-function audit against the Strudel learn pages
 - [x] `note` / `n`, note names + octaves, MIDI numbers
 - [x] `scale("C:major")`, scale-degree numbers, `#`/`b` step accidentals
 - [x] `transpose`/`trans`, `scaleTranspose`/`strans`, `chord()` (chord symbols)
-- [ ] `voicing` / `voicings` / `rootNotes` (tonaljs voicing dictionaries —
-      ~500 lines of dictionaries + a voice-leading search; deferred)
-- [x] `arp` (index pattern selects chord notes), `arpeggiate` (play chord in
+- [x] `voicing()` (default `legacy` dict), `voicings("name")` (lefthand/triads/
+      guidetones/legacy), `rootNotes`/`root_notes(octave)` — ports `renderVoicing`
+      + interval-semitones math + the curated dictionaries from `voicings.mjs`.
+      Reads `dict`/`anchor`/`mode`/`offset`/`octaves`/`n` from map values; symbol
+      normalisation (`maj7`→`^7`, `min7`→`m7`, …) since mini can't spell `^`.
+      Not ported: deprecated `voicings()` voice-leading (external package) + the
+      523-line iReal dictionary.
+- [~] `arp` (index pattern selects chord notes), `arpeggiate` (play chord in
       sequence); `arp_with` in the engine (callback over chord values, not yet
       bound in Koto). Built on a new `collect` (group simultaneous haps).
 - [ ] enharmonic interval-string transpose (`"3M"`), `mode`/`anchor` stepping

@@ -10,7 +10,7 @@ use crate::transforms::IntoPattern;
 use crate::value::Value;
 
 /// Semitone offsets for the seven note letters from C.
-fn letter_semitone(letter: char) -> Option<i32> {
+pub(crate) fn letter_semitone(letter: char) -> Option<i32> {
     Some(match letter.to_ascii_lowercase() {
         'c' => 0,
         'd' => 2,
@@ -26,9 +26,15 @@ fn letter_semitone(letter: char) -> Option<i32> {
 /// Parse a note name like `c`, `c4`, `c#4`, `eb3`, `Gb2` to a MIDI number.
 /// Follows the Strudel convention: `a4` = 69, and a missing octave defaults to 3.
 pub fn note_to_midi(s: &str) -> Option<i32> {
+    note_to_midi_with_octave(s, 3)
+}
+
+/// Like [`note_to_midi`] but with a caller-supplied default octave for names
+/// that omit one (Strudel's `x2midi` uses octave 4 for voicing anchors).
+pub fn note_to_midi_with_octave(s: &str, default_octave: i32) -> Option<i32> {
     let mut chars = s.chars().peekable();
     let mut semis = letter_semitone(chars.next()?)?;
-    let mut octave: i32 = 3;
+    let mut octave: i32 = default_octave;
     let mut octave_str = String::new();
     let mut octave_seen = false;
     while let Some(&c) = chars.peek() {

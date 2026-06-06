@@ -18,6 +18,7 @@ pub mod timespan;
 pub mod tonal;
 pub mod transforms;
 pub mod value;
+pub mod voicing;
 
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
@@ -42,7 +43,7 @@ pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wran
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{lpf, lpq, n, note, s, sound};
 // Tonal: note names, scales, chords.
-pub use tonal::{chord_notes, note_to_midi, scale_offset, scale_step};
+pub use tonal::{chord_notes, note_to_midi, note_to_midi_with_octave, scale_offset, scale_step};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
 pub use query::{ControlEvent, query_controls, to_control_map};
 
