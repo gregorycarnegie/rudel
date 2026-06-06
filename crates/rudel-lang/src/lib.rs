@@ -826,6 +826,22 @@ mod tests {
     }
 
     #[test]
+    fn transpose_interval_strings_via_koto() {
+        let note_at = |src: &str, b: i64, e: i64| -> f64 {
+            let pat = eval(src).expect("eval");
+            match &pat.query_arc(Frac::int(b), Frac::int(e))[0].value {
+                Value::Map(m) => m.get("note").and_then(|v| v.as_f64()).unwrap(),
+                other => other.as_f64().unwrap(),
+            }
+        };
+        // a major third up from C4
+        assert_eq!(note_at(r#"note(60).transpose("3M")"#, 0, 1), 64.0);
+        // a pattern of interval strings (mini-notation) applied per cycle
+        assert_eq!(note_at(r#"note(60).transpose("<5P -2M>")"#, 0, 1), 67.0);
+        assert_eq!(note_at(r#"note(60).transpose("<5P -2M>")"#, 1, 2), 58.0);
+    }
+
+    #[test]
     fn signals_are_values_and_segment() {
         // sine is a value (no parens) and can be segmented + ranged
         let pat = eval(r#"sine.range(0, 10).segment(4)"#).expect("eval");

@@ -67,6 +67,64 @@ pub fn is_note_name(s: &str) -> bool {
     note_to_midi(s).is_some()
 }
 
+/// Parse an interval string (e.g. `"3M"`, `"5P"`, `"11A"`, `"-2M"`) to
+/// semitones. Quality may precede or follow the number (`"M3"` == `"3M"`); a
+/// leading `-` denotes a descending interval. Bare numbers pass through as a
+/// semitone count. Compound intervals (9th, 11th, …) wrap by octaves.
+pub fn interval_to_semitones(s: &str) -> Option<i32> {
+    let s = s.trim();
+    if let Ok(n) = s.parse::<i32>() {
+        return Some(n);
+    }
+    let (sign, body) = match s.strip_prefix('-') {
+        Some(rest) => (-1, rest),
+        None => (1, s),
+    };
+    let digits: String = body.chars().filter(|c| c.is_ascii_digit()).collect();
+    let quality: String = body
+        .chars()
+        .filter(|c| matches!(c, 'd' | 'm' | 'M' | 'P' | 'A'))
+        .collect();
+    let num: i32 = digits.parse().ok()?;
+    if num < 1 {
+        return None;
+    }
+    let step = (num - 1) % 7;
+    let oct = (num - 1) / 7;
+    let base = [0, 2, 4, 5, 7, 9, 11][step as usize] + 12 * oct;
+    // 1, 4, 5 (and their octave-equivalents) are the perfect family.
+    let perfect = matches!(step, 0 | 3 | 4);
+    Some(sign * (base + interval_quality_alteration(&quality, perfect)?))
+}
+
+/// Semitone alteration for an interval quality (`P`/`M`/`m`/`A..`/`d..`).
+fn interval_quality_alteration(q: &str, perfect: bool) -> Option<i32> {
+    match q {
+        "P" if perfect => Some(0),
+        "M" if !perfect => Some(0),
+        "m" if !perfect => Some(-1),
+        _ if !q.is_empty() && q.chars().all(|c| c == 'A') => Some(q.len() as i32),
+        _ if !q.is_empty() && q.chars().all(|c| c == 'd') => {
+            let k = q.len() as i32;
+            Some(if perfect { -k } else { -(k + 1) })
+        }
+        _ => None,
+    }
+}
+
+/// Interpret a value as a transpose amount in semitones: numbers pass through;
+/// strings parse as a number first, then as an interval name (`"3M"`).
+fn value_to_semitones(v: &Value) -> f64 {
+    match v {
+        Value::Str(s) => s
+            .parse::<f64>()
+            .ok()
+            .or_else(|| interval_to_semitones(s).map(|i| i as f64))
+            .unwrap_or(0.0),
+        other => other.as_f64().unwrap_or(0.0),
+    }
+}
+
 /// Coerce a value to a MIDI note number: numbers pass through, note-name strings
 /// are parsed.
 fn value_to_midi(v: &Value) -> Option<f64> {
@@ -282,16 +340,17 @@ impl Pattern {
         .set_steps(steps)
     }
 
-    /// Shift each note by a number of semitones (or a pattern of them).
+    /// Shift each note by a number of semitones, or by a named interval string
+    /// (`"3M"`, `"5P"`, `"-2M"`) — or a pattern of either.
     pub fn transpose(&self, semis: impl IntoPattern) -> Pattern {
         let arg = semis.into_pattern();
         let pat = self.clone();
         if let Some(v) = &arg.pure_value {
-            let s = v.as_f64().unwrap_or(0.0);
+            let s = value_to_semitones(v);
             return pat.with_value(move |val| transpose_value(val, s));
         }
         arg.fmap(move |v| {
-            let s = v.as_f64().unwrap_or(0.0);
+            let s = value_to_semitones(&v);
             Value::Pat(Box::new(pat.with_value(move |val| transpose_value(val, s))))
         })
         .inner_join()
@@ -545,5 +604,41 @@ mod tests {
         assert_eq!(chord_notes("Am"), Some(vec![57, 60, 64]));
         assert_eq!(chord_notes("C7"), Some(vec![48, 52, 55, 58]));
         assert_eq!(chord_notes("F#maj7"), Some(vec![54, 58, 61, 65]));
+    }
+
+    #[test]
+    fn interval_strings_to_semitones() {
+        for (s, want) in [
+            ("1P", 0),
+            ("3m", 3),
+            ("3M", 4),
+            ("5P", 7),
+            ("5d", 6),
+            ("5A", 8),
+            ("7m", 10),
+            ("8P", 12),
+            ("9M", 14),
+            ("11A", 18),
+            ("M3", 4),  // quality-first order
+            ("-2M", -2), // descending
+            ("-5P", -7),
+            ("4", 4), // bare number = semitones
+        ] {
+            assert_eq!(interval_to_semitones(s), Some(want), "interval {s}");
+        }
+    }
+
+    #[test]
+    fn transpose_accepts_interval_strings() {
+        // C4 (=60) up a major third -> E4 (=64)
+        let pat = crate::note(pure(Value::Int(60))).transpose("3M");
+        assert_eq!(notes(&pat), vec![64.0]);
+        // a pattern of interval strings transposes each event
+        let intervals = fastcat(&[
+            pure(Value::Str("5P".into())),
+            pure(Value::Str("-2M".into())),
+        ]);
+        let pat = crate::note(fastcat(&[pure(Value::Int(60)), pure(Value::Int(60))])).transpose(intervals);
+        assert_eq!(notes(&pat), vec![67.0, 58.0]);
     }
 }

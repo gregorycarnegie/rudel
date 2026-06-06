@@ -46,8 +46,13 @@ Function-by-function audit against the Strudel learn pages
       so the callback can't run in the query path, so distinct chords over the
       first 16 cycles are memoised at construction (chords appearing only later
       fall back to silence).
-- [ ] enharmonic interval-string transpose (`"3M"`), `mode`/`anchor` stepping
-- [ ] `mtranspose` / `ctranspose` / `degreeToNote`, `toScale` (custom scales)
+- [x] enharmonic interval-string transpose: `transpose("3M")`, `transpose("5P")`,
+      descending `"-2M"`, and patterns like `"<5P -2M>"`. Canonical interval
+      parser in `tonal.rs` (`interval_to_semitones`, both note orders + sign);
+      mini-notation gained an `interval` token so quality suffixes survive.
+- [ ] `mode`/`anchor` scale stepping (`stepInNamedScale`)
+- [ ] `mtranspose` / `ctranspose` (Strudel: external-synth controls only),
+      `degreeToNote`, `toScale` (custom interval-list scales)
 
 ## learn/sounds & learn/samples
 

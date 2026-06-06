@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::pattern::{Pattern, pure, silence, stack};
-use crate::tonal::{letter_semitone, note_to_midi_with_octave};
+use crate::tonal::{interval_to_semitones, letter_semitone, note_to_midi_with_octave};
 use crate::value::Value;
 use std::collections::BTreeMap;
 
@@ -196,45 +196,6 @@ fn normalize_symbol(s: &str) -> &str {
     }
 }
 
-/// Interval string (e.g. `"3m"`, `"5P"`, `"11A"`) to semitones. Accepts a bare
-/// number too. Handles compound intervals via octave wrapping.
-fn interval_semitones(s: &str) -> Option<i32> {
-    let s = s.trim();
-    if let Ok(n) = s.parse::<i32>() {
-        return Some(n);
-    }
-    let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
-    let quality: String = s
-        .chars()
-        .filter(|c| matches!(c, 'd' | 'm' | 'M' | 'P' | 'A'))
-        .collect();
-    let num: i32 = digits.parse().ok()?;
-    if num < 1 {
-        return None;
-    }
-    let step = (num - 1) % 7;
-    let oct = (num - 1) / 7;
-    let base = [0, 2, 4, 5, 7, 9, 11][step as usize] + 12 * oct;
-    // 1, 4, 5 (and octave-equivalents) are the perfect family.
-    let perfect = matches!(step, 0 | 3 | 4);
-    Some(base + quality_alteration(&quality, perfect)?)
-}
-
-/// Semitone alteration for an interval quality (`P`/`M`/`m`/`A..`/`d..`).
-fn quality_alteration(q: &str, perfect: bool) -> Option<i32> {
-    match q {
-        "P" if perfect => Some(0),
-        "M" if !perfect => Some(0),
-        "m" if !perfect => Some(-1),
-        _ if !q.is_empty() && q.chars().all(|c| c == 'A') => Some(q.len() as i32),
-        _ if !q.is_empty() && q.chars().all(|c| c == 'd') => {
-            let k = q.len() as i32;
-            Some(if perfect { -k } else { -(k + 1) })
-        }
-        _ => None,
-    }
-}
-
 fn floor_div(a: i32, b: i32) -> i32 {
     (a as f64 / b as f64).floor() as i32
 }
@@ -288,7 +249,7 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
         .find(|(s, _)| *s == symbol || *s == normalized)?
         .1
         .iter()
-        .map(|v| v.split_whitespace().filter_map(interval_semitones).collect())
+        .map(|v| v.split_whitespace().filter_map(interval_to_semitones).collect())
         .collect();
     if voicings.iter().any(|v| v.is_empty()) {
         return None;
@@ -463,28 +424,6 @@ mod tests {
         v
     }
 
-    #[test]
-    fn interval_semitones_table() {
-        for (s, want) in [
-            ("1P", 0),
-            ("3m", 3),
-            ("3M", 4),
-            ("5d", 6),
-            ("5P", 7),
-            ("5A", 8),
-            ("7m", 10),
-            ("7M", 11),
-            ("8P", 12),
-            ("9M", 14),
-            ("10M", 16),
-            ("11A", 18),
-            ("12P", 19),
-            ("13M", 21),
-            ("9A", 15),
-        ] {
-            assert_eq!(interval_semitones(s), Some(want), "interval {s}");
-        }
-    }
 
     #[test]
     fn lefthand_cmaj7() {

@@ -25,7 +25,11 @@ poly_stack    = { sequence ~ ("," ~ sequence)* }
 polymeter_steps = { "%" ~ slice }
 
 rest   = @{ "~" | ("-" ~ !ASCII_DIGIT) }
-step   = @{ number | word }
+step   = @{ interval | number | word }
+// Named intervals (e.g. `3M`, `5P`, `-2M`) for `transpose`: signed digits
+// followed by quality letters. Tried before `number` so the quality suffix is
+// kept; a bare number has no quality letters and still falls through to `number`.
+interval = { "-"? ~ ASCII_DIGIT+ ~ ("d" | "m" | "M" | "P" | "A")+ }
 number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 word   = @{ ("#" | ASCII_ALPHA) ~ (ASCII_ALPHANUMERIC | "#" | "-")* }
 

@@ -324,6 +324,21 @@ mod tests {
     }
 
     #[test]
+    fn interval_tokens_stay_strings() {
+        // named intervals keep their quality suffix (for transpose), unlike a
+        // bare number which still parses as a number.
+        assert_eq!(
+            vals("3M 5P -2M"),
+            vec![
+                Value::Str("3M".into()),
+                Value::Str("5P".into()),
+                Value::Str("-2M".into()),
+            ]
+        );
+        assert_eq!(vals("3"), vec![Value::Int(3)]);
+    }
+
+    #[test]
     fn weight_elongates() {
         // "a@3 b" -> a occupies 3/4, b occupies 1/4
         assert_eq!(begins("a@3 b"), vec![Frac::new(0, 1), Frac::new(3, 4)]);
