@@ -320,6 +320,52 @@ impl Pattern {
         self._fast(f).expand(f)
     }
 
+    /// `take`: keep the first `i` steps of a stepwise pattern, dropping the
+    /// rest (a negative `i` takes from the end). Patterns without a step count
+    /// become silence.
+    fn _take(&self, i: Frac) -> Pattern {
+        let Some(steps) = self.steps else {
+            return crate::pattern::silence();
+        };
+        if steps <= Frac::zero() || i == Frac::zero() {
+            return crate::pattern::silence();
+        }
+        let flip = i < Frac::zero();
+        let i = if flip { -i } else { i };
+        let frac = i / steps;
+        if frac <= Frac::zero() {
+            return crate::pattern::silence();
+        }
+        if frac >= Frac::one() {
+            return self.clone();
+        }
+        let taken = if flip {
+            self.zoom(Frac::one() - frac, Frac::one())
+        } else {
+            self.zoom(Frac::zero(), frac)
+        };
+        taken.set_steps(Some(i))
+    }
+
+    /// `take`: keep the first `n` steps (negative `n` takes from the end).
+    pub fn take(&self, n: i64) -> Pattern {
+        self._take(Frac::int(n))
+    }
+
+    /// `drop`: discard the first `n` steps of a stepwise pattern (negative `n`
+    /// drops from the end). The inverse of [`take`](Self::take).
+    pub fn drop(&self, n: i64) -> Pattern {
+        let Some(steps) = self.steps else {
+            return crate::pattern::silence();
+        };
+        let i = Frac::int(n);
+        if i < Frac::zero() {
+            self._take(steps + i)
+        } else {
+            self._take(-(steps - i))
+        }
+    }
+
     aligned_variants!(num_add; add_out add_mix add_squeeze add_squeezeout add_reset add_restart add_poly);
     aligned_variants!(num_sub; sub_out sub_mix sub_squeeze sub_squeezeout sub_reset sub_restart sub_poly);
     aligned_variants!(num_mul; mul_out mul_mix mul_squeeze mul_squeezeout mul_reset mul_restart mul_poly);

@@ -98,6 +98,27 @@ fn arg_to_weighted_pair(value: &KValue) -> (Frac, Pattern) {
     })
 }
 
+/// Interpret an argument as a `[pattern, weight]` pair for the weighted
+/// choosers (`wchoose`/`wrandcat`). A bare pattern defaults to weight `1`.
+fn arg_to_pattern_weight(value: &KValue) -> (Pattern, f64) {
+    let pair = |slice: &[KValue]| (arg_to_pattern(&slice[0]), arg_to_f64(&slice[1]));
+    match value {
+        KValue::List(l) if l.data().len() == 2 => pair(&l.data()),
+        KValue::Tuple(t) if t.data().len() == 2 => pair(t.data()),
+        _ => (arg_to_pattern(value), 1.0),
+    }
+}
+
+/// Interpret an argument as a group of patterns for `stepalt`. A list/tuple
+/// becomes a multi-element group; anything else is a single-element group.
+fn arg_to_group(value: &KValue) -> Vec<Pattern> {
+    match value {
+        KValue::List(l) => l.data().iter().map(arg_to_pattern).collect(),
+        KValue::Tuple(t) => t.data().iter().map(arg_to_pattern).collect(),
+        _ => vec![arg_to_pattern(value)],
+    }
+}
+
 fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
     ctx.args.get(i).cloned().unwrap_or(KValue::Null)
 }
@@ -428,7 +449,7 @@ kpattern_methods! {
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
         to_bipolar, from_bipolar, ratio, fit, chord,
     ],
-    i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate],
+    i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate, take, drop],
     frac_arg: [hurry, press_by, swing, loop_at, pace],
     pattern_pattern_arg: [slice, splice],
     frac_frac_arg: [focus, swing_by, compress, zoom],
@@ -520,6 +541,27 @@ fn register(prelude: &KMap) {
     };
     prelude.add_fn("polymeter", polymeter);
     prelude.add_fn("pm", polymeter);
+    // wchoose: continuously choose from weighted [pattern, weight] pairs.
+    prelude.add_fn("wchoose", |ctx| {
+        let pairs: Vec<(Pattern, f64)> = ctx.args().iter().map(arg_to_pattern_weight).collect();
+        Ok(KPattern(rudel_core::wchoose(&pairs)).into())
+    });
+    // wchooseCycles / wrandcat: pick one weighted pattern per cycle.
+    let wrandcat = |ctx: &mut CallContext| {
+        let pairs: Vec<(Pattern, f64)> = ctx.args().iter().map(arg_to_pattern_weight).collect();
+        Ok(KPattern(rudel_core::wrandcat(&pairs)).into())
+    };
+    prelude.add_fn("wchooseCycles", wrandcat);
+    prelude.add_fn("wrandcat", wrandcat);
+    // stepalt: alternate stepwise between groups of patterns.
+    prelude.add_fn("stepalt", |ctx| {
+        let groups: Vec<Vec<Pattern>> = ctx.args().iter().map(arg_to_group).collect();
+        Ok(KPattern(rudel_core::stepalt(&groups)).into())
+    });
+    // scan: step through growing runs (run(1), run(2), ... run(n)).
+    prelude.add_fn("scan", |ctx| {
+        Ok(KPattern(rudel_core::scan(arg_to_f64(&arg0(ctx)) as i64)).into())
+    });
 
     // -- Signals --------------------------------------------------------
     // Continuous signals are exposed as pattern *values* (like Strudel), so
@@ -868,6 +910,55 @@ mod tests {
         let pat = eval(r#"polymeter("0 1 2", "4 5")"#).expect("eval");
         assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 12);
         assert!(eval(r#"pm("0 1", "2 3 4")"#).is_ok());
+    }
+
+    #[test]
+    fn take_drop_scan_via_koto() {
+        // seq(0,1,2,3).take(2) -> "0 1"; drop(1) -> "1 2 3"
+        let pat = eval(r#"seq(0, 1, 2, 3).take(2)"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(0), Value::Int(1)]);
+        let pat = eval(r#"seq(0, 1, 2, 3).drop(1)"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![Value::Int(1), Value::Int(2), Value::Int(3)]
+        );
+        // scan(3): cycle 0 -> [0], cycle 2 -> [0 1 2]
+        let pat = eval(r#"scan(3)"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(0)]);
+        assert_eq!(
+            values(&pat, 2, 3),
+            vec![Value::Int(0), Value::Int(1), Value::Int(2)]
+        );
+    }
+
+    #[test]
+    fn weighted_choosers_and_stepalt_via_koto() {
+        // wrandcat: heavy weight on 0 dominates, one value per cycle
+        let pat = eval(r#"wrandcat([0, 1000], [1, 1])"#).expect("eval");
+        let mut zeros = 0;
+        for c in 0..12 {
+            let v = values(&pat, c, c + 1);
+            assert_eq!(v.len(), 1);
+            if v[0] == Value::Int(0) {
+                zeros += 1;
+            }
+        }
+        assert!(zeros >= 10, "heavy weight should dominate (got {zeros}/12)");
+        // wchooseCycles is the same function; wchoose evaluates as continuous
+        assert!(eval(r#"wchooseCycles(["a", 2], ["b", 1])"#).is_ok());
+        assert!(eval(r#"wchoose([0, 1], [1, 1]).segment(4)"#).is_ok());
+        // stepalt(["0 1", "2"], "3") == "0 1 3 2 3"
+        let pat = eval(r#"stepalt(["0 1", "2"], "3")"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(3),
+                Value::Int(2),
+                Value::Int(3),
+            ]
+        );
     }
 
     #[test]

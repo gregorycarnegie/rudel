@@ -5,4 +5,4 @@ mod core;
 mod pattern_ops;
 
 pub use self::core::{Align, IntoPattern};
-pub use self::pattern_ops::{choose_cycles, randcat, ratio_value};
+pub use self::pattern_ops::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat};

@@ -115,7 +115,8 @@ Function-by-function audit against the Strudel learn pages
 - [x] `stack`, `superimpose`, `off`, `echo`/`stut`, `jux`/`juxBy`
 - [x] `layer` (bound: `pat.layer([f, g, …])` stacks each callback's result)
 - [x] `overlay` (method), `arrange` (factory)
-- [ ] `wchoose`/`wchooseCycles`/`wrandcat`, `scan`
+- [x] `wchoose` (continuous), `wchooseCycles`/`wrandcat` (per-cycle) — weighted
+      `[pattern, weight]` pairs; `scan(n)` (growing runs, one per cycle)
 
 ## learn/factories
 
@@ -124,7 +125,9 @@ Function-by-function audit against the Strudel learn pages
 - [x] `timecat`/`stepcat` (weighted pairs: bare patterns weight by step count,
       or pass `[weight, pat]` pairs), `arrange` (`[cycles, pat]` sections),
       `polymeter`/`pm` (`pace`-align to LCM steps)
-- [ ] `stepcat`/`ncat` step-list variants (`stepalt`, `take`/`drop`), `run` factory
+- [x] `run` factory (already bound), `stepalt` (alternate groups stepwise),
+      `take`/`drop` (keep/discard the first N steps; negative counts from the end)
+- [ ] `ncat`, stepwise `expand`/`contract`/`shrink`/`grow` step-counters
 
 ## learn/mini-notation (parser — parity-tested)
 

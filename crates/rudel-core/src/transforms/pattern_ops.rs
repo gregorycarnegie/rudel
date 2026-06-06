@@ -439,6 +439,76 @@ pub fn randcat(pats: &[Pattern]) -> Pattern {
         .inner_join()
 }
 
+/// Shared core of the weighted choosers. `chooser` is a 0..1 signal; each pair
+/// is `(pattern, weight)`. Returns a pattern-of-patterns ready to be joined.
+fn wchoose_with(chooser: Pattern, pairs: &[(Pattern, f64)]) -> Pattern {
+    let pats: Vec<Pattern> = pairs.iter().map(|(p, _)| p.clone()).collect();
+    // Running cumulative weights, so a uniform draw maps to a weighted index.
+    let mut total = 0.0;
+    let cumulative: Vec<f64> = pairs
+        .iter()
+        .map(|(_, w)| {
+            total += w.max(0.0);
+            total
+        })
+        .collect();
+    if total <= 0.0 {
+        return silence();
+    }
+    let pats = Arc::new(pats);
+    let cumulative = Arc::new(cumulative);
+    chooser.fmap(move |v| {
+        let target = v.as_f64().unwrap_or(0.0) * total;
+        let idx = cumulative
+            .iter()
+            .position(|&c| c > target)
+            .unwrap_or(pats.len() - 1);
+        Value::Pat(Box::new(pats[idx].clone()))
+    })
+}
+
+/// `wchoose`: continuously choose from weighted `(pattern, weight)` pairs.
+pub fn wchoose(pairs: &[(Pattern, f64)]) -> Pattern {
+    if pairs.is_empty() {
+        return silence();
+    }
+    wchoose_with(rand(), pairs).outer_join()
+}
+
+/// `wchooseCycles`/`wrandcat`: pick one weighted pattern per cycle.
+pub fn wrandcat(pairs: &[(Pattern, f64)]) -> Pattern {
+    if pairs.is_empty() {
+        return silence();
+    }
+    wchoose_with(rand().segment(Frac::one()), pairs).inner_join()
+}
+
+/// `stepalt`: alternate stepwise between groups, taking one element from each
+/// group per cycle and cycling within each group independently. The result's
+/// step count is the sum of the chosen patterns' steps.
+pub fn stepalt(groups: &[Vec<Pattern>]) -> Pattern {
+    if groups.is_empty() {
+        return silence();
+    }
+    // Repeat for LCM(group lengths) cycles so every group realigns.
+    let cycles = groups
+        .iter()
+        .map(|g| Frac::int(g.len().max(1) as i64))
+        .reduce(|a, b| a.lcm(b))
+        .unwrap_or_else(Frac::one);
+    let cycles = (cycles.to_f64().round() as i64).max(1);
+    let mut chosen: Vec<Pattern> = Vec::new();
+    for cycle in 0..cycles {
+        for group in groups {
+            if group.is_empty() {
+                continue;
+            }
+            chosen.push(group[(cycle as usize) % group.len()].clone());
+        }
+    }
+    crate::pattern::stepcat(&chosen)
+}
+
 /// Reduce `":"`-separated list values to a single number (`ratio`).
 pub fn ratio_value(v: &Value) -> Value {
     match v {
@@ -566,5 +636,77 @@ mod tests {
         // "0 1 2 3".zoom(0.5, 1) plays "2 3" across the cycle
         let pat = seq([0, 1, 2, 3]).zoom(Frac::new(1, 2), Frac::one());
         assert_eq!(values(&pat, 0, 1), vec![Value::Int(2), Value::Int(3)]);
+    }
+
+    #[test]
+    fn take_keeps_first_and_last_steps() {
+        // "0 1 2 3" (4 steps): take(2) -> "0 1", take(-2) -> "2 3"
+        let pat = seq([0, 1, 2, 3]);
+        assert_eq!(pat.take(2).steps, Some(Frac::int(2)));
+        assert_eq!(values(&pat.take(2), 0, 1), vec![Value::Int(0), Value::Int(1)]);
+        assert_eq!(values(&pat.take(-2), 0, 1), vec![Value::Int(2), Value::Int(3)]);
+        // taking >= all steps returns the pattern; a stepless pattern -> silence
+        assert_eq!(values(&pat.take(9), 0, 1).len(), 4);
+        assert!(rand().take(2).query_arc(Frac::zero(), Frac::one()).is_empty());
+    }
+
+    #[test]
+    fn drop_discards_first_and_last_steps() {
+        // "0 1 2 3": drop(1) -> "1 2 3", drop(-1) -> "0 1 2"
+        let pat = seq([0, 1, 2, 3]);
+        assert_eq!(
+            values(&pat.drop(1), 0, 1),
+            vec![Value::Int(1), Value::Int(2), Value::Int(3)]
+        );
+        assert_eq!(
+            values(&pat.drop(-1), 0, 1),
+            vec![Value::Int(0), Value::Int(1), Value::Int(2)]
+        );
+    }
+
+    #[test]
+    fn wrandcat_picks_one_per_cycle_weighted() {
+        // A vastly heavier weight should dominate; each cycle yields one value.
+        let pairs = [(pure(Value::Int(0)), 1000.0), (pure(Value::Int(1)), 1.0)];
+        let pat = wrandcat(&pairs);
+        let mut zeros = 0;
+        for c in 0..12 {
+            let v = values(&pat, c, c + 1);
+            assert_eq!(v.len(), 1, "one value per cycle");
+            assert!(v[0] == Value::Int(0) || v[0] == Value::Int(1));
+            if v[0] == Value::Int(0) {
+                zeros += 1;
+            }
+        }
+        assert!(zeros >= 10, "heavy weight should dominate (got {zeros}/12)");
+    }
+
+    #[test]
+    fn wchoose_is_continuous_in_set() {
+        // Segmenting the continuous chooser yields values from the set.
+        let pairs = [(pure(Value::Int(5)), 1.0), (pure(Value::Int(9)), 1.0)];
+        let pat = wchoose(&pairs).segment(Frac::int(8));
+        let got = values(&pat, 0, 1);
+        assert_eq!(got.len(), 8);
+        assert!(got.iter().all(|v| *v == Value::Int(5) || *v == Value::Int(9)));
+    }
+
+    #[test]
+    fn stepalt_alternates_groups_stepwise() {
+        // stepalt(["0 1", "2"], "3") == "0 1 3 2 3"
+        let group0 = vec![seq([0, 1]), seq([2])];
+        let group1 = vec![seq([3])];
+        let pat = stepalt(&[group0, group1]);
+        assert_eq!(pat.steps, Some(Frac::int(5)));
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(3),
+                Value::Int(2),
+                Value::Int(3),
+            ]
+        );
     }
 }

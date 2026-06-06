@@ -138,6 +138,13 @@ pub fn run(n: i64) -> Pattern {
     fastcat(&pats)
 }
 
+/// `scan`: step through growing runs, one per cycle — cycle 0 plays `run(1)`,
+/// cycle 1 plays `run(2)`, …, up to `run(n)`, then loops.
+pub fn scan(n: i64) -> Pattern {
+    let runs: Vec<Pattern> = (1..=n.max(0)).map(run).collect();
+    crate::pattern::slowcat(&runs)
+}
+
 // ---------------------------------------------------------------------------
 // Perlin noise (signal.mjs `_perlin`/`perlin`).
 
@@ -232,5 +239,23 @@ mod tests {
             })
             .collect();
         assert_eq!(values, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn scan_grows_runs_per_cycle() {
+        let ints = |pat: &Pattern, c: i64| -> Vec<i64> {
+            pat.query_arc(Frac::int(c), Frac::int(c + 1))
+                .into_iter()
+                .filter_map(|h| match h.value {
+                    Value::Int(n) => Some(n),
+                    _ => None,
+                })
+                .collect()
+        };
+        let pat = scan(3);
+        assert_eq!(ints(&pat, 0), vec![0]); // run(1)
+        assert_eq!(ints(&pat, 1), vec![0, 1]); // run(2)
+        assert_eq!(ints(&pat, 2), vec![0, 1, 2]); // run(3)
+        assert_eq!(ints(&pat, 3), vec![0]); // loops back to run(1)
     }
 }
