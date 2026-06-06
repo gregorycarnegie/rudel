@@ -266,7 +266,40 @@ fn run_scheduler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use rudel_core::{note, pure, s, sequence};
+
+    fn osc_string() -> impl Strategy<Value = String> {
+        proptest::string::string_regex("[-A-Za-z0-9_ ]{0,12}").unwrap()
+    }
+
+    fn osc_arg() -> impl Strategy<Value = OscArg> {
+        prop_oneof![
+            any::<i32>().prop_map(OscArg::Int),
+            (-1_000_000.0f32..=1_000_000.0).prop_map(OscArg::Float),
+            osc_string().prop_map(OscArg::Str),
+        ]
+    }
+
+    fn read_osc_string(bytes: &[u8], offset: usize) -> Option<(String, usize)> {
+        let start = offset;
+        let mut end = offset;
+        while end < bytes.len() && bytes[end] != 0 {
+            end += 1;
+        }
+        if end == bytes.len() {
+            return None;
+        }
+        let value = std::str::from_utf8(&bytes[start..end]).ok()?.to_string();
+        end += 1;
+        while !end.is_multiple_of(4) {
+            if end >= bytes.len() || bytes[end] != 0 {
+                return None;
+            }
+            end += 1;
+        }
+        Some((value, end))
+    }
 
     #[test]
     fn encodes_address_and_alignment() {
@@ -372,5 +405,58 @@ mod tests {
         engine.stop();
         drop(engine);
         assert!(got.is_ok(), "engine should send at least one OSC packet");
+    }
+
+    proptest! {
+        #[test]
+        fn encoded_messages_round_trip_generated_args(
+            address_tail in "[A-Za-z0-9_/]{1,16}",
+            args in prop::collection::vec(osc_arg(), 0..12),
+        ) {
+            let msg = OscMessage {
+                address: format!("/{address_tail}"),
+                args,
+            };
+            let bytes = msg.encode();
+
+            prop_assert_eq!(bytes.len() % 4, 0);
+
+            let (address, mut offset) = read_osc_string(&bytes, 0)
+                .expect("encoded OSC address string");
+            prop_assert_eq!(address, msg.address);
+
+            let (tags, next) = read_osc_string(&bytes, offset)
+                .expect("encoded OSC type tag string");
+            offset = next;
+            let expected_tags: String = std::iter::once(',')
+                .chain(msg.args.iter().map(|arg| arg.tag() as char))
+                .collect();
+            prop_assert_eq!(tags, expected_tags);
+
+            for arg in &msg.args {
+                match arg {
+                    OscArg::Int(expected) => {
+                        prop_assert!(offset + 4 <= bytes.len());
+                        let got = i32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                        prop_assert_eq!(got, *expected);
+                        offset += 4;
+                    }
+                    OscArg::Float(expected) => {
+                        prop_assert!(offset + 4 <= bytes.len());
+                        let got = f32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                        prop_assert_eq!(got, *expected);
+                        offset += 4;
+                    }
+                    OscArg::Str(expected) => {
+                        let (got, next) = read_osc_string(&bytes, offset)
+                            .expect("encoded OSC string argument");
+                        prop_assert_eq!(got, expected.as_str());
+                        offset = next;
+                    }
+                }
+            }
+
+            prop_assert_eq!(offset, bytes.len());
+        }
     }
 }

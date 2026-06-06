@@ -108,6 +108,17 @@ impl std::fmt::Display for TimeSpan {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn ordered_span() -> impl Strategy<Value = TimeSpan> {
+        ((-32i64..=32, 1i64..=8), (0i64..=32, 1i64..=8)).prop_map(
+            |((begin_n, begin_d), (duration_n, duration_d))| {
+                let begin = Frac::new(begin_n, begin_d);
+                let end = begin + Frac::new(duration_n, duration_d);
+                TimeSpan::new(begin, end)
+            },
+        )
+    }
 
     #[test]
     fn span_cycles_splits() {
@@ -126,5 +137,51 @@ mod tests {
             a.intersection(&b),
             Some(TimeSpan::new(Frac::new(1, 2), Frac::int(1)))
         );
+    }
+
+    proptest! {
+        #[test]
+        fn span_cycles_preserve_coverage_and_duration(span in ordered_span()) {
+            let cycles = span.span_cycles();
+
+            prop_assert!(!cycles.is_empty());
+            prop_assert_eq!(cycles.first().unwrap().begin, span.begin);
+            prop_assert_eq!(cycles.last().unwrap().end, span.end);
+
+            let mut duration = Frac::zero();
+            for cycle in &cycles {
+                prop_assert!(cycle.begin <= cycle.end);
+                duration = duration + cycle.duration();
+            }
+            for pair in cycles.windows(2) {
+                prop_assert_eq!(pair[0].end, pair[1].begin);
+            }
+
+            prop_assert_eq!(duration, span.duration());
+        }
+
+        #[test]
+        fn cycle_arc_preserves_duration_and_starts_inside_cycle(span in ordered_span()) {
+            let arc = span.cycle_arc();
+
+            prop_assert_eq!(arc.duration(), span.duration());
+            prop_assert!(arc.begin >= Frac::zero());
+            prop_assert!(arc.begin < Frac::one());
+        }
+
+        #[test]
+        fn intersection_is_commutative(a in ordered_span(), b in ordered_span()) {
+            let ab = a.intersection(&b);
+            let ba = b.intersection(&a);
+
+            prop_assert_eq!(ab, ba);
+            if let Some(hit) = ab {
+                prop_assert!(hit.begin >= a.begin);
+                prop_assert!(hit.begin >= b.begin);
+                prop_assert!(hit.end <= a.end);
+                prop_assert!(hit.end <= b.end);
+                prop_assert!(hit.begin <= hit.end);
+            }
+        }
     }
 }

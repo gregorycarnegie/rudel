@@ -108,6 +108,7 @@ pub fn euclid_bools(pulses: i64, steps: i64) -> impl IntoPattern {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn tresillo() {
@@ -125,5 +126,35 @@ mod tests {
             bjorklund(5, 8),
             vec![true, false, true, true, false, true, true, false]
         );
+    }
+
+    proptest! {
+        #[test]
+        fn valid_bjorklund_rhythms_have_the_requested_length_and_pulses(
+            steps in 1i64..=64,
+            pulses in 0i64..=64,
+        ) {
+            let pulses = pulses.min(steps);
+            let rhythm = bjorklund(pulses, steps);
+
+            prop_assert_eq!(rhythm.len(), steps as usize);
+            prop_assert_eq!(
+                rhythm.iter().filter(|&&on| on).count(),
+                pulses as usize
+            );
+        }
+
+        #[test]
+        fn negative_pulses_invert_the_rhythm(steps in 1i64..=64, pulses in 1i64..=64) {
+            let pulses = pulses.min(steps);
+            let normal = bjorklund(pulses, steps);
+            let inverted = bjorklund(-pulses, steps);
+
+            prop_assert_eq!(inverted.len(), normal.len());
+            prop_assert!(
+                normal.iter().zip(&inverted).all(|(a, b)| *a != *b),
+                "negative pulses should invert each step"
+            );
+        }
     }
 }

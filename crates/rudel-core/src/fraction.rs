@@ -187,6 +187,11 @@ impl fmt::Debug for Frac {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn small_frac() -> impl Strategy<Value = Frac> {
+        (-10_000i64..=10_000, 1i64..=10_000).prop_map(|(n, d)| Frac::new(n, d))
+    }
 
     #[test]
     fn sam_and_cycle_pos() {
@@ -205,5 +210,38 @@ mod tests {
             Some(Frac::int(6))
         );
         assert_eq!(lcm_opt([Some(Frac::int(2)), None]), None);
+    }
+
+    proptest! {
+        #[test]
+        fn cycle_pos_is_normalized(t in small_frac()) {
+            let pos = t.cycle_pos();
+
+            prop_assert!(pos >= Frac::zero());
+            prop_assert!(pos < Frac::one());
+            prop_assert_eq!(t.sam() + pos, t);
+            prop_assert!(t.sam() <= t);
+            prop_assert!(t < t.next_sam());
+            prop_assert_eq!(t.next_sam(), t.sam() + Frac::one());
+        }
+
+        #[test]
+        fn from_f64_quantizes_finite_values(x in -1_000_000.0f64..=1_000_000.0) {
+            let got = Frac::from_f64(x).to_f64();
+            prop_assert!(
+                (got - x).abs() <= 0.000001,
+                "expected {x} to round-trip within the fixed grid, got {got}"
+            );
+        }
+
+        #[test]
+        fn integer_gcd_lcm_product_identity(a in 1i64..=10_000, b in 1i64..=10_000) {
+            let a = Frac::int(a);
+            let b = Frac::int(b);
+
+            prop_assert_eq!(a.gcd(b) * a.lcm(b), a * b);
+            prop_assert_eq!(a.gcd(b), b.gcd(a));
+            prop_assert_eq!(a.lcm(b), b.lcm(a));
+        }
     }
 }

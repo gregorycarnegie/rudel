@@ -37,7 +37,16 @@ const SIGNALS: &[&str] = &[
 
 /// Pattern factories (top-level constructors).
 const FACTORIES: &[&str] = &[
-    "stack", "cat", "seq", "fastcat", "slowcat", "randcat", "chooseCycles", "pure", "gap", "silence",
+    "stack",
+    "cat",
+    "seq",
+    "fastcat",
+    "slowcat",
+    "randcat",
+    "chooseCycles",
+    "pure",
+    "gap",
+    "silence",
 ];
 
 /// Control names exposed by the engine, for the reference pane.
@@ -657,6 +666,64 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
         _ => (v, p, q),
     };
     ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn value_short_formats_common_values() {
+        assert_eq!(value_short(&Value::Str("bd".to_string())), "bd");
+        assert_eq!(value_short(&Value::Int(42)), "42");
+        assert_eq!(value_short(&Value::F64(1.2300)), "1.23");
+        assert_eq!(value_short(&Value::F64(2.0)), "2");
+    }
+
+    #[test]
+    fn hap_label_prefers_named_controls() {
+        let with_sound = Value::Map(BTreeMap::from([
+            ("note".to_string(), Value::Int(60)),
+            ("s".to_string(), Value::Str("bd".to_string())),
+        ]));
+        let with_note = Value::Map(BTreeMap::from([("note".to_string(), Value::Int(64))]));
+
+        assert_eq!(hap_label(&with_sound), "s:bd");
+        assert_eq!(hap_label(&with_note), "note:64");
+        assert_eq!(hap_label(&Value::Map(BTreeMap::new())), "");
+    }
+
+    #[test]
+    fn orbit_defaults_to_zero_and_reads_map_control() {
+        assert_eq!(orbit_of(&Value::Str("bd".to_string())), 0);
+        assert_eq!(
+            orbit_of(&Value::Map(BTreeMap::from([(
+                "orbit".to_string(),
+                Value::F64(2.9)
+            )]))),
+            2
+        );
+    }
+
+    #[test]
+    fn truncate_respects_character_boundaries() {
+        assert_eq!(truncate("abcd", 4), "abcd");
+
+        let shortened = truncate("abcdef", 4);
+        assert_eq!(shortened.chars().count(), 5);
+        assert!(shortened.ends_with('\u{2026}'));
+
+        let unicode = truncate("\u{03b1}\u{03b2}\u{03b3}", 2);
+        assert_eq!(unicode.chars().count(), 3);
+        assert!(unicode.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn color_helpers_are_deterministic() {
+        assert_eq!(hsv_to_rgb(0.0, 1.0, 1.0), (255, 0, 0));
+        assert_eq!(color_for("bd"), color_for("bd"));
+        assert_ne!(color_for("bd"), color_for("sd"));
+    }
 }
 
 fn main() -> eframe::Result {
