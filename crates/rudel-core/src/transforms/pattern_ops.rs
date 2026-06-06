@@ -418,6 +418,24 @@ impl Pattern {
         self._focus(frac(b), frac(e))
     }
 
+    /// `ribbon`/`rib`: cut a `cycles`-long window starting at cycle `offset` out
+    /// of the (infinite) timeline and loop it forever. Like `note("<c d e f>")
+    /// .ribbon(1, 2)` playing `d e` on repeat.
+    pub fn ribbon(&self, offset: impl Into<Frac>, cycles: impl Into<Frac>) -> Pattern {
+        let cycles = cycles.into();
+        if cycles <= Frac::zero() {
+            return silence();
+        }
+        // Strudel: pat.early(offset).restart(pure(1).slow(cycles)).
+        let trigger = pure(Value::Int(1))._slow(cycles);
+        self._early(offset.into()).keep_restart(trigger)
+    }
+
+    /// Alias for [`ribbon`](Self::ribbon).
+    pub fn rib(&self, offset: impl Into<Frac>, cycles: impl Into<Frac>) -> Pattern {
+        self.ribbon(offset, cycles)
+    }
+
     /// `collect`: group simultaneous (congruent) haps into a single hap whose
     /// value is a [`Value::List`] of the grouped values, preserving order.
     pub fn collect(&self) -> Pattern {
@@ -755,6 +773,23 @@ mod tests {
         let got = values(&pat, 0, 1);
         assert_eq!(got.len(), 8);
         assert!(got.iter().all(|v| *v == Value::Int(5) || *v == Value::Int(9)));
+    }
+
+    #[test]
+    fn ribbon_loops_a_window() {
+        // slowcat 0 1 2 3 (one per cycle); ribbon(1, 2) loops the window [1,3)
+        let src = slowcat(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+            pure(Value::Int(3)),
+        ]);
+        let pat = src.ribbon(Frac::int(1), Frac::int(2));
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(1)]);
+        assert_eq!(values(&pat, 1, 2), vec![Value::Int(2)]);
+        // loops every 2 cycles
+        assert_eq!(values(&pat, 2, 3), vec![Value::Int(1)]);
+        assert_eq!(values(&pat, 3, 4), vec![Value::Int(2)]);
     }
 
     #[test]

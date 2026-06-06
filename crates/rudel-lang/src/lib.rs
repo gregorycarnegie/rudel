@@ -491,7 +491,7 @@ macro_rules! kpattern_methods {
 
 kpattern_methods! {
     pattern_arg: [
-        fast, slow, ply, segment, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
+        fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         note, n, s, gain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
         delaytime, delayfeedback, attack, decay, sustain, release, vowel, accelerate, coarse,
@@ -528,7 +528,7 @@ kpattern_methods! {
     i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate, take, drop, root_notes],
     frac_arg: [hurry, press_by, swing, loop_at, pace],
     pattern_pattern_arg: [slice, splice],
-    frac_frac_arg: [focus, swing_by, compress, zoom],
+    frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
     i64_i64_arg: [euclid],
     i64_i64_i64_arg: [euclid_rot],
@@ -1134,6 +1134,23 @@ mod tests {
         );
         // works on note chords from mini-notation too
         assert!(eval(r#"note("[c,e,g]").arp("0 1 2 1")"#).is_ok());
+    }
+
+    #[test]
+    fn ribbon_and_seg_via_koto() {
+        // ribbon loops the window [1,3) of "<0 1 2 3>": cycle 0 -> 1, cycle 2 -> 1
+        let pat = eval(r#"n("<0 1 2 3>").ribbon(1, 2)"#).expect("eval");
+        let n_at = |c: i64| match &pat.query_arc(Frac::int(c), Frac::int(c + 1))[0].value {
+            Value::Map(m) => m.get("n").and_then(|v| v.as_f64()).unwrap(),
+            other => other.as_f64().unwrap(),
+        };
+        assert_eq!(n_at(0), 1.0);
+        assert_eq!(n_at(1), 2.0);
+        assert_eq!(n_at(2), 1.0); // looped
+        // rib alias resolves; seg == segment (8 discrete events)
+        assert!(eval(r#"n("<0 1>").rib(0, 1)"#).is_ok());
+        let pat = eval(r#"rand.seg(8)"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 8);
     }
 
     #[test]

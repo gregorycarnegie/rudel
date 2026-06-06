@@ -114,7 +114,10 @@ Function-by-function audit against the Strudel learn pages
 - [x] `compress` `zoom` `fastGap` `inside` `outside` `swingBy`/`swing` `repeatCycles`
       `press`/`pressBy` `brak` `hurry` `focus`
 - [x] `pace` (stretch to a target step count, preserving step metadata)
-- [ ] `ribbon`/`rib`, `compressSpan`/`focusSpan`/`zoomArc`, `flux`, `seg`
+- [x] `ribbon`/`rib` (cut a `cycles`-long window at `offset` and loop it;
+      `early` + `keep_restart`), `seg` (alias for `segment`)
+- [ ] `compressSpan`/`focusSpan`/`zoomArc` (would just duplicate the two-arg
+      `compress`/`focus`/`zoom` — no Koto span type), `flux`
 
 ## learn/signals
 

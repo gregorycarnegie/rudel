@@ -408,6 +408,11 @@ impl Pattern {
         patternify_frac(self, n.into_pattern(), |p, f| p._segment(f))
     }
 
+    /// Alias for [`segment`](Self::segment) (`seg`).
+    pub fn seg(&self, n: impl IntoPattern) -> Pattern {
+        self.segment(n)
+    }
+
     /// Restructure to the onsets of a boolean pattern, keeping this pattern's
     /// values (`struct`). Named `struct_pat` because `struct` is a keyword.
     pub fn struct_pat(&self, bools: impl IntoPattern) -> Pattern {
