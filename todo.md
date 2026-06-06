@@ -78,7 +78,11 @@ Function-by-function audit against the Strudel learn pages
 - [x] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease`
       (+ `hp*`/`bp*` and `fanchor`): per-sample cutoff sweep `min..max` =
       `2^-offset·f .. 2^(|env|-offset)·f` driven by the filter's own ADSR
-- [ ] `phaser*`, `tremolo*`, `compressor*`, `postgain`, `dry`, `squiz`, `fshift`
+- [x] `tremolo` (+`tremolodepth`) amplitude LFO; `phaser`/`phaserrate`
+      (+`phaserdepth`/`phasercenter`/`phasersweep`) swept-notch — per-voice in
+      `PostFx` (notch detune-sweep matching superdough's `getPhaser`)
+- [ ] `compressor*` (needs orbit/bus routing), `dry` (wet/dry of room/delay),
+      `squiz` (sampler harmonic repeats), `fshift` (frequency shifter worklet)
 - [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)
 
 ## functions/value-modifiers

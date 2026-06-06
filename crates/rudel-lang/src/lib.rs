@@ -433,6 +433,8 @@ kpattern_methods! {
         // vibrato + pitch envelope (+ aliases)
         vib, vibmod, penv, pattack, pdecay, psustain, prelease, panchor,
         vibrato, vmod, patt, pdec, psus, prel,
+        // post-fx: tremolo + phaser
+        tremolo, tremolodepth, phaser, phaserrate, phaserdepth, phasercenter, phasersweep,
         // filter / envelope / misc aliases
         lpf, lp, ctf, lpq, hpf, hp, hpq, bpf, bp, bpq, vel, att, rel, sus, dec,
         delayt, delayfb, o, trans, strans,
@@ -851,6 +853,27 @@ mod tests {
         ] {
             assert!(eval(src).is_ok(), "should eval: {src}");
         }
+    }
+
+    #[test]
+    fn tremolo_phaser_controls_resolve() {
+        for src in [
+            r#"note("c3").s("saw").tremolo(4).tremolodepth(0.6)"#,
+            r#"note("c3").s("saw").phaser(0.5).phaserdepth(0.8)"#,
+            r#"note("c3").s("saw").phaserrate(1).phasercenter(800).phasersweep(1500)"#,
+        ] {
+            assert!(eval(src).is_ok(), "should eval: {src}");
+        }
+        // the control lands on the hap map under its own key
+        let pat = eval(r#"note("c3").tremolo(4)"#).expect("eval");
+        let has = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .any(|h| match h.value {
+                Value::Map(m) => m.get("tremolo").and_then(|v| v.as_f64()) == Some(4.0),
+                _ => false,
+            });
+        assert!(has, "tremolo control should be set on the event map");
     }
 
     #[test]

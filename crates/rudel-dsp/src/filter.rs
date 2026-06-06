@@ -18,6 +18,7 @@ pub(crate) enum FilterKind {
     Low,
     High,
     Band,
+    Notch,
 }
 
 impl Biquad {
@@ -44,6 +45,14 @@ impl Biquad {
     pub(crate) fn bandpass(sample_rate: f32, center: f32, q: f32) -> Biquad {
         Biquad::new(FilterKind::Band, sample_rate, center, q)
     }
+    pub(crate) fn notch(sample_rate: f32, center: f32, q: f32) -> Biquad {
+        Biquad::new(FilterKind::Notch, sample_rate, center, q)
+    }
+
+    /// Recompute notch coefficients in place (used to sweep the phaser).
+    pub(crate) fn set_notch(&mut self, sample_rate: f32, freq: f32, q: f32) {
+        self.update(FilterKind::Notch, sample_rate, freq, q);
+    }
 
     /// Recompute the RBJ coefficients in place, preserving the filter state
     /// (`z1`/`z2`) so the cutoff can be modulated per sample.
@@ -58,6 +67,7 @@ impl Biquad {
             FilterKind::High => ((1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0),
             // constant 0 dB peak gain (b0 = alpha)
             FilterKind::Band => (alpha, 0.0, -alpha),
+            FilterKind::Notch => (1.0, -2.0 * cos, 1.0),
         };
         self.b0 = b0 / a0;
         self.b1 = b1 / a0;

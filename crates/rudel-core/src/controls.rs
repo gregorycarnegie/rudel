@@ -154,6 +154,14 @@ controls!(
     psustain,
     prelease,
     panchor,
+    // post-fx: tremolo + phaser
+    tremolo,
+    tremolodepth,
+    phaser,
+    phaserrate,
+    phaserdepth,
+    phasercenter,
+    phasersweep,
 );
 
 // Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).

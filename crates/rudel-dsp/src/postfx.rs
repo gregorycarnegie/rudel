@@ -111,6 +111,18 @@ pub struct PostFx {
     pub postgain: f32,
     /// Formant filter vowel (`vowel`).
     pub vowel: Option<Vowel>,
+    /// Tremolo (amplitude LFO) rate in Hz (`tremolo`). `None` = off.
+    pub tremolo: Option<f32>,
+    /// Tremolo depth 0..1 (`tremolodepth`).
+    pub tremolodepth: f32,
+    /// Phaser (swept notch) LFO rate in Hz (`phaser`/`phaserrate`). `None` = off.
+    pub phaser: Option<f32>,
+    /// Phaser depth 0..1 (`phaserdepth`), controls notch Q.
+    pub phaserdepth: f32,
+    /// Phaser notch center frequency in Hz (`phasercenter`).
+    pub phasercenter: f32,
+    /// Phaser sweep range in cents (`phasersweep`).
+    pub phasersweep: f32,
 }
 
 impl Default for PostFx {
@@ -124,6 +136,12 @@ impl Default for PostFx {
             coarse: None,
             postgain: 1.0,
             vowel: None,
+            tremolo: None,
+            tremolodepth: 0.5,
+            phaser: None,
+            phaserdepth: 0.5,
+            phasercenter: 1000.0,
+            phasersweep: 2000.0,
         }
     }
 }
@@ -143,6 +161,13 @@ impl PostFx {
                 .get("vowel")
                 .and_then(|v| v.as_str())
                 .and_then(Vowel::from_name),
+            tremolo: get("tremolo"),
+            tremolodepth: get("tremolodepth").unwrap_or(0.5),
+            // `phaser` and `phaserrate` are aliases for the LFO rate.
+            phaser: get("phaser").or_else(|| get("phaserrate")),
+            phaserdepth: get("phaserdepth").unwrap_or(0.5),
+            phasercenter: get("phasercenter").unwrap_or(1000.0),
+            phasersweep: get("phasersweep").unwrap_or(2000.0),
         }
     }
 
@@ -153,6 +178,8 @@ impl PostFx {
             || self.coarse.is_some()
             || self.vowel.is_some()
             || self.postgain != 1.0
+            || self.tremolo.is_some()
+            || self.phaser.is_some()
     }
 }
 
@@ -160,10 +187,15 @@ impl PostFx {
 pub struct PostFxVoice {
     inner: Box<dyn VoiceLike>,
     fx: PostFx,
+    sample_rate: f32,
+    /// Elapsed time in seconds, driving the tremolo / phaser LFOs.
+    time: f32,
     coarse_hold: (f32, f32),
     coarse_count: u32,
     /// Per-channel formant banks when `vowel` is set.
     vowel: Option<(Formant, Formant)>,
+    /// Per-channel swept notch filters when `phaser` is set.
+    phaser: Option<(Biquad, Biquad)>,
 }
 
 impl PostFxVoice {
@@ -171,12 +203,23 @@ impl PostFxVoice {
         let vowel = fx
             .vowel
             .map(|v| (Formant::new(v, sample_rate), Formant::new(v, sample_rate)));
+        let phaser = fx.phaser.map(|_| {
+            let center = fx.phasercenter + 282.0;
+            let q = 2.0 - (fx.phaserdepth * 2.0).clamp(0.0, 1.9);
+            (
+                Biquad::notch(sample_rate, center, q),
+                Biquad::notch(sample_rate, center, q),
+            )
+        });
         PostFxVoice {
             inner,
             fx,
+            sample_rate,
+            time: 0.0,
             coarse_hold: (0.0, 0.0),
             coarse_count: 0,
             vowel,
+            phaser,
         }
     }
 
@@ -200,6 +243,18 @@ impl VoiceLike for PostFxVoice {
         if let Some((fl, fr)) = &mut self.vowel {
             l = fl.process(l);
             r = fr.process(r);
+        }
+        // phaser: notch filter whose center sweeps ±phasersweep cents at the
+        // LFO rate (matches superdough's notch-detune phaser).
+        if let (Some(rate), Some((nl, nr))) = (self.fx.phaser, &mut self.phaser) {
+            let lfo = (std::f32::consts::TAU * rate * self.time).sin();
+            let center = self.fx.phasercenter + 282.0;
+            let freq = center * 2f32.powf(self.fx.phasersweep * lfo / 1200.0);
+            let q = 2.0 - (self.fx.phaserdepth * 2.0).clamp(0.0, 1.9);
+            nl.set_notch(self.sample_rate, freq, q);
+            nr.set_notch(self.sample_rate, freq, q);
+            l = nl.process(l);
+            r = nr.process(r);
         }
         // coarse: sample-and-hold every `coarse` output samples.
         if let Some(c) = self.fx.coarse {
@@ -230,10 +285,19 @@ impl VoiceLike for PostFxVoice {
             l = Self::distort_sample(l, k, pg);
             r = Self::distort_sample(r, k, pg);
         }
+        // tremolo: amplitude LFO. gain = (1-depth) + depth * unipolar-sine.
+        if let Some(rate) = self.fx.tremolo {
+            let depth = self.fx.tremolodepth.clamp(0.0, 1.0);
+            let unipolar = 0.5 * (1.0 - (std::f32::consts::TAU * rate * self.time).cos());
+            let gain = (1.0 - depth) + depth * unipolar;
+            l *= gain;
+            r *= gain;
+        }
         if self.fx.postgain != 1.0 {
             l *= self.fx.postgain;
             r *= self.fx.postgain;
         }
+        self.time += 1.0 / self.sample_rate;
         (l, r)
     }
     fn is_done(&self) -> bool {

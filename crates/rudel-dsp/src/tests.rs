@@ -466,3 +466,75 @@ fn pan_hard_left_silences_right() {
     assert!(l.abs() > 0.0);
     assert!(r.abs() < 1e-6);
 }
+
+#[test]
+fn tremolo_modulates_amplitude() {
+    // depth=1, 100 Hz: gain swings across [0, 1] over one LFO period.
+    let fx = PostFx {
+        tremolo: Some(100.0),
+        tremolodepth: 1.0,
+        ..Default::default()
+    };
+    let sr = 44100.0;
+    let mut v = PostFxVoice::new(Box::new(ConstVoice(1.0)), fx, sr);
+    let period = (sr / 100.0) as usize; // 441 samples
+    let out: Vec<f32> = (0..period).map(|_| v.tick().0).collect();
+    let min = out.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = out.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    assert!(min < 0.05, "tremolo should dip near zero, got min {min}");
+    assert!(max > 0.95, "tremolo should peak near unity, got max {max}");
+    assert!(
+        out.iter().all(|&g| (-0.0001..=1.0001).contains(&g)),
+        "tremolo gain stays within [0, 1]"
+    );
+}
+
+#[test]
+fn phaser_attenuates_tone_at_notch() {
+    // A sine sitting at the phaser's notch center should lose energy versus
+    // the same sine with no phaser.
+    struct SineSource {
+        phase: f32,
+        inc: f32,
+    }
+    impl VoiceLike for SineSource {
+        fn tick(&mut self) -> (f32, f32) {
+            let s = (self.phase * std::f32::consts::TAU).sin();
+            self.phase = (self.phase + self.inc).fract();
+            (s, s)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+        fn room(&self) -> f32 {
+            0.0
+        }
+        fn delay_send(&self) -> f32 {
+            0.0
+        }
+    }
+    let sr = 44100.0;
+    // notch center = phasercenter + 282 = 1282 Hz; sit the tone there.
+    let mk = || SineSource {
+        phase: 0.0,
+        inc: 1282.0 / sr,
+    };
+    let fx = PostFx {
+        phaser: Some(1.0),
+        phaserdepth: 0.95, // low Q -> wide notch
+        phasercenter: 1000.0,
+        phasersweep: 200.0, // narrow sweep so the notch stays near the tone
+        ..Default::default()
+    };
+    let mut plain = mk();
+    let mut phased = PostFxVoice::new(Box::new(mk()), fx, sr);
+    let (mut e_plain, mut e_phased) = (0.0f32, 0.0f32);
+    for _ in 0..4410 {
+        e_plain += plain.tick().0.abs();
+        e_phased += phased.tick().0.abs();
+    }
+    assert!(
+        e_phased < e_plain * 0.7,
+        "phaser notch should attenuate the tone (phased {e_phased} vs plain {e_plain})"
+    );
+}
