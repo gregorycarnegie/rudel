@@ -79,7 +79,8 @@ impl Mixer {
         while i < self.pending.len() {
             if self.pending[i].onset_seconds <= now {
                 let ev = self.pending.swap_remove(i);
-                self.active.push(ev.spec.into_voice(self.sample_rate));
+                self.active
+                    .push(ev.spec.into_voice_with_fx(self.sample_rate, ev.fx));
             } else {
                 i += 1;
             }

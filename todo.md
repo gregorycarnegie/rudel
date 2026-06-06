@@ -63,9 +63,11 @@ Function-by-function audit against the Strudel learn pages
 - [x] low-pass `cutoff`/`lpf` + `resonance`/`lpq`
 - [x] high-pass `hcutoff`/`hpf` + `hresonance`/`hpq`; band-pass `bandf`/`bpf` + `bandq`/`bpq`
 - [x] reverb `room`/`size`; delay `delay`/`delaytime`/`delayfeedback`
-- [x] `pan`, `jux`/`juxBy`, `speed`, `orbit`, `gain`
-- [~] `vowel` `shape` `crush` `coarse` `distort` — controls bind, **no DSP yet**
-      (silently pass through)
+- [x] `pan`, `jux`/`juxBy`, `speed`, `orbit`, `gain`, `postgain`
+- [x] waveshaping/decimation: `crush` (bitcrush), `shape` (hyperbolic),
+      `distort` (+`distortvol`/`shapevol`), `coarse` (sample-rate reduction) —
+      per-voice `PostFx` matching superdough's worklet formulas
+- [~] `vowel` — control binds, formant DSP not implemented yet
 - [ ] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease` (+ hp/bp)
 - [ ] `phaser*`, `tremolo*`, `compressor*`, `postgain`, `dry`, `squiz`, `fshift`
 - [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)

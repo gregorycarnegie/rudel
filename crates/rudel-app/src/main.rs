@@ -62,6 +62,8 @@ const CONTROLS: &[&str] = &[
     "size",
     "shape",
     "crush",
+    "distort",
+    "postgain",
     "delay",
     "delaytime",
     "delayfeedback",

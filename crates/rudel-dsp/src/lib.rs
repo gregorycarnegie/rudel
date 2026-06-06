@@ -890,6 +890,157 @@ impl VoiceSpec {
             VoiceSpec::Drum(p) => Box::new(DrumVoice::new(p, sample_rate)),
         }
     }
+
+    /// Build the voice and, if any post-effects are active, wrap it in a
+    /// [`PostFxVoice`].
+    pub fn into_voice_with_fx(self, sample_rate: f32, fx: PostFx) -> Box<dyn VoiceLike> {
+        let voice = self.into_voice(sample_rate);
+        if fx.is_active() {
+            Box::new(PostFxVoice::new(voice, fx))
+        } else {
+            voice
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Waveshaping / bitcrush / decimation post-effects (superdough crush/shape/
+// distort/coarse worklets). Applied per voice, after the voice renders.
+
+/// Per-voice post-effects (`crush`, `shape`, `distort`, `coarse`, `postgain`).
+#[derive(Clone, Copy, Debug)]
+pub struct PostFx {
+    /// Bit-crush depth in bits (>= 1). `None` = off.
+    pub crush: Option<f32>,
+    /// Waveshaper amount 0..1 (`shape`). `None` = off.
+    pub shape: Option<f32>,
+    /// Post-gain for `shape` (`shapevol`), 0.001..1.
+    pub shapevol: f32,
+    /// Distortion amount (`distort`); `k = e^distort - 1`. `None` = off.
+    pub distort: Option<f32>,
+    /// Post-gain for `distort` (`distortvol`), 0.001..1.
+    pub distortvol: f32,
+    /// Sample-rate reduction factor (`coarse`, >= 1). `None` = off.
+    pub coarse: Option<f32>,
+    /// Overall post-gain (`postgain`).
+    pub postgain: f32,
+}
+
+impl Default for PostFx {
+    fn default() -> Self {
+        PostFx {
+            crush: None,
+            shape: None,
+            shapevol: 1.0,
+            distort: None,
+            distortvol: 1.0,
+            coarse: None,
+            postgain: 1.0,
+        }
+    }
+}
+
+impl PostFx {
+    pub fn from_controls(map: &BTreeMap<String, Value>) -> PostFx {
+        let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
+        PostFx {
+            crush: get("crush"),
+            shape: get("shape"),
+            shapevol: get("shapevol").unwrap_or(1.0),
+            distort: get("distort"),
+            distortvol: get("distortvol").unwrap_or(1.0),
+            coarse: get("coarse"),
+            postgain: get("postgain").unwrap_or(1.0),
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.crush.is_some()
+            || self.shape.is_some()
+            || self.distort.is_some()
+            || self.coarse.is_some()
+            || self.postgain != 1.0
+    }
+}
+
+/// Wraps a voice and applies [`PostFx`] to its stereo output.
+pub struct PostFxVoice {
+    inner: Box<dyn VoiceLike>,
+    fx: PostFx,
+    coarse_hold: (f32, f32),
+    coarse_count: u32,
+}
+
+impl PostFxVoice {
+    pub fn new(inner: Box<dyn VoiceLike>, fx: PostFx) -> PostFxVoice {
+        PostFxVoice {
+            inner,
+            fx,
+            coarse_hold: (0.0, 0.0),
+            coarse_count: 0,
+        }
+    }
+
+    fn shape_sample(x: f32, shape: f32, postgain: f32) -> f32 {
+        let shape = if shape < 1.0 { shape } else { 1.0 - 4e-10 };
+        let shape = (2.0 * shape) / (1.0 - shape);
+        ((1.0 + shape) * x) / (1.0 + shape * x.abs()) * postgain
+    }
+
+    // s-curve waveshaper (superdough's default `distort` algorithm).
+    fn distort_sample(x: f32, k: f32, postgain: f32) -> f32 {
+        postgain * ((1.0 + k) * x) / (1.0 + k * x.abs())
+    }
+}
+
+impl VoiceLike for PostFxVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        let (mut l, mut r) = self.inner.tick();
+
+        // coarse: sample-and-hold every `coarse` output samples.
+        if let Some(c) = self.fx.coarse {
+            let c = c.max(1.0) as u32;
+            if self.coarse_count.is_multiple_of(c) {
+                self.coarse_hold = (l, r);
+            } else {
+                (l, r) = self.coarse_hold;
+            }
+            self.coarse_count = self.coarse_count.wrapping_add(1);
+        }
+        // crush: quantize to `crush` bits.
+        if let Some(bits) = self.fx.crush {
+            let x = 2f32.powf(bits.max(1.0) - 1.0);
+            l = (l * x).round() / x;
+            r = (r * x).round() / x;
+        }
+        // shape: hyperbolic waveshaper.
+        if let Some(s) = self.fx.shape {
+            let pg = self.fx.shapevol.clamp(0.001, 1.0);
+            l = Self::shape_sample(l, s, pg);
+            r = Self::shape_sample(r, s, pg);
+        }
+        // distort: s-curve with exponential drive.
+        if let Some(d) = self.fx.distort {
+            let k = d.exp_m1();
+            let pg = self.fx.distortvol.clamp(0.001, 1.0);
+            l = Self::distort_sample(l, k, pg);
+            r = Self::distort_sample(r, k, pg);
+        }
+        if self.fx.postgain != 1.0 {
+            l *= self.fx.postgain;
+            r *= self.fx.postgain;
+        }
+        (l, r)
+    }
+    fn is_done(&self) -> bool {
+        self.inner.is_done()
+    }
+    fn room(&self) -> f32 {
+        self.inner.room()
+    }
+    fn delay_send(&self) -> f32 {
+        self.inner.delay_send()
+    }
 }
 
 #[cfg(test)]
@@ -969,6 +1120,96 @@ mod tests {
             assert!(v.is_done(), "{kind:?} should finish");
             assert!(ticks < 44100 * 2, "{kind:?} should finish within 2s");
         }
+    }
+
+    /// A test voice emitting a fixed stereo value, never done.
+    struct ConstVoice(f32);
+    impl VoiceLike for ConstVoice {
+        fn tick(&mut self) -> (f32, f32) {
+            (self.0, self.0)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+        fn room(&self) -> f32 {
+            0.0
+        }
+        fn delay_send(&self) -> f32 {
+            0.0
+        }
+    }
+
+    #[test]
+    fn postfx_active_flag() {
+        assert!(!PostFx::default().is_active());
+        assert!(
+            PostFx {
+                crush: Some(4.0),
+                ..Default::default()
+            }
+            .is_active()
+        );
+    }
+
+    #[test]
+    fn crush_quantizes_to_levels() {
+        // crush=2 bits -> step = 2^(2-1) = 2, so values snap to multiples of 0.5
+        let fx = PostFx {
+            crush: Some(2.0),
+            postgain: 1.0,
+            shapevol: 1.0,
+            distortvol: 1.0,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(0.3)), fx);
+        let (l, _) = v.tick();
+        assert_eq!(l, 0.5); // round(0.3*2)/2 = round(0.6)/2 = 1/2
+    }
+
+    #[test]
+    fn coarse_holds_samples() {
+        // coarse=3: a ramping source is held for 3-sample windows
+        struct Ramp(f32);
+        impl VoiceLike for Ramp {
+            fn tick(&mut self) -> (f32, f32) {
+                self.0 += 1.0;
+                (self.0, self.0)
+            }
+            fn is_done(&self) -> bool {
+                false
+            }
+            fn room(&self) -> f32 {
+                0.0
+            }
+            fn delay_send(&self) -> f32 {
+                0.0
+            }
+        }
+        let fx = PostFx {
+            coarse: Some(3.0),
+            postgain: 1.0,
+            shapevol: 1.0,
+            distortvol: 1.0,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(Ramp(0.0)), fx);
+        let out: Vec<f32> = (0..6).map(|_| v.tick().0).collect();
+        // first sample of each window held across the window
+        assert_eq!(out, vec![1.0, 1.0, 1.0, 4.0, 4.0, 4.0]);
+    }
+
+    #[test]
+    fn distort_boosts_small_signal() {
+        let fx = PostFx {
+            distort: Some(2.0),
+            postgain: 1.0,
+            shapevol: 1.0,
+            distortvol: 1.0,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(0.1)), fx);
+        let (l, _) = v.tick();
+        assert!(l > 0.1, "distortion should boost a small input, got {l}");
     }
 
     #[test]

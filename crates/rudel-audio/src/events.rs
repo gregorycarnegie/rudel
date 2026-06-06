@@ -4,7 +4,7 @@
 
 use crate::samples::SampleBank;
 use rudel_core::{Pattern, Value, query_controls};
-use rudel_dsp::{DrumKind, DrumParams, SamplerParams, VoiceParams, VoiceSpec};
+use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec};
 use std::collections::BTreeMap;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
@@ -14,6 +14,8 @@ pub use rudel_core::to_control_map;
 pub struct NoteEvent {
     pub onset_seconds: f64,
     pub spec: VoiceSpec,
+    /// Per-voice post-effects (crush/shape/distort/coarse/postgain).
+    pub fx: PostFx,
 }
 
 /// Resolve a control map into either a sampler or synth voice spec.
@@ -53,6 +55,7 @@ pub fn collect_events(
         .map(|ev| NoteEvent {
             onset_seconds: ev.onset_seconds,
             spec: spec_for(&ev.controls, ev.duration_seconds as f32, bank),
+            fx: PostFx::from_controls(&ev.controls),
         })
         .collect()
 }
