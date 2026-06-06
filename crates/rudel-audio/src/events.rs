@@ -129,6 +129,16 @@ mod tests {
     }
 
     #[test]
+    fn noise_name_resolves_to_synth_noise() {
+        let bank = SampleBank::new();
+        let events = collect_events(&pure(Value::Str("white".into())), 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Synth(p) => assert!(p.noise.is_some(), "expected a noise source"),
+            _ => panic!("expected a synth noise voice"),
+        }
+    }
+
+    #[test]
     fn loaded_sample_overrides_drum_synth() {
         // A loaded "bd" sample takes priority over the built-in drum.
         let mut bank = SampleBank::new();

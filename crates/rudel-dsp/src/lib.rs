@@ -56,6 +56,78 @@ impl Waveform {
     }
 }
 
+/// A noise source (`s("white"/"pink"/"brown")`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoiseKind {
+    White,
+    Pink,
+    Brown,
+}
+
+impl NoiseKind {
+    pub fn from_name(name: &str) -> Option<NoiseKind> {
+        Some(match name {
+            "white" | "noise" => NoiseKind::White,
+            "pink" => NoiseKind::Pink,
+            "brown" => NoiseKind::Brown,
+            _ => return None,
+        })
+    }
+}
+
+/// Stateful noise generator (white/pink/brown), ported from superdough's
+/// `getNoiseBuffer`.
+#[derive(Clone, Copy, Debug)]
+struct NoiseGen {
+    rng: u32,
+    pink: [f32; 7],
+    brown_last: f32,
+}
+
+impl NoiseGen {
+    fn new() -> NoiseGen {
+        NoiseGen {
+            rng: 0x1234_5678,
+            pink: [0.0; 7],
+            brown_last: 0.0,
+        }
+    }
+
+    fn white(&mut self) -> f32 {
+        let mut x = self.rng;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.rng = x;
+        (x as f32 / u32::MAX as f32) * 2.0 - 1.0
+    }
+
+    fn next(&mut self, kind: NoiseKind) -> f32 {
+        let white = self.white();
+        match kind {
+            NoiseKind::White => white,
+            NoiseKind::Brown => {
+                let out = (self.brown_last + 0.02 * white) / 1.02;
+                self.brown_last = out;
+                out
+            }
+            NoiseKind::Pink => {
+                // Paul Kellet's refined pink-noise filter.
+                let b = &mut self.pink;
+                b[0] = 0.99886 * b[0] + white * 0.0555179;
+                b[1] = 0.99332 * b[1] + white * 0.0750759;
+                b[2] = 0.969 * b[2] + white * 0.153852;
+                b[3] = 0.8665 * b[3] + white * 0.3104856;
+                b[4] = 0.55 * b[4] + white * 0.5329522;
+                b[5] = -0.7616 * b[5] - white * 0.016898;
+                let out = b[0] + b[1] + b[2] + b[3] + b[4] + b[5] + b[6] + white * 0.5362;
+                b[6] = white * 0.115926;
+                out * 0.11
+            }
+        }
+    }
+}
+
 /// Attack/decay/sustain/release envelope (seconds; sustain is a 0..1 level).
 #[derive(Clone, Copy, Debug)]
 pub struct Adsr {
@@ -81,6 +153,8 @@ impl Default for Adsr {
 #[derive(Clone, Copy, Debug)]
 pub struct VoiceParams {
     pub waveform: Waveform,
+    /// When set, the source is noise rather than the oscillator.
+    pub noise: Option<NoiseKind>,
     pub freq: f32,
     pub gain: f32,
     /// 0.0 = hard left, 1.0 = hard right.
@@ -110,6 +184,7 @@ impl Default for VoiceParams {
     fn default() -> Self {
         VoiceParams {
             waveform: Waveform::Sine,
+            noise: None,
             freq: 440.0,
             gain: 1.0,
             pan: 0.5,
@@ -134,10 +209,12 @@ impl VoiceParams {
             duration,
             ..Default::default()
         };
-        if let Some(name) = map.get("s").and_then(|v| v.as_str())
-            && let Some(w) = Waveform::from_name(name)
-        {
-            p.waveform = w;
+        if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
+            if let Some(w) = Waveform::from_name(name) {
+                p.waveform = w;
+            } else if let Some(nk) = NoiseKind::from_name(name) {
+                p.noise = Some(nk);
+            }
         }
         if let Some(freq) = map.get("freq").and_then(|v| v.as_f64()) {
             p.freq = freq as f32;
@@ -304,6 +381,7 @@ pub struct Voice {
     hold_end: f32,
     /// Filter chain (low/high/band-pass), applied in order to the oscillator.
     filters: Vec<Biquad>,
+    noise: NoiseGen,
     done: bool,
 }
 
@@ -333,6 +411,7 @@ impl Voice {
             right_gain,
             hold_end,
             filters,
+            noise: NoiseGen::new(),
             done: false,
         }
     }
@@ -373,7 +452,10 @@ impl Voice {
             return (0.0, 0.0);
         }
         let env = self.envelope();
-        let mut osc = self.params.waveform.sample(self.phase);
+        let mut osc = match self.params.noise {
+            Some(kind) => self.noise.next(kind),
+            None => self.params.waveform.sample(self.phase),
+        };
         for f in &mut self.filters {
             osc = f.process(osc);
         }
@@ -896,7 +978,7 @@ impl VoiceSpec {
     pub fn into_voice_with_fx(self, sample_rate: f32, fx: PostFx) -> Box<dyn VoiceLike> {
         let voice = self.into_voice(sample_rate);
         if fx.is_active() {
-            Box::new(PostFxVoice::new(voice, fx))
+            Box::new(PostFxVoice::new(voice, fx, sample_rate))
         } else {
             voice
         }
@@ -907,7 +989,97 @@ impl VoiceSpec {
 // Waveshaping / bitcrush / decimation post-effects (superdough crush/shape/
 // distort/coarse worklets). Applied per voice, after the voice renders.
 
-/// Per-voice post-effects (`crush`, `shape`, `distort`, `coarse`, `postgain`).
+/// A vowel for the formant filter (`vowel("a e i o u")`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Vowel {
+    A,
+    E,
+    I,
+    O,
+    U,
+}
+
+impl Vowel {
+    pub fn from_name(name: &str) -> Option<Vowel> {
+        Some(match name {
+            "a" => Vowel::A,
+            "e" => Vowel::E,
+            "i" => Vowel::I,
+            "o" => Vowel::O,
+            "u" => Vowel::U,
+            _ => return None,
+        })
+    }
+
+    /// Five formants as `(frequency, gain, Q)` (webdirt/superdough table).
+    fn formants(self) -> [(f32, f32, f32); 5] {
+        match self {
+            Vowel::A => [
+                (660.0, 1.0, 80.0),
+                (1120.0, 0.5012, 90.0),
+                (2750.0, 0.0708, 120.0),
+                (3000.0, 0.0631, 130.0),
+                (3350.0, 0.0126, 140.0),
+            ],
+            Vowel::E => [
+                (440.0, 1.0, 70.0),
+                (1800.0, 0.1995, 80.0),
+                (2700.0, 0.1259, 100.0),
+                (3000.0, 0.1, 120.0),
+                (3300.0, 0.1, 120.0),
+            ],
+            Vowel::I => [
+                (270.0, 1.0, 40.0),
+                (1850.0, 0.0631, 90.0),
+                (2900.0, 0.0631, 100.0),
+                (3350.0, 0.0158, 120.0),
+                (3590.0, 0.0158, 120.0),
+            ],
+            Vowel::O => [
+                (430.0, 1.0, 40.0),
+                (820.0, 0.3162, 80.0),
+                (2700.0, 0.0501, 100.0),
+                (3000.0, 0.0794, 120.0),
+                (3300.0, 0.01995, 120.0),
+            ],
+            Vowel::U => [
+                (370.0, 1.0, 40.0),
+                (630.0, 0.1, 60.0),
+                (2750.0, 0.0708, 100.0),
+                (3000.0, 0.0316, 120.0),
+                (3400.0, 0.01995, 120.0),
+            ],
+        }
+    }
+}
+
+/// A mono bank of five parallel band-pass formant filters.
+#[derive(Clone)]
+struct Formant {
+    filters: [Biquad; 5],
+    gains: [f32; 5],
+}
+
+impl Formant {
+    fn new(vowel: Vowel, sample_rate: f32) -> Formant {
+        let f = vowel.formants();
+        Formant {
+            filters: std::array::from_fn(|i| Biquad::bandpass(sample_rate, f[i].0, f[i].2)),
+            gains: std::array::from_fn(|i| f[i].1),
+        }
+    }
+
+    fn process(&mut self, x: f32) -> f32 {
+        let mut sum = 0.0;
+        for i in 0..5 {
+            sum += self.filters[i].process(x) * self.gains[i];
+        }
+        sum * 8.0 // makeup gain (matches superdough's VowelNode)
+    }
+}
+
+/// Per-voice post-effects (`crush`, `shape`, `distort`, `coarse`, `postgain`,
+/// `vowel`).
 #[derive(Clone, Copy, Debug)]
 pub struct PostFx {
     /// Bit-crush depth in bits (>= 1). `None` = off.
@@ -924,6 +1096,8 @@ pub struct PostFx {
     pub coarse: Option<f32>,
     /// Overall post-gain (`postgain`).
     pub postgain: f32,
+    /// Formant filter vowel (`vowel`).
+    pub vowel: Option<Vowel>,
 }
 
 impl Default for PostFx {
@@ -936,6 +1110,7 @@ impl Default for PostFx {
             distortvol: 1.0,
             coarse: None,
             postgain: 1.0,
+            vowel: None,
         }
     }
 }
@@ -951,6 +1126,7 @@ impl PostFx {
             distortvol: get("distortvol").unwrap_or(1.0),
             coarse: get("coarse"),
             postgain: get("postgain").unwrap_or(1.0),
+            vowel: map.get("vowel").and_then(|v| v.as_str()).and_then(Vowel::from_name),
         }
     }
 
@@ -959,6 +1135,7 @@ impl PostFx {
             || self.shape.is_some()
             || self.distort.is_some()
             || self.coarse.is_some()
+            || self.vowel.is_some()
             || self.postgain != 1.0
     }
 }
@@ -969,15 +1146,21 @@ pub struct PostFxVoice {
     fx: PostFx,
     coarse_hold: (f32, f32),
     coarse_count: u32,
+    /// Per-channel formant banks when `vowel` is set.
+    vowel: Option<(Formant, Formant)>,
 }
 
 impl PostFxVoice {
-    pub fn new(inner: Box<dyn VoiceLike>, fx: PostFx) -> PostFxVoice {
+    pub fn new(inner: Box<dyn VoiceLike>, fx: PostFx, sample_rate: f32) -> PostFxVoice {
+        let vowel = fx
+            .vowel
+            .map(|v| (Formant::new(v, sample_rate), Formant::new(v, sample_rate)));
         PostFxVoice {
             inner,
             fx,
             coarse_hold: (0.0, 0.0),
             coarse_count: 0,
+            vowel,
         }
     }
 
@@ -997,6 +1180,11 @@ impl VoiceLike for PostFxVoice {
     fn tick(&mut self) -> (f32, f32) {
         let (mut l, mut r) = self.inner.tick();
 
+        // vowel: parallel formant band-pass bank.
+        if let Some((fl, fr)) = &mut self.vowel {
+            l = fl.process(l);
+            r = fr.process(r);
+        }
         // coarse: sample-and-hold every `coarse` output samples.
         if let Some(c) = self.fx.coarse {
             let c = c.max(1.0) as u32;
@@ -1140,6 +1328,51 @@ mod tests {
     }
 
     #[test]
+    fn noise_names_and_sound() {
+        assert_eq!(NoiseKind::from_name("white"), Some(NoiseKind::White));
+        assert_eq!(NoiseKind::from_name("pink"), Some(NoiseKind::Pink));
+        assert_eq!(NoiseKind::from_name("brown"), Some(NoiseKind::Brown));
+        assert_eq!(NoiseKind::from_name("sine"), None);
+        for kind in [NoiseKind::White, NoiseKind::Pink, NoiseKind::Brown] {
+            let p = VoiceParams {
+                noise: Some(kind),
+                duration: 0.1,
+                ..Default::default()
+            };
+            let mut v = Voice::new(p, 44100.0);
+            let mut peak = 0.0f32;
+            for _ in 0..2000 {
+                peak = peak.max(v.tick().0.abs());
+            }
+            assert!(peak > 0.0, "{kind:?} noise should produce sound");
+        }
+    }
+
+    #[test]
+    fn vowel_formant_shapes_noise() {
+        assert_eq!(Vowel::from_name("a"), Some(Vowel::A));
+        assert_eq!(Vowel::from_name("z"), None);
+        // white noise through the "a" formant should still produce output.
+        let p = VoiceParams {
+            noise: Some(NoiseKind::White),
+            duration: 1.0,
+            ..Default::default()
+        };
+        let voice = Box::new(Voice::new(p, 44100.0));
+        let fx = PostFx {
+            vowel: Some(Vowel::A),
+            ..Default::default()
+        };
+        assert!(fx.is_active());
+        let mut v = PostFxVoice::new(voice, fx, 44100.0);
+        let mut peak = 0.0f32;
+        for _ in 0..4000 {
+            peak = peak.max(v.tick().0.abs());
+        }
+        assert!(peak > 0.0, "vowel formant should pass some signal");
+    }
+
+    #[test]
     fn postfx_active_flag() {
         assert!(!PostFx::default().is_active());
         assert!(
@@ -1161,7 +1394,7 @@ mod tests {
             distortvol: 1.0,
             ..Default::default()
         };
-        let mut v = PostFxVoice::new(Box::new(ConstVoice(0.3)), fx);
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(0.3)), fx, 44100.0);
         let (l, _) = v.tick();
         assert_eq!(l, 0.5); // round(0.3*2)/2 = round(0.6)/2 = 1/2
     }
@@ -1192,7 +1425,7 @@ mod tests {
             distortvol: 1.0,
             ..Default::default()
         };
-        let mut v = PostFxVoice::new(Box::new(Ramp(0.0)), fx);
+        let mut v = PostFxVoice::new(Box::new(Ramp(0.0)), fx, 44100.0);
         let out: Vec<f32> = (0..6).map(|_| v.tick().0).collect();
         // first sample of each window held across the window
         assert_eq!(out, vec![1.0, 1.0, 1.0, 4.0, 4.0, 4.0]);
@@ -1207,7 +1440,7 @@ mod tests {
             distortvol: 1.0,
             ..Default::default()
         };
-        let mut v = PostFxVoice::new(Box::new(ConstVoice(0.1)), fx);
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(0.1)), fx, 44100.0);
         let (l, _) = v.tick();
         assert!(l > 0.1, "distortion should boost a small input, got {l}");
     }

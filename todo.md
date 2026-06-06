@@ -52,7 +52,8 @@ Function-by-function audit against the Strudel learn pages
 - [x] waveforms `sine` `sawtooth` `square` `triangle`
 - [x] ADSR: `attack`/`att` `decay`/`dec` `sustain`/`sus` `release`/`rel`
 - [ ] `ad` / `ar` / `adsr` shortcut controls; `hold`
-- [ ] noise sources `white` `pink` `brown` (+ `noise` control)
+- [x] noise sources `white` `pink` `brown` (`s("white")`; stateful white/pink/
+      brown generators in the synth voice)
 - [ ] `supersaw` (`unison` `spread` `detune`)
 - [ ] FM (`fm` `fmh` `fmi` ...), additive, `zzfx`, wavetables
 - [ ] vibrato (`vib` `vibmod`), pitch env (`penv` `pattack` `pcurve` ...)
@@ -67,7 +68,8 @@ Function-by-function audit against the Strudel learn pages
 - [x] waveshaping/decimation: `crush` (bitcrush), `shape` (hyperbolic),
       `distort` (+`distortvol`/`shapevol`), `coarse` (sample-rate reduction) —
       per-voice `PostFx` matching superdough's worklet formulas
-- [~] `vowel` — control binds, formant DSP not implemented yet
+- [x] `vowel` formant filter (a/e/i/o/u; 5 parallel band-pass + makeup gain,
+      per-channel, in `PostFx`)
 - [ ] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease` (+ hp/bp)
 - [ ] `phaser*`, `tremolo*`, `compressor*`, `postgain`, `dry`, `squiz`, `fshift`
 - [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)

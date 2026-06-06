@@ -19,8 +19,10 @@ const DEFAULT_CODE: &str = r#"stack(
   note("c2 ~ g2 ~").s("saw").lpf("400 1600").gain(0.6).delay(0.3)
 )"#;
 
-/// Built-in synth waveforms (always available as `s(...)`).
-const WAVEFORMS: &[&str] = &["sine", "saw", "square", "triangle"];
+/// Built-in synth waveforms + noise sources (always available as `s(...)`).
+const WAVEFORMS: &[&str] = &[
+    "sine", "saw", "square", "triangle", "white", "pink", "brown",
+];
 
 /// Built-in synthesized drum sounds (always available as `s(...)`).
 const DRUMS: &[&str] = &[
