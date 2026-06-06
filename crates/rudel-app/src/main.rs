@@ -27,6 +27,17 @@ const DRUMS: &[&str] = &[
     "bd", "sd", "rim", "cp", "hh", "oh", "lt", "mt", "ht", "rd", "cr",
 ];
 
+/// Continuous signals (used as values, e.g. `sine.range(0, 1)`).
+const SIGNALS: &[&str] = &[
+    "sine", "cosine", "saw", "isaw", "tri", "square", "sine2", "saw2", "rand", "rand2", "perlin",
+    "time", "irand(n)", "run(n)",
+];
+
+/// Pattern factories (top-level constructors).
+const FACTORIES: &[&str] = &[
+    "stack", "cat", "seq", "fastcat", "slowcat", "randcat", "chooseCycles", "pure", "gap", "silence",
+];
+
 /// Control names exposed by the engine, for the reference pane.
 const CONTROLS: &[&str] = &[
     "note",
@@ -423,6 +434,20 @@ impl RudelApp {
                         .show(ui, |ui| {
                             for c in CONTROLS {
                                 ui.monospace(*c);
+                            }
+                        });
+                    egui::CollapsingHeader::new("signals")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            for s in SIGNALS {
+                                ui.monospace(*s);
+                            }
+                        });
+                    egui::CollapsingHeader::new("factories")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            for f in FACTORIES {
+                                ui.monospace(*f);
                             }
                         });
                 });

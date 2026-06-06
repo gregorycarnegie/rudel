@@ -190,6 +190,37 @@ macro_rules! kpattern_methods {
                 Ok(Self::wrap(ctx.instance()?.0.euclid(p, s)))
             }
 
+            /// `euclid_rot(pulses, steps, rotation)`: Euclidean rhythm, rotated.
+            #[koto_method]
+            fn euclid_rot(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let p = arg_to_f64(&first_arg(&ctx)) as i64;
+                let s = arg_to_f64(&nth_arg(&ctx, 1)) as i64;
+                let r = arg_to_f64(&nth_arg(&ctx, 2)) as i64;
+                Ok(Self::wrap(ctx.instance()?.0.euclid_rot(p, s, r)))
+            }
+
+            /// `hurry(r)`: speed up the pattern and the sample playback together.
+            #[koto_method]
+            fn hurry(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let r = arg_to_frac(&first_arg(&ctx));
+                Ok(Self::wrap(ctx.instance()?.0.hurry(r)))
+            }
+
+            /// `focus(b, e)`: like `compress` but gap-less; can exceed a cycle.
+            #[koto_method]
+            fn focus(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let b = arg_to_frac(&first_arg(&ctx));
+                let e = arg_to_frac(&nth_arg(&ctx, 1));
+                Ok(Self::wrap(ctx.instance()?.0.focus(b, e)))
+            }
+
+            /// `press_by(r)`: shift each event `r` of the way into its timespan.
+            #[koto_method]
+            fn press_by(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let r = arg_to_frac(&first_arg(&ctx));
+                Ok(Self::wrap(ctx.instance()?.0.press_by(r)))
+            }
+
             // -- Higher-order combinators with non-uniform signatures ---------
 
             /// `off(time, f)`: stack a transformed copy shifted later in time.
@@ -482,7 +513,6 @@ fn register(prelude: &KMap) {
         Ok(KPattern(rudel_core::sound(arg_to_pattern(&arg0(ctx)))).into())
     });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
-    prelude.add_fn("perlin", |_| Ok(KPattern(rudel_core::perlin()).into()));
     prelude.add_fn("stack", |ctx| {
         let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
         Ok(KPattern(rudel_core::stack(&pats)).into())
@@ -495,10 +525,83 @@ fn register(prelude: &KMap) {
         let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
         Ok(KPattern(rudel_core::fastcat(&pats)).into())
     });
+
+    // -- Factories ---------------------------------------------------------
+    prelude.add_fn("fastcat", |ctx| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::fastcat(&pats)).into())
+    });
+    prelude.add_fn("slowcat", |ctx| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::slowcat(&pats)).into())
+    });
+    prelude.add_fn("randcat", |ctx| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::randcat(&pats)).into())
+    });
+    // chooseCycles is randcat over reified args.
+    prelude.add_fn("chooseCycles", |ctx| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::randcat(&pats)).into())
+    });
+    prelude.add_fn("pure", |ctx| {
+        Ok(KPattern(rudel_core::pure(arg_to_value(&arg0(ctx)))).into())
+    });
+    prelude.add_fn("gap", |ctx| {
+        let n = arg_to_f64(&arg0(ctx)) as i64;
+        Ok(KPattern(rudel_core::gap(Frac::int(n.max(0)))).into())
+    });
+
+    // -- Signals --------------------------------------------------------
+    // Continuous signals are exposed as pattern *values* (like Strudel), so
+    // `sine.range(0,1)` works without calling `sine()`.
+    macro_rules! signal_val {
+        ($($name:literal => $f:path),* $(,)?) => {
+            $( prelude.insert($name, KPattern($f())); )*
+        };
+    }
+    signal_val!(
+        "sine" => rudel_core::sine, "cosine" => rudel_core::cosine,
+        "saw" => rudel_core::saw, "isaw" => rudel_core::isaw,
+        "tri" => rudel_core::tri, "square" => rudel_core::square,
+        "sine2" => rudel_core::sine2, "cosine2" => rudel_core::cosine2,
+        "saw2" => rudel_core::saw2, "isaw2" => rudel_core::isaw2,
+        "tri2" => rudel_core::tri2, "square2" => rudel_core::square2,
+        "rand" => rudel_core::rand, "rand2" => rudel_core::rand2,
+        "time" => rudel_core::time, "perlin" => rudel_core::perlin,
+    );
+    // Signals taking an integer count.
+    prelude.add_fn("irand", |ctx| {
+        Ok(KPattern(rudel_core::irand(arg_to_f64(&arg0(ctx)) as i64)).into())
+    });
+    prelude.add_fn("run", |ctx| {
+        Ok(KPattern(rudel_core::run(arg_to_f64(&arg0(ctx)) as i64)).into())
+    });
 }
 
 fn arg0(ctx: &mut CallContext) -> KValue {
     ctx.args().first().cloned().unwrap_or(KValue::Null)
+}
+
+/// Convert a Koto value into a literal rudel [`Value`] (no mini-notation
+/// parsing — used by `pure`).
+fn arg_to_value(value: &KValue) -> Value {
+    match value {
+        KValue::Number(n) => {
+            if n.is_i64() {
+                Value::Int(n.into())
+            } else {
+                Value::F64(n.into())
+            }
+        }
+        KValue::Bool(b) => Value::Bool(*b),
+        KValue::Str(s) => Value::Str(s.to_string()),
+        KValue::Object(o) if o.is_a::<KPattern>() => {
+            // a pattern value (rare); wrap it
+            Value::Pat(Box::new(o.cast::<KPattern>().unwrap().0.clone()))
+        }
+        _ => Value::Null,
+    }
 }
 
 /// Evaluate a Koto script and extract the resulting pattern.
@@ -633,6 +736,49 @@ mod tests {
             other => other.as_f64().unwrap(),
         };
         assert_eq!(note, 67.0);
+    }
+
+    #[test]
+    fn signals_are_values_and_segment() {
+        // sine is a value (no parens) and can be segmented + ranged
+        let pat = eval(r#"sine.range(0, 10).segment(4)"#).expect("eval");
+        assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
+        // run(4) -> 0 1 2 3
+        let pat = eval(r#"run(4)"#).expect("eval");
+        assert_eq!(
+            values(&pat, 0, 1),
+            vec![Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3)]
+        );
+        // rand / perlin / saw2 usable bare
+        for s in ["rand.segment(8)", "perlin.segment(8)", "saw2.segment(4)", "irand(8).segment(4)"] {
+            assert!(eval(s).is_ok(), "should eval: {s}");
+        }
+    }
+
+    #[test]
+    fn factories_resolve() {
+        // slowcat: one value per cycle
+        let pat = eval(r#"slowcat(0, 1, 2)"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
+        assert_eq!(values(&pat, 1, 2)[0], Value::Int(1));
+        // pure literal, gap silence, fastcat/randcat resolve
+        assert_eq!(values(&eval("pure(60)").unwrap(), 0, 1), vec![Value::Int(60)]);
+        assert!(eval("gap(2)").unwrap().query_arc(Frac::zero(), Frac::one()).is_empty());
+        for s in ["fastcat(0, 1, 2)", "randcat(0, 1)", "chooseCycles(0, 1)"] {
+            assert!(eval(s).is_ok(), "should eval: {s}");
+        }
+    }
+
+    #[test]
+    fn newly_bound_transforms_resolve() {
+        for s in [
+            r#"note(0).hurry(2)"#,
+            r#"seq(0, 1, 2, 3).focus(0, 0.5)"#,
+            r#"seq(0, 1).press_by(0.5)"#,
+            r#"s("x").euclid_rot(3, 8, 1)"#,
+        ] {
+            assert!(eval(s).is_ok(), "should eval: {s}");
+        }
     }
 
     #[test]

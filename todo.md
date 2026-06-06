@@ -17,15 +17,15 @@ Function-by-function audit against the Strudel learn pages
 
 ## Biggest quick wins (engine done, just bind in Koto)
 
-- [ ] **Signals**: `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2`
-      `irand` `run` `time` are all in `rudel-core` but only `perlin` is in the
-      Koto prelude. Bind the rest as prelude fns.
-- [ ] **Factories**: `slowcat` `fastcat`/`fastCat` `timecat`/`timeCat`
-      `randcat` `choose_cycles` `pure` `gap` exist in the engine; only
-      `stack`/`cat`/`seq` are bound. Bind the rest.
-- [ ] **Transforms in engine, unbound**: `hurry` `focus` `layer` `apply`
-      `range2` `press_by` `undegrade_by` `degrade_by` `some_cycles`(arg)
-      `euclid_rot` (euclid with rotation) `iter_back`(✓bound) — bind the missing.
+- [x] **Signals**: `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2`
+      `perlin` `time` exposed as Koto *values* (Strudel-style, no parens), plus
+      bipolar `sine2`/`cosine2`/`saw2`/`isaw2`/`tri2`/`square2`, and `irand(n)`/
+      `run(n)` as fns.
+- [x] **Factories**: `slowcat` `fastcat` `randcat` `chooseCycles` `pure` `gap`
+      bound in the prelude (alongside `stack`/`cat`/`seq`/`silence`).
+- [x] **Transforms** newly bound: `hurry` `focus` `press_by` `euclid_rot`
+      (`range2` was already bound). Still unbound: `layer` (needs callback-array
+      marshaling), `apply`, `timecat` (weighted pairs).
 
 ## learn/notes & learn/tonal
 
@@ -73,24 +73,21 @@ Function-by-function audit against the Strudel learn pages
 ## functions/value-modifiers
 
 - [x] `add` `sub` `mul` `div` `mod`(`modulo`) `pow` `set` `keep`
-- [x] `round` `floor` `ceil` `range` `rangex` `ratio` `toBipolar` `fromBipolar`
+- [x] `round` `floor` `ceil` `range` `range2` `rangex` `ratio` `toBipolar` `fromBipolar`
 - [x] alignment matrix (`.add.out`/`.set.squeeze`/… in/out/mix/squeeze/squeezeout/reset/restart/poly)
-- [~] `range2` (engine has it, not bound)
 
 ## learn/time-modifiers
 
 - [x] `fast` `slow` `rev` `iter` `iterBack` `ply` `palindrome` `off` `early` `late`
 - [x] `compress` `zoom` `fastGap` `inside` `outside` `swingBy`/`swing` `repeatCycles`
-      `press`/`pressBy` `brak`
-- [~] `hurry` `focus` (engine has them, not bound)
+      `press`/`pressBy` `brak` `hurry` `focus`
 - [ ] `ribbon`/`rib`, `compressSpan`/`focusSpan`/`zoomArc`, `pace`, `flux`, `seg`
 
 ## learn/signals
 
-- [~] `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2` `irand` `run`
-      `time` — engine has them; bind in Koto (see quick wins)
-- [x] `perlin`; `segment`/`range` on signals
-- [ ] bipolar variants `saw2`/`square2`/`tri2`/`isaw2`, `sine2`/`cosine2` (bind)
+- [x] `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2` `irand` `run`
+      `time` `perlin` — bound as Koto values/fns; `segment`/`range` on signals
+- [x] bipolar variants `saw2`/`square2`/`tri2`/`isaw2`/`sine2`/`cosine2`
 - [ ] `envL`/`envLR`/`envEq`…, `mousex`/`mousey` (n/a native)
 
 ## learn/conditional-modifiers
@@ -98,7 +95,7 @@ Function-by-function audit against the Strudel learn pages
 - [x] `every`/`firstOf`/`lastOf`, `when`, `chunk`/`chunkBack`
 - [x] `sometimes`/`sometimesBy`/`often`/`rarely`/`almostAlways`/`almostNever`/`always`/`never`
 - [x] `someCycles`/`someCyclesBy`, `degrade`/`degradeBy`/`undegrade`, `mask`, `struct`
-- [x] `euclid`, `euclidRot` (rotation; bound only as 2-arg `euclid` — bind 3-arg/`euclidRot`)
+- [x] `euclid`, `euclidRot`/`euclid_rot` (3-arg rotation now bound)
 - [ ] `euclidLegato`, `whenKey`/`keyDown` (keyboard), `ifp`
 
 ## learn/accumulation
@@ -109,9 +106,10 @@ Function-by-function audit against the Strudel learn pages
 
 ## learn/factories
 
-- [x] `stack` `cat`(slowcat) `seq`(fastcat) `silence`
-- [~] `slowcat` `fastcat` `timecat` `randcat` `choose_cycles` `pure` `gap` (bind)
-- [ ] `polymeter`/`pm`, `arrange`, `stepcat`/`ncat`, `run` factory, `chooseCycles`
+- [x] `stack` `cat`(slowcat) `seq`(fastcat) `fastcat` `slowcat` `randcat`
+      `chooseCycles` `pure` `gap` `silence`
+- [~] `timecat` (weighted pairs — engine has it, awkward to bind)
+- [ ] `polymeter`/`pm`, `arrange`, `stepcat`/`ncat`, `run` factory
 
 ## learn/mini-notation (parser — parity-tested)
 

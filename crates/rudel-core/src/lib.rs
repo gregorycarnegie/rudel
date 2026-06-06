@@ -33,7 +33,8 @@ pub use value::Value;
 
 // Signals and randomness.
 pub use signal::{
-    cosine, irand, isaw, perlin, rand, rand2, run, saw, sine, sine2, square, time, tri,
+    cosine, cosine2, irand, isaw, isaw2, perlin, rand, rand2, run, saw, saw2, sine, sine2, square,
+    square2, time, tri, tri2,
 };
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};

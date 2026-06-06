@@ -59,6 +59,28 @@ pub fn tri() -> Pattern {
     fastcat(&[isaw(), saw()])
 }
 
+// Bipolar (-1..1) variants (`saw2`/`cosine2`/...). `sine2`/`rand2` are above.
+/// Bipolar sawtooth -1..1.
+pub fn saw2() -> Pattern {
+    signal_f64(|t| t.rem_euclid(1.0) * 2.0 - 1.0)
+}
+/// Bipolar inverted sawtooth 1..-1.
+pub fn isaw2() -> Pattern {
+    signal_f64(|t| (1.0 - t.rem_euclid(1.0)) * 2.0 - 1.0)
+}
+/// Bipolar cosine -1..1.
+pub fn cosine2() -> Pattern {
+    signal_f64(|t| (2.0 * PI * t).cos())
+}
+/// Bipolar square -1..1.
+pub fn square2() -> Pattern {
+    signal_f64(|t| ((t * 2.0).floor()).rem_euclid(2.0) * 2.0 - 1.0)
+}
+/// Bipolar triangle -1..1.
+pub fn tri2() -> Pattern {
+    fastcat(&[isaw2(), saw2()])
+}
+
 // ---------------------------------------------------------------------------
 // Legacy RNG (Strudel's default). Ported verbatim from signal.mjs so that
 // `rand`/`irand`/`degrade` snapshots match bit-for-bit. JS bitwise ops act on
