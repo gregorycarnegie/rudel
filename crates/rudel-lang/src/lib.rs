@@ -15,7 +15,7 @@ use bindings::register;
 use preprocess::preprocess_strudel;
 use samples::register_samples;
 
-pub use bindings::KPattern;
+pub use bindings::{KPattern, filter_output, output_targets};
 pub use samples::SampleEffects;
 
 /// Evaluate a Koto script and extract the resulting pattern.

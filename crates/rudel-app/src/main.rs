@@ -347,41 +347,48 @@ impl RudelApp {
         }
     }
 
-    /// Push the current pattern (or silence) to the active output, and silence
-    /// to the others, lazily connecting MIDI/OSC as needed.
+    /// Split the current pattern across the audio / MIDI / OSC back-ends.
+    ///
+    /// Per-pattern `.midi()` / `.osc()` tags always route to their back-end;
+    /// untagged events go to the selected default `output`. MIDI/OSC back-ends
+    /// are started lazily when the default selects them or a tag routes to them.
     fn route(&mut self) {
         let active = if self.playing {
             self.current.clone().unwrap_or_else(rudel_core::silence)
         } else {
             rudel_core::silence()
         };
-        if self.output == Output::Midi && self.playing {
+        let (tag_midi, tag_osc) = if self.playing {
+            rudel_lang::output_targets(&active)
+        } else {
+            (false, false)
+        };
+        if self.playing && (self.output == Output::Midi || tag_midi) {
             self.ensure_midi();
         }
-        if self.output == Output::Osc && self.playing {
+        if self.playing && (self.output == Output::Osc || tag_osc) {
             self.ensure_osc();
         }
-        let silence = rudel_core::silence();
         if let Some(e) = &self.engine {
-            e.set_pattern(if self.output == Output::Audio {
-                active.clone()
-            } else {
-                silence.clone()
-            });
+            e.set_pattern(rudel_lang::filter_output(
+                &active,
+                "audio",
+                self.output == Output::Audio,
+            ));
         }
         if let Some(m) = &self.midi {
-            m.set_pattern(if self.output == Output::Midi {
-                active.clone()
-            } else {
-                silence.clone()
-            });
+            m.set_pattern(rudel_lang::filter_output(
+                &active,
+                "midi",
+                self.output == Output::Midi,
+            ));
         }
         if let Some(o) = &self.osc {
-            o.set_pattern(if self.output == Output::Osc {
-                active.clone()
-            } else {
-                silence.clone()
-            });
+            o.set_pattern(rudel_lang::filter_output(
+                &active,
+                "osc",
+                self.output == Output::Osc,
+            ));
         }
     }
 
@@ -401,7 +408,6 @@ impl RudelApp {
             }
             Err(e) => {
                 self.io_error = Some(format!("MIDI: {e}"));
-                self.output = Output::Audio;
             }
         }
     }
@@ -418,7 +424,6 @@ impl RudelApp {
             }
             Err(e) => {
                 self.io_error = Some(format!("OSC: {e}"));
-                self.output = Output::Audio;
             }
         }
     }

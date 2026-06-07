@@ -11,6 +11,49 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// The control key marking which output a hap is routed to (`.midi()`/`.osc()`).
+const IO_KEY: &str = "_io";
+
+/// Keep haps routed to `target` via the `_io` control, plus untagged haps when
+/// `include_untagged` (the default output). The routing keys (`_io`/`_midiport`)
+/// are stripped from kept haps so they don't leak into the back-end.
+pub fn filter_output(pat: &Pattern, target: &str, include_untagged: bool) -> Pattern {
+    let target = target.to_string();
+    pat.filter_values(move |v| match v {
+        Value::Map(m) => match m.get(IO_KEY).and_then(|x| x.as_str()) {
+            Some(io) => io == target,
+            None => include_untagged,
+        },
+        _ => include_untagged,
+    })
+    .fmap(|v| match v {
+        Value::Map(mut m) => {
+            m.remove(IO_KEY);
+            m.remove("_midiport");
+            Value::Map(m)
+        }
+        other => other,
+    })
+}
+
+/// Which tagged outputs (`midi`, `osc`) the pattern routes any haps to over the
+/// first cycle. The app uses this to decide which back-ends to start.
+pub fn output_targets(pat: &Pattern) -> (bool, bool) {
+    let (mut midi, mut osc) = (false, false);
+    for hap in pat.query_arc(Frac::zero(), Frac::one()) {
+        if let Value::Map(m) = &hap.value
+            && let Some(io) = m.get(IO_KEY).and_then(|x| x.as_str())
+        {
+            match io {
+                "midi" => midi = true,
+                "osc" => osc = true,
+                _ => {}
+            }
+        }
+    }
+    (midi, osc)
+}
+
 /// A Koto wrapper around a rudel [`Pattern`].
 #[derive(Clone, KotoCopy, KotoType)]
 pub struct KPattern(pub Pattern);
@@ -675,6 +718,44 @@ macro_rules! kpattern_methods {
                 })
             }
 
+            // `.midi(device?)`: route this pattern to the MIDI output. The
+            // optional device-name hint is stored as `_midiport`. Sets the
+            // routing tag the app reads via `output_targets`/`filter_output`.
+            #[koto_method]
+            fn midi(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let port = match method_arg(&ctx, 0) {
+                    KValue::Str(s) => Some(s.to_string()),
+                    _ => None,
+                };
+                with_instance(&ctx, |pat| {
+                    let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("midi".into())));
+                    if let Some(port) = &port {
+                        p = p.ctrl("_midiport", rudel_core::pure(Value::Str(port.clone())));
+                    }
+                    p
+                })
+            }
+
+            // `.osc(target?)`: route this pattern to the OSC output. An optional
+            // `"host:port"` target sets `oschost`/`oscport` (per-event routing).
+            #[koto_method]
+            fn osc(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let target = match method_arg(&ctx, 0) {
+                    KValue::Str(s) => Some(s.to_string()),
+                    _ => None,
+                };
+                with_instance(&ctx, |pat| {
+                    let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("osc".into())));
+                    if let Some((host, port)) = target.as_deref().and_then(|t| t.rsplit_once(':'))
+                        && let Ok(port) = port.parse::<i64>()
+                    {
+                        p = p.ctrl("oschost", rudel_core::pure(Value::Str(host.to_string())));
+                        p = p.ctrl("oscport", rudel_core::pure(Value::Int(port)));
+                    }
+                    p
+                })
+            }
+
             // `.chord()` (zero-arg) expands chord names into note stacks;
             // `.chord(value)` sets the Strudel-style chord control consumed by
             // `.voicing()` / `.root_notes()`.
@@ -894,6 +975,8 @@ kpattern_methods! {
         overlay, arp,
         // tonal / voicing controls
         mtranspose, ctranspose, dictionary, dict, anchor, offset, octaves, mode,
+        // OSC routing controls
+        oschost, oscport,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,

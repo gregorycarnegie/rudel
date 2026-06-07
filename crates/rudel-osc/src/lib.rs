@@ -5,7 +5,7 @@
 
 use rudel_core::{Pattern, Value, note_to_midi, query_controls};
 use std::collections::BTreeMap;
-use std::net::UdpSocket;
+use std::net::{ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
@@ -93,6 +93,9 @@ pub fn superdirt_message(
     delta: f64,
 ) -> OscMessage {
     let mut map = controls.clone();
+    // `oschost`/`oscport` are client-side routing, not SuperDirt synth params.
+    map.remove("oschost");
+    map.remove("oscport");
 
     // note -> midinote (number); keep the original note too.
     if let Some(note) = map.get("note") {
@@ -135,11 +138,34 @@ pub fn superdirt_message(
     }
 }
 
-/// An OSC packet stamped with the time (seconds, engine clock) to send it.
+/// Resolve a per-event OSC destination from `oschost`/`oscport` controls, or
+/// `None` to use the engine's default target. `oschost` defaults to
+/// `127.0.0.1`, `oscport` to [`SUPERDIRT_PORT`] when only one is given.
+pub fn osc_target(controls: &BTreeMap<String, Value>) -> Option<String> {
+    let host = controls.get("oschost").map(|v| match v {
+        Value::Str(s) => s.clone(),
+        other => other.as_f64().map(|f| f.to_string()).unwrap_or_default(),
+    });
+    let port = controls
+        .get("oscport")
+        .and_then(|v| v.as_f64())
+        .map(|p| p.round() as u16);
+    if host.is_none() && port.is_none() {
+        return None;
+    }
+    let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
+    let port = port.unwrap_or(SUPERDIRT_PORT);
+    Some(format!("{host}:{port}"))
+}
+
+/// An OSC packet stamped with the time (seconds, engine clock) to send it, and
+/// an optional per-event destination (`oschost`/`oscport`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimedOsc {
     pub at_seconds: f64,
     pub message: OscMessage,
+    /// Override `host:port` for this packet, or `None` for the engine default.
+    pub target: Option<String>,
 }
 
 /// Build the OSC messages for every onset in `[begin_cycle, end_cycle)`.
@@ -153,6 +179,7 @@ pub fn schedule_window(
         .into_iter()
         .map(|ev| TimedOsc {
             at_seconds: ev.onset_seconds,
+            target: osc_target(&ev.controls),
             message: superdirt_message(&ev.controls, cps, ev.onset_cycle, ev.duration_seconds),
         })
         .collect();
@@ -160,22 +187,42 @@ pub fn schedule_window(
     out
 }
 
-/// A UDP OSC sender.
+/// A UDP OSC sender. The socket is left unconnected so each message can be
+/// addressed independently (used by per-event `oschost`/`oscport` routing); a
+/// default `target` is used when an event doesn't override it.
 pub struct OscOut {
     socket: UdpSocket,
+    default_target: String,
 }
 
 impl OscOut {
-    /// Bind an ephemeral local socket and target `host:port` (e.g.
+    /// Bind an ephemeral local socket with a default target `host:port` (e.g.
     /// `"127.0.0.1:57120"` for a local SuperDirt).
     pub fn connect(target: &str) -> Result<OscOut, String> {
+        // Validate the target resolves now so a bad address fails fast, without
+        // sending anything (an empty datagram would pollute the stream).
+        target
+            .to_socket_addrs()
+            .map_err(|e| format!("{target}: {e}"))?
+            .next()
+            .ok_or_else(|| format!("{target}: no address"))?;
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-        socket.connect(target).map_err(|e| e.to_string())?;
-        Ok(OscOut { socket })
+        Ok(OscOut {
+            socket,
+            default_target: target.to_string(),
+        })
     }
 
+    /// Send to the default target.
     pub fn send(&self, msg: &OscMessage) -> Result<(), String> {
-        self.socket.send(&msg.encode()).map_err(|e| e.to_string())?;
+        self.send_to(msg, &self.default_target)
+    }
+
+    /// Send to an explicit `host:port` target (per-event `oschost`/`oscport`).
+    pub fn send_to(&self, msg: &OscMessage, target: &str) -> Result<(), String> {
+        self.socket
+            .send_to(&msg.encode(), target)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }
@@ -257,7 +304,10 @@ fn run_scheduler(
         let now = start.elapsed().as_secs_f64();
         while pending.first().is_some_and(|m| m.at_seconds <= now) {
             let m = pending.remove(0);
-            let _ = out.send(&m.message);
+            let _ = match &m.target {
+                Some(target) => out.send_to(&m.message, target),
+                None => out.send(&m.message),
+            };
         }
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -357,6 +407,78 @@ mod tests {
                 .iter()
                 .any(|c| c[0] == OscArg::Str("s".into()) && c[1] == OscArg::Str("piano".into()))
         );
+    }
+
+    #[test]
+    fn oscport_and_oschost_resolve_a_target_and_are_stripped() {
+        // Only a port -> default host; both -> host:port; neither -> None.
+        assert_eq!(
+            osc_target(&BTreeMap::from([("oscport".to_string(), Value::Int(9000))])),
+            Some("127.0.0.1:9000".to_string())
+        );
+        assert_eq!(
+            osc_target(&BTreeMap::from([
+                ("oschost".to_string(), Value::Str("10.0.0.2".into())),
+                ("oscport".to_string(), Value::Int(7000)),
+            ])),
+            Some("10.0.0.2:7000".to_string())
+        );
+        assert_eq!(
+            osc_target(&BTreeMap::from([(
+                "s".to_string(),
+                Value::Str("bd".into())
+            )])),
+            None
+        );
+        // The routing keys are not emitted as SuperDirt params.
+        let msg = superdirt_message(
+            &BTreeMap::from([
+                ("s".to_string(), Value::Str("bd".into())),
+                ("oscport".to_string(), Value::Int(9000)),
+                ("oschost".to_string(), Value::Str("10.0.0.2".into())),
+            ]),
+            0.5,
+            0.0,
+            1.0,
+        );
+        assert!(
+            !msg.args
+                .iter()
+                .any(|a| *a == OscArg::Str("oscport".into()) || *a == OscArg::Str("oschost".into()))
+        );
+    }
+
+    #[test]
+    fn schedule_window_carries_per_event_target() {
+        let pat = s(pure(Value::Str("bd".into())))
+            .ctrl("oscport", pure(Value::Int(9000)))
+            .ctrl("oschost", pure(Value::Str("10.0.0.2".into())));
+        let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+        assert_eq!(msgs[0].target, Some("10.0.0.2:9000".to_string()));
+    }
+
+    #[test]
+    fn send_to_routes_to_an_explicit_port() {
+        // Two receivers; send_to the second and confirm it (not the default) gets it.
+        let default_recv = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let alt_recv = UdpSocket::bind("127.0.0.1:0").unwrap();
+        alt_recv
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let out = OscOut::connect(&default_recv.local_addr().unwrap().to_string()).unwrap();
+        let msg = superdirt_message(
+            &BTreeMap::from([("note".to_string(), Value::Int(60))]),
+            0.5,
+            0.0,
+            1.0,
+        );
+        out.send_to(&msg, &alt_recv.local_addr().unwrap().to_string())
+            .unwrap();
+        let mut buf = [0u8; 1024];
+        let n = alt_recv
+            .recv(&mut buf)
+            .expect("alt receiver got the packet");
+        assert_eq!(&buf[..n], msg.encode().as_slice());
     }
 
     #[test]

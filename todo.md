@@ -245,9 +245,16 @@ Function-by-function audit against the Strudel learn pages
 ## learn/input-output
 
 - [x] MIDI out (`rudel-midi`), OSC/SuperDirt out (`rudel-osc`), app output selector
-- [ ] `.midi(...)` / `.osc(...)` as Koto pattern methods (route per-pattern)
-- [ ] MIDI input / clock-in, MIDI CC mapping helpers
-- [ ] `osc` custom address/host/port from controls (`oschost`/`oscport`)
+- [x] `.midi(...)` / `.osc(...)` as Koto pattern methods (route per-pattern): tag
+      haps with an `_io` control; the app runs all back-ends at once and splits
+      the pattern (`rudel_lang::filter_output`/`output_targets`), with untagged
+      events going to the selected default output. `.osc("host:port")` also sets
+      `oschost`/`oscport`; `.midi("dev")` records a `_midiport` hint.
+- [x] `osc` custom address/host/port from controls (`oschost`/`oscport`): the OSC
+      back-end resolves a per-event `host:port` (`osc_target`) and `send_to`s it,
+      stripping the routing keys from the `/dirt/play` message.
+- [ ] MIDI input / clock-in, MIDI CC mapping helpers — needs a realtime input
+      bus feeding query-time signals (`midin`/CC); a separate architectural pass
 
 ## learn/code (REPL ergonomics)
 

@@ -199,6 +199,9 @@ controls!(
     phaserdepth,
     phasercenter,
     phasersweep,
+    // OSC routing (read by the OSC back-end to pick a destination)
+    oschost,
+    oscport,
     // tonal / voicing controls
     mtranspose,
     ctranspose,

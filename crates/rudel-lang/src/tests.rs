@@ -924,6 +924,66 @@ drums: s("bd sd")
 }
 
 #[test]
+fn midi_osc_routing_tags_and_filter() {
+    // `.midi()` / `.osc()` tag haps with the `_io` routing control.
+    let pat = eval(r#"stack(note("c4").midi(), s("bd").osc(), s("hh"))"#).expect("eval");
+    let (midi, osc) = output_targets(&pat);
+    assert!(midi && osc, "both midi and osc tags should be detected");
+
+    // The audio slice keeps only the untagged hap (hh), and strips `_io`.
+    let audio = filter_output(&pat, "audio", true);
+    let audio_vals = audio.query_arc(Frac::zero(), Frac::one());
+    assert_eq!(audio_vals.len(), 1);
+    for h in &audio_vals {
+        if let Value::Map(m) = &h.value {
+            assert!(!m.contains_key("_io"), "_io must be stripped");
+            assert_eq!(m.get("s").and_then(|v| v.as_str()), Some("hh"));
+        }
+    }
+
+    // The midi slice keeps only the `.midi()`-tagged hap (note c4).
+    let midi_slice = filter_output(&pat, "midi", false);
+    let midi_vals = midi_slice.query_arc(Frac::zero(), Frac::one());
+    assert_eq!(midi_vals.len(), 1);
+    assert!(matches!(&midi_vals[0].value, Value::Map(m) if m.contains_key("note")));
+
+    // The osc slice keeps only the `.osc()`-tagged hap (bd).
+    let osc_slice = filter_output(&pat, "osc", false);
+    assert_eq!(osc_slice.query_arc(Frac::zero(), Frac::one()).len(), 1);
+}
+
+#[test]
+fn osc_method_sets_host_and_port() {
+    // `.osc("host:port")` also sets the oschost/oscport routing controls.
+    let pat = eval(r#"s("bd").osc("10.0.0.2:9000")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("oschost").and_then(|v| v.as_str()), Some("10.0.0.2"));
+            assert_eq!(m.get("oscport").and_then(|v| v.as_f64()), Some(9000.0));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn midi_method_stores_device_hint() {
+    // `.midi("IAC")` records the device hint as `_midiport` (stripped on route).
+    let pat = eval(r#"note("c4").midi("IAC")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("_io").and_then(|v| v.as_str()), Some("midi"));
+            assert_eq!(m.get("_midiport").and_then(|v| v.as_str()), Some("IAC"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+    // filter_output strips both routing keys.
+    let slice = filter_output(&pat, "midi", false);
+    if let Value::Map(m) = &values(&slice, 0, 1)[0] {
+        assert!(!m.contains_key("_io") && !m.contains_key("_midiport"));
+    }
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);
