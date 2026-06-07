@@ -320,6 +320,76 @@ impl Pattern {
         self._fast(f).expand(f)
     }
 
+    /// `contract`: divide the step count by `factor`, leaving timing unchanged
+    /// (the inverse of [`expand`](Self::expand)).
+    pub fn contract(&self, factor: impl Into<Frac>) -> Pattern {
+        let f = factor.into();
+        let mut p = self.clone();
+        if f != Frac::zero() {
+            p.steps = p.steps.map(|s| s / f);
+        }
+        p
+    }
+
+    /// Build the progressively-zoomed slices used by [`shrink`](Self::shrink)
+    /// and [`grow`](Self::grow). A positive `amount` drops steps from the start,
+    /// a negative one from the end; the number of slices defaults to the step
+    /// count (`shrinklist`).
+    fn shrink_list(&self, amount: i64) -> Vec<Pattern> {
+        let Some(steps) = self.steps else {
+            return vec![self.clone()];
+        };
+        if amount == 0 || steps <= Frac::zero() {
+            return vec![self.clone()];
+        }
+        let times = steps.to_f64().round() as i64;
+        let from_start = amount > 0;
+        let seg = Frac::int(amount.abs()) / steps;
+        let mut out = Vec::new();
+        for i in 0..times {
+            let (s, e) = if from_start {
+                let s = seg * Frac::int(i);
+                if s > Frac::one() {
+                    break;
+                }
+                (s, Frac::one())
+            } else {
+                let e = Frac::one() - seg * Frac::int(i);
+                if e < Frac::zero() {
+                    break;
+                }
+                (Frac::zero(), e)
+            };
+            let d = e - s;
+            if d <= Frac::zero() {
+                continue;
+            }
+            out.push(self.zoom(s, e).set_steps(Some(steps * d)));
+        }
+        out
+    }
+
+    /// `shrink`: progressively drop `amount` steps each repetition (from the
+    /// start, or the end for a negative `amount`), concatenating the shrinking
+    /// views stepwise.
+    pub fn shrink(&self, amount: i64) -> Pattern {
+        if self.steps.is_none() {
+            return crate::pattern::silence();
+        }
+        crate::pattern::stepcat(&self.shrink_list(amount))
+    }
+
+    /// `grow`: the reverse of [`shrink`](Self::shrink) — progressively reveal
+    /// more of the pattern each repetition.
+    pub fn grow(&self, amount: i64) -> Pattern {
+        if self.steps.is_none() {
+            return crate::pattern::silence();
+        }
+        let mut list = self.shrink_list(-amount);
+        list.reverse();
+        crate::pattern::stepcat(&list)
+    }
+
     /// `take`: keep the first `i` steps of a stepwise pattern, dropping the
     /// rest (a negative `i` takes from the end). Patterns without a step count
     /// become silence.
@@ -643,6 +713,53 @@ mod tests {
         let pat = seq(&[0, 1]).extend(2);
         assert_eq!(pat.steps, Some(Frac::int(4)));
         assert_eq!(onsets(&pat), 4);
+    }
+
+    #[test]
+    fn contract_divides_step_count_only() {
+        // "0 1 2 3" has 4 steps; contract(2) -> 2 steps, same timing (4 onsets).
+        let pat = seq(&[0, 1, 2, 3]).contract(2);
+        assert_eq!(pat.steps, Some(Frac::int(2)));
+        assert_eq!(onsets(&pat), 4);
+    }
+
+    #[test]
+    fn shrink_progressively_drops_steps() {
+        // "0 1 2 3".shrink(1) == "0 1 2 3 1 2 3 2 3 3" (10 steps).
+        let pat = seq(&[0, 1, 2, 3]).shrink(1);
+        assert_eq!(pat.steps, Some(Frac::int(10)));
+        assert_eq!(
+            vals(&pat),
+            [0, 1, 2, 3, 1, 2, 3, 2, 3, 3]
+                .into_iter()
+                .map(Value::Int)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn grow_progressively_reveals_steps() {
+        // "0 1 2 3".grow(1) == "0 0 1 0 1 2 0 1 2 3" (10 steps).
+        let pat = seq(&[0, 1, 2, 3]).grow(1);
+        assert_eq!(pat.steps, Some(Frac::int(10)));
+        assert_eq!(
+            vals(&pat),
+            [0, 0, 1, 0, 1, 2, 0, 1, 2, 3]
+                .into_iter()
+                .map(Value::Int)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn shrink_grow_need_step_metadata() {
+        // a continuous signal has no step count -> silence.
+        assert!(
+            rand()
+                .shrink(1)
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
     }
 
     #[test]

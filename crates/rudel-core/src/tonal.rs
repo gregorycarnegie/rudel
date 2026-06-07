@@ -8,6 +8,7 @@ use crate::hap::Hap;
 use crate::pattern::{Pattern, pure, silence, stack};
 use crate::transforms::IntoPattern;
 use crate::value::Value;
+use std::collections::BTreeMap;
 
 /// Semitone offsets for the seven note letters from C.
 pub(crate) fn letter_semitone(letter: char) -> Option<i32> {
@@ -240,6 +241,38 @@ pub fn scale_offset(scale: &str, offset: i32, note_midi: i32) -> Option<i32> {
     Some(root + intervals[i] + 12 * octave_offset)
 }
 
+/// Fold the `mtranspose` (modal / scale-step) and `ctranspose` (chromatic /
+/// semitone) controls into the `note` value, matching SuperDirt's external-synth
+/// pitch handling: the note is shifted `mtranspose` steps within `scale` (the
+/// scale tagged on the hap, defaulting to `C:major`), then `ctranspose`
+/// semitones on top. The two controls are consumed (removed) once applied.
+///
+/// Only folds when a `note` is present; otherwise the controls are left in place
+/// so an external synth can still interpret them.
+pub fn apply_transpose_controls(controls: &mut BTreeMap<String, Value>, scale: Option<&str>) {
+    if !controls.contains_key("mtranspose") && !controls.contains_key("ctranspose") {
+        return;
+    }
+    let Some(mut midi) = controls.get("note").and_then(value_to_midi) else {
+        return;
+    };
+    if let Some(steps) = controls.get("mtranspose").and_then(|v| v.as_f64())
+        && let Some(new) = scale_offset(
+            scale.unwrap_or("C:major"),
+            steps.round() as i32,
+            midi.round() as i32,
+        )
+    {
+        midi = new as f64;
+    }
+    if let Some(semis) = controls.get("ctranspose").and_then(|v| v.as_f64()) {
+        midi += semis;
+    }
+    controls.insert("note".to_string(), Value::F64(midi));
+    controls.remove("mtranspose");
+    controls.remove("ctranspose");
+}
+
 /// Chord-symbol suffix → semitone intervals from the root.
 fn chord_intervals(symbol: &str) -> Option<&'static [i32]> {
     Some(match symbol {
@@ -262,6 +295,30 @@ fn chord_intervals(symbol: &str) -> Option<&'static [i32]> {
         "m9" | "min9" => &[0, 3, 7, 10, 14],
         _ => return None,
     })
+}
+
+/// Render a value as a chord symbol. Strings pass through; `:`-list tails like
+/// `["C", "maj7"]` (how mini-notation spells `c:maj7`) are joined into
+/// `"Cmaj7"`. Other value types yield `None`.
+pub(crate) fn chord_symbol(v: &Value) -> Option<String> {
+    match v {
+        Value::Str(s) => Some(s.clone()),
+        Value::List(items) if !items.is_empty() => Some(items.iter().map(chord_token).collect()),
+        _ => None,
+    }
+}
+
+/// Render a single chord-symbol list element as a token (e.g. the `7` in
+/// `["g", 7]` -> `"7"`), dropping a redundant `.0` on integral floats.
+fn chord_token(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::F64(x) if x.fract() == 0.0 => (*x as i64).to_string(),
+        Value::F64(x) => x.to_string(),
+        Value::Frac(f) => chord_token(&Value::F64(f.to_f64())),
+        _ => String::new(),
+    }
 }
 
 /// Parse a chord name like `"C"`, `"Am"`, `"F#maj7"`, `"Bb7"` into its MIDI
@@ -382,16 +439,18 @@ impl Pattern {
     /// Turn a pattern of chord names into stacks of simultaneous notes
     /// (`chord`). Unknown names produce silence.
     pub fn chord(&self) -> Pattern {
-        self.bind(|v| match v.as_str().and_then(chord_notes) {
-            Some(notes) => {
-                let pats: Vec<Pattern> = notes
-                    .into_iter()
-                    .map(|m| pure(Value::Int(m as i64)))
-                    .collect();
-                stack(&pats)
-            }
-            None => silence(),
-        })
+        self.bind(
+            |v| match chord_symbol(&v).as_deref().and_then(chord_notes) {
+                Some(notes) => {
+                    let pats: Vec<Pattern> = notes
+                        .into_iter()
+                        .map(|m| pure(Value::Int(m as i64)))
+                        .collect();
+                    stack(&pats)
+                }
+                None => silence(),
+            },
+        )
     }
 }
 
@@ -597,6 +656,32 @@ mod tests {
             .collect();
         vals.sort();
         assert_eq!(vals, vec![48, 52, 55]); // C E G from C3
+    }
+
+    #[test]
+    fn chord_reads_list_backed_symbols() {
+        // mini spells `c:maj7` as the list ["c", "maj7"]; `.chord()` joins it.
+        let pat = pure(Value::List(vec![
+            Value::Str("c".into()),
+            Value::Str("maj7".into()),
+        ]))
+        .chord();
+        let mut vals: Vec<i32> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| h.value.as_f64().unwrap() as i32)
+            .collect();
+        vals.sort();
+        assert_eq!(vals, vec![48, 52, 55, 59]); // C E G B (Cmaj7 from C3)
+        // numeric tails join too: ["g", 7] -> "g7".
+        let pat = pure(Value::List(vec![Value::Str("g".into()), Value::Int(7)])).chord();
+        let mut vals: Vec<i32> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| h.value.as_f64().unwrap() as i32)
+            .collect();
+        vals.sort();
+        assert_eq!(vals, chord_notes("g7").unwrap());
     }
 
     #[test]

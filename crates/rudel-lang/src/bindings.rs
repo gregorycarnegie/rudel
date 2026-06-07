@@ -1,3 +1,8 @@
+// Several Koto methods are deliberately named in camelCase to match Strudel's
+// public API exactly (e.g. `iterBack`, `euclidLegato`); the koto derive macro
+// also generates `__koto_<name>` shims that inherit those names.
+#![allow(non_snake_case)]
+
 use koto::derive::*;
 use koto::prelude::*;
 use koto::runtime::{Error as KotoError, KotoObject, Result as KotoResult};
@@ -654,6 +659,187 @@ macro_rules! kpattern_methods {
                 let arg = method_pattern_arg(&ctx, 0);
                 with_instance(&ctx, |pat| pat.loop_end(arg.clone()))
             }
+
+            // `.chord()` (zero-arg) expands chord names into note stacks;
+            // `.chord(value)` sets the Strudel-style chord control consumed by
+            // `.voicing()` / `.root_notes()`.
+            #[koto_method]
+            fn chord(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                if ctx.args.is_empty() {
+                    with_instance(&ctx, |pat| pat.chord())
+                } else {
+                    let arg = method_pattern_arg(&ctx, 0);
+                    with_instance(&ctx, |pat| {
+                        pat.set(rudel_core::control_dyn("chord", arg.clone()))
+                    })
+                }
+            }
+
+            // -- Strudel-style camelCase aliases for snake_case transforms. --
+            // Each is named in camelCase (with `#[allow(non_snake_case)]`) so the
+            // exposed Koto method name matches Strudel exactly.
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn iterBack(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_i64_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.iter_back(n))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn fastGap(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.fast_gap(arg.clone()))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn repeatCycles(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_i64_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.repeat_cycles(n))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn pressBy(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_frac_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.press_by(n))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn swingBy(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let a = method_frac_arg(&ctx, 0);
+                let b = method_frac_arg(&ctx, 1);
+                with_instance(&ctx, |pat| pat.swing_by(a, b))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn euclidRot(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let a = method_i64_arg(&ctx, 0);
+                let b = method_i64_arg(&ctx, 1);
+                let c = method_i64_arg(&ctx, 2);
+                with_instance(&ctx, |pat| pat.euclid_rot(a, b, c))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn euclidLegato(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let a = method_i64_arg(&ctx, 0);
+                let b = method_i64_arg(&ctx, 1);
+                with_instance(&ctx, |pat| pat.euclid_legato(a, b))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn euclidLegatoRot(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let a = method_i64_arg(&ctx, 0);
+                let b = method_i64_arg(&ctx, 1);
+                let c = method_i64_arg(&ctx, 2);
+                with_instance(&ctx, |pat| pat.euclid_legato_rot(a, b, c))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn scaleTranspose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.scale_transpose(arg.clone()))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn scaleTrans(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.strans(arg.clone()))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn rootNotes(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_i64_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.root_notes(n))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn loopAt(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_frac_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.loop_at(n))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn toBipolar(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                with_instance(&ctx, |pat| pat.to_bipolar())
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn fromBipolar(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                with_instance(&ctx, |pat| pat.from_bipolar())
+            }
+
+            // camelCase aliases for the higher-order (callback) combinators.
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn firstOf(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_i64_arg(&ctx, 0);
+                with_callback(&ctx, 1, |pat, cb| pat.first_of(n, |p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn lastOf(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_i64_arg(&ctx, 0);
+                with_callback(&ctx, 1, |pat, cb| pat.last_of(n, |p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn chunkBack(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_i64_arg(&ctx, 0);
+                with_callback(&ctx, 1, |pat, cb| pat.chunk_back(n, |p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn juxBy(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_f64_arg(&ctx, 0);
+                with_callback(&ctx, 1, |pat, cb| pat.jux_by(n, |p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn sometimesBy(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_f64_arg(&ctx, 0);
+                with_callback(&ctx, 1, |pat, cb| pat.sometimes_by(n, |p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn someCycles(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                with_callback(&ctx, 0, |pat, cb| pat.some_cycles(|p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn someCyclesBy(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let n = method_f64_arg(&ctx, 0);
+                with_callback(&ctx, 1, |pat, cb| pat.some_cycles_by(n, |p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn almostAlways(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                with_callback(&ctx, 0, |pat, cb| pat.almost_always(|p| cb.apply(p)))
+            }
+
+            #[koto_method]
+            #[allow(non_snake_case)]
+            fn almostNever(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                with_callback(&ctx, 0, |pat, cb| pat.almost_never(|p| cb.apply(p)))
+            }
         }
     };
 }
@@ -691,22 +877,28 @@ kpattern_methods! {
         add_poly, mul_poly, set_poly, keep_poly,
         transpose, scale_transpose,
         overlay, arp,
+        // tonal / voicing controls
+        mtranspose, ctranspose, dictionary, dict, anchor, offset, octaves, mode,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, chord, arpeggiate, voicing,
+        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing,
     ],
-    i64_arg: [iter, iter_back, repeat_cycles, expand, extend, chop, striate, take, drop, root_notes],
+    i64_arg: [
+        iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
+        chop, striate, take, drop, root_notes,
+    ],
     frac_arg: [hurry, press_by, swing, loop_at, pace],
     pattern_pattern_arg: [slice, splice],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
-    i64_i64_arg: [euclid],
-    i64_i64_i64_arg: [euclid_rot],
+    i64_i64_arg: [euclid, euclid_legato],
+    i64_i64_i64_arg: [euclid_rot, euclid_legato_rot],
     i64_frac_f64_arg: [echo],
     i64_f64_frac_arg: [stut],
     fn_arg: [
         superimpose, jux, sometimes, often, rarely, almost_always, almost_never, some_cycles,
+        apply, always, never,
     ],
     i64_fn_arg: [every, first_of, last_of, chunk, chunk_back],
     frac_fn_arg: [inside, outside],
@@ -730,6 +922,10 @@ pub(crate) fn register(prelude: &KMap) {
         Ok(KPattern(rudel_core::sound(arg_to_pattern(&arg0(ctx)))).into())
     });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // Strudel-style chord control: `chord("<Am C>").voicing()`.
+    prelude.add_fn("chord", |ctx| {
+        Ok(KPattern(rudel_core::control_dyn("chord", arg_to_pattern(&arg0(ctx)))).into())
+    });
     prelude.add_fn("rudel_label", |ctx| {
         let name = match ctx.args().first() {
             Some(KValue::Str(s)) => s.to_string(),

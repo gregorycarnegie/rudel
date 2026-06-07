@@ -44,10 +44,14 @@ pub fn s(pat: impl IntoPattern) -> Pattern {
                 "s".to_string(),
                 Value::Str(parts.next().unwrap_or("").to_string()),
             );
-            if let Some(idx) = parts.next()
-                && let Ok(n) = idx.parse::<i64>()
-            {
-                m.insert("n".to_string(), Value::Int(n));
+            if let Some(idx) = parts.next() {
+                // Numeric tails become an integer `n`; non-numeric tails (chord
+                // symbols, named samples) are preserved as a string `n`.
+                let n = match idx.parse::<i64>() {
+                    Ok(n) => Value::Int(n),
+                    Err(_) => Value::Str(idx.to_string()),
+                };
+                m.insert("n".to_string(), n);
             }
             Value::Map(m)
         }
@@ -193,6 +197,13 @@ controls!(
     phaserdepth,
     phasercenter,
     phasersweep,
+    // tonal / voicing controls
+    mtranspose,
+    ctranspose,
+    dictionary,
+    anchor,
+    offset,
+    octaves,
 );
 
 // Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).
@@ -257,6 +268,8 @@ control_aliases!(
     pdec => pdecay,
     psus => psustain,
     prel => prelease,
+    // voicing dictionary alias
+    dict => dictionary,
 );
 
 // Sample-loop controls. The Strudel keys are `loop`/`loopBegin`/`loopEnd`, but
@@ -287,7 +300,42 @@ loop_controls!(
     loop_end => "loopEnd",
 );
 
+/// The `mode` control. A `:`-list value (`"below:G4"`, which mini-notation
+/// spells as the list `["below", "G4"]`) also sets `anchor`, matching Strudel's
+/// `registerControl(['mode', 'anchor'])`.
+pub fn mode(pat: impl IntoPattern) -> Pattern {
+    pat.into_pattern().fmap(|v| match v {
+        Value::Map(_) => v,
+        Value::List(ref items) if !items.is_empty() => {
+            let mut m = BTreeMap::new();
+            m.insert("mode".to_string(), items[0].clone());
+            if let Some(anchor) = items.get(1) {
+                m.insert("anchor".to_string(), anchor.clone());
+            }
+            Value::Map(m)
+        }
+        Value::Str(ref s) if s.contains(':') => {
+            let mut parts = s.splitn(2, ':');
+            let mut m = BTreeMap::new();
+            m.insert(
+                "mode".to_string(),
+                Value::Str(parts.next().unwrap_or("").to_string()),
+            );
+            if let Some(anchor) = parts.next() {
+                m.insert("anchor".to_string(), Value::Str(anchor.to_string()));
+            }
+            Value::Map(m)
+        }
+        other => single("mode", other),
+    })
+}
+
 impl Pattern {
+    /// Set the `mode` control, also setting `anchor` for `"mode:anchor"` values.
+    pub fn mode(&self, x: impl IntoPattern) -> Pattern {
+        self.set(mode(x))
+    }
+
     /// Set an arbitrary named control, keeping this pattern's structure. The
     /// escape hatch for controls without a dedicated method (e.g. FM-matrix
     /// edges `ctrl("fmi20", 3)` or higher operators `ctrl("fmh3", 2)`).
@@ -319,6 +367,37 @@ mod tests {
             Value::Map(m) => {
                 assert_eq!(m.get("s"), Some(&Value::Str("bd".to_string())));
                 assert_eq!(m.get("n"), Some(&Value::Int(3)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn s_preserves_non_numeric_tail() {
+        // `s("name:tail")` keeps a non-numeric tail as a string `n`.
+        let pat = s("bd:foo".into_pattern());
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("s"), Some(&Value::Str("bd".to_string())));
+                assert_eq!(m.get("n"), Some(&Value::Str("foo".to_string())));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mode_splits_into_mode_and_anchor() {
+        // `mode("below:G4")` (a `:`-list) sets both `mode` and `anchor`.
+        let pat = mode(Value::List(vec![
+            Value::Str("below".into()),
+            Value::Str("G4".into()),
+        ]));
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("mode"), Some(&Value::Str("below".to_string())));
+                assert_eq!(m.get("anchor"), Some(&Value::Str("G4".to_string())));
             }
             other => panic!("expected map, got {other:?}"),
         }

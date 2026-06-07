@@ -2,7 +2,8 @@
 // Ported from strudel/packages/core/euclid.mjs (itself after Rohan Drape's hmt).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::pattern::{Pattern, fastcat, pure};
+use crate::fraction::Frac;
+use crate::pattern::{Pattern, fastcat, pure, silence, timecat};
 use crate::transforms::IntoPattern;
 use crate::value::Value;
 
@@ -98,6 +99,42 @@ impl Pattern {
     pub fn euclid_rot(&self, pulses: i64, steps: i64, rotation: i64) -> Pattern {
         self.struct_pat(bools_pattern(&euclid_rot(pulses, steps, rotation)))
     }
+
+    /// Like [`euclid`](Self::euclid), but each pulse is held until the next so
+    /// there are no gaps (`euclidLegato`). Ports superdough's `_euclidLegato`.
+    pub fn euclid_legato(&self, pulses: i64, steps: i64) -> Pattern {
+        self.euclid_legato_rot(pulses, steps, 0)
+    }
+
+    /// [`euclid_legato`](Self::euclid_legato) with a step rotation applied as a
+    /// late offset (`euclidLegatoRot`).
+    pub fn euclid_legato_rot(&self, pulses: i64, steps: i64, rotation: i64) -> Pattern {
+        if pulses < 1 || steps < 1 {
+            return silence();
+        }
+        // The gapless spans are the distances between successive onsets of the
+        // un-rotated rhythm; rotation is applied afterwards as a late offset.
+        let bools = euclid_rot(pulses, steps, 0);
+        let onsets: Vec<usize> = bools
+            .iter()
+            .enumerate()
+            .filter(|&(_, &b)| b)
+            .map(|(i, _)| i)
+            .collect();
+        if onsets.is_empty() {
+            return silence();
+        }
+        let pairs: Vec<(Frac, Pattern)> = onsets
+            .iter()
+            .enumerate()
+            .map(|(k, &start)| {
+                let end = onsets.get(k + 1).copied().unwrap_or(steps as usize);
+                (Frac::int((end - start) as i64), pure(Value::Bool(true)))
+            })
+            .collect();
+        self.struct_pat(timecat(&pairs))
+            ._late(Frac::new(rotation, steps))
+    }
 }
 
 /// Build a boolean pattern from a Euclidean rhythm, e.g. for `struct`.
@@ -126,6 +163,46 @@ mod tests {
             bjorklund(5, 8),
             vec![true, false, true, true, false, true, true, false]
         );
+    }
+
+    #[test]
+    fn euclid_legato_is_gapless() {
+        // euclid(3,8) onsets at steps 0,3,6 -> gapless spans 3/8, 3/8, 2/8.
+        let pat = pure(Value::Str("x".into())).euclid_legato(3, 8);
+        let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+        haps.sort_by_key(|h| h.part.begin);
+        let onsets: Vec<_> = haps.iter().filter(|h| h.has_onset()).collect();
+        assert_eq!(onsets.len(), 3);
+        let spans: Vec<(Frac, Frac)> = onsets
+            .iter()
+            .map(|h| {
+                let w = h.whole.unwrap();
+                (w.begin, w.end)
+            })
+            .collect();
+        assert_eq!(
+            spans,
+            vec![
+                (Frac::zero(), Frac::new(3, 8)),
+                (Frac::new(3, 8), Frac::new(6, 8)),
+                (Frac::new(6, 8), Frac::one()),
+            ]
+        );
+    }
+
+    #[test]
+    fn euclid_legato_rot_offsets_by_late() {
+        // rotation shifts everything later by rotation/steps.
+        let base = pure(Value::Str("x".into())).euclid_legato(3, 8);
+        let rotated = pure(Value::Str("x".into())).euclid_legato_rot(3, 8, 2);
+        let first_base = base.query_arc(Frac::zero(), Frac::one())[0]
+            .whole
+            .unwrap()
+            .begin;
+        // querying [2/8, ...] of the rotated should line up with base at 0.
+        let shifted = rotated.query_arc(Frac::new(2, 8), Frac::new(3, 8));
+        assert_eq!(first_base, Frac::zero());
+        assert!(!shifted.is_empty());
     }
 
     proptest! {

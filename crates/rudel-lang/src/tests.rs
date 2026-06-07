@@ -719,6 +719,135 @@ fn overlay_and_pace_via_koto() {
 }
 
 #[test]
+fn camel_case_aliases_resolve() {
+    // Strudel-style camelCase aliases should evaluate without error.
+    for src in [
+        r#"seq(0, 1, 2).iterBack(2)"#,
+        r#"s("bd sd").fastGap(2)"#,
+        r#"seq(0, 1).repeatCycles(2)"#,
+        r#"seq(0, 1).pressBy(0.5)"#,
+        r#"seq(0, 1, 2, 3).swingBy(0.25, 2)"#,
+        r#"s("x").euclidRot(3, 8, 1)"#,
+        r#"note("c3").euclidLegato(3, 8)"#,
+        r#"note("c3").euclidLegatoRot(3, 5, 2)"#,
+        r#"n("0").scale("C:major").scaleTranspose(2)"#,
+        r#"n("0").scale("C:major").scaleTrans(2)"#,
+        r#"pure("Am7").rootNotes(3)"#,
+        r#"s("bd").loopAt(2)"#,
+        r#"sine.toBipolar()"#,
+        r#"sine.fromBipolar()"#,
+        r#"seq(0, 1).firstOf(2, |x| x.add(10))"#,
+        r#"seq(0, 1).lastOf(2, |x| x.add(10))"#,
+        r#"seq(0, 1, 2, 3).chunkBack(2, |x| x.add(10))"#,
+        r#"note("0 1").juxBy(0.5, rev)"#,
+        r#"seq(0, 1).sometimesBy(0.5, |x| x.add(7))"#,
+        r#"seq(0, 1).someCycles(|x| x.add(7))"#,
+        r#"seq(0, 1).someCyclesBy(0.5, |x| x.add(7))"#,
+        r#"seq(0, 1).almostAlways(|x| x.add(7))"#,
+        r#"seq(0, 1).almostNever(|x| x.add(7))"#,
+    ] {
+        assert!(eval(src).is_ok(), "should eval: {src}");
+    }
+}
+
+#[test]
+fn apply_always_never_via_koto() {
+    // apply/always run the callback; never leaves the pattern unchanged.
+    let pat = eval(r#"seq(0).apply(|x| x.add(5))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(5)]);
+    let pat = eval(r#"seq(0).always(|x| x.add(5))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(5)]);
+    let pat = eval(r#"seq(0).never(|x| x.add(5))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(0)]);
+}
+
+#[test]
+fn step_count_transforms_via_koto() {
+    // contract halves the step count; shrink/grow concatenate shrinking views.
+    let pat = eval(r#"seq(0, 1, 2, 3).contract(2)"#).expect("eval");
+    assert_eq!(pat.steps, Some(Frac::int(2)));
+    let pat = eval(r#"seq(0, 1, 2, 3).shrink(1)"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 10);
+    let pat = eval(r#"seq(0, 1, 2, 3).grow(1)"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 10);
+}
+
+#[test]
+fn chord_control_and_voicing_controls_via_koto() {
+    // top-level chord(...) plus `.dict()`/`.voicing()` voice a chord symbol.
+    let pat = eval(r#"chord("C").voicing()"#).expect("eval");
+    let mut got = values(&pat, 0, 1);
+    got.sort_by_key(|v| v.as_f64().unwrap() as i64);
+    assert_eq!(
+        got,
+        vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]
+    );
+    // `.dict("lefthand")` routes through the named dictionary (mini can't spell
+    // `^`, so use the `maj7` symbol, which normalises to `^7`).
+    let pat = eval(r#"chord("Cmaj7").dict("lefthand").voicing()"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
+    // mini-notation chord tails (`c:maj7`) voice through the list-backed reader.
+    assert!(eval(r#"chord("c:maj7").voicing()"#).is_ok());
+    // `.chord(value)` as a control on an n-pattern, then voiced.
+    assert!(eval(r#"n("0 1 2 3").chord("<Dm Am>").voicing()"#).is_ok());
+    // `.chord()` (zero-arg) still expands chord names to note stacks.
+    let pat = eval(r#"pure("C").chord()"#).expect("eval");
+    let mut got: Vec<i32> = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .map(|h| h.value.as_f64().unwrap() as i32)
+        .collect();
+    got.sort();
+    assert_eq!(got, vec![48, 52, 55]);
+}
+
+#[test]
+fn mode_control_sets_mode_and_anchor() {
+    // `mode("below:G4")` sets both `mode` and `anchor` on the event map.
+    let pat = eval(r#"note("c4").mode("below:G4")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("mode").and_then(|v| v.as_str()), Some("below"));
+            assert_eq!(m.get("anchor").and_then(|v| v.as_str()), Some("G4"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn mtranspose_ctranspose_fold_into_note() {
+    use rudel_core::query_controls;
+    // ctranspose is a chromatic (semitone) shift folded into `note`.
+    let pat = eval(r#"note(60).ctranspose(7)"#).expect("eval");
+    let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+    assert_eq!(
+        evs[0].controls.get("note").and_then(|v| v.as_f64()),
+        Some(67.0)
+    );
+    // mtranspose is a scale-step shift within the tagged scale.
+    let pat = eval(r#"n(0).scale("C:major").mtranspose(2)"#).expect("eval");
+    let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+    assert_eq!(
+        evs[0].controls.get("note").and_then(|v| v.as_f64()),
+        Some(52.0)
+    );
+    assert!(!evs[0].controls.contains_key("mtranspose"));
+}
+
+#[test]
+fn tonal_controls_resolve() {
+    for src in [
+        r#"note("c3").mtranspose(2)"#,
+        r#"note("c3").ctranspose(-3)"#,
+        r#"chord("C").anchor("c5").offset(1).octaves(2).voicing()"#,
+        r#"chord("C").dictionary("lefthand").voicing()"#,
+    ] {
+        assert!(eval(src).is_ok(), "should eval: {src}");
+    }
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);

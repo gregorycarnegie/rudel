@@ -394,6 +394,35 @@ mod tests {
     }
 
     #[test]
+    fn chord_name_tails_stay_lists() {
+        // `c:maj7` / `g:7` keep their chord-symbol tails as list values for
+        // `.chord()`/`.voicing()` to read.
+        assert_eq!(
+            vals("c:maj7"),
+            vec![Value::List(vec![
+                Value::Str("c".into()),
+                Value::Str("maj7".into()),
+            ])]
+        );
+        assert_eq!(
+            vals("g:7"),
+            vec![Value::List(vec![Value::Str("g".into()), Value::Int(7)])]
+        );
+    }
+
+    #[test]
+    fn non_numeric_tail_preserved() {
+        // a non-numeric `:` tail survives as a string element.
+        assert_eq!(
+            vals("bd:foo"),
+            vec![Value::List(vec![
+                Value::Str("bd".into()),
+                Value::Str("foo".into()),
+            ])]
+        );
+    }
+
+    #[test]
     fn install_hook_parses_strings_through_core() {
         // After install(), &str arguments anywhere in rudel-core parse as mini.
         install();

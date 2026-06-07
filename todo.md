@@ -24,8 +24,12 @@ Function-by-function audit against the Strudel learn pages
 - [x] **Factories**: `slowcat` `fastcat` `randcat` `chooseCycles` `pure` `gap`
       bound in the prelude (alongside `stack`/`cat`/`seq`/`silence`).
 - [x] **Transforms** newly bound: `hurry` `focus` `press_by` `euclid_rot`
-      (`range2` was already bound). Still unbound: `layer` (needs callback-array
-      marshaling), `apply`, `timecat` (weighted pairs).
+      (`range2` was already bound), plus `apply`/`always`/`never` and a broad set
+      of Strudel-style camelCase aliases (`iterBack`, `fastGap`, `repeatCycles`,
+      `chunkBack`, `firstOf`/`lastOf`, `juxBy`, `sometimesBy`, `someCycles`/
+      `someCyclesBy`, `almostAlways`/`almostNever`, `pressBy`, `swingBy`,
+      `euclidRot`, `scaleTranspose`/`scaleTrans`, `rootNotes`, `loopAt`,
+      `toBipolar`/`fromBipolar`). `layer`/`timecat` are bound too.
 
 ## learn/notes & learn/tonal
 
@@ -51,8 +55,15 @@ Function-by-function audit against the Strudel learn pages
       parser in `tonal.rs` (`interval_to_semitones`, both note orders + sign);
       mini-notation gained an `interval` token so quality suffixes survive.
 - [ ] `mode`/`anchor` scale stepping (`stepInNamedScale`)
-- [ ] `mtranspose` / `ctranspose` (Strudel: external-synth controls only),
-      `degreeToNote`, `toScale` (custom interval-list scales)
+- [x] `mtranspose` / `ctranspose` — folded into `note` at event extraction
+      (`tonal::apply_transpose_controls`, shared by audio/MIDI/OSC), matching
+      SuperDirt: `mtranspose` steps within the tagged scale (default `C:major`),
+      `ctranspose` adds semitones. The controls are consumed once applied (so an
+      external SuperDirt doesn't double-apply); left in place when there's no
+      `note`. `mode("below:G4")` sets both `mode` and `anchor`. Plus the voicing
+      controls `chord`/`dictionary`(`dict`)/`anchor`/`offset`/`octaves` read by
+      `.voicing()`.
+- [ ] `degreeToNote`, `toScale` (custom interval-list scales)
 
 ## learn/sounds & learn/samples
 
@@ -187,7 +198,9 @@ Function-by-function audit against the Strudel learn pages
 - [x] `sometimes`/`sometimesBy`/`often`/`rarely`/`almostAlways`/`almostNever`/`always`/`never`
 - [x] `someCycles`/`someCyclesBy`, `degrade`/`degradeBy`/`undegrade`, `mask`, `struct`
 - [x] `euclid`, `euclidRot`/`euclid_rot` (3-arg rotation now bound)
-- [ ] `euclidLegato`, `whenKey`/`keyDown` (keyboard), `ifp`
+- [x] `euclidLegato`/`euclidLegatoRot` (gapless held pulses; rotation as a late
+      offset, matching superdough's `_euclidLegato`)
+- [ ] `whenKey`/`keyDown` (keyboard), `ifp`
 
 ## learn/accumulation
 
@@ -206,14 +219,18 @@ Function-by-function audit against the Strudel learn pages
       `polymeter`/`pm` (`pace`-align to LCM steps)
 - [x] `run` factory (already bound), `stepalt` (alternate groups stepwise),
       `take`/`drop` (keep/discard the first N steps; negative counts from the end)
-- [ ] `ncat`, stepwise `expand`/`contract`/`shrink`/`grow` step-counters
+- [x] stepwise `expand`/`contract`/`shrink`/`grow` step-counters (fixed numeric
+      amounts; pattern-varying step metadata still out of scope)
+- [ ] `ncat`
 
 ## learn/mini-notation (parser — parity-tested)
 
 - [x] sequences, `[ ]` sub-groups, `*`/`/`, `!`/`@`/`_` (elongate), `[,]` stacks,
       `~`, `<>` alternation, `.` groups, euclid `(p,s,r)`, `..` ranges,
       `{}%` polymeter, `?` degrade, `:` sample index, `|` random choice
-- [ ] chord names in mini-notation (`c:maj7`), `:` with non-numeric tails
+- [x] chord names in mini-notation (`c:maj7`), `:` with non-numeric tails
+      (`:` tails stay list values; `s("name:tail")` keeps non-numeric `n`;
+      tonal/voicing/root-note code reads list symbols like `["C","maj7"]`)
 
 ## learn/input-output
 

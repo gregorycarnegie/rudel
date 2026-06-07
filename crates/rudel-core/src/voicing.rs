@@ -8,7 +8,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::pattern::{Pattern, pure, silence, stack};
-use crate::tonal::{interval_to_semitones, letter_semitone, note_to_midi_with_octave};
+use crate::tonal::{
+    chord_symbol, interval_to_semitones, letter_semitone, note_to_midi_with_octave,
+};
 use crate::value::Value;
 use std::collections::BTreeMap;
 
@@ -306,11 +308,14 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
 /// Returns `(chord, opts, extra_controls)`.
 fn opts_from_value(value: &Value) -> Option<(String, VoicingOpts, BTreeMap<String, Value>)> {
     match value {
-        Value::Str(s) => Some((s.clone(), VoicingOpts::default(), BTreeMap::new())),
         Value::Map(m) => {
-            let chord = m.get("chord").and_then(|v| v.as_str())?.to_string();
+            let chord = chord_symbol(m.get("chord")?)?;
             let mut opts = VoicingOpts::default();
-            if let Some(d) = m.get("dict").and_then(|v| v.as_str()) {
+            if let Some(d) = m
+                .get("dictionary")
+                .or_else(|| m.get("dict"))
+                .and_then(|v| v.as_str())
+            {
                 opts.dict = d.to_string();
             }
             if let Some(a) = m.get("anchor") {
@@ -333,12 +338,25 @@ fn opts_from_value(value: &Value) -> Option<(String, VoicingOpts, BTreeMap<Strin
             }
             // Everything except the voicing controls is merged onto the output.
             let mut extra = m.clone();
-            for k in ["chord", "dict", "anchor", "mode", "offset", "octaves", "n"] {
+            for k in [
+                "chord",
+                "dictionary",
+                "dict",
+                "anchor",
+                "mode",
+                "offset",
+                "octaves",
+                "n",
+            ] {
                 extra.remove(k);
             }
             Some((chord, opts, extra))
         }
-        _ => None,
+        other => Some((
+            chord_symbol(other)?,
+            VoicingOpts::default(),
+            BTreeMap::new(),
+        )),
     }
 }
 
@@ -394,9 +412,8 @@ impl Pattern {
         let octave = octave as i32;
         self.with_value(move |value| {
             let chord = match &value {
-                Value::Str(s) => Some(s.clone()),
-                Value::Map(m) => m.get("chord").and_then(|v| v.as_str()).map(str::to_string),
-                _ => None,
+                Value::Map(m) => m.get("chord").and_then(chord_symbol),
+                other => chord_symbol(other),
             };
             let Some(chord) = chord else { return value };
             let Some((root, _)) = tokenize_chord(&chord) else {
@@ -461,6 +478,38 @@ mod tests {
     fn voicings_named_dictionary() {
         let pat = pure(Value::Str("C^7".into())).voicings("lefthand");
         assert_eq!(notes(&pat), vec![59, 62, 64, 67]);
+    }
+
+    #[test]
+    fn voicing_reads_list_backed_chord_symbol() {
+        // mini spells `c:maj7` as ["c", "maj7"]; voicing joins it to "Cmaj7".
+        let pat = pure(Value::List(vec![
+            Value::Str("C".into()),
+            Value::Str("maj7".into()),
+        ]))
+        .voicings("lefthand");
+        let from_symbol = pure(Value::Str("C^7".into())).voicings("lefthand");
+        assert_eq!(notes(&pat), notes(&from_symbol));
+    }
+
+    #[test]
+    fn voicing_reads_dictionary_control_key() {
+        // a map carrying chord + the `dictionary` control key (from `dict()`).
+        let mut m = BTreeMap::new();
+        m.insert("chord".to_string(), Value::Str("C^7".into()));
+        m.insert("dictionary".to_string(), Value::Str("lefthand".into()));
+        let pat = pure(Value::Map(m)).voicing();
+        assert_eq!(notes(&pat), vec![59, 62, 64, 67]);
+    }
+
+    #[test]
+    fn root_notes_reads_list_backed_chord() {
+        let pat = pure(Value::List(vec![
+            Value::Str("A".into()),
+            Value::Str("m7".into()),
+        ]))
+        .root_notes(3);
+        assert_eq!(notes(&pat), vec![57]); // A3
     }
 
     #[test]

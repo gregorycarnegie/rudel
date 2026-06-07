@@ -71,11 +71,15 @@ pub fn query_controls(
         if onset_cycle < begin_cycle || onset_cycle >= end_cycle {
             continue; // avoid duplicates across adjacent windows
         }
+        let mut controls = to_control_map(&hap.value);
+        // Fold mtranspose/ctranspose into `note` using the hap's tagged scale,
+        // matching SuperDirt's external-synth pitch handling.
+        crate::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());
         out.push(ControlEvent {
             onset_seconds: onset_cycle / cps,
             duration_seconds: hap.duration().to_f64() / cps,
             onset_cycle,
-            controls: to_control_map(&hap.value),
+            controls,
         });
     }
     out
@@ -84,7 +88,48 @@ pub fn query_controls(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{note, pure, sequence, silence};
+    use crate::{n, note, pure, sequence, silence};
+
+    fn note_of(ev: &ControlEvent) -> f64 {
+        ev.controls.get("note").and_then(|v| v.as_f64()).unwrap()
+    }
+
+    #[test]
+    fn ctranspose_adds_semitones_to_note() {
+        // note(60).ctranspose(7) -> 67, and the control is consumed.
+        let pat = note(pure(Value::Int(60))).ctranspose(7);
+        let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+        assert_eq!(note_of(&evs[0]), 67.0);
+        assert!(!evs[0].controls.contains_key("ctranspose"));
+    }
+
+    #[test]
+    fn mtranspose_steps_within_tagged_scale() {
+        // n(0).scale("C:major") = C3 (48); mtranspose(2) -> degree 2 = E3 (52).
+        let pat = n(pure(Value::Int(0))).scale("C:major").mtranspose(2);
+        let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+        assert_eq!(note_of(&evs[0]), 52.0);
+        assert!(!evs[0].controls.contains_key("mtranspose"));
+    }
+
+    #[test]
+    fn mtranspose_defaults_to_major_without_a_scale() {
+        // No tagged scale -> C:major: note 60 (C4) up 1 step -> D4 (62).
+        let mut controls = BTreeMap::from([
+            ("note".to_string(), Value::Int(60)),
+            ("mtranspose".to_string(), Value::Int(1)),
+        ]);
+        crate::tonal::apply_transpose_controls(&mut controls, None);
+        assert_eq!(controls.get("note").and_then(|v| v.as_f64()), Some(62.0));
+    }
+
+    #[test]
+    fn transpose_controls_left_when_no_note() {
+        // Without a note (e.g. a bare sample), the controls are forwarded as-is.
+        let mut controls = BTreeMap::from([("ctranspose".to_string(), Value::Int(7))]);
+        crate::tonal::apply_transpose_controls(&mut controls, None);
+        assert_eq!(controls.get("ctranspose"), Some(&Value::Int(7)));
+    }
 
     #[test]
     fn onsets_and_timing() {
