@@ -8,7 +8,7 @@ use koto::prelude::*;
 use koto::runtime::{Error as KotoError, KotoObject, Result as KotoResult};
 use rudel_core::{Frac, Pattern, Value};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// The control key marking which output a hap is routed to (`.midi()`/`.osc()`).
@@ -375,6 +375,25 @@ impl Callback {
         }
     }
 
+    /// Invoke the Koto function with a single Rudel value and convert the
+    /// result back into a Rudel value.
+    fn apply_value(&self, value: Value) -> Value {
+        let fallback = value.clone();
+        let call = self
+            .vm
+            .borrow_mut()
+            .call_function(self.func.clone(), CallArgs::Single(value_to_koto(value)));
+        match call {
+            Ok(value) => koto_to_value(&value),
+            Err(e) => {
+                if self.err.borrow().is_none() {
+                    *self.err.borrow_mut() = Some(e);
+                }
+                fallback
+            }
+        }
+    }
+
     /// Surface the first callback error (if any) after the combinator has run.
     fn finish(self) -> KotoResult<()> {
         match self.err.into_inner() {
@@ -382,6 +401,31 @@ impl Callback {
             None => Ok(()),
         }
     }
+}
+
+fn static_period_pattern(
+    mut haps: Vec<rudel_core::Hap>,
+    steps: Option<Frac>,
+    period: Frac,
+) -> Pattern {
+    haps.sort_by_key(|h| h.part.begin);
+    Pattern::new(move |state| {
+        let mut out = Vec::new();
+        let first_repeat = (state.span.begin / period).floor().numer() as i64;
+        let last_repeat = (state.span.end / period).ceil().numer() as i64;
+        for repeat in first_repeat..last_repeat {
+            let offset = period * Frac::int(repeat);
+            for template in &haps {
+                let mut hap = template.with_span(|span| span.with_time(|t| t + offset));
+                if let Some(part) = hap.part.intersection(&state.span) {
+                    hap.part = part;
+                    out.push(hap);
+                }
+            }
+        }
+        out
+    })
+    .set_steps(steps)
 }
 
 fn with_callback(
@@ -585,6 +629,26 @@ macro_rules! kpattern_methods {
                     return Err(e);
                 }
                 Ok(KPattern::wrap(rudel_core::stack(&results)))
+            }
+
+            // `pat.fmap(f)`: Strudel's value-level mapper. The Koto VM isn't
+            // Send+Sync, so map one cycle eagerly and repeat that shape.
+            #[koto_method]
+            fn fmap(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                const PROBE: i64 = 16;
+                let pat = ctx.instance()?.0.clone();
+                let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+                let haps = pat
+                    .query_arc(Frac::zero(), Frac::int(PROBE))
+                    .into_iter()
+                    .map(|hap| hap.with_value(|v| cb.apply_value(v)))
+                    .collect();
+                cb.finish()?;
+                Ok(KPattern::wrap(static_period_pattern(
+                    haps,
+                    pat.steps,
+                    Frac::int(PROBE),
+                )))
             }
 
             // `pat.arp_with(|chord| ...)`: arpeggiate chords, transforming each
@@ -1042,7 +1106,8 @@ kpattern_methods! {
     pattern_arg: [
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
-        note, n, s, mpe, gain, postgain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
+        note, n, s, mpe, gain, postgain, pan, speed, cutoff, resonance, room, roomlp, roomdim,
+        roomfade, size, shape, crush, delay,
         delaytime, delayfeedback, dry, attack, decay, sustain, release, vowel, bank, cut, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
         hcutoff, hresonance, bandf, bandq, ftype,
@@ -1062,7 +1127,7 @@ kpattern_methods! {
         tremolo, tremolodepth, phaser, phaserrate, phaserdepth, phasercenter, phasersweep,
         // filter / envelope / misc aliases
         lpf, lp, ctf, lpq, hpf, hp, hpq, bpf, bp, bpq, vel, att, rel, sus, dec,
-        delayt, delayfb, o, trans, strans,
+        delayt, delayfb, rlp, rdim, rfade, o, trans, strans,
         // alignment matrix (`in` is the default plain op; these are the rest)
         add_out, add_mix, add_squeeze, add_squeezeout, add_reset, add_restart,
         sub_out, mul_out, mul_squeeze, div_out,
@@ -1078,7 +1143,7 @@ kpattern_methods! {
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing,
+        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano,
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
@@ -1105,6 +1170,14 @@ kpattern_methods! {
 
 /// Add the rudel top-level functions to a Koto prelude.
 pub(crate) fn register(prelude: &KMap) {
+    let math = KMap::new();
+    math.add_fn("pow", |ctx| {
+        let base = arg_to_f64(&arg0(ctx));
+        let exponent = ctx.args().get(1).map(arg_to_f64).unwrap_or(0.0);
+        Ok(KValue::Number(KNumber::from(base.powf(exponent))))
+    });
+    prelude.insert("Math", math);
+
     prelude.add_fn("note", |ctx| {
         Ok(KPattern(rudel_core::note(arg_to_pattern(&arg0(ctx)))).into())
     });
@@ -1297,7 +1370,39 @@ fn koto_to_value(value: &KValue) -> Value {
         KValue::Str(s) => Value::Str(s.to_string()),
         KValue::List(l) => Value::List(l.data().iter().map(koto_to_value).collect()),
         KValue::Tuple(t) => Value::List(t.data().iter().map(koto_to_value).collect()),
+        KValue::Map(m) => {
+            let mut out = BTreeMap::new();
+            for (k, v) in m.data().iter() {
+                if let KValue::Str(key) = k.value() {
+                    out.insert(key.to_string(), koto_to_value(v));
+                }
+            }
+            Value::Map(out)
+        }
         _ => Value::Null,
+    }
+}
+
+fn value_to_koto(value: Value) -> KValue {
+    match value {
+        Value::Null => KValue::Null,
+        Value::Bool(b) => KValue::Bool(b),
+        Value::Int(n) => KValue::Number(KNumber::from(n)),
+        Value::F64(n) => KValue::Number(KNumber::from(n)),
+        Value::Frac(f) => KValue::Number(KNumber::from(f.to_f64())),
+        Value::Str(s) => KValue::Str(s.into()),
+        Value::List(items) => {
+            KList::with_data(items.into_iter().map(value_to_koto).collect()).into()
+        }
+        Value::Map(items) => {
+            let map = KMap::new();
+            for (key, value) in items {
+                map.insert(key.as_str(), value_to_koto(value));
+            }
+            map.into()
+        }
+        Value::Func(_) => KValue::Null,
+        Value::Pat(p) => KPattern(*p).into(),
     }
 }
 

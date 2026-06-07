@@ -52,6 +52,7 @@ const FACTORIES: &[&str] = &[
     "i",
     "freq",
     "getFreq",
+    "Math",
 ];
 
 /// Control names exposed by the engine, for the reference pane.
@@ -89,6 +90,12 @@ const CONTROLS: &[&str] = &[
     "lprelease",
     "fanchor",
     "room",
+    "roomlp",
+    "roomdim",
+    "roomfade",
+    "rlp",
+    "rdim",
+    "rfade",
     "size",
     "shape",
     "crush",
@@ -137,7 +144,103 @@ const CONTROLS: &[&str] = &[
     "legato",
     "clip",
     "unit",
+    "fmap",
+    "piano",
+    "pow",
 ];
+
+const LANGUAGE_KEYWORDS: &[&str] = &[
+    "const", "let", "fn", "if", "else", "for", "while", "in", "match", "return", "true", "false",
+    "null",
+];
+
+fn is_highlighted_ident(ident: &str) -> bool {
+    LANGUAGE_KEYWORDS.contains(&ident)
+        || FACTORIES.contains(&ident)
+        || CONTROLS.contains(&ident)
+        || SIGNALS
+            .iter()
+            .any(|s| s.strip_suffix("(n)").unwrap_or(s) == ident)
+}
+
+fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::text::LayoutJob {
+    let font_id = egui::TextStyle::Monospace.resolve(ui.style());
+    let normal = egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
+    let keyword = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(106, 153, 205));
+    let method = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(220, 220, 170));
+    let string = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(206, 145, 120));
+    let number = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(181, 206, 168));
+    let comment = egui::TextFormat::simple(font_id, egui::Color32::from_rgb(106, 153, 85));
+
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = wrap_width;
+
+    let bytes = code.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        let c = bytes[i] as char;
+
+        if c == '/' && bytes.get(i + 1) == Some(&b'/') {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            job.append(&code[start..i], 0.0, comment.clone());
+        } else if c == '"' || c == '\'' {
+            let quote = bytes[i];
+            i += 1;
+            let mut escaped = false;
+            while i < bytes.len() {
+                let b = bytes[i];
+                i += 1;
+                if escaped {
+                    escaped = false;
+                } else if b == b'\\' {
+                    escaped = true;
+                } else if b == quote {
+                    break;
+                }
+            }
+            job.append(&code[start..i], 0.0, string.clone());
+        } else if c.is_ascii_digit() {
+            i += 1;
+            while i < bytes.len() {
+                let b = bytes[i] as char;
+                if b.is_ascii_alphanumeric() || matches!(b, '.' | '_' | '/') {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            job.append(&code[start..i], 0.0, number.clone());
+        } else if c.is_ascii_alphabetic() || matches!(c, '_' | '$') {
+            i += 1;
+            while i < bytes.len() {
+                let b = bytes[i] as char;
+                if b.is_ascii_alphanumeric() || matches!(b, '_' | '$') {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let ident = &code[start..i];
+            let format = if start > 0 && bytes[start - 1] == b'.' {
+                method.clone()
+            } else if is_highlighted_ident(ident) {
+                keyword.clone()
+            } else {
+                normal.clone()
+            };
+            job.append(ident, 0.0, format);
+        } else {
+            i += 1;
+            job.append(&code[start..i], 0.0, normal.clone());
+        }
+    }
+
+    job
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Output {
@@ -707,9 +810,15 @@ impl RudelApp {
             .show_inside(ui, |ui| {
                 ui.add_space(4.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut layouter =
+                        |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                            let job = highlighted_editor_job(text.as_str(), ui, wrap_width);
+                            ui.fonts_mut(|fonts| fonts.layout_job(job))
+                        };
                     ui.add(
                         egui::TextEdit::multiline(&mut self.code)
                             .code_editor()
+                            .layouter(&mut layouter)
                             .desired_rows(28)
                             .desired_width(f32::INFINITY),
                     );

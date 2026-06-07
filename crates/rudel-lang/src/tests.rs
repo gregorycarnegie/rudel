@@ -881,6 +881,55 @@ fn xen_ratio_array_and_with_base_via_koto() {
 }
 
 #[test]
+fn xen_docs_math_pow_and_piano_via_koto() {
+    let pat = eval(
+        r#"
+i("0 1 2").xen([
+  Math.pow(2, 0/31),
+  Math.pow(2, 8/31),
+  Math.pow(2, 18/31),
+]).piano()
+"#,
+    )
+    .expect("eval");
+    let got = values(&pat, 0, 1);
+    assert_eq!(got.len(), 3);
+    for value in got {
+        match value {
+            Value::Map(m) => {
+                assert_eq!(m.get("s").and_then(Value::as_str), Some("piano"));
+                assert_eq!(m.get("clip").and_then(Value::as_f64), Some(1.0));
+                assert_eq!(m.get("release").and_then(Value::as_f64), Some(0.1));
+                assert!(m.get("freq").and_then(Value::as_f64).is_some());
+            }
+            other => panic!("expected piano control map, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn fmap_get_freq_and_reverb_aliases_via_koto() {
+    let pat = eval(r#""<c3 a3>".fmap(getFreq)"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 2)
+        .into_iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    assert_eq!(got.len(), 2);
+    assert!((got[0] - rudel_core::get_freq(&Value::Str("c3".into())).unwrap()).abs() < 1e-9);
+    assert!((got[1] - rudel_core::get_freq(&Value::Str("a3".into())).unwrap()).abs() < 1e-9);
+
+    let pat = eval(r#"freq(220).room("1:15").rdim(8500).rlp(14000).rfade(8)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("roomdim").and_then(Value::as_f64), Some(8500.0));
+            assert_eq!(m.get("roomlp").and_then(Value::as_f64), Some(14000.0));
+            assert_eq!(m.get("roomfade").and_then(Value::as_f64), Some(8.0));
+        }
+        other => panic!("expected reverb control map, got {other:?}"),
+    }
+}
+
+#[test]
 fn get_freq_and_ftrans_aliases_via_koto() {
     let pat = eval(r#"freq(getFreq("c3"))"#).expect("eval");
     match &values(&pat, 0, 1)[0] {
