@@ -1,7 +1,7 @@
 use crate::envelope::Adsr;
 use crate::filter::FilterParams;
 use crate::fm::FmSpec;
-use crate::oscillator::{NoiseKind, Waveform};
+use crate::oscillator::{AdditiveType, NoiseKind, Waveform, build_additive};
 use crate::pitch::note_to_freq;
 use rudel_core::Value;
 use std::collections::BTreeMap;
@@ -14,6 +14,8 @@ pub struct VoiceParams {
     pub pw: f32,
     /// Pink-noise mix amount (`noise`, 0..1) blended into the oscillator.
     pub noise_mix: f32,
+    /// Precomputed additive wavetable (`partials`); overrides `waveform`.
+    pub additive: Option<Vec<f32>>,
     /// When true, the source is a detuned super-saw.
     pub supersaw: bool,
     /// Super-saw voice count (`unison`).
@@ -68,6 +70,7 @@ impl Default for VoiceParams {
             noise: None,
             pw: 0.5,
             noise_mix: 0.0,
+            additive: None,
             supersaw: false,
             unison: 5,
             detune: 0.0,
@@ -107,7 +110,8 @@ impl VoiceParams {
             duration,
             ..Default::default()
         };
-        if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
+        let s_name = map.get("s").and_then(|v| v.as_str());
+        if let Some(name) = s_name {
             if name == "supersaw" {
                 p.supersaw = true;
             } else if let Some(w) = Waveform::from_name(name) {
@@ -115,6 +119,34 @@ impl VoiceParams {
             } else if let Some(nk) = NoiseKind::from_name(name) {
                 p.noise = Some(nk);
             }
+        }
+        // Additive synthesis (`partials`): build a custom wavetable over the base
+        // series named by `s` (sawtooth/square/triangle/user). `s("user")` with
+        // no partials falls back to a plain triangle, matching superdough.
+        let float_list = |items: &[Value]| -> Vec<f32> {
+            items
+                .iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect()
+        };
+        // `partials`: a list of harmonic magnitudes, or a count N (= N ones).
+        let partials: Option<Vec<f32>> = match map.get("partials") {
+            Some(Value::List(items)) => Some(float_list(items)),
+            Some(v) => v.as_f64().map(|n| vec![1.0; (n as usize).max(1)]),
+            None => None,
+        };
+        // `phases`: a list of per-harmonic phase offsets (in turns).
+        let phases: Option<Vec<f32>> = match map.get("phases") {
+            Some(Value::List(items)) => Some(float_list(items)),
+            Some(v) => v.as_f64().map(|x| vec![x as f32]),
+            None => None,
+        };
+        match (s_name.and_then(AdditiveType::from_name), &partials) {
+            (Some(base), Some(parts)) if !parts.is_empty() => {
+                p.additive = Some(build_additive(parts, phases.as_deref(), base));
+            }
+            (Some(AdditiveType::User), _) => p.waveform = Waveform::Triangle,
+            _ => {}
         }
         if let Some(u) = map.get("unison").and_then(|v| v.as_f64()) {
             p.unison = (u as usize).max(1);

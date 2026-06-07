@@ -1,7 +1,7 @@
 use crate::envelope::{Adsr, adsr_value};
 use crate::filter::{FilterKind, VoiceFilter};
 use crate::fm::FM_OPS;
-use crate::oscillator::{NoiseGen, NoiseKind, Waveform};
+use crate::oscillator::{NoiseGen, NoiseKind, Waveform, sample_table};
 use crate::params::VoiceParams;
 use crate::voice::VoiceLike;
 use std::f32::consts::PI;
@@ -233,9 +233,13 @@ impl Voice {
         }
         // Oscillator, optionally frequency-modulated.
         let carrier = self.params.freq * pitch;
-        let mut s = match self.params.waveform {
-            Waveform::Pulse => Waveform::pulse(self.phase, self.params.pw),
-            w => w.sample(self.phase),
+        let mut s = if let Some(table) = &self.params.additive {
+            sample_table(table, self.phase)
+        } else {
+            match self.params.waveform {
+                Waveform::Pulse => Waveform::pulse(self.phase, self.params.pw),
+                w => w.sample(self.phase),
+            }
         };
         let inc = if self.params.fm.active() {
             (carrier + self.fm_deviation(carrier)) / sr

@@ -48,6 +48,101 @@ impl Waveform {
     }
 }
 
+/// One cycle of a precomputed additive wavetable, in samples.
+pub(crate) const ADDITIVE_SIZE: usize = 2048;
+
+/// The base harmonic series an additive (`partials`) waveform is built from.
+/// Mirrors superdough's `waveformN` term table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdditiveType {
+    Saw,
+    Square,
+    Triangle,
+    /// `user`: harmonics come entirely from the `partials` magnitudes.
+    User,
+}
+
+impl AdditiveType {
+    pub fn from_name(name: &str) -> Option<AdditiveType> {
+        Some(match name {
+            "sawtooth" | "saw" => AdditiveType::Saw,
+            "square" | "sqr" => AdditiveType::Square,
+            "triangle" | "tri" => AdditiveType::Triangle,
+            "user" => AdditiveType::User,
+            _ => return None,
+        })
+    }
+
+    /// `(real, imag)` Fourier coefficient for harmonic `n` (1-indexed).
+    fn term(self, n: usize) -> (f32, f32) {
+        let nf = n as f32;
+        let odd = n % 2 == 1;
+        match self {
+            AdditiveType::Saw => (0.0, -1.0 / nf),
+            AdditiveType::Square => (0.0, if odd { 1.0 / nf } else { 0.0 }),
+            AdditiveType::Triangle => (if odd { 1.0 / (nf * nf) } else { 0.0 }, 0.0),
+            AdditiveType::User => (0.0, 1.0),
+        }
+    }
+}
+
+/// Build a one-cycle, peak-normalized additive wavetable from harmonic
+/// magnitudes (`partials`) over a base series, with optional per-harmonic
+/// `phases` (in turns). Ports `waveformN` + Web Audio's default normalization.
+pub(crate) fn build_additive(
+    partials: &[f32],
+    phases: Option<&[f32]>,
+    base: AdditiveType,
+) -> Vec<f32> {
+    let pi2 = 2.0 * PI;
+    // Per-harmonic (real, imag) coefficients, scaled by magnitude and rotated.
+    let coeffs: Vec<(f32, f32)> = partials
+        .iter()
+        .enumerate()
+        .map(|(k, &mag)| {
+            let (r0, i0) = base.term(k + 1);
+            let (mut r, mut i) = (r0 * mag, i0 * mag);
+            if let Some(ph) = phases.and_then(|p| p.get(k)).copied()
+                && ph != 0.0
+            {
+                let (c, s) = ((pi2 * ph).cos(), (pi2 * ph).sin());
+                (r, i) = (c * r - s * i, s * r + c * i);
+            }
+            (r, i)
+        })
+        .collect();
+
+    let mut table = vec![0.0f32; ADDITIVE_SIZE];
+    for (idx, slot) in table.iter_mut().enumerate() {
+        let t = idx as f32 / ADDITIVE_SIZE as f32;
+        let mut acc = 0.0;
+        for (k, &(r, i)) in coeffs.iter().enumerate() {
+            let ang = pi2 * (k + 1) as f32 * t;
+            acc += r * ang.cos() + i * ang.sin();
+        }
+        *slot = acc;
+    }
+    // Normalize to peak 1 (Web Audio normalizes PeriodicWave by default).
+    let peak = table.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+    if peak > 1e-9 {
+        for x in &mut table {
+            *x /= peak;
+        }
+    }
+    table
+}
+
+/// Sample a one-cycle wavetable at `phase` (0..1) with linear interpolation.
+pub(crate) fn sample_table(table: &[f32], phase: f32) -> f32 {
+    let len = table.len();
+    let p = phase.rem_euclid(1.0) * len as f32;
+    let i = p.floor() as usize;
+    let frac = p - i as f32;
+    let a = table[i % len];
+    let b = table[(i + 1) % len];
+    a + (b - a) * frac
+}
+
 /// A noise source (`s("white"/"pink"/"brown")`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoiseKind {

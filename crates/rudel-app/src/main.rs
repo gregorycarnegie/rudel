@@ -21,7 +21,7 @@ const DEFAULT_CODE: &str = r#"stack(
 
 /// Built-in synth waveforms + noise sources (always available as `s(...)`).
 const WAVEFORMS: &[&str] = &[
-    "sine", "saw", "square", "triangle", "pulse", "supersaw", "white", "pink", "brown",
+    "sine", "saw", "square", "triangle", "pulse", "user", "supersaw", "white", "pink", "brown",
 ];
 
 /// Built-in synthesized drum sounds (always available as `s(...)`).
@@ -105,6 +105,8 @@ const CONTROLS: &[&str] = &[
     "fmi2",
     "fmh2",
     "fmwave2",
+    "partials",
+    "phases",
     "pw",
     "noise",
     "pcurve",

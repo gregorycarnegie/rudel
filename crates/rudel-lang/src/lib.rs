@@ -492,6 +492,21 @@ macro_rules! kpattern_methods {
             // Sample looping. `loop` is a Koto keyword but is allowed after `.`,
             // so these expose the Strudel names (`loop`/`loopBegin`/`loopEnd`)
             // as aliases of the keyword-safe Rust method names.
+            // `pat.partials([1, 0.5, 0.3])` / `pat.partials(8)`: additive
+            // harmonic magnitudes (or a count). `pat.phases([...])`: per-harmonic
+            // phase offsets. The value is the whole list, applied to every event.
+            #[koto_method]
+            fn partials(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let v = koto_to_value(&method_arg(&ctx, 0));
+                with_instance(&ctx, |pat| pat.ctrl("partials", rudel_core::pure(v.clone())))
+            }
+
+            #[koto_method]
+            fn phases(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let v = koto_to_value(&method_arg(&ctx, 0));
+                with_instance(&ctx, |pat| pat.ctrl("phases", rudel_core::pure(v.clone())))
+            }
+
             // `pat.ctrl("fmi20", 3)`: set an arbitrary named control. The escape
             // hatch for FM-matrix edges / higher operators without a method.
             #[koto_method]
@@ -706,6 +721,25 @@ fn register(prelude: &KMap) {
 
 fn arg0(ctx: &mut CallContext) -> KValue {
     ctx.args().first().cloned().unwrap_or(KValue::Null)
+}
+
+/// Convert a Koto value into a literal rudel [`Value`], recursing into
+/// lists/tuples. Used by list-valued controls like `partials`/`phases`.
+fn koto_to_value(value: &KValue) -> Value {
+    match value {
+        KValue::Number(n) => {
+            if n.is_i64() {
+                Value::Int(n.into())
+            } else {
+                Value::F64(n.into())
+            }
+        }
+        KValue::Bool(b) => Value::Bool(*b),
+        KValue::Str(s) => Value::Str(s.to_string()),
+        KValue::List(l) => Value::List(l.data().iter().map(koto_to_value).collect()),
+        KValue::Tuple(t) => Value::List(t.data().iter().map(koto_to_value).collect()),
+        _ => Value::Null,
+    }
 }
 
 /// Convert a Koto value into a literal rudel [`Value`] (no mini-notation
@@ -953,6 +987,22 @@ s("bd sd")
                 ("RolandTR909".to_string(), "909".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn partials_sets_a_list_control() {
+        let pat = eval(r#"note("c3").s("sawtooth").partials([1, 0.5, 0.25]).phases([0, 0.25])"#)
+            .expect("eval");
+        match &values(&pat, 0, 1)[0] {
+            Value::Map(m) => {
+                match m.get("partials") {
+                    Some(Value::List(items)) => assert_eq!(items.len(), 3),
+                    other => panic!("expected a partials list, got {other:?}"),
+                }
+                assert!(matches!(m.get("phases"), Some(Value::List(_))));
+            }
+            other => panic!("expected control map, got {other:?}"),
+        }
     }
 
     #[test]

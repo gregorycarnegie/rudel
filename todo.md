@@ -121,7 +121,14 @@ Function-by-function audit against the Strudel learn pages
       one-sample cross-modulation delay. Koto binds operator 1 + operator 2 as
       named controls; higher operators / arbitrary `fmiIJ` edges use the generic
       `ctrl("name", value)` method. Not ported: per-op `fmenv` exp curve.
-- [ ] additive (`partials`/`waveformN`), `zzfx`, wavetables
+- [x] additive synthesis (`partials`/`phases`): builds a peak-normalized
+      one-cycle wavetable from harmonic magnitudes over the base series named by
+      `s` (sawtooth/square/triangle/user), ports `waveformN` + Web Audio's
+      PeriodicWave normalization. `partials` is a list of magnitudes or a count
+      (= N equal harmonics); `phases` rotates each harmonic. Built in
+      `oscillator.rs` (`build_additive`/`sample_table`), stored on `VoiceParams`,
+      sampled with linear interpolation. Koto `partials`/`phases` take a list.
+- [ ] `zzfx`, wavetables
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),

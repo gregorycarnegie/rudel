@@ -265,6 +265,58 @@ fn two_operator_fm_chain_changes_the_signal() {
 }
 
 #[test]
+fn additive_partials_build_a_custom_waveform() {
+    let map = |partials: Vec<Value>| {
+        let mut m = BTreeMap::new();
+        m.insert("s".to_string(), Value::Str("sawtooth".into()));
+        m.insert("note".to_string(), Value::Str("c3".into()));
+        m.insert("partials".to_string(), Value::List(partials));
+        m
+    };
+    // A single partial is just the fundamental sine; many partials add harmonics.
+    let one = VoiceParams::from_controls(&map(vec![Value::F64(1.0)]), 1.0);
+    let many = VoiceParams::from_controls(
+        &map(vec![
+            Value::F64(1.0),
+            Value::F64(1.0),
+            Value::F64(1.0),
+            Value::F64(1.0),
+        ]),
+        1.0,
+    );
+    assert!(one.additive.is_some(), "partials should build a wavetable");
+    let table = one.additive.as_ref().unwrap();
+    assert!(
+        table.iter().all(|x| x.abs() <= 1.0001),
+        "table is normalized"
+    );
+    assert!(
+        table.iter().any(|x| x.abs() > 0.5),
+        "table should be non-silent and normalized to peak 1"
+    );
+
+    let mut v1 = Voice::new(one, 44100.0);
+    let mut v4 = Voice::new(many, 44100.0);
+    let mut diff = 0.0f32;
+    for _ in 0..4000 {
+        diff += (v1.tick().0 - v4.tick().0).abs();
+    }
+    assert!(diff > 0.0, "more partials should change the timbre");
+}
+
+#[test]
+fn partials_count_expands_to_equal_harmonics() {
+    let mut m = BTreeMap::new();
+    m.insert("s".to_string(), Value::Str("user".into()));
+    m.insert("partials".to_string(), Value::Int(6));
+    let p = VoiceParams::from_controls(&m, 1.0);
+    assert!(
+        p.additive.is_some(),
+        "a partials count should build a user wavetable"
+    );
+}
+
+#[test]
 fn pulse_width_sets_the_duty_cycle() {
     // pw fraction of the cycle is high (+1), the rest low (-1).
     assert_eq!(Waveform::pulse(0.1, 0.25), 1.0);
