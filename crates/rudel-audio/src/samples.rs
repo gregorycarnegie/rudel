@@ -212,6 +212,8 @@ impl SampleBank {
             return self.load_sample_map(&json, &base);
         }
 
+        // Local path: expand a leading `~` to the user's home directory.
+        let url = expand_home(&url);
         let path = Path::new(&url);
         if path.is_dir() {
             return self.load_dir(path);
@@ -285,6 +287,28 @@ impl SampleBank {
 
 fn is_http(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Expand a leading `~` (or `~/`) in a local path to the user's home directory.
+/// Returns the input unchanged if there's no home directory or no `~` prefix.
+fn expand_home(path: &str) -> String {
+    let Some(rest) = path.strip_prefix('~') else {
+        return path.to_string();
+    };
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok();
+    match home {
+        Some(home) => {
+            let rest = rest.strip_prefix(['/', '\\']).unwrap_or(rest);
+            if rest.is_empty() {
+                home
+            } else {
+                format!("{home}/{rest}")
+            }
+        }
+        None => path.to_string(),
+    }
 }
 
 /// Fetch a text resource (a sample-map JSON) over http(s).
@@ -471,6 +495,16 @@ mod tests {
         };
         let sample = fetch_and_decode(url).expect("fetch + decode one sample");
         assert!(!sample.data.is_empty(), "decoded sample should have audio");
+    }
+
+    #[test]
+    fn expand_home_replaces_leading_tilde() {
+        // SAFETY: single-threaded test; we set HOME for the duration of the call.
+        unsafe { std::env::set_var("HOME", "/home/me") };
+        assert_eq!(expand_home("~/samples"), "/home/me/samples");
+        assert_eq!(expand_home("~"), "/home/me");
+        assert_eq!(expand_home("/abs/path"), "/abs/path");
+        assert_eq!(expand_home("relative/path"), "relative/path");
     }
 
     #[test]

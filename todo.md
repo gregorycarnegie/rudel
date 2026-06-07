@@ -78,8 +78,13 @@ Function-by-function audit against the Strudel learn pages
       `SampleEffects` (sources + bank aliases) that the app applies against the
       engine's bank (deduped across re-evals, so live-coding doesn't re-fetch).
       `bank` aliases resolve via `SampleBank::alias_bank`/`canonical_bank`.
-      Not done: `registerSamplesPrefix` (custom URL-prefix handlers), and the
-      inline-map form of `samples({...}, base)` (only string sources for now).
+      Inline-map form `samples({bd: "…", sd: […]}, base)` works too: the Koto map
+      is serialized to strudel.json (`koto_to_json`) and carried as a
+      `SampleEffects.maps` `(json, base)` entry the app loads via
+      `Engine::load_sample_map`. Local sources expand a leading `~`/`~/` to the
+      home dir (`expand_home`). Not ported: the callback form of
+      `registerSamplesPrefix` (arbitrary prefix → resolver fn doesn't fit the
+      collect-effects-then-apply model).
 - [x] `cut` (cut groups / choke): a `cut` control tags each voice with a group;
       when a new voice in the same group starts, any still-playing voice in that
       group is choked with a 10ms fade (matches Strudel). Applies to all voice
@@ -104,9 +109,7 @@ Function-by-function audit against the Strudel learn pages
 - [x] `supersaw` (`unison`/`detune`/`spread`) — N detuned saws summed
 - [x] single-operator FM (`fm`/`fmi` index, `fmh` ratio): carrier freq
       modulated by `fmi·modfreq·sin`
-- [ ] `supersaw` (`unison` `spread` `detune`)
-- [x] single-operator FM (`fm`/`fmi`/`fmh`); [ ] multi-operator FM matrix,
-      additive, `zzfx`, wavetables
+- [ ] multi-operator FM matrix, additive, `zzfx`, wavetables
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [ ] `pcurve` (env curve shapes), `pw` pulse-width, `noise` mix amount

@@ -3595,6 +3595,7 @@ dependencies = [
  "koto",
  "rudel-core",
  "rudel-mini",
+ "serde_json",
 ]
 
 [[package]]

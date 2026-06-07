@@ -216,6 +216,20 @@ impl RudelApp {
                 }
             }
         }
+        for (json, base) in &effects.maps {
+            // Dedup inline maps by their (json, base) signature.
+            let key = format!("map:{base}\n{json}");
+            if !self.loaded_sample_sources.insert(key.clone()) {
+                continue;
+            }
+            match engine.load_sample_map(json, base) {
+                Ok(_) => self.sample_names = engine.sample_names(),
+                Err(e) => {
+                    self.loaded_sample_sources.remove(&key);
+                    self.io_error = Some(format!("samples(map): {e}"));
+                }
+            }
+        }
     }
 
     fn set_playing(&mut self, playing: bool) {

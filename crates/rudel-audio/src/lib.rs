@@ -257,6 +257,12 @@ impl Engine {
         self.bank.write().unwrap().load_samples_source(source)
     }
 
+    /// Load an inline Strudel-format sample map (`samples({...}, base)`). `base`
+    /// resolves relative file paths. Returns the number of samples registered.
+    pub fn load_sample_map(&self, json: &str, base: &str) -> Result<usize, String> {
+        self.bank.write().unwrap().load_sample_map(json, base)
+    }
+
     /// Register a bank alias (`aliasBank`): a pack loaded as `<canonical>_<s>`
     /// also resolves via `<alias>_<s>`.
     pub fn alias_bank(&self, canonical: &str, alias: &str) {
