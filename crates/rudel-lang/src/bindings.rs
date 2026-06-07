@@ -660,6 +660,21 @@ macro_rules! kpattern_methods {
                 with_instance(&ctx, |pat| pat.loop_end(arg.clone()))
             }
 
+            // `.p(name)`: tag a pattern with an `id` (Strudel's per-pattern
+            // naming, e.g. `s("bd").p("drums")`). The name may be a string or a
+            // number (`$1`-style slots).
+            #[koto_method]
+            fn p(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let name = match method_arg(&ctx, 0) {
+                    KValue::Str(s) => s.to_string(),
+                    KValue::Number(n) => n.to_string(),
+                    _ => String::new(),
+                };
+                with_instance(&ctx, |pat| {
+                    pat.ctrl("id", rudel_core::pure(Value::Str(name.clone())))
+                })
+            }
+
             // `.chord()` (zero-arg) expands chord names into note stacks;
             // `.chord(value)` sets the Strudel-style chord control consumed by
             // `.voicing()` / `.root_notes()`.
@@ -849,7 +864,7 @@ kpattern_methods! {
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         note, n, s, gain, postgain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
-        delaytime, delayfeedback, attack, decay, sustain, release, vowel, bank, cut, accelerate, coarse,
+        delaytime, delayfeedback, dry, attack, decay, sustain, release, vowel, bank, cut, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
         hcutoff, hresonance, bandf, bandq,
         // filter envelopes + short aliases

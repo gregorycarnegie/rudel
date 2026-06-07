@@ -54,7 +54,9 @@ Function-by-function audit against the Strudel learn pages
       descending `"-2M"`, and patterns like `"<5P -2M>"`. Canonical interval
       parser in `tonal.rs` (`interval_to_semitones`, both note orders + sign);
       mini-notation gained an `interval` token so quality suffixes survive.
-- [ ] `mode`/`anchor` scale stepping (`stepInNamedScale`)
+- [x] `anchor` scale stepping (`stepInNamedScale`): an `anchor` control on a
+      `scale(...)` realigns scale-degree zero to that note (e.g.
+      `n("0 .. 7").anchor("c5").scale("C:major")` starts at C5).
 - [x] `mtranspose` / `ctranspose` — folded into `note` at event extraction
       (`tonal::apply_transpose_controls`, shared by audio/MIDI/OSC), matching
       SuperDirt: `mtranspose` steps within the tagged scale (default `C:major`),
@@ -63,7 +65,8 @@ Function-by-function audit against the Strudel learn pages
       `note`. `mode("below:G4")` sets both `mode` and `anchor`. Plus the voicing
       controls `chord`/`dictionary`(`dict`)/`anchor`/`offset`/`octaves` read by
       `.voicing()`.
-- [ ] `degreeToNote`, `toScale` (custom interval-list scales)
+- [ ] `degreeToNote`, `toScale` (custom interval-list scales) — not in the local
+      Strudel clone, so no reference source to port from
 
 ## learn/sounds & learn/samples
 
@@ -164,8 +167,11 @@ Function-by-function audit against the Strudel learn pages
 - [x] `tremolo` (+`tremolodepth`) amplitude LFO; `phaser`/`phaserrate`
       (+`phaserdepth`/`phasercenter`/`phasersweep`) swept-notch — per-voice in
       `PostFx` (notch detune-sweep matching superdough's `getPhaser`)
-- [ ] `compressor*` (needs orbit/bus routing), `dry` (wet/dry of room/delay),
-      `squiz` (sampler harmonic repeats), `fshift` (frequency shifter worklet)
+- [x] `dry` (wet/dry of room/delay): per-voice `dry` scales the direct signal in
+      the mixer (default full); reverb/delay sends are taken pre-dry, so `dry(0)`
+      leaves only the wet signal.
+- [ ] `compressor*` (needs orbit/bus routing), `squiz` (sampler harmonic
+      repeats), `fshift` (frequency shifter worklet)
 - [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)
 
 ## functions/value-modifiers
@@ -243,7 +249,9 @@ Function-by-function audit against the Strudel learn pages
 
 - [x] live eval + hot-swap, error surfacing, cps slider, reference pane
 - [ ] autocomplete / sound+control hints in the editor
-- [ ] per-pattern naming (`$:` / `p()` style multi-pattern), comments-as-mute
+- [x] per-pattern naming: `$:` anonymous labels, `name:` labels, and the `.p(name)`
+      method all tag patterns with an `id` and stack into the result;
+      comments-as-mute works (a commented label line drops out of the stack).
 
 ---
 

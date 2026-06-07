@@ -25,6 +25,8 @@ pub struct SamplerParams {
     pub resonance: f32,
     pub room: f32,
     pub delay: f32,
+    /// Dry (direct) signal level (`dry`), 0..1. Defaults to full.
+    pub dry: f32,
     /// Hold time in seconds (0 = play to the sample's natural end).
     pub duration: f32,
     /// Start/end positions as fractions of the sample (0..1).
@@ -55,6 +57,7 @@ impl SamplerParams {
             resonance: 0.707,
             room: 0.0,
             delay: 0.0,
+            dry: 1.0,
             duration: 0.0,
             begin: 0.0,
             end: 1.0,
@@ -87,6 +90,9 @@ impl SamplerParams {
         }
         if let Some(d) = map.get("delay").and_then(|v| v.as_f64()) {
             self.delay = d as f32;
+        }
+        if let Some(dry) = map.get("dry").and_then(|v| v.as_f64()) {
+            self.dry = dry as f32;
         }
         if let Some(b) = map.get("begin").and_then(|v| v.as_f64()) {
             self.begin = (b as f32).clamp(0.0, 1.0);
@@ -131,6 +137,7 @@ pub struct SamplerVoice {
     sample_rate: f32,
     room: f32,
     delay: f32,
+    dry: f32,
     filter: Option<Biquad>,
     done: bool,
     /// Looping: when active, `pos` wraps within `[loop_start, loop_end)` (in
@@ -193,6 +200,7 @@ impl SamplerVoice {
             sample_rate,
             room: params.room,
             delay: params.delay,
+            dry: params.dry,
             filter,
             done: false,
             loop_on,
@@ -253,6 +261,9 @@ impl VoiceLike for SamplerVoice {
     }
     fn delay_send(&self) -> f32 {
         self.delay
+    }
+    fn dry(&self) -> f32 {
+        self.dry
     }
 }
 

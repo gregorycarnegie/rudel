@@ -127,8 +127,11 @@ impl Mixer {
                     return false; // fully faded — drop the voice
                 }
             }
-            dl += a;
-            dr += b;
+            // `dry` scales the direct signal; the reverb/delay sends below are
+            // taken pre-dry, so `dry(0)` leaves only the wet signal.
+            let dry = av.voice.dry();
+            dl += a * dry;
+            dr += b * dry;
             let room = av.voice.room();
             if room > 0.0 {
                 rl += a * room;

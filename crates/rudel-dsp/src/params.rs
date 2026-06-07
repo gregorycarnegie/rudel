@@ -61,6 +61,8 @@ pub struct VoiceParams {
     pub room: f32,
     /// Delay send amount (`delay`), 0..1.
     pub delay: f32,
+    /// Dry (direct) signal level (`dry`), 0..1. Defaults to full.
+    pub dry: f32,
 }
 
 impl Default for VoiceParams {
@@ -99,6 +101,7 @@ impl Default for VoiceParams {
             },
             room: 0.0,
             delay: 0.0,
+            dry: 1.0,
         }
     }
 }
@@ -311,6 +314,9 @@ impl VoiceParams {
         }
         if let Some(d) = map.get("delay").and_then(|v| v.as_f64()) {
             p.delay = d as f32;
+        }
+        if let Some(dry) = map.get("dry").and_then(|v| v.as_f64()) {
+            p.dry = dry as f32;
         }
         p
     }

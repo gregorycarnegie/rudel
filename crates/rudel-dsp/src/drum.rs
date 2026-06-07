@@ -62,6 +62,7 @@ pub struct DrumParams {
     pub pan: f32,
     pub room: f32,
     pub delay: f32,
+    pub dry: f32,
 }
 
 impl DrumParams {
@@ -72,6 +73,7 @@ impl DrumParams {
             pan: 0.5,
             room: 0.0,
             delay: 0.0,
+            dry: 1.0,
         }
     }
 
@@ -87,6 +89,9 @@ impl DrumParams {
         }
         if let Some(d) = map.get("delay").and_then(|v| v.as_f64()) {
             self.delay = d as f32;
+        }
+        if let Some(dry) = map.get("dry").and_then(|v| v.as_f64()) {
+            self.dry = dry as f32;
         }
     }
 }
@@ -104,6 +109,7 @@ pub struct DrumVoice {
     right_gain: f32,
     room: f32,
     delay: f32,
+    dry: f32,
     done_at: f32,
     done: bool,
 }
@@ -131,6 +137,7 @@ impl DrumVoice {
             right_gain: (pan * PI / 2.0).sin(),
             room: params.room,
             delay: params.delay,
+            dry: params.dry,
             done_at: params.kind.lifetime(),
             done: false,
         }
@@ -252,5 +259,8 @@ impl VoiceLike for DrumVoice {
     }
     fn delay_send(&self) -> f32 {
         self.delay
+    }
+    fn dry(&self) -> f32 {
+        self.dry
     }
 }

@@ -136,6 +136,7 @@ controls!(
     delay,
     delaytime,
     delayfeedback,
+    dry,
     attack,
     decay,
     sustain,

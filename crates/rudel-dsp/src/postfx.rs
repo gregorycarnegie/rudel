@@ -309,4 +309,7 @@ impl VoiceLike for PostFxVoice {
     fn delay_send(&self) -> f32 {
         self.inner.delay_send()
     }
+    fn dry(&self) -> f32 {
+        self.inner.dry()
+    }
 }

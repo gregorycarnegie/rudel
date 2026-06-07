@@ -836,6 +836,31 @@ fn mtranspose_ctranspose_fold_into_note() {
 }
 
 #[test]
+fn dry_control_sets_its_key() {
+    let pat = eval(r#"note("c3").room(0.8).dry(0.3)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("dry").and_then(|v| v.as_f64()), Some(0.3)),
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn anchor_scale_stepping_via_koto() {
+    // n("0 7").anchor("c5").scale("C:major") -> C5 (72) and C6 (84).
+    let pat = eval(r#"n("0 7").anchor("c5").scale("C:major")"#).expect("eval");
+    let mut got: Vec<f64> = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .map(|h| match h.value {
+            Value::Map(m) => m.get("note").and_then(|v| v.as_f64()).unwrap(),
+            other => other.as_f64().unwrap(),
+        })
+        .collect();
+    got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(got, vec![72.0, 84.0]);
+}
+
+#[test]
 fn tonal_controls_resolve() {
     for src in [
         r#"note("c3").mtranspose(2)"#,
@@ -845,6 +870,48 @@ fn tonal_controls_resolve() {
     ] {
         assert!(eval(src).is_ok(), "should eval: {src}");
     }
+}
+
+#[test]
+fn per_pattern_naming_and_mute() {
+    // `.p(name)` tags the pattern with an `id`.
+    let pat = eval(r#"s("bd").p("drums")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("id").and_then(|v| v.as_str()), Some("drums")),
+        other => panic!("expected control map, got {other:?}"),
+    }
+
+    // `$:` is an anonymous per-pattern label that stacks into the result.
+    let pat = eval(
+        r#"
+$: s("bd")
+$: note("c4")
+"#,
+    )
+    .expect("eval");
+    assert!(!pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+
+    // comments-as-mute: a commented label line drops out of the stack.
+    let pat = eval(
+        r#"
+drums: s("bd sd")
+// bass: note("c2 c2 c2 c2")
+"#,
+    )
+    .expect("eval");
+    let ids: Vec<String> = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .filter_map(|h| match h.value {
+            Value::Map(m) => m
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            _ => None,
+        })
+        .collect();
+    assert!(ids.contains(&"drums".to_string()));
+    assert!(!ids.contains(&"bass".to_string()));
 }
 
 #[test]

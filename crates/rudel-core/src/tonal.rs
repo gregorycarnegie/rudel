@@ -241,6 +241,39 @@ pub fn scale_offset(scale: &str, offset: i32, note_midi: i32) -> Option<i32> {
     Some(root + intervals[i] + 12 * octave_offset)
 }
 
+/// Index of the value in `numbers` nearest to `target` (`nearestNumberIndex`).
+/// With `prefer_higher`, ties resolve to the later (higher) entry.
+fn nearest_number_index(target: i32, numbers: &[i32], prefer_higher: bool) -> usize {
+    let mut best_index = 0;
+    let mut best_diff = i32::MAX;
+    for (i, &s) in numbers.iter().enumerate() {
+        let diff = (s - target).abs();
+        if (!prefer_higher && diff < best_diff) || (prefer_higher && diff <= best_diff) {
+            best_index = i;
+            best_diff = diff;
+        }
+    }
+    best_index
+}
+
+/// Map a scale degree to a MIDI note, realigning the scale's zero to the scale
+/// tone nearest `anchor_midi` (`stepInNamedScale`). This is `scale_step` with an
+/// anchor: degree 0 lands on (or near) the anchor note instead of the scale
+/// root, so e.g. `n("0 .. 7").anchor("c5").scale("C:major")` starts at C5.
+pub fn step_in_named_scale(step: i32, scale: &str, anchor_midi: i32) -> Option<i32> {
+    let (root, intervals) = parse_scale(scale)?;
+    let len = intervals.len() as i32;
+    let root_chroma = modulo(root, 12);
+    let anchor_chroma = modulo(anchor_midi, 12);
+    let anchor_diff = modulo(anchor_chroma - root_chroma, 12);
+    let zero_index = nearest_number_index(anchor_diff, intervals, false) as i32;
+    let step = step + zero_index;
+    let transpose = anchor_midi - anchor_diff;
+    let oct_offset = floor_div(step, len) * 12;
+    let idx = modulo(step, len) as usize;
+    Some(intervals[idx] + transpose + oct_offset)
+}
+
 /// Fold the `mtranspose` (modal / scale-step) and `ctranspose` (chromatic /
 /// semitone) controls into the `note` value, matching SuperDirt's external-synth
 /// pitch handling: the note is shifted `mtranspose` steps within `scale` (the
@@ -469,21 +502,25 @@ fn apply_scale_to_hap(hap: Hap, scale: &str) -> Option<Hap> {
             let Some(source) = source else {
                 return Some(hap.set_context(context));
             };
-            let note = scale_resolve(&source, scale)?;
+            // An `anchor` control realigns scale-degree zero to that note
+            // (`stepInNamedScale`); it is kept on the output like Strudel.
+            let anchor = m.get("anchor").and_then(value_to_midi).map(|m| m as i32);
+            let note = scale_resolve(&source, scale, anchor)?;
             let mut out = m.clone();
             out.remove("n");
             out.remove("value");
             out.insert("note".to_string(), Value::F64(note));
             Value::Map(out)
         }
-        other => Value::F64(scale_resolve(other, scale)?),
+        other => Value::F64(scale_resolve(other, scale, None)?),
     };
     Some(Hap::new(hap.whole, hap.part, new_value).with_context(context))
 }
 
 /// Resolve a single value against a scale: note names are quantised to the
-/// nearest scale note; numbers are treated as scale degrees.
-fn scale_resolve(v: &Value, scale: &str) -> Option<f64> {
+/// nearest scale note; numbers are treated as scale degrees. An `anchor` (MIDI
+/// note) realigns degree zero for the step case (`stepInNamedScale`).
+fn scale_resolve(v: &Value, scale: &str, anchor: Option<i32>) -> Option<f64> {
     match v {
         Value::Str(s) if is_note_name(s) && s.parse::<f64>().is_err() => {
             let midi = note_to_midi(s)?;
@@ -492,7 +529,10 @@ fn scale_resolve(v: &Value, scale: &str) -> Option<f64> {
         _ => {
             // numeric scale degree (supports trailing sharps/flats on strings)
             let (step, offset) = step_number_and_offset(v)?;
-            let note = scale_step(step, scale)?;
+            let note = match anchor {
+                Some(a) => step_in_named_scale(step, scale, a)?,
+                None => scale_step(step, scale)?,
+            };
             Some((note + offset) as f64)
         }
     }
@@ -636,6 +676,17 @@ mod tests {
         // degree 0 of C major (=48), scaleTranspose +2 -> degree 2 (=52)
         let pat = n(pure(Value::Int(0))).scale("C:major").scale_transpose(2);
         assert_eq!(notes(&pat), vec![52.0]);
+    }
+
+    #[test]
+    fn anchor_realigns_scale_zero() {
+        // n(0).anchor("c5").scale("C:major") -> C5 (72); degree 7 -> C6 (84).
+        let pat = crate::n(pure(Value::Int(0))).anchor("c5").scale("C:major");
+        assert_eq!(notes(&pat), vec![72.0]);
+        let pat = crate::n(pure(Value::Int(7))).anchor("c5").scale("C:major");
+        assert_eq!(notes(&pat), vec![84.0]);
+        // direct: degree 1 from a c5 anchor in C major -> D5 (74).
+        assert_eq!(step_in_named_scale(1, "C:major", 72), Some(74));
     }
 
     #[test]

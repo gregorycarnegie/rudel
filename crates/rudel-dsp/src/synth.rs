@@ -296,4 +296,7 @@ impl VoiceLike for Voice {
     fn delay_send(&self) -> f32 {
         self.params.delay
     }
+    fn dry(&self) -> f32 {
+        self.params.dry
+    }
 }
