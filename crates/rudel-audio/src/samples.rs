@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use fundsp::wave::Wave;
+use rayon::prelude::*;
 use rudel_dsp::Sample;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Maps a sound name (e.g. `"bd"`) to one or more samples (indexed by `n`).
@@ -55,13 +56,16 @@ impl SampleBank {
     /// name, and the audio files within (sorted) become its indices. Returns the
     /// number of samples loaded.
     pub fn load_dir(&mut self, dir: &Path) -> Result<usize, String> {
-        let mut count = 0;
-        let entries = std::fs::read_dir(dir).map_err(|e| format!("read_dir {dir:?}: {e}"))?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
+        let mut sample_dirs: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map_err(|e| format!("read_dir {dir:?}: {e}"))?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect();
+        sample_dirs.sort();
+
+        let mut jobs = Vec::new();
+        for path in sample_dirs {
             let Some(name) = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -76,11 +80,23 @@ impl SampleBank {
                 .filter(|p| is_audio_file(p))
                 .collect();
             files.sort();
-            for file in files {
-                if self.load_file(&name, &file).is_ok() {
-                    count += 1;
-                }
-            }
+            jobs.extend(files.into_iter().map(|file| (name.clone(), file)));
+        }
+
+        let mut loaded: Vec<_> = jobs
+            .into_par_iter()
+            .enumerate()
+            .filter_map(|(index, (name, file))| {
+                load_sample(&file)
+                    .ok()
+                    .map(|sample| (index, name, Arc::new(sample)))
+            })
+            .collect();
+        loaded.sort_by_key(|(index, _, _)| *index);
+
+        let count = loaded.len();
+        for (_, name, sample) in loaded {
+            self.register(&name, sample);
         }
         Ok(count)
     }
@@ -179,5 +195,24 @@ mod tests {
         assert_eq!(bank.get("bd", 1).unwrap().data[0], 0.2);
         assert_eq!(bank.get("bd", 2).unwrap().data[0], 0.1); // wraps
         assert!(bank.get("missing", 0).is_none());
+    }
+
+    #[test]
+    fn load_dir_keeps_sorted_sample_indices() {
+        let root =
+            std::env::temp_dir().join(format!("rudel_sample_dir_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let sound_dir = root.join("tone");
+        std::fs::create_dir_all(&sound_dir).unwrap();
+        write_wav(&sound_dir.join("02.wav"), &[0.2; 16], 44100);
+        write_wav(&sound_dir.join("01.wav"), &[0.1; 16], 44100);
+
+        let mut bank = SampleBank::new();
+        let count = bank.load_dir(&root).expect("load sample dir");
+        assert_eq!(count, 2);
+        assert!((bank.get("tone", 0).unwrap().data[0] - 0.1).abs() < 1e-4);
+        assert!((bank.get("tone", 1).unwrap().data[0] - 0.2).abs() < 1e-4);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

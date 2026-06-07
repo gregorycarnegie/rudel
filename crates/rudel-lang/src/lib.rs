@@ -78,7 +78,10 @@ fn value_sig(v: &Value) -> String {
         Value::F64(x) => format!("f{x}"),
         Value::Frac(f) => format!("r{}/{}", f.numer(), f.denom()),
         Value::Str(s) => format!("s{s}"),
-        Value::List(xs) => format!("[{}]", xs.iter().map(value_sig).collect::<Vec<_>>().join(",")),
+        Value::List(xs) => format!(
+            "[{}]",
+            xs.iter().map(value_sig).collect::<Vec<_>>().join(",")
+        ),
         Value::Map(m) => format!(
             "{{{}}}",
             m.iter()
@@ -494,7 +497,7 @@ kpattern_methods! {
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         note, n, s, gain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
-        delaytime, delayfeedback, attack, decay, sustain, release, vowel, accelerate, coarse,
+        delaytime, delayfeedback, attack, decay, sustain, release, vowel, bank, cut, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
         hcutoff, hresonance, bandf, bandq,
         // filter envelopes + short aliases
@@ -725,6 +728,18 @@ mod tests {
     fn eval_stack_and_controls() {
         let pat = eval(r#"stack(s("bd*2"), note("c4 e4").gain(0.5))"#).expect("eval");
         assert!(!pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+    }
+
+    #[test]
+    fn bank_control_sets_the_bank_key() {
+        let pat = eval(r#"s("bd").bank("RolandTR909")"#).expect("eval");
+        match &values(&pat, 0, 1)[0] {
+            Value::Map(m) => {
+                assert_eq!(m.get("s").and_then(|v| v.as_str()), Some("bd"));
+                assert_eq!(m.get("bank").and_then(|v| v.as_str()), Some("RolandTR909"));
+            }
+            other => panic!("expected control map, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1104,7 +1119,10 @@ mod tests {
         let pat = eval(r#"pure("C").voicing()"#).expect("eval");
         let mut got = values(&pat, 0, 1);
         got.sort_by_key(|v| v.as_f64().unwrap() as i64);
-        assert_eq!(got, vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]);
+        assert_eq!(
+            got,
+            vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]
+        );
         // named dictionary, literal ^ spelling via pure
         let pat = eval(r#"pure("C^7").voicings("lefthand")"#).expect("eval");
         assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);

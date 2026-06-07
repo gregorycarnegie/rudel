@@ -16,16 +16,16 @@ and SuperDirt-compatible OSC out.
 
 ## Workspace
 
-| Crate | Role |
-|-------|------|
-| [`rudel-core`](crates/rudel-core) | Pure pattern engine: `Pattern = State -> Vec<Hap>`, exact rational time, combinators, controls, signals, sample transforms, tonal helpers, and scheduler-neutral event extraction. |
-| [`rudel-mini`](crates/rudel-mini) | `pest` mini-notation parser ported from Strudel's `krill.pegjs`: sequences, groups, rests, alternation, stacks, choices, Euclidean rhythms, ranges, polymeter, degradation, and sample indices. |
-| [`rudel-dsp`](crates/rudel-dsp) | Offline-testable voices: synth oscillators, noise, built-in drums, sampler playback, filters, envelopes, panning, and per-voice post effects. |
-| [`rudel-audio`](crates/rudel-audio) | Real-time audio engine: lookahead scheduler, `cpal` output, sample bank loading, mixer, delay, and `fundsp` reverb. |
-| [`rudel-lang`](crates/rudel-lang) | [Koto](https://koto.dev) bindings for Rudel patterns, controls, signals, factories, higher-order callbacks, sample transforms, and tonal operations. |
-| [`rudel-midi`](crates/rudel-midi) | MIDI output: control-map to note/CC/program messages, timed windows, port wrapper, and real-time scheduler. |
-| [`rudel-osc`](crates/rudel-osc) | SuperDirt OSC output: hand-rolled OSC 1.0 encoding, `/dirt/play` messages, UDP sender, and real-time scheduler. |
-| [`rudel-app`](crates/rudel-app) | Native `egui` editor with Koto live evaluation, audio/MIDI/OSC output selection, sample loading, and a one-cycle visualizer grouped by orbit. |
+| Crate                               | Role                                                                                                                                                                                            |
+|-------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [`rudel-core`](crates/rudel-core)   | Pure pattern engine: `Pattern = State -> Vec<Hap>`, exact rational time, combinators, controls, signals, sample transforms, tonal helpers, and scheduler-neutral event extraction.              |
+| [`rudel-mini`](crates/rudel-mini)   | `pest` mini-notation parser ported from Strudel's `krill.pegjs`: sequences, groups, rests, alternation, stacks, choices, Euclidean rhythms, ranges, polymeter, degradation, and sample indices. |
+| [`rudel-dsp`](crates/rudel-dsp)     | Offline-testable voices: synth oscillators, noise, built-in drums, sampler playback, filters, envelopes, panning, and per-voice post effects.                                                   |
+| [`rudel-audio`](crates/rudel-audio) | Real-time audio engine: lookahead scheduler, `cpal` output, sample bank loading, mixer, delay, and `fundsp` reverb.                                                                             |
+| [`rudel-lang`](crates/rudel-lang)   | [Koto](https://koto.dev) bindings for Rudel patterns, controls, signals, factories, higher-order callbacks, sample transforms, and tonal operations.                                            |
+| [`rudel-midi`](crates/rudel-midi)   | MIDI output: control-map to note/CC/program messages, timed windows, port wrapper, and real-time scheduler.                                                                                     |
+| [`rudel-osc`](crates/rudel-osc)     | SuperDirt OSC output: hand-rolled OSC 1.0 encoding, `/dirt/play` messages, UDP sender, and real-time scheduler.                                                                                 |
+| [`rudel-app`](crates/rudel-app)     | Native `egui` editor with Koto live evaluation, audio/MIDI/OSC output selection, sample loading, and a one-cycle visualizer grouped by orbit.                                                   |
 
 ## Run the app
 

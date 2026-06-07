@@ -619,7 +619,7 @@ mod tests {
             ("8P", 12),
             ("9M", 14),
             ("11A", 18),
-            ("M3", 4),  // quality-first order
+            ("M3", 4),   // quality-first order
             ("-2M", -2), // descending
             ("-5P", -7),
             ("4", 4), // bare number = semitones
@@ -638,7 +638,8 @@ mod tests {
             pure(Value::Str("5P".into())),
             pure(Value::Str("-2M".into())),
         ]);
-        let pat = crate::note(fastcat(&[pure(Value::Int(60)), pure(Value::Int(60))])).transpose(intervals);
+        let pat = crate::note(fastcat(&[pure(Value::Int(60)), pure(Value::Int(60))]))
+            .transpose(intervals);
         assert_eq!(notes(&pat), vec![67.0, 58.0]);
     }
 }

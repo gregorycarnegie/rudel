@@ -16,16 +16,28 @@ pub struct NoteEvent {
     pub spec: VoiceSpec,
     /// Per-voice post-effects (crush/shape/distort/coarse/postgain).
     pub fx: PostFx,
+    /// `cut` group: when a new voice in the same group starts, any still-playing
+    /// voice in that group is choked (fast fade). `None` means no group.
+    pub cut: Option<i32>,
 }
 
 /// Resolve a control map into either a sampler or synth voice spec.
 fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> VoiceSpec {
     if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
+        // The `bank` control prepends `<bank>_` to the sound name, matching
+        // Strudel: `s("bd").bank("RolandTR909")` resolves `RolandTR909_bd`. We
+        // prefer the banked sample, then fall back to the bare name so the
+        // built-in drum synth still works when no banked pack is loaded.
+        let banked = map
+            .get("bank")
+            .and_then(|v| v.as_str())
+            .map(|b| format!("{b}_{name}"));
+
         // Loaded samples win over the built-in drum synth, which wins over the
         // plain oscillator synth.
-        if bank.contains(name) {
-            let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
-            if let Some(sample) = bank.get(name, index) {
+        let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
+        for candidate in banked.as_deref().into_iter().chain(std::iter::once(name)) {
+            if let Some(sample) = bank.get(candidate, index) {
                 let mut params = SamplerParams::new(sample);
                 params.apply_controls(map);
                 return VoiceSpec::Sampler(params);
@@ -56,6 +68,11 @@ pub fn collect_events(
             onset_seconds: ev.onset_seconds,
             spec: spec_for(&ev.controls, ev.duration_seconds as f32, bank),
             fx: PostFx::from_controls(&ev.controls),
+            cut: ev
+                .controls
+                .get("cut")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as i32),
         })
         .collect()
 }
@@ -63,7 +80,7 @@ pub fn collect_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rudel_core::{Value, pure, sequence, silence};
+    use rudel_core::{Value, pure, s, sequence, silence};
     use rudel_dsp::{Sample, VoiceSpec};
     use std::sync::Arc;
 
@@ -136,6 +153,31 @@ mod tests {
             VoiceSpec::Synth(p) => assert!(p.noise.is_some(), "expected a noise source"),
             _ => panic!("expected a synth noise voice"),
         }
+    }
+
+    #[test]
+    fn bank_prefixes_the_sample_name() {
+        // s("bd").bank("RolandTR909") resolves the banked sample "RolandTR909_bd".
+        let mut bank = SampleBank::new();
+        bank.register(
+            "RolandTR909_bd",
+            Arc::new(Sample {
+                data: vec![0.5; 100],
+                sample_rate: 44100.0,
+            }),
+        );
+        let pat = s(Value::Str("bd".into())).bank(Value::Str("RolandTR909".into()));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Sampler(_)));
+    }
+
+    #[test]
+    fn bank_falls_back_to_drum_synth_when_pack_missing() {
+        // With no banked pack loaded, "bd" still hits the built-in drum synth.
+        let bank = SampleBank::new();
+        let pat = s(Value::Str("bd".into())).bank(Value::Str("Nonexistent".into()));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Drum(_)));
     }
 
     #[test]

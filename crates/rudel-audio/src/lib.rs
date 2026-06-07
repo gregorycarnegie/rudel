@@ -55,12 +55,24 @@ fn load_f64(a: &AtomicU64) -> f64 {
     f64::from_bits(a.load(Ordering::Relaxed))
 }
 
+/// A playing voice plus its `cut` group and an optional choke ramp.
+struct ActiveVoice {
+    voice: Box<dyn VoiceLike>,
+    cut: Option<i32>,
+    /// When choked, the remaining gain (ramps 1.0 → 0.0 over `CHOKE_SECS`).
+    /// `None` means the voice is playing normally.
+    choke_gain: Option<f32>,
+}
+
+/// Fade time applied when a `cut`-group voice is choked (matches Strudel's 10ms).
+const CHOKE_SECS: f32 = 0.01;
+
 /// Mixes active voices and starts new ones as their onset time arrives. Lives
 /// in the audio callback.
 struct Mixer {
     rx: Receiver<NoteEvent>,
     pending: Vec<NoteEvent>,
-    active: Vec<Box<dyn VoiceLike>>,
+    active: Vec<ActiveVoice>,
     sample_clock: u64,
     sample_rate: f32,
     played: Arc<AtomicU64>,
@@ -79,8 +91,20 @@ impl Mixer {
         while i < self.pending.len() {
             if self.pending[i].onset_seconds <= now {
                 let ev = self.pending.swap_remove(i);
-                self.active
-                    .push(ev.spec.into_voice_with_fx(self.sample_rate, ev.fx));
+                // A new voice in a `cut` group chokes any still-playing voice in
+                // the same group (last-one-wins, like Strudel's cut groups).
+                if let Some(g) = ev.cut {
+                    for av in &mut self.active {
+                        if av.cut == Some(g) && av.choke_gain.is_none() {
+                            av.choke_gain = Some(1.0);
+                        }
+                    }
+                }
+                self.active.push(ActiveVoice {
+                    voice: ev.spec.into_voice_with_fx(self.sample_rate, ev.fx),
+                    cut: ev.cut,
+                    choke_gain: None,
+                });
             } else {
                 i += 1;
             }
@@ -90,21 +114,30 @@ impl Mixer {
         let (mut dl, mut dr) = (0.0f32, 0.0f32);
         let (mut rl, mut rr) = (0.0f32, 0.0f32);
         let (mut el, mut er) = (0.0f32, 0.0f32);
-        self.active.retain_mut(|v| {
-            let (a, b) = v.tick();
+        let choke_step = 1.0 / (self.sample_rate * CHOKE_SECS);
+        self.active.retain_mut(|av| {
+            let (mut a, mut b) = av.voice.tick();
+            if let Some(g) = &mut av.choke_gain {
+                a *= *g;
+                b *= *g;
+                *g -= choke_step;
+                if *g <= 0.0 {
+                    return false; // fully faded — drop the voice
+                }
+            }
             dl += a;
             dr += b;
-            let room = v.room();
+            let room = av.voice.room();
             if room > 0.0 {
                 rl += a * room;
                 rr += b * room;
             }
-            let dsend = v.delay_send();
+            let dsend = av.voice.delay_send();
             if dsend > 0.0 {
                 el += a * dsend;
                 er += b * dsend;
             }
-            !v.is_done()
+            !av.voice.is_done()
         });
 
         let (delay_l, delay_r) = self.delay.process(el, er);
@@ -140,6 +173,8 @@ impl Engine {
             .map_err(|e| format!("default config: {e}"))?;
         let sample_rate = config.sample_rate() as f32;
         let channels = config.channels() as usize;
+        let sample_format = config.sample_format();
+        let stream_config = config.into();
 
         let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
         let played = Arc::new(AtomicU64::new(0));
@@ -161,21 +196,21 @@ impl Engine {
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
-        let stream = match config.sample_format() {
+        let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_output_stream(
-                &config.into(),
+                stream_config,
                 move |data: &mut [f32], _| write_frames(data, channels, &mut mixer),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_output_stream(
-                &config.into(),
+                stream_config,
                 move |data: &mut [i16], _| write_frames(data, channels, &mut mixer),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::U16 => device.build_output_stream(
-                &config.into(),
+                stream_config,
                 move |data: &mut [u16], _| write_frames(data, channels, &mut mixer),
                 err_fn,
                 None,
@@ -356,6 +391,53 @@ mod tests {
             tail += mixer.render_frame().0.abs();
         }
         assert!(tail > 0.0, "reverb should ring out after the note ends");
+    }
+
+    #[test]
+    fn cut_group_chokes_the_previous_voice() {
+        // Two sustained notes in cut group 1, the second a little later. After
+        // the second starts, the first should be choked to silence within the
+        // ~10ms fade, leaving only one voice's worth of energy.
+        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let mut mixer = Mixer {
+            rx,
+            pending: Vec::new(),
+            active: Vec::new(),
+            sample_clock: 0,
+            sample_rate: 44100.0,
+            played: Arc::new(AtomicU64::new(0)),
+            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
+            reverb: build_reverb(44100.0),
+        };
+        // A long held saw so the voice is still audible when the next one cuts it.
+        let held = |onset: f64| NoteEvent {
+            onset_seconds: onset,
+            spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams::from_controls(
+                &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
+                10.0,
+            ))),
+            fx: rudel_dsp::PostFx::default(),
+            cut: Some(1),
+        };
+        tx.send(held(0.0)).unwrap();
+        tx.send(held(0.2)).unwrap();
+        drop(tx);
+
+        // Render up to just before the second onset: only voice A is active.
+        for _ in 0..((0.2 * 44100.0) as usize) {
+            mixer.render_frame();
+        }
+        assert_eq!(mixer.active.len(), 1);
+        // Render past the choke fade (~10ms). The choked first voice is dropped,
+        // leaving just the second voice.
+        for _ in 0..((CHOKE_SECS * 44100.0) as usize + 64) {
+            mixer.render_frame();
+        }
+        assert_eq!(mixer.active.len(), 1, "the choked voice should be gone");
+        assert!(
+            mixer.active[0].choke_gain.is_none(),
+            "the surviving voice is the new one, not choking"
+        );
     }
 
     #[test]

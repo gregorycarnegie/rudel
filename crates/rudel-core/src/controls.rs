@@ -125,6 +125,8 @@ controls!(
     sustain,
     release,
     vowel,
+    bank,
+    cut,
     accelerate,
     coarse,
     orbit,

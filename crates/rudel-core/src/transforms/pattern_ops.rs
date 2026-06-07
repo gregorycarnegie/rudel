@@ -727,11 +727,22 @@ mod tests {
         // "0 1 2 3" (4 steps): take(2) -> "0 1", take(-2) -> "2 3"
         let pat = seq([0, 1, 2, 3]);
         assert_eq!(pat.take(2).steps, Some(Frac::int(2)));
-        assert_eq!(values(&pat.take(2), 0, 1), vec![Value::Int(0), Value::Int(1)]);
-        assert_eq!(values(&pat.take(-2), 0, 1), vec![Value::Int(2), Value::Int(3)]);
+        assert_eq!(
+            values(&pat.take(2), 0, 1),
+            vec![Value::Int(0), Value::Int(1)]
+        );
+        assert_eq!(
+            values(&pat.take(-2), 0, 1),
+            vec![Value::Int(2), Value::Int(3)]
+        );
         // taking >= all steps returns the pattern; a stepless pattern -> silence
         assert_eq!(values(&pat.take(9), 0, 1).len(), 4);
-        assert!(rand().take(2).query_arc(Frac::zero(), Frac::one()).is_empty());
+        assert!(
+            rand()
+                .take(2)
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
     }
 
     #[test]
@@ -772,7 +783,10 @@ mod tests {
         let pat = wchoose(&pairs).segment(Frac::int(8));
         let got = values(&pat, 0, 1);
         assert_eq!(got.len(), 8);
-        assert!(got.iter().all(|v| *v == Value::Int(5) || *v == Value::Int(9)));
+        assert!(
+            got.iter()
+                .all(|v| *v == Value::Int(5) || *v == Value::Int(9))
+        );
     }
 
     #[test]
@@ -795,7 +809,12 @@ mod tests {
     #[test]
     fn collect_groups_simultaneous_haps() {
         // three stacked values collapse into one hap holding a list
-        let pat = stack(&[pure(Value::Int(0)), pure(Value::Int(1)), pure(Value::Int(2))]).collect();
+        let pat = stack(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+        ])
+        .collect();
         let haps = pat.query_arc(Frac::zero(), Frac::one());
         assert_eq!(haps.len(), 1);
         assert_eq!(
@@ -806,7 +825,11 @@ mod tests {
 
     #[test]
     fn arp_selects_chord_notes_by_index() {
-        let chord = stack(&[pure(Value::Int(0)), pure(Value::Int(1)), pure(Value::Int(2))]);
+        let chord = stack(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+        ]);
         // "0 1 2" walks up the chord
         assert_eq!(
             values(&chord.arp(seq([0, 1, 2])), 0, 1),
@@ -821,7 +844,11 @@ mod tests {
 
     #[test]
     fn arpeggiate_plays_chord_in_sequence() {
-        let chord = stack(&[pure(Value::Int(5)), pure(Value::Int(7)), pure(Value::Int(9))]);
+        let chord = stack(&[
+            pure(Value::Int(5)),
+            pure(Value::Int(7)),
+            pure(Value::Int(9)),
+        ]);
         assert_eq!(
             values(&chord.arpeggiate(), 0, 1),
             vec![Value::Int(5), Value::Int(7), Value::Int(9)]

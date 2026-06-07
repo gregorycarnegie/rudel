@@ -249,7 +249,11 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
         .find(|(s, _)| *s == symbol || *s == normalized)?
         .1
         .iter()
-        .map(|v| v.split_whitespace().filter_map(interval_to_semitones).collect())
+        .map(|v| {
+            v.split_whitespace()
+                .filter_map(interval_to_semitones)
+                .collect()
+        })
         .collect();
     if voicings.iter().any(|v| v.is_empty()) {
         return None;
@@ -280,7 +284,10 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
     let voicing = &voicings[index];
     let target_step = mode.target(voicing);
     let anchor_midi = anchor - chroma_diffs[index] + oct_diff;
-    let voicing_midi: Vec<i32> = voicing.iter().map(|v| anchor_midi - target_step + v).collect();
+    let voicing_midi: Vec<i32> = voicing
+        .iter()
+        .map(|v| anchor_midi - target_step + v)
+        .collect();
 
     let notes: Vec<i32> = if mode == Mode::Duck {
         voicing_midi.into_iter().filter(|&m| m != anchor).collect()
@@ -423,7 +430,6 @@ mod tests {
         v.sort();
         v
     }
-
 
     #[test]
     fn lefthand_cmaj7() {

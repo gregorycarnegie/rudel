@@ -61,8 +61,14 @@ Function-by-function audit against the Strudel learn pages
 - [x] `chop` `striate` `slice` `splice` `loopAt` `fit` `begin` `end` `speed` `unit`
 - [x] sample-folder loading (app button; `Engine::load_samples`)
 - [ ] `samples(url/json)` loader (remote/JSON sample maps, `bank`, aliases)
-- [ ] `cut` (cut groups / choke), `loop` / `loopBegin` / `loopEnd`
-- [ ] `bank` control (drum-machine name prefix)
+- [x] `cut` (cut groups / choke): a `cut` control tags each voice with a group;
+      when a new voice in the same group starts, any still-playing voice in that
+      group is choked with a 10ms fade (matches Strudel). Applies to all voice
+      types, not just samplers. Choke ramp lives in the `Mixer` (`ActiveVoice`).
+- [ ] `loop` / `loopBegin` / `loopEnd`
+- [x] `bank` control (drum-machine name prefix): `s("bd").bank("RolandTR909")`
+      resolves the banked sample `RolandTR909_bd`, falling back to the bare
+      name (so the built-in drum synth still works when no pack is loaded).
 
 ## learn/synths
 
