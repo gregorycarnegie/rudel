@@ -23,6 +23,9 @@ struct SampleGroup {
 #[derive(Default)]
 pub struct SampleBank {
     map: HashMap<String, Vec<SampleGroup>>,
+    /// Bank aliases (`alias -> canonical`), so `s("bd").bank("tr909")` can find
+    /// a pack registered as `RolandTR909_bd`. See [`alias_bank`](Self::alias_bank).
+    bank_aliases: HashMap<String, String>,
 }
 
 impl SampleBank {
@@ -54,6 +57,26 @@ impl SampleBank {
 
     pub fn contains(&self, name: &str) -> bool {
         self.map.contains_key(name)
+    }
+
+    /// Register a bank alias: a sound pack loaded as `<canonical>_<sound>` also
+    /// becomes reachable via `<alias>_<sound>`. Mirrors Strudel's `aliasBank`
+    /// (e.g. `alias_bank("RolandTR909", "tr909")`). Case-insensitive on `alias`.
+    pub fn alias_bank(&mut self, canonical: &str, alias: &str) {
+        self.bank_aliases
+            .insert(alias.to_string(), canonical.to_string());
+        self.bank_aliases
+            .insert(alias.to_lowercase(), canonical.to_string());
+    }
+
+    /// Resolve a bank name through the alias map (returns the input unchanged if
+    /// it isn't an alias).
+    pub fn canonical_bank<'a>(&'a self, bank: &'a str) -> &'a str {
+        self.bank_aliases
+            .get(bank)
+            .or_else(|| self.bank_aliases.get(&bank.to_lowercase()))
+            .map(String::as_str)
+            .unwrap_or(bank)
     }
 
     /// All registered sound names, sorted.

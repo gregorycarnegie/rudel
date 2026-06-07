@@ -257,6 +257,12 @@ impl Engine {
         self.bank.write().unwrap().load_samples_source(source)
     }
 
+    /// Register a bank alias (`aliasBank`): a pack loaded as `<canonical>_<s>`
+    /// also resolves via `<alias>_<s>`.
+    pub fn alias_bank(&self, canonical: &str, alias: &str) {
+        self.bank.write().unwrap().alias_bank(canonical, alias);
+    }
+
     /// Register a single decoded sample under `name`.
     pub fn register_sample(&self, name: &str, sample: std::sync::Arc<rudel_dsp::Sample>) {
         self.bank.write().unwrap().register(name, sample);

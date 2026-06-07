@@ -44,7 +44,7 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
         let banked = map
             .get("bank")
             .and_then(|v| v.as_str())
-            .map(|b| format!("{b}_{name}"));
+            .map(|b| format!("{}_{name}", bank.canonical_bank(b)));
 
         // Loaded samples win over the built-in drum synth, which wins over the
         // plain oscillator synth.
@@ -191,6 +191,24 @@ mod tests {
             }),
         );
         let pat = s(Value::Str("bd".into())).bank(Value::Str("RolandTR909".into()));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Sampler(_)));
+    }
+
+    #[test]
+    fn bank_alias_resolves_to_the_canonical_pack() {
+        // aliasBank("RolandTR909", "tr909") -> s("bd").bank("tr909") finds
+        // the pack registered as "RolandTR909_bd".
+        let mut bank = SampleBank::new();
+        bank.register(
+            "RolandTR909_bd",
+            Arc::new(Sample {
+                data: vec![0.5; 100],
+                sample_rate: 44100.0,
+            }),
+        );
+        bank.alias_bank("RolandTR909", "tr909");
+        let pat = s(Value::Str("bd".into())).bank(Value::Str("tr909".into()));
         let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
         assert!(matches!(events[0].spec, VoiceSpec::Sampler(_)));
     }

@@ -133,6 +133,9 @@ struct RudelApp {
     // Sample loading.
     sample_dir: String,
     sample_names: Vec<String>,
+    /// Sources already loaded via `samples(...)`, so re-evaluating doesn't
+    /// re-fetch the same pack on every keystroke.
+    loaded_sample_sources: std::collections::HashSet<String>,
 
     // Output routing.
     output: Output,
@@ -164,6 +167,7 @@ impl RudelApp {
             current: None,
             sample_dir: String::new(),
             sample_names: Vec::new(),
+            loaded_sample_sources: std::collections::HashSet::new(),
             output: Output::Audio,
             midi_port: String::new(),
             osc_target: "127.0.0.1:57120".to_string(),
@@ -175,8 +179,9 @@ impl RudelApp {
 
     /// Evaluate the editor contents and route the result to the active output.
     fn evaluate(&mut self) {
-        match rudel_lang::eval(&self.code) {
-            Ok(pat) => {
+        match rudel_lang::eval_with_samples(&self.code) {
+            Ok((pat, effects)) => {
+                self.apply_sample_effects(&effects);
                 self.current = Some(pat);
                 self.eval_error = None;
                 self.status = "evaluated".to_string();
@@ -185,6 +190,30 @@ impl RudelApp {
             Err(e) => {
                 self.eval_error = Some(e);
                 self.status = "error".to_string();
+            }
+        }
+    }
+
+    /// Apply `samples(...)` / `aliasBank(...)` requests from the script. Sample
+    /// sources already loaded are skipped, so re-evaluation doesn't re-fetch.
+    fn apply_sample_effects(&mut self, effects: &rudel_lang::SampleEffects) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        for (canonical, alias) in &effects.bank_aliases {
+            engine.alias_bank(canonical, alias);
+        }
+        for source in &effects.sources {
+            if !self.loaded_sample_sources.insert(source.clone()) {
+                continue; // already loaded
+            }
+            match engine.samples(source) {
+                Ok(_) => self.sample_names = engine.sample_names(),
+                Err(e) => {
+                    // allow a retry on the next evaluation
+                    self.loaded_sample_sources.remove(source);
+                    self.io_error = Some(format!("samples({source:?}): {e}"));
+                }
             }
         }
     }

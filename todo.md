@@ -73,8 +73,13 @@ Function-by-function audit against the Strudel learn pages
       samples, `resolve(name, n, midi)` returns the sample + semitone transpose,
       and `events.rs` applies `speed *= 2^(semis/12)`. Flat packs repitch
       relative to C3 (MIDI 36) only when `note` is set (drums are untouched).
-      Not done: per-pattern Koto `samples()` (needs an engine handle in the VM),
-      `bank` aliases / `registerSamplesPrefix`.
+      Koto `samples("github:…")` / `aliasBank(canonical, alias…)` are exposed as
+      side effects: `eval_with_samples` returns the resulting pattern plus a
+      `SampleEffects` (sources + bank aliases) that the app applies against the
+      engine's bank (deduped across re-evals, so live-coding doesn't re-fetch).
+      `bank` aliases resolve via `SampleBank::alias_bank`/`canonical_bank`.
+      Not done: `registerSamplesPrefix` (custom URL-prefix handlers), and the
+      inline-map form of `samples({...}, base)` (only string sources for now).
 - [x] `cut` (cut groups / choke): a `cut` control tags each voice with a group;
       when a new voice in the same group starts, any still-playing voice in that
       group is choked with a 10ms fade (matches Strudel). Applies to all voice

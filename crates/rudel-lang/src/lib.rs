@@ -9,7 +9,7 @@ use koto::runtime::{Error as KotoError, KotoObject, Result as KotoResult};
 use rudel_core::{Frac, Pattern, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// A Koto wrapper around a rudel [`Pattern`].
 #[derive(Clone, KotoCopy, KotoType)]
@@ -715,14 +715,72 @@ fn arg_to_value(value: &KValue) -> Value {
     }
 }
 
+/// Side effects collected while evaluating a script: sample-pack loads and bank
+/// aliases that the host applies against its own sample bank after eval.
+#[derive(Default, Debug, PartialEq)]
+pub struct SampleEffects {
+    /// `samples(src, ...)` sources to load.
+    pub sources: Vec<String>,
+    /// `aliasBank(canonical, alias, ...)` pairs to register.
+    pub bank_aliases: Vec<(String, String)>,
+}
+
+/// Register the side-effecting sample helpers (`samples` / `aliasBank`). They
+/// record their string arguments into `effects` (applied by the host against
+/// its sample bank) and return an empty pattern.
+fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
+    let sample_effects = effects.clone();
+    prelude.add_fn("samples", move |ctx| {
+        let mut eff = sample_effects.lock().unwrap();
+        for arg in ctx.args() {
+            if let KValue::Str(s) = arg {
+                eff.sources.push(s.to_string());
+            }
+        }
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+
+    // aliasBank(canonical, alias, ...): each extra string is an alias.
+    prelude.add_fn("aliasBank", move |ctx| {
+        let strs: Vec<String> = ctx
+            .args()
+            .iter()
+            .filter_map(|a| match a {
+                KValue::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .collect();
+        if let Some((canonical, aliases)) = strs.split_first() {
+            let mut eff = effects.lock().unwrap();
+            for alias in aliases {
+                eff.bank_aliases.push((canonical.clone(), alias.clone()));
+            }
+        }
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+}
+
 /// Evaluate a Koto script and extract the resulting pattern.
 pub fn eval(script: &str) -> Result<Pattern, String> {
+    eval_with_samples(script).map(|(pat, _)| pat)
+}
+
+/// Evaluate a Koto script, returning the resulting pattern plus the sample
+/// effects (`samples(...)` / `aliasBank(...)`) requested during evaluation. The
+/// host applies those effects (e.g. `Engine::samples` / `Engine::alias_bank`)
+/// against its own sample bank.
+pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), String> {
+    let effects = Arc::new(Mutex::new(SampleEffects::default()));
     let mut koto = Koto::default();
     register(koto.prelude());
+    register_samples(koto.prelude(), effects.clone());
     let chunk = koto.compile(script).map_err(|e| e.to_string())?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
+    let effects = std::mem::take(&mut *effects.lock().unwrap());
     match result {
-        KValue::Object(o) if o.is_a::<KPattern>() => Ok(o.cast::<KPattern>().unwrap().0.clone()),
+        KValue::Object(o) if o.is_a::<KPattern>() => {
+            Ok((o.cast::<KPattern>().unwrap().0.clone(), effects))
+        }
         other => Err(format!("script did not return a pattern (got {other:?})")),
     }
 }
@@ -775,6 +833,47 @@ mod tests {
             }
             other => panic!("expected control map, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn samples_collects_sources_and_keeps_the_pattern() {
+        let (pat, effects) = eval_with_samples(
+            r#"
+samples("github:tidalcycles/dirt-samples")
+samples("local:")
+s("bd sd")
+"#,
+        )
+        .expect("eval");
+        assert_eq!(
+            effects.sources,
+            vec![
+                "github:tidalcycles/dirt-samples".to_string(),
+                "local:".to_string()
+            ]
+        );
+        // the trailing pattern is still returned
+        assert!(!pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+    }
+
+    #[test]
+    fn samples_alone_evaluates_to_silence() {
+        let (pat, effects) = eval_with_samples(r#"samples("github:x/y")"#).expect("eval");
+        assert_eq!(effects.sources, vec!["github:x/y".to_string()]);
+        assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+    }
+
+    #[test]
+    fn alias_bank_collects_pairs() {
+        let (_pat, effects) =
+            eval_with_samples(r#"aliasBank("RolandTR909", "tr909", "909")"#).expect("eval");
+        assert_eq!(
+            effects.bank_aliases,
+            vec![
+                ("RolandTR909".to_string(), "tr909".to_string()),
+                ("RolandTR909".to_string(), "909".to_string()),
+            ]
+        );
     }
 
     #[test]
