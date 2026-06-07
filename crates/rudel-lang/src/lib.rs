@@ -527,7 +527,8 @@ kpattern_methods! {
         bpenv, bpattack, bpdecay, bpsustain, bprelease, fanchor,
         lpe, lpa, lpd, lps, lpr, hpe, hpa, hpd, hps, hpr, bpe, bpa, bpd, bps, bpr,
         // supersaw + FM + ADSR shortcuts
-        unison, detune, spread, fm, fmh, fmi, adsr, ad, ar, hold,
+        unison, detune, spread, fm, fmh, fmi, fmwave, fmattack, fmdecay, fmsustain, fmrelease,
+        adsr, ad, ar, hold,
         // vibrato + pitch envelope (+ aliases)
         vib, vibmod, penv, pattack, pdecay, psustain, prelease, panchor,
         vibrato, vmod, patt, pdec, psus, prel,
@@ -1141,6 +1142,7 @@ s("bd sd")
         for src in [
             r#"note("c2").s("supersaw").unison(7).detune(20).spread(0.4)"#,
             r#"note("c3").s("sine").fm(4).fmh(2)"#,
+            r#"note("c3").s("sine").fm(8).fmh(3).fmwave("square").fmattack(0.2).fmdecay(0.1).fmsustain(0.3).fmrelease(0.2)"#,
             r#"s("bd*4").adsr("0.01:0.1:0:0.1")"#,
             r#"note("c3").s("saw").ad("0.01:0.2").hold(0.3)"#,
         ] {

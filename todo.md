@@ -109,7 +109,12 @@ Function-by-function audit against the Strudel learn pages
 - [x] `supersaw` (`unison`/`detune`/`spread`) — N detuned saws summed
 - [x] single-operator FM (`fm`/`fmi` index, `fmh` ratio): carrier freq
       modulated by `fmi·modfreq·sin`
-- [ ] multi-operator FM matrix, additive, `zzfx`, wavetables
+- [x] FM modulator waveform (`fmwave`: sine/saw/square/triangle) and FM
+      modulation-index envelope (`fmattack`/`fmdecay`/`fmsustain`/`fmrelease`,
+      scaling the index 0..1 via a linear ADSR; sustain defaults to full when
+      only attack/decay are set, like superdough's `getADSRValues`).
+- [ ] multi-operator FM matrix (8-op `fmiIJ` routing + per-op `fmenv` exp
+      curve), additive (`partials`/`waveformN`), `zzfx`, wavetables
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [ ] `pcurve` (env curve shapes), `pw` pulse-width, `noise` mix amount

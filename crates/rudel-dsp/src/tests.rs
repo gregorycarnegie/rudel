@@ -159,6 +159,78 @@ fn fm_changes_the_signal() {
 }
 
 #[test]
+fn fmwave_changes_the_modulator() {
+    let mk = |w| {
+        Voice::new(
+            VoiceParams {
+                waveform: Waveform::Sine,
+                freq: 220.0,
+                duration: 1.0,
+                fm: Some(6.0),
+                fmh: 2.0,
+                fmwave: w,
+                ..Default::default()
+            },
+            44100.0,
+        )
+    };
+    let (mut sine_mod, mut square_mod) = (mk(Waveform::Sine), mk(Waveform::Square));
+    let mut diff = 0.0f32;
+    for _ in 0..2000 {
+        diff += (sine_mod.tick().0 - square_mod.tick().0).abs();
+    }
+    assert!(
+        diff > 0.0,
+        "the FM modulator waveform should change the signal"
+    );
+}
+
+#[test]
+fn fm_envelope_ramps_in_the_modulation() {
+    let base = || VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 220.0,
+        duration: 1.0,
+        fmh: 2.0,
+        ..Default::default()
+    };
+    let mut plain = Voice::new(VoiceParams { fm: None, ..base() }, 44100.0);
+    let mut const_fm = Voice::new(
+        VoiceParams {
+            fm: Some(8.0),
+            ..base()
+        },
+        44100.0,
+    );
+    let mut env_fm = Voice::new(
+        VoiceParams {
+            fm: Some(8.0),
+            // long attack: the index ramps in slowly from ~0
+            fm_env: Some(Adsr {
+                attack: 0.5,
+                decay: 0.001,
+                sustain: 1.0,
+                release: 0.01,
+            }),
+            ..base()
+        },
+        44100.0,
+    );
+    // Early in the 0.5s attack the enveloped index is near 0, so the enveloped
+    // voice tracks the un-modulated carrier far more closely than constant FM.
+    let (mut d_env, mut d_const) = (0.0f32, 0.0f32);
+    for _ in 0..400 {
+        let p = plain.tick().0;
+        d_env += (p - env_fm.tick().0).abs();
+        d_const += (p - const_fm.tick().0).abs();
+    }
+    assert!(
+        d_env < d_const,
+        "early FM-env modulation ({d_env}) should be weaker than constant FM ({d_const})"
+    );
+}
+
+#[test]
 fn vibrato_and_pitch_env_change_pitch() {
     let base = || VoiceParams {
         waveform: Waveform::Sine,

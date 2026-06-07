@@ -151,8 +151,13 @@ impl Voice {
         let s = self.params.waveform.sample(self.phase);
         let inc = if let Some(index) = self.params.fm {
             let modfreq = carrier * self.params.fmh;
-            let modv = (2.0 * PI * self.mod_phase).sin();
+            let modv = self.params.fmwave.sample(self.mod_phase);
             self.mod_phase = (self.mod_phase + modfreq / sr).rem_euclid(1.0);
+            // A modulation-index envelope (`fm{a,d,s,r}`) scales the index 0..1.
+            let index = match self.params.fm_env {
+                Some(env) => index * adsr_value(&env, self.t, self.hold_end),
+                None => index,
+            };
             (carrier + index * modfreq * modv) / sr
         } else {
             carrier / sr
