@@ -1151,6 +1151,17 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("run", |ctx| {
         Ok(KPattern(rudel_core::run(arg_to_f64(&arg0(ctx)) as i64)).into())
     });
+    // MIDI input: `ccin(cc)` / `ccin(cc, chan)` is a 0..1 signal of the latest
+    // value of an incoming control-change (the input counterpart to `ccn`).
+    prelude.add_fn("ccin", |ctx| {
+        let cc = arg_to_f64(&arg0(ctx)) as u8;
+        let chan = ctx
+            .args()
+            .get(1)
+            .map(|v| arg_to_f64(v) as u8)
+            .filter(|c| *c >= 1);
+        Ok(KPattern(rudel_core::cc_in(cc, chan)).into())
+    });
 }
 
 pub(crate) fn arg0(ctx: &mut CallContext) -> KValue {

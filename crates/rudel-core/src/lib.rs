@@ -9,6 +9,7 @@ pub mod controls;
 pub mod euclid;
 pub mod fraction;
 pub mod hap;
+pub mod input;
 pub mod pattern;
 pub mod query;
 pub mod samples;
@@ -42,6 +43,8 @@ pub use euclid::{bjorklund, euclid_bools};
 pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat};
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{control_dyn, lpf, lpq, n, note, s, sound};
+// MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
+pub use input::{cc_in, clear_cc, get_cc, set_cc};
 // Tonal: note names, scales, chords.
 pub use tonal::{chord_notes, note_to_midi, note_to_midi_with_octave, scale_offset, scale_step};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).

@@ -7,7 +7,7 @@
 use eframe::egui;
 use rudel_audio::Engine;
 use rudel_core::{Frac, Hap, Pattern, Value};
-use rudel_midi::{MidiEngine, MidiOut};
+use rudel_midi::{MidiEngine, MidiIn, MidiOut};
 use rudel_osc::{OscEngine, OscOut};
 use std::collections::{BTreeMap, HashSet};
 use std::thread::JoinHandle;
@@ -166,6 +166,10 @@ struct RudelApp {
     midi: Option<MidiEngine>,
     osc: Option<OscEngine>,
     io_error: Option<String>,
+    // MIDI input (CC -> `ccin` bus, clock-in -> cps).
+    midi_in: Option<MidiIn>,
+    midi_in_port: String,
+    clock_sync: bool,
 }
 
 impl RudelApp {
@@ -197,6 +201,26 @@ impl RudelApp {
             midi: None,
             osc: None,
             io_error: None,
+            midi_in: None,
+            midi_in_port: String::new(),
+            clock_sync: false,
+        }
+    }
+
+    /// Connect (or reconnect) a MIDI input device: incoming CCs feed `ccin`, and
+    /// MIDI clock can drive `cps` when `clock_sync` is on.
+    fn connect_input(&mut self) {
+        let port = {
+            let p = self.midi_in_port.trim();
+            if p.is_empty() { None } else { Some(p) }
+        };
+        match MidiIn::connect(port) {
+            Ok(input) => {
+                self.midi_in = Some(input);
+                self.io_error = None;
+                self.status = "MIDI input connected".to_string();
+            }
+            Err(e) => self.io_error = Some(format!("MIDI in: {e}")),
         }
     }
 
@@ -474,8 +498,19 @@ impl eframe::App for RudelApp {
             }
         });
 
-        // Keep the playhead moving while playing.
-        if self.playing || !self.sample_jobs.is_empty() {
+        // Clock-in: follow the incoming MIDI clock tempo (4 beats per cycle).
+        if self.clock_sync {
+            let cps = self.midi_in.as_ref().and_then(|i| i.cps(4.0));
+            if let Some(cps) = cps
+                && (cps - self.cps).abs() > 1e-4
+            {
+                self.set_cps(cps);
+            }
+        }
+
+        // Keep the playhead moving while playing (and polling clock / CC input).
+        if self.playing || !self.sample_jobs.is_empty() || self.clock_sync || self.midi_in.is_some()
+        {
             ui.ctx().request_repaint();
         }
     }
@@ -558,6 +593,30 @@ impl RudelApp {
                 if ui.button("Load samples").clicked() {
                     self.load_samples();
                 }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("midi in");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.midi_in_port)
+                        .hint_text("first")
+                        .desired_width(90.0),
+                );
+                let connected = self.midi_in.is_some();
+                if ui
+                    .button(if connected { "Reconnect" } else { "Connect" })
+                    .clicked()
+                {
+                    self.connect_input();
+                }
+                if connected && ui.button("Disconnect").clicked() {
+                    self.midi_in = None;
+                }
+                ui.checkbox(&mut self.clock_sync, "clock→cps");
+                if let Some(bpm) = self.midi_in.as_ref().and_then(|i| i.bpm()) {
+                    ui.weak(format!("{bpm:.0} bpm"));
+                }
+                ui.weak("→ ccin(n)");
             });
         });
     }
@@ -836,6 +895,9 @@ mod tests {
             midi: None,
             osc: None,
             io_error: None,
+            midi_in: None,
+            midi_in_port: String::new(),
+            clock_sync: false,
         }
     }
 

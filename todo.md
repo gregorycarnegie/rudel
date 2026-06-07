@@ -253,8 +253,13 @@ Function-by-function audit against the Strudel learn pages
 - [x] `osc` custom address/host/port from controls (`oschost`/`oscport`): the OSC
       back-end resolves a per-event `host:port` (`osc_target`) and `send_to`s it,
       stripping the routing keys from the `/dirt/play` message.
-- [ ] MIDI input / clock-in, MIDI CC mapping helpers — needs a realtime input
-      bus feeding query-time signals (`midin`/CC); a separate architectural pass
+- [x] MIDI input / clock-in, MIDI CC mapping helpers: a process-global input bus
+      in `rudel-core` (`set_cc`/`get_cc`/`cc_in`) feeds the `ccin(cc[, chan])`
+      query-time 0..1 signal; `rudel-midi`'s `MidiIn` connects an input port
+      (`Ignore::None` to receive clock), routes incoming CC to the bus, and a
+      `ClockDetector` estimates BPM from clock pulses (`bpm`/`cps`,
+      `bpm_to_cps`). The app adds a MIDI-input device field + a `clock→cps`
+      toggle. `process_input` decodes messages (unit-tested without a device).
 
 ## learn/code (REPL ergonomics)
 

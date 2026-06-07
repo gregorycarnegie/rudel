@@ -984,6 +984,19 @@ fn midi_method_stores_device_hint() {
 }
 
 #[test]
+fn ccin_reads_the_midi_input_bus() {
+    // `ccin(cc)` is a live 0..1 signal of the latest incoming control-change.
+    rudel_core::clear_cc();
+    let pat = eval(r#"ccin(74).segment(4)"#).expect("eval");
+    // nothing received yet -> 0
+    assert!(values(&pat, 0, 1).iter().all(|v| v.as_f64() == Some(0.0)));
+    rudel_core::set_cc(1, 74, 0.5);
+    assert!(values(&pat, 0, 1).iter().all(|v| v.as_f64() == Some(0.5)));
+    // channel-pinned form + use as a control modulator resolves too
+    assert!(eval(r#"note("c3").lpf(ccin(1, 1).range(200, 2000))"#).is_ok());
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);
