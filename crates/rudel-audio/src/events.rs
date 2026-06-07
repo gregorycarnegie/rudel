@@ -21,6 +21,19 @@ pub struct NoteEvent {
     pub cut: Option<i32>,
 }
 
+/// The requested MIDI note for a sampler, from `freq` or `note` (name or
+/// number). `None` when neither is set. Mirrors superdough's `valueToMidi`.
+fn requested_midi(map: &BTreeMap<String, Value>) -> Option<f64> {
+    if let Some(freq) = map.get("freq").and_then(|v| v.as_f64()) {
+        // freqToMidi: 12*log2(freq/440) + 69
+        return Some(12.0 * (freq / 440.0).log2() + 69.0);
+    }
+    match map.get("note") {
+        Some(Value::Str(s)) => rudel_core::note_to_midi(s).map(|m| m as f64),
+        other => other.and_then(|v| v.as_f64()),
+    }
+}
+
 /// Resolve a control map into either a sampler or synth voice spec.
 fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> VoiceSpec {
     if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
@@ -36,10 +49,16 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
         // Loaded samples win over the built-in drum synth, which wins over the
         // plain oscillator synth.
         let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
+        let midi = requested_midi(map);
         for candidate in banked.as_deref().into_iter().chain(std::iter::once(name)) {
-            if let Some(sample) = bank.get(candidate, index) {
+            if let Some((sample, transpose)) = bank.resolve(candidate, index, midi) {
                 let mut params = SamplerParams::new(sample);
                 params.apply_controls(map);
+                // Repitch the sample onto the requested note (note-keyed maps) or
+                // relative to C3 (flat maps with `note`): rate *= 2^(semis/12).
+                if transpose != 0.0 {
+                    params.speed *= 2f32.powf(transpose as f32 / 12.0);
+                }
                 // A looping sample plays for the hap's duration rather than its
                 // own natural length.
                 if params.loop_on {
@@ -183,6 +202,34 @@ mod tests {
         let pat = s(Value::Str("bd".into())).bank(Value::Str("Nonexistent".into()));
         let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
         assert!(matches!(events[0].spec, VoiceSpec::Drum(_)));
+    }
+
+    #[test]
+    fn pitched_map_repitches_to_the_requested_note() {
+        // A note-keyed "piano" tuned at c4 (MIDI 60), played at e4 (64), should
+        // pick the c4 sample and set speed = 2^((64-60)/12).
+        let mut bank = SampleBank::new();
+        bank.register_note(
+            "piano",
+            60,
+            Arc::new(Sample {
+                data: vec![0.5; 100],
+                sample_rate: 44100.0,
+            }),
+        );
+        let pat = s(Value::Str("piano".into())).note(Value::Str("e4".into()));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Sampler(p) => {
+                let expected = 2f32.powf(4.0 / 12.0);
+                assert!(
+                    (p.speed - expected).abs() < 1e-4,
+                    "speed {} should be ~{expected}",
+                    p.speed
+                );
+            }
+            _ => panic!("expected a sampler voice"),
+        }
     }
 
     #[test]

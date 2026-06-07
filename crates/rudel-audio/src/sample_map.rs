@@ -74,8 +74,16 @@ fn resolve_base(base: &str) -> String {
     }
 }
 
-/// Pull the file paths out of a sample-map value (string / array / note-keyed
-/// object), returning them in declaration order. Non-string leaves are skipped.
+/// The files for one sound: either a flat index list (drum-machine packs) or a
+/// note-keyed (pitched) map of `(midi_note, urls)` groups.
+#[derive(Debug, PartialEq)]
+pub(crate) enum SoundFiles {
+    Flat(Vec<String>),
+    Pitched(Vec<(i32, Vec<String>)>),
+}
+
+/// Pull the file paths out of a string/array sample-map value, in declaration
+/// order. Non-string leaves are skipped.
 fn collect_files(value: &Json) -> Vec<String> {
     match value {
         Json::String(s) => vec![s.clone()],
@@ -83,24 +91,18 @@ fn collect_files(value: &Json) -> Vec<String> {
             .iter()
             .filter_map(|v| v.as_str().map(str::to_string))
             .collect(),
-        // Note-keyed object (pitched sample map): flatten every note's files
-        // into a flat index list. Pitch-based selection is not yet applied.
-        Json::Object(map) => map
-            .iter()
-            .filter(|(k, _)| *k != "_base")
-            .flat_map(|(_, v)| collect_files(v))
-            .collect(),
         _ => Vec::new(),
     }
 }
 
-/// Parse a Strudel sample-map JSON into `(sound_name, resolved_urls)` entries.
-/// `base` resolves relative file paths; a top-level or per-entry `_base` key
-/// overrides it. Handles the string, array, and note-keyed-object value forms.
+/// Parse a Strudel sample-map JSON into `(sound_name, files)` entries. `base`
+/// resolves relative file paths; a top-level or per-entry `_base` key overrides
+/// it. String/array values become [`SoundFiles::Flat`]; note-keyed objects
+/// become [`SoundFiles::Pitched`] (keys parsed to MIDI via `note_to_midi`).
 pub(crate) fn parse_sample_map(
     json: &str,
     base: &str,
-) -> Result<Vec<(String, Vec<String>)>, String> {
+) -> Result<Vec<(String, SoundFiles)>, String> {
     let parsed: Json = serde_json::from_str(json).map_err(|e| format!("parse sample map: {e}"))?;
     let Json::Object(map) = parsed else {
         return Err("sample map must be a JSON object".to_string());
@@ -124,12 +126,24 @@ pub(crate) fn parse_sample_map(
             .and_then(Json::as_str)
             .map(resolve_base)
             .unwrap_or_else(|| map_base.clone());
+        let join = |f: &String| join_url(&entry_base, f);
 
-        let urls = collect_files(value)
-            .iter()
-            .map(|f| join_url(&entry_base, f))
-            .collect();
-        entries.push((key.clone(), urls));
+        let files = match value {
+            // Note-keyed object (pitched sample map): one group per note name.
+            Json::Object(notes) => {
+                let groups = notes
+                    .iter()
+                    .filter(|(note, _)| *note != "_base")
+                    .filter_map(|(note, files)| {
+                        let midi = rudel_core::note_to_midi(note)?;
+                        Some((midi, collect_files(files).iter().map(join).collect()))
+                    })
+                    .collect();
+                SoundFiles::Pitched(groups)
+            }
+            _ => SoundFiles::Flat(collect_files(value).iter().map(join).collect()),
+        };
+        entries.push((key.clone(), files));
     }
     Ok(entries)
 }
@@ -172,34 +186,47 @@ mod tests {
     fn parses_array_and_string_forms_with_base() {
         let json = r#"{ "_base": "https://x.com/s/", "bd": ["808bd/a.wav", "808bd/b.wav"], "sd": "808sd/c.wav" }"#;
         let mut entries = parse_sample_map(json, "ignored").unwrap();
-        entries.sort();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(
             entries,
             vec![
                 (
                     "bd".to_string(),
-                    vec![
+                    SoundFiles::Flat(vec![
                         "https://x.com/s/808bd/a.wav".to_string(),
                         "https://x.com/s/808bd/b.wav".to_string(),
-                    ]
+                    ])
                 ),
                 (
                     "sd".to_string(),
-                    vec!["https://x.com/s/808sd/c.wav".to_string()]
+                    SoundFiles::Flat(vec!["https://x.com/s/808sd/c.wav".to_string()])
                 ),
             ]
         );
     }
 
     #[test]
-    fn flattens_note_keyed_objects() {
+    fn note_keyed_objects_become_pitched_groups() {
+        // c4 -> MIDI 60, e4 -> 64 (note_to_midi default octave 3 => c4 = 60).
         let json = r#"{ "piano": { "c4": "c4.wav", "e4": ["e4a.wav", "e4b.wav"] } }"#;
         let entries = parse_sample_map(json, "base").unwrap();
         assert_eq!(entries.len(), 1);
-        let (name, mut urls) = entries.into_iter().next().unwrap();
+        let (name, files) = entries.into_iter().next().unwrap();
         assert_eq!(name, "piano");
-        urls.sort();
-        assert_eq!(urls, vec!["base/c4.wav", "base/e4a.wav", "base/e4b.wav"]);
+        let SoundFiles::Pitched(mut groups) = files else {
+            panic!("expected a pitched map, got {files:?}");
+        };
+        groups.sort_by_key(|(midi, _)| *midi);
+        assert_eq!(
+            groups,
+            vec![
+                (60, vec!["base/c4.wav".to_string()]),
+                (
+                    64,
+                    vec!["base/e4a.wav".to_string(), "base/e4b.wav".to_string()]
+                ),
+            ]
+        );
     }
 
     #[test]
@@ -207,8 +234,10 @@ mod tests {
         let json = r#"{ "_base": "github:me/pack", "bd": "bd.wav" }"#;
         let entries = parse_sample_map(json, "").unwrap();
         assert_eq!(
-            entries[0].1[0],
-            "https://raw.githubusercontent.com/me/pack/main/bd.wav"
+            entries[0].1,
+            SoundFiles::Flat(vec![
+                "https://raw.githubusercontent.com/me/pack/main/bd.wav".to_string()
+            ])
         );
     }
 }

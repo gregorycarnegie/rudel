@@ -10,10 +10,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Maps a sound name (e.g. `"bd"`) to one or more samples (indexed by `n`).
+/// A group of samples sharing one tuning. Flat (drum-machine) sounds use a
+/// single group with `note: None`; pitched (note-keyed) maps have one group per
+/// note name, used to pick the closest sample and repitch it.
+struct SampleGroup {
+    /// MIDI note this group is tuned to, or `None` for an un-pitched sound.
+    note: Option<i32>,
+    samples: Vec<Arc<Sample>>,
+}
+
+/// Maps a sound name (e.g. `"bd"`) to its sample group(s).
 #[derive(Default)]
 pub struct SampleBank {
-    map: HashMap<String, Vec<Arc<Sample>>>,
+    map: HashMap<String, Vec<SampleGroup>>,
 }
 
 impl SampleBank {
@@ -21,9 +30,26 @@ impl SampleBank {
         SampleBank::default()
     }
 
-    /// Add a sample under `name` (appended as the next index).
+    /// Add an un-pitched sample under `name` (appended as the next `n` index).
     pub fn register(&mut self, name: &str, sample: Arc<Sample>) {
-        self.map.entry(name.to_string()).or_default().push(sample);
+        self.push_into(name, None, sample);
+    }
+
+    /// Add a sample tuned to `note` (a MIDI number) under `name`, for pitched
+    /// note-keyed sample maps.
+    pub fn register_note(&mut self, name: &str, note: i32, sample: Arc<Sample>) {
+        self.push_into(name, Some(note), sample);
+    }
+
+    fn push_into(&mut self, name: &str, note: Option<i32>, sample: Arc<Sample>) {
+        let groups = self.map.entry(name.to_string()).or_default();
+        match groups.iter_mut().find(|g| g.note == note) {
+            Some(g) => g.samples.push(sample),
+            None => groups.push(SampleGroup {
+                note,
+                samples: vec![sample],
+            }),
+        }
     }
 
     pub fn contains(&self, name: &str) -> bool {
@@ -37,13 +63,48 @@ impl SampleBank {
         names
     }
 
-    /// Fetch the `index`-th sample for `name` (wrapping if out of range).
+    /// Fetch the `index`-th sample for `name` (wrapping if out of range),
+    /// ignoring pitch. Equivalent to [`resolve`](Self::resolve) with no note.
     pub fn get(&self, name: &str, index: usize) -> Option<Arc<Sample>> {
-        let v = self.map.get(name)?;
-        if v.is_empty() {
-            return None;
+        self.resolve(name, index, None).map(|(s, _)| s)
+    }
+
+    /// Resolve a sample for playback. `index` is the `n` sample index; `midi` is
+    /// the requested MIDI note (from `note`/`freq`), or `None` if unset.
+    ///
+    /// Returns the chosen sample and the repitch in semitones to apply:
+    /// - un-pitched sounds repitch relative to C3 (MIDI 36) only when a note is
+    ///   requested (so drums without `note` are untouched);
+    /// - note-keyed maps pick the group whose tuning is closest to `midi` and
+    ///   repitch that sample onto the requested note.
+    ///
+    /// Mirrors superdough's `getCommonSampleInfo`.
+    pub fn resolve(
+        &self,
+        name: &str,
+        index: usize,
+        midi: Option<f64>,
+    ) -> Option<(Arc<Sample>, f64)> {
+        let groups = self.map.get(name)?;
+        if groups.iter().any(|g| g.note.is_some()) {
+            // Pitched map: pick the closest tuned group (fallback target C3=36).
+            let target = midi.unwrap_or(36.0);
+            let group = groups
+                .iter()
+                .filter(|g| g.note.is_some() && !g.samples.is_empty())
+                .min_by(|a, b| {
+                    let da = (a.note.unwrap() as f64 - target).abs();
+                    let db = (b.note.unwrap() as f64 - target).abs();
+                    da.total_cmp(&db)
+                })?;
+            let sample = group.samples[index % group.samples.len()].clone();
+            Some((sample, target - group.note.unwrap() as f64))
+        } else {
+            // Flat: index into the un-pitched group; repitch vs C3 if note set.
+            let group = groups.iter().find(|g| !g.samples.is_empty())?;
+            let sample = group.samples[index % group.samples.len()].clone();
+            Some((sample, midi.map(|m| m - 36.0).unwrap_or(0.0)))
         }
-        Some(v[index % v.len()].clone())
     }
 
     /// Load a single audio file and register it under `name`.
@@ -152,27 +213,47 @@ impl SampleBank {
     /// decoded, and registered under its sound name. Files that fail to load are
     /// logged and skipped. Returns the number of samples registered.
     pub fn load_sample_map(&mut self, json: &str, base: &str) -> Result<usize, String> {
-        let entries = sample_map::parse_sample_map(json, base)?;
-        // Fetch + decode in parallel; samples are registered in declaration
-        // order so `n` indices stay stable.
-        let loaded: Vec<(String, Vec<Result<Sample, String>>)> = entries
+        use sample_map::SoundFiles;
+
+        // A fetch job: sound name, optional MIDI tuning (pitched maps), and URL.
+        type Job = (String, Option<i32>, String);
+
+        // Flatten the map into jobs in declaration order so `n` indices stay
+        // stable after the parallel fetch.
+        let mut jobs: Vec<Job> = Vec::new();
+        for (name, files) in sample_map::parse_sample_map(json, base)? {
+            match files {
+                SoundFiles::Flat(urls) => {
+                    jobs.extend(urls.into_iter().map(|u| (name.clone(), None, u)));
+                }
+                SoundFiles::Pitched(groups) => {
+                    for (midi, urls) in groups {
+                        jobs.extend(urls.into_iter().map(|u| (name.clone(), Some(midi), u)));
+                    }
+                }
+            }
+        }
+
+        // Fetch + decode in parallel (order preserved by collect).
+        let decoded: Vec<(Job, Result<Sample, String>)> = jobs
             .into_par_iter()
-            .map(|(name, urls)| {
-                let samples = urls.into_iter().map(|u| fetch_and_decode(&u)).collect();
-                (name, samples)
+            .map(|job| {
+                let sample = fetch_and_decode(&job.2);
+                (job, sample)
             })
             .collect();
 
         let mut count = 0;
-        for (name, samples) in loaded {
-            for sample in samples {
-                match sample {
-                    Ok(s) => {
-                        self.register(&name, Arc::new(s));
-                        count += 1;
+        for ((name, note, _), sample) in decoded {
+            match sample {
+                Ok(s) => {
+                    match note {
+                        Some(midi) => self.register_note(&name, midi, Arc::new(s)),
+                        None => self.register(&name, Arc::new(s)),
                     }
-                    Err(e) => eprintln!("[rudel-audio] sample {name:?}: {e}"),
+                    count += 1;
                 }
+                Err(e) => eprintln!("[rudel-audio] sample {name:?}: {e}"),
             }
         }
         Ok(count)
@@ -357,11 +438,15 @@ mod tests {
         let entries = sample_map::parse_sample_map(&json, &base).expect("parse map");
         assert!(entries.len() > 10, "expected many sounds in the pack");
 
-        let (_, urls) = entries
+        let (_, files) = entries
             .iter()
-            .find(|(name, urls)| name == "bd" && !urls.is_empty())
-            .expect("a `bd` sound with files");
-        let sample = fetch_and_decode(&urls[0]).expect("fetch + decode one sample");
+            .find(|(name, _)| name == "bd")
+            .expect("a `bd` sound");
+        let url = match files {
+            sample_map::SoundFiles::Flat(urls) => urls.first().expect("bd files"),
+            sample_map::SoundFiles::Pitched(groups) => &groups.first().expect("bd groups").1[0],
+        };
+        let sample = fetch_and_decode(url).expect("fetch + decode one sample");
         assert!(!sample.data.is_empty(), "decoded sample should have audio");
     }
 
@@ -380,6 +465,46 @@ mod tests {
         assert_eq!(bank.get("bd", 1).unwrap().data[0], 0.2);
         assert_eq!(bank.get("bd", 2).unwrap().data[0], 0.1); // wraps
         assert!(bank.get("missing", 0).is_none());
+    }
+
+    fn mk(v: f32) -> Arc<Sample> {
+        Arc::new(Sample {
+            data: vec![v],
+            sample_rate: 44100.0,
+        })
+    }
+
+    #[test]
+    fn resolve_picks_the_closest_pitched_group() {
+        let mut bank = SampleBank::new();
+        bank.register_note("piano", 60, mk(0.60)); // c4
+        bank.register_note("piano", 64, mk(0.64)); // e4
+
+        // midi 63 -> e4 is closest (dist 1), repitch down one semitone
+        let (s, t) = bank.resolve("piano", 0, Some(63.0)).unwrap();
+        assert_eq!(s.data[0], 0.64);
+        assert_eq!(t, -1.0);
+
+        // midi 61 -> c4 is closest, repitch up one semitone
+        let (s, t) = bank.resolve("piano", 0, Some(61.0)).unwrap();
+        assert_eq!(s.data[0], 0.60);
+        assert_eq!(t, 1.0);
+
+        // no note -> fall back to C3 (36) target -> nearest is c4 (60)
+        let (s, t) = bank.resolve("piano", 0, None).unwrap();
+        assert_eq!(s.data[0], 0.60);
+        assert_eq!(t, 36.0 - 60.0);
+    }
+
+    #[test]
+    fn flat_sound_repitches_only_when_a_note_is_set() {
+        let mut bank = SampleBank::new();
+        bank.register("bd", mk(0.5));
+        // no note -> no repitch
+        assert_eq!(bank.resolve("bd", 0, None).unwrap().1, 0.0);
+        // baseline is MIDI 36 (C2); note 36 -> 0, note 48 (C3) -> +12 semitones
+        assert_eq!(bank.resolve("bd", 0, Some(36.0)).unwrap().1, 0.0);
+        assert_eq!(bank.resolve("bd", 0, Some(48.0)).unwrap().1, 12.0);
     }
 
     #[test]

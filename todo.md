@@ -67,8 +67,12 @@ Function-by-function audit against the Strudel learn pages
       `githubPath`/`resolveSpecialPaths` (string/array/note-keyed value forms,
       `_base` override, URL joining); files are fetched (ureq) or read locally,
       decoded from bytes (`Wave::load_slice`) in parallel, and registered.
-      Wired into the app's sample field. Note-keyed (pitched) maps are flattened
-      to an index list — pitch-based note selection is **not** yet applied.
+      Wired into the app's sample field. Note-keyed (pitched) maps select the
+      closest-tuned sample and repitch it onto the requested `note` (ports
+      `getCommonSampleInfo`/`valueToMidi`): `SampleBank` stores note-grouped
+      samples, `resolve(name, n, midi)` returns the sample + semitone transpose,
+      and `events.rs` applies `speed *= 2^(semis/12)`. Flat packs repitch
+      relative to C3 (MIDI 36) only when `note` is set (drums are untouched).
       Not done: per-pattern Koto `samples()` (needs an engine handle in the VM),
       `bank` aliases / `registerSamplesPrefix`.
 - [x] `cut` (cut groups / choke): a `cut` control tags each voice with a group;
