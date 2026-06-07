@@ -230,6 +230,34 @@ control_aliases!(
     prel => prelease,
 );
 
+// Sample-loop controls. The Strudel keys are `loop`/`loopBegin`/`loopEnd`, but
+// `loop` is a Rust keyword, so the builder fns are named `loop_play`/
+// `loop_begin`/`loop_end` while still writing the Strudel control keys.
+macro_rules! loop_controls {
+    ($($fn:ident => $key:literal),* $(,)?) => {
+        $(
+            #[doc = concat!("The `", $key, "` control.")]
+            pub fn $fn(pat: impl IntoPattern) -> Pattern {
+                control($key, pat.into_pattern())
+            }
+        )*
+        impl Pattern {
+            $(
+                #[doc = concat!("Set the `", $key, "` control, keeping this pattern's structure.")]
+                pub fn $fn(&self, x: impl IntoPattern) -> Pattern {
+                    self.set($fn(x))
+                }
+            )*
+        }
+    };
+}
+
+loop_controls!(
+    loop_play => "loop",
+    loop_begin => "loopBegin",
+    loop_end => "loopEnd",
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

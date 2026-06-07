@@ -40,6 +40,11 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
             if let Some(sample) = bank.get(candidate, index) {
                 let mut params = SamplerParams::new(sample);
                 params.apply_controls(map);
+                // A looping sample plays for the hap's duration rather than its
+                // own natural length.
+                if params.loop_on {
+                    params.duration = duration;
+                }
                 return VoiceSpec::Sampler(params);
             }
         }

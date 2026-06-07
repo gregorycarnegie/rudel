@@ -34,6 +34,12 @@ pub struct SamplerParams {
     /// playback rate is multiplied by the sample's duration in seconds. Used by
     /// `loopAt`/`fit`/`splice` to time-stretch a sample.
     pub unit_cycles: bool,
+    /// `loop`: when true, the sample loops between `loop_begin`/`loop_end` for
+    /// the duration of the hap instead of playing once to its natural end.
+    pub loop_on: bool,
+    /// Loop region start/end as fractions of the sample (0..1).
+    pub loop_begin: f32,
+    pub loop_end: f32,
 }
 
 impl SamplerParams {
@@ -53,6 +59,9 @@ impl SamplerParams {
             begin: 0.0,
             end: 1.0,
             unit_cycles: false,
+            loop_on: false,
+            loop_begin: 0.0,
+            loop_end: 1.0,
         }
     }
 
@@ -88,6 +97,15 @@ impl SamplerParams {
         if let Some(u) = map.get("unit").and_then(|v| v.as_str()) {
             self.unit_cycles = u == "c";
         }
+        if let Some(l) = map.get("loop").and_then(|v| v.as_f64()) {
+            self.loop_on = l != 0.0;
+        }
+        if let Some(b) = map.get("loopBegin").and_then(|v| v.as_f64()) {
+            self.loop_begin = (b as f32).clamp(0.0, 1.0);
+        }
+        if let Some(e) = map.get("loopEnd").and_then(|v| v.as_f64()) {
+            self.loop_end = (e as f32).clamp(0.0, 1.0);
+        }
         if let Some(a) = map.get("attack").and_then(|v| v.as_f64()) {
             self.attack = a as f32;
         }
@@ -115,6 +133,12 @@ pub struct SamplerVoice {
     delay: f32,
     filter: Option<Biquad>,
     done: bool,
+    /// Looping: when active, `pos` wraps within `[loop_start, loop_end)` (in
+    /// sample frames) and the voice plays until `hold_end` rather than the slice
+    /// end. Only forward playback (`step > 0`) loops.
+    loop_on: bool,
+    loop_start: f64,
+    loop_end: f64,
 }
 
 impl SamplerVoice {
@@ -138,7 +162,15 @@ impl SamplerVoice {
         } else {
             0.0
         };
-        let hold_end = if params.duration > 0.0 {
+        // Loop region in sample frames. Keep at least one frame of headroom below
+        // the buffer end so interpolation (`data[i+1]`) stays in bounds.
+        let loop_start = (params.loop_begin as f64 * len as f64).clamp(0.0, len as f64);
+        let loop_end = (params.loop_end as f64 * len as f64).clamp(0.0, (len.max(1) - 1) as f64);
+        let loop_on = params.loop_on && step > 0.0 && loop_end > loop_start;
+        let hold_end = if loop_on {
+            // Looping plays for the hap's duration (no natural-length cap).
+            params.duration.max(0.0)
+        } else if params.duration > 0.0 {
             params.duration.min(natural as f32)
         } else {
             natural as f32
@@ -163,6 +195,9 @@ impl SamplerVoice {
             delay: params.delay,
             filter,
             done: false,
+            loop_on,
+            loop_start,
+            loop_end,
         }
     }
 
@@ -182,8 +217,15 @@ impl VoiceLike for SamplerVoice {
         if self.done {
             return (0.0, 0.0);
         }
+        // Looping wraps the read position back to the loop start.
+        if self.loop_on {
+            while self.pos >= self.loop_end {
+                self.pos -= self.loop_end - self.loop_start;
+            }
+        }
         let i = self.pos.floor() as usize;
-        if self.pos >= self.end_pos || i + 1 >= self.sample.data.len() {
+        // A looping voice never ends on position; it stops via the hold timer.
+        if (!self.loop_on && self.pos >= self.end_pos) || i + 1 >= self.sample.data.len() {
             self.done = true;
             return (0.0, 0.0);
         }

@@ -452,6 +452,47 @@ fn sampler_speed_changes_duration() {
 }
 
 #[test]
+fn loop_plays_past_the_buffers_natural_length() {
+    // A 0.1s buffer asked to loop for 0.5s should still be audible well past
+    // its own length, then stop near the hold time (not run forever).
+    let sr = 44100.0;
+    let n = (sr * 0.1) as usize;
+    let data: Vec<f32> = (0..n)
+        .map(|i| (2.0 * PI * 200.0 * i as f32 / sr).sin())
+        .collect();
+    let sample = Arc::new(Sample {
+        data,
+        sample_rate: sr,
+    });
+    let mut p = SamplerParams::new(sample);
+    p.loop_on = true;
+    p.duration = 0.5; // hold far longer than the 0.1s buffer
+    let mut v = SamplerVoice::new(p, sr);
+
+    let mut peak_late = 0.0f32;
+    let mut frames = 0;
+    while !v.is_done() && frames < 44100 {
+        let s = v.tick().0.abs();
+        if frames > (sr * 0.2) as usize {
+            peak_late = peak_late.max(s); // sampled past the natural end
+        }
+        frames += 1;
+    }
+    assert!(
+        peak_late > 0.0,
+        "a looping sample should still sound past its natural length"
+    );
+    assert!(
+        frames >= (sr * 0.4) as usize,
+        "should play roughly the hold duration"
+    );
+    assert!(
+        frames < (sr * 0.7) as usize,
+        "should stop after the hold + release, not loop forever"
+    );
+}
+
+#[test]
 fn pan_hard_left_silences_right() {
     let p = VoiceParams {
         pan: 0.0,

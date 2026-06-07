@@ -65,7 +65,12 @@ Function-by-function audit against the Strudel learn pages
       when a new voice in the same group starts, any still-playing voice in that
       group is choked with a 10ms fade (matches Strudel). Applies to all voice
       types, not just samplers. Choke ramp lives in the `Mixer` (`ActiveVoice`).
-- [ ] `loop` / `loopBegin` / `loopEnd`
+- [x] `loop` / `loopBegin` / `loopEnd`: a `loop` control makes a sampler loop
+      between `loopBegin`/`loopEnd` (0..1 of the buffer) for the hap's duration
+      instead of playing once to its natural end (matches superdough). Forward
+      playback only; the read position wraps in `SamplerVoice::tick`. Koto
+      methods `loop`/`loopBegin`/`loopEnd` (+ `loopb`/`loope`) — `loop` is a Koto
+      keyword but is allowed after `.`, so it binds directly.
 - [x] `bank` control (drum-machine name prefix): `s("bd").bank("RolandTR909")`
       resolves the banked sample `RolandTR909_bd`, falling back to the bare
       name (so the built-in drum synth still works when no pack is loaded).

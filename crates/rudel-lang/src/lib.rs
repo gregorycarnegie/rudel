@@ -488,6 +488,27 @@ macro_rules! kpattern_methods {
                 };
                 with_instance(&ctx, |pat| pat.scale(name))
             }
+
+            // Sample looping. `loop` is a Koto keyword but is allowed after `.`,
+            // so these expose the Strudel names (`loop`/`loopBegin`/`loopEnd`)
+            // as aliases of the keyword-safe Rust method names.
+            #[koto_method(alias = "loop")]
+            fn loop_play(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.loop_play(arg.clone()))
+            }
+
+            #[koto_method(alias = "loopBegin", alias = "loopb")]
+            fn loop_begin(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.loop_begin(arg.clone()))
+            }
+
+            #[koto_method(alias = "loopEnd", alias = "loope")]
+            fn loop_end(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.loop_end(arg.clone()))
+            }
         }
     };
 }
@@ -737,6 +758,20 @@ mod tests {
             Value::Map(m) => {
                 assert_eq!(m.get("s").and_then(|v| v.as_str()), Some("bd"));
                 assert_eq!(m.get("bank").and_then(|v| v.as_str()), Some("RolandTR909"));
+            }
+            other => panic!("expected control map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn loop_controls_set_their_keys() {
+        // `loop` is a Koto keyword but is a valid method name after `.`.
+        let pat = eval(r#"s("break").loop(1).loopBegin(0.25).loopEnd(0.75)"#).expect("eval");
+        match &values(&pat, 0, 1)[0] {
+            Value::Map(m) => {
+                assert_eq!(m.get("loop").and_then(|v| v.as_f64()), Some(1.0));
+                assert_eq!(m.get("loopBegin").and_then(|v| v.as_f64()), Some(0.25));
+                assert_eq!(m.get("loopEnd").and_then(|v| v.as_f64()), Some(0.75));
             }
             other => panic!("expected control map, got {other:?}"),
         }
