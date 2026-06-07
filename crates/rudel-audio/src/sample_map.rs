@@ -47,10 +47,10 @@ pub(crate) fn base_url_of(url: &str) -> String {
 }
 
 /// Join a base URL/dir with a (possibly relative) file path, inserting exactly
-/// one separator. Absolute http(s) values are returned unchanged.
+/// one separator. HTTP(S) paths are percent-encoded for transport.
 pub(crate) fn join_url(base: &str, v: &str) -> String {
     if v.starts_with("http://") || v.starts_with("https://") {
-        return v.to_string();
+        return encode_http_url_path(v);
     }
     if base.is_empty() {
         return v.to_string();
@@ -60,7 +60,85 @@ pub(crate) fn join_url(base: &str, v: &str) -> String {
     } else {
         "/"
     };
-    format!("{base}{sep}{v}")
+    let path = if base.starts_with("http://") || base.starts_with("https://") {
+        percent_encode_path(v)
+    } else {
+        v.to_string()
+    };
+    format!("{base}{sep}{path}")
+}
+
+fn encode_http_url_path(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return percent_encode_path(url);
+    };
+    let after_authority = scheme_end + 3;
+    let Some(path_start) = url[after_authority..]
+        .find('/')
+        .map(|i| after_authority + i)
+    else {
+        return url.to_string();
+    };
+    let query_start = url[path_start..]
+        .find('?')
+        .map(|i| path_start + i)
+        .unwrap_or(url.len());
+    format!(
+        "{}{}{}",
+        &url[..path_start],
+        percent_encode_path(&url[path_start..query_start]),
+        &url[query_start..]
+    )
+}
+
+fn percent_encode_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = String::with_capacity(path.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'%' && i + 2 < bytes.len() && is_hex(bytes[i + 1]) && is_hex(bytes[i + 2]) {
+            out.push('%');
+            out.push(bytes[i + 1] as char);
+            out.push(bytes[i + 2] as char);
+            i += 3;
+        } else if is_path_safe(b) {
+            out.push(b as char);
+            i += 1;
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+            i += 1;
+        }
+    }
+    out
+}
+
+fn is_hex(b: u8) -> bool {
+    b.is_ascii_hexdigit()
+}
+
+fn is_path_safe(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'-' | b'.'
+                | b'_'
+                | b'~'
+                | b'/'
+                | b'!'
+                | b'$'
+                | b'&'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b'='
+                | b':'
+                | b'@'
+        )
 }
 
 /// Resolve a base string through the `bubo:`/`github:` schemes into a usable
@@ -180,6 +258,46 @@ mod tests {
         assert_eq!(join_url("base", "/a.wav"), "base/a.wav");
         assert_eq!(join_url("", "a.wav"), "a.wav");
         assert_eq!(join_url("base", "https://x/a.wav"), "https://x/a.wav");
+    }
+
+    #[test]
+    fn join_url_escapes_http_sample_paths() {
+        assert_eq!(
+            join_url(
+                "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/dr55",
+                "000_DR55 hi hat.wav"
+            ),
+            "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/dr55/000_DR55%20hi%20hat.wav"
+        );
+        assert_eq!(
+            join_url(
+                "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/h",
+                "001_0_da0-200%_1000_0_R.wav"
+            ),
+            "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/h/001_0_da0-200%25_1000_0_R.wav"
+        );
+        assert_eq!(
+            join_url(
+                "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/mute",
+                "000_FH A#2 SCF.wav"
+            ),
+            "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/mute/000_FH%20A%232%20SCF.wav"
+        );
+        assert_eq!(
+            join_url(
+                "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/mute",
+                "000_FH%20A%232%20SCF.wav"
+            ),
+            "https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/mute/000_FH%20A%232%20SCF.wav"
+        );
+    }
+
+    #[test]
+    fn absolute_http_values_are_escaped_without_touching_query() {
+        assert_eq!(
+            join_url("", "https://example.com/samples/a hat.wav?raw=1"),
+            "https://example.com/samples/a%20hat.wav?raw=1"
+        );
     }
 
     #[test]

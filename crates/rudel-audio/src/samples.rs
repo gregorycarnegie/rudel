@@ -28,6 +28,12 @@ pub struct SampleBank {
     bank_aliases: HashMap<String, String>,
 }
 
+pub(crate) struct LoadedSample {
+    name: String,
+    note: Option<i32>,
+    sample: Arc<Sample>,
+}
+
 impl SampleBank {
     pub fn new() -> SampleBank {
         SampleBank::default()
@@ -141,6 +147,11 @@ impl SampleBank {
     /// name, and the audio files within (sorted) become its indices. Returns the
     /// number of samples loaded.
     pub fn load_dir(&mut self, dir: &Path) -> Result<usize, String> {
+        let loaded = Self::load_dir_entries(dir)?;
+        Ok(self.extend_loaded(loaded))
+    }
+
+    pub(crate) fn load_dir_entries(dir: &Path) -> Result<Vec<LoadedSample>, String> {
         let mut sample_dirs: Vec<PathBuf> = std::fs::read_dir(dir)
             .map_err(|e| format!("read_dir {dir:?}: {e}"))?
             .flatten()
@@ -172,18 +183,32 @@ impl SampleBank {
             .into_par_iter()
             .enumerate()
             .filter_map(|(index, (name, file))| {
-                load_sample(&file)
-                    .ok()
-                    .map(|sample| (index, name, Arc::new(sample)))
+                load_sample(&file).ok().map(|sample| {
+                    (
+                        index,
+                        LoadedSample {
+                            name,
+                            note: None,
+                            sample: Arc::new(sample),
+                        },
+                    )
+                })
             })
             .collect();
-        loaded.sort_by_key(|(index, _, _)| *index);
+        loaded.sort_by_key(|(index, _)| *index);
 
+        Ok(loaded.into_iter().map(|(_, sample)| sample).collect())
+    }
+
+    pub(crate) fn extend_loaded(&mut self, loaded: Vec<LoadedSample>) -> usize {
         let count = loaded.len();
-        for (_, name, sample) in loaded {
-            self.register(&name, sample);
+        for LoadedSample { name, note, sample } in loaded {
+            match note {
+                Some(midi) => self.register_note(&name, midi, sample),
+                None => self.register(&name, sample),
+            }
         }
-        Ok(count)
+        count
     }
 }
 
@@ -198,6 +223,11 @@ impl SampleBank {
     ///
     /// [`load_dir`]: SampleBank::load_dir
     pub fn load_samples_source(&mut self, source: &str) -> Result<usize, String> {
+        let loaded = Self::load_samples_source_entries(source)?;
+        Ok(self.extend_loaded(loaded))
+    }
+
+    pub(crate) fn load_samples_source_entries(source: &str) -> Result<Vec<LoadedSample>, String> {
         let resolved = sample_map::resolve_special_paths(source.trim());
         // github: bases point at the repo's strudel.json.
         let url = if resolved.starts_with("github:") {
@@ -209,14 +239,14 @@ impl SampleBank {
         if is_http(&url) {
             let json = fetch_text(&url)?;
             let base = sample_map::base_url_of(&url);
-            return self.load_sample_map(&json, &base);
+            return Self::load_sample_map_entries(&json, &base);
         }
 
         // Local path: expand a leading `~` to the user's home directory.
         let url = expand_home(&url);
         let path = Path::new(&url);
         if path.is_dir() {
-            return self.load_dir(path);
+            return Self::load_dir_entries(path);
         }
         if path.is_file() {
             let json = std::fs::read_to_string(path).map_err(|e| format!("read {url}: {e}"))?;
@@ -225,7 +255,7 @@ impl SampleBank {
                 .and_then(|p| p.to_str())
                 .unwrap_or("")
                 .to_string();
-            return self.load_sample_map(&json, &base);
+            return Self::load_sample_map_entries(&json, &base);
         }
         Err(format!(
             "samples: not a URL, .json file, or directory: {url}"
@@ -238,6 +268,14 @@ impl SampleBank {
     /// decoded, and registered under its sound name. Files that fail to load are
     /// logged and skipped. Returns the number of samples registered.
     pub fn load_sample_map(&mut self, json: &str, base: &str) -> Result<usize, String> {
+        let loaded = Self::load_sample_map_entries(json, base)?;
+        Ok(self.extend_loaded(loaded))
+    }
+
+    pub(crate) fn load_sample_map_entries(
+        json: &str,
+        base: &str,
+    ) -> Result<Vec<LoadedSample>, String> {
         use sample_map::SoundFiles;
 
         // A fetch job: sound name, optional MIDI tuning (pitched maps), and URL.
@@ -268,20 +306,18 @@ impl SampleBank {
             })
             .collect();
 
-        let mut count = 0;
+        let mut loaded = Vec::new();
         for ((name, note, _), sample) in decoded {
             match sample {
-                Ok(s) => {
-                    match note {
-                        Some(midi) => self.register_note(&name, midi, Arc::new(s)),
-                        None => self.register(&name, Arc::new(s)),
-                    }
-                    count += 1;
-                }
+                Ok(s) => loaded.push(LoadedSample {
+                    name,
+                    note,
+                    sample: Arc::new(s),
+                }),
                 Err(e) => eprintln!("[rudel-audio] sample {name:?}: {e}"),
             }
         }
-        Ok(count)
+        Ok(loaded)
     }
 }
 

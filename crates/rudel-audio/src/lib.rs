@@ -18,6 +18,7 @@ use rudel_core::Pattern;
 use rudel_dsp::VoiceLike;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 /// A simple stereo feedback delay line for the `delay` send bus.
@@ -247,20 +248,46 @@ impl Engine {
 
     /// Load a directory of samples (subfolders become sound names).
     pub fn load_samples(&self, dir: impl AsRef<std::path::Path>) -> Result<usize, String> {
-        self.bank.write().unwrap().load_dir(dir.as_ref())
+        let loaded = SampleBank::load_dir_entries(dir.as_ref())?;
+        Ok(self.bank.write().unwrap().extend_loaded(loaded))
     }
 
     /// The `samples(...)` loader: load from a `github:`/`bubo:` pseudo-URL, an
     /// http(s) URL to a `strudel.json`, a local `.json` map, or a local sample
     /// directory. Returns the number of samples registered.
     pub fn samples(&self, source: &str) -> Result<usize, String> {
-        self.bank.write().unwrap().load_samples_source(source)
+        let loaded = SampleBank::load_samples_source_entries(source)?;
+        Ok(self.bank.write().unwrap().extend_loaded(loaded))
     }
 
     /// Load an inline Strudel-format sample map (`samples({...}, base)`). `base`
     /// resolves relative file paths. Returns the number of samples registered.
     pub fn load_sample_map(&self, json: &str, base: &str) -> Result<usize, String> {
-        self.bank.write().unwrap().load_sample_map(json, base)
+        let loaded = SampleBank::load_sample_map_entries(json, base)?;
+        Ok(self.bank.write().unwrap().extend_loaded(loaded))
+    }
+
+    /// Start a background `samples(...)` load and merge the decoded samples into
+    /// the bank when it completes.
+    pub fn spawn_samples(&self, source: String) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            let loaded = SampleBank::load_samples_source_entries(&source)?;
+            Ok(bank.write().unwrap().extend_loaded(loaded))
+        })
+    }
+
+    /// Start a background inline sample-map load.
+    pub fn spawn_load_sample_map(
+        &self,
+        json: String,
+        base: String,
+    ) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            let loaded = SampleBank::load_sample_map_entries(&json, &base)?;
+            Ok(bank.write().unwrap().extend_loaded(loaded))
+        })
     }
 
     /// Register a bank alias (`aliasBank`): a pack loaded as `<canonical>_<s>`
