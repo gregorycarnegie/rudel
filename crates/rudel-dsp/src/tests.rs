@@ -137,14 +137,15 @@ fn supersaw_produces_sound() {
 
 #[test]
 fn fm_changes_the_signal() {
-    let mk = |fm| {
+    let mk = |fm: Option<f32>| {
         Voice::new(
             VoiceParams {
                 waveform: Waveform::Sine,
                 freq: 220.0,
                 duration: 1.0,
-                fm,
-                fmh: 2.0,
+                fm: fm.map_or(FmSpec::default(), |i| {
+                    FmSpec::single(i, 2.0, Waveform::Sine, None)
+                }),
                 ..Default::default()
             },
             44100.0,
@@ -166,9 +167,7 @@ fn fmwave_changes_the_modulator() {
                 waveform: Waveform::Sine,
                 freq: 220.0,
                 duration: 1.0,
-                fm: Some(6.0),
-                fmh: 2.0,
-                fmwave: w,
+                fm: FmSpec::single(6.0, 2.0, w, None),
                 ..Default::default()
             },
             44100.0,
@@ -191,27 +190,30 @@ fn fm_envelope_ramps_in_the_modulation() {
         waveform: Waveform::Sine,
         freq: 220.0,
         duration: 1.0,
-        fmh: 2.0,
         ..Default::default()
     };
-    let mut plain = Voice::new(VoiceParams { fm: None, ..base() }, 44100.0);
+    let mut plain = Voice::new(base(), 44100.0);
     let mut const_fm = Voice::new(
         VoiceParams {
-            fm: Some(8.0),
+            fm: FmSpec::single(8.0, 2.0, Waveform::Sine, None),
             ..base()
         },
         44100.0,
     );
     let mut env_fm = Voice::new(
         VoiceParams {
-            fm: Some(8.0),
             // long attack: the index ramps in slowly from ~0
-            fm_env: Some(Adsr {
-                attack: 0.5,
-                decay: 0.001,
-                sustain: 1.0,
-                release: 0.01,
-            }),
+            fm: FmSpec::single(
+                8.0,
+                2.0,
+                Waveform::Sine,
+                Some(Adsr {
+                    attack: 0.5,
+                    decay: 0.001,
+                    sustain: 1.0,
+                    release: 0.01,
+                }),
+            ),
             ..base()
         },
         44100.0,
@@ -228,6 +230,38 @@ fn fm_envelope_ramps_in_the_modulation() {
         d_env < d_const,
         "early FM-env modulation ({d_env}) should be weaker than constant FM ({d_const})"
     );
+}
+
+#[test]
+fn two_operator_fm_chain_changes_the_signal() {
+    // op2 -> op1 -> carrier (fmi2 + fmi). The second operator modulating the
+    // first should change the timbre vs. single-operator FM alone.
+    let map = |extra: &[(&str, f64)]| {
+        let mut m = BTreeMap::new();
+        m.insert("s".to_string(), Value::Str("sine".into()));
+        m.insert("note".to_string(), Value::Str("c3".into()));
+        m.insert("fm".to_string(), Value::F64(4.0)); // op1 -> carrier
+        m.insert("fmh".to_string(), Value::F64(2.0));
+        for (k, v) in extra {
+            m.insert(k.to_string(), Value::F64(*v));
+        }
+        m
+    };
+    // single-op vs. op2 added on top
+    let one = VoiceParams::from_controls(&map(&[]), 1.0);
+    let two = VoiceParams::from_controls(&map(&[("fmi2", 5.0), ("fmh2", 3.0)]), 1.0);
+    assert_eq!(one.fm.max_op, 1);
+    assert_eq!(two.fm.max_op, 2);
+    assert_eq!(two.fm.amt[2][1], 5.0);
+    assert_eq!(two.fm.ops[2].ratio, 3.0);
+
+    let mut v1 = Voice::new(one, 44100.0);
+    let mut v2 = Voice::new(two, 44100.0);
+    let mut diff = 0.0f32;
+    for _ in 0..4000 {
+        diff += (v1.tick().0 - v2.tick().0).abs();
+    }
+    assert!(diff > 0.0, "a second FM operator should change the timbre");
 }
 
 #[test]

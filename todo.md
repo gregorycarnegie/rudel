@@ -113,8 +113,15 @@ Function-by-function audit against the Strudel learn pages
       modulation-index envelope (`fmattack`/`fmdecay`/`fmsustain`/`fmrelease`,
       scaling the index 0..1 via a linear ADSR; sustain defaults to full when
       only attack/decay are set, like superdough's `getADSRValues`).
-- [ ] multi-operator FM matrix (8-op `fmiIJ` routing + per-op `fmenv` exp
-      curve), additive (`partials`/`waveformN`), `zzfx`, wavetables
+- [x] multi-operator FM matrix (ports superdough's `applyFM`): 8 operators
+      tuned by per-op `fmh{n}` ratio + `fmwave{n}` + index envelope `fm{adsr}{n}`,
+      routed by an `fmiIJ` matrix (chain `fmi`/`fmi2`/… plus arbitrary edges)
+      into each other and the carrier (target 0). Lives in `rudel-dsp/fm.rs`
+      (`FmSpec`/`FmOp`); the synth advances all operator phases per sample with a
+      one-sample cross-modulation delay. Koto binds operator 1 + operator 2 as
+      named controls; higher operators / arbitrary `fmiIJ` edges use the generic
+      `ctrl("name", value)` method. Not ported: per-op `fmenv` exp curve.
+- [ ] additive (`partials`/`waveformN`), `zzfx`, wavetables
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),

@@ -492,6 +492,18 @@ macro_rules! kpattern_methods {
             // Sample looping. `loop` is a Koto keyword but is allowed after `.`,
             // so these expose the Strudel names (`loop`/`loopBegin`/`loopEnd`)
             // as aliases of the keyword-safe Rust method names.
+            // `pat.ctrl("fmi20", 3)`: set an arbitrary named control. The escape
+            // hatch for FM-matrix edges / higher operators without a method.
+            #[koto_method]
+            fn ctrl(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let name = match method_arg(&ctx, 0) {
+                    KValue::Str(s) => s.to_string(),
+                    other => return runtime_error!("ctrl: expected a control name string, got {other:?}"),
+                };
+                let value = method_pattern_arg(&ctx, 1);
+                with_instance(&ctx, |pat| pat.ctrl(name.clone(), value.clone()))
+            }
+
             #[koto_method(alias = "loop")]
             fn loop_play(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                 let arg = method_pattern_arg(&ctx, 0);
@@ -528,6 +540,7 @@ kpattern_methods! {
         lpe, lpa, lpd, lps, lpr, hpe, hpa, hpd, hps, hpr, bpe, bpa, bpd, bps, bpr,
         // supersaw + FM + ADSR shortcuts
         unison, detune, spread, fm, fmh, fmi, fmwave, fmattack, fmdecay, fmsustain, fmrelease,
+        fmi2, fmh2, fmwave2, fmattack2, fmdecay2, fmsustain2, fmrelease2,
         pw, noise, pcurve, adsr, ad, ar, hold,
         // vibrato + pitch envelope (+ aliases)
         vib, vibmod, penv, pattack, pdecay, psustain, prelease, panchor,
@@ -943,6 +956,18 @@ s("bd sd")
     }
 
     #[test]
+    fn ctrl_sets_an_arbitrary_control_key() {
+        let pat = eval(r#"s("sine").ctrl("fmi20", 3).ctrl("fmh3", 1.5)"#).expect("eval");
+        match &values(&pat, 0, 1)[0] {
+            Value::Map(m) => {
+                assert_eq!(m.get("fmi20").and_then(|v| v.as_f64()), Some(3.0));
+                assert_eq!(m.get("fmh3").and_then(|v| v.as_f64()), Some(1.5));
+            }
+            other => panic!("expected control map, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn non_pattern_result_errors() {
         assert!(eval("1 + 2").is_err());
     }
@@ -1143,6 +1168,10 @@ s("bd sd")
             r#"note("c2").s("supersaw").unison(7).detune(20).spread(0.4)"#,
             r#"note("c3").s("sine").fm(4).fmh(2)"#,
             r#"note("c3").s("sine").fm(8).fmh(3).fmwave("square").fmattack(0.2).fmdecay(0.1).fmsustain(0.3).fmrelease(0.2)"#,
+            // two-operator FM chain via named op-2 controls
+            r#"note("c3").s("sine").fm(4).fmh(2).fmi2(5).fmh2(3).fmwave2("triangle")"#,
+            // arbitrary matrix edge / higher operator via the generic ctrl
+            r#"note("c3").s("sine").fm(4).ctrl("fmi20", 3).ctrl("fmh3", 1.5)"#,
             r#"note("c3").s("pulse").pw("<0.1 0.5 0.9>")"#,
             r#"note("c3").s("saw").noise(0.3).penv(12).pattack(0.2).pcurve(1)"#,
             r#"s("bd*4").adsr("0.01:0.1:0:0.1")"#,

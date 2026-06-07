@@ -7,6 +7,7 @@
 mod drum;
 mod envelope;
 mod filter;
+mod fm;
 mod oscillator;
 mod params;
 mod pitch;
@@ -19,6 +20,7 @@ mod voice;
 pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::Adsr;
 pub use filter::FilterParams;
+pub use fm::{FmOp, FmSpec};
 pub use oscillator::{NoiseKind, Waveform};
 pub use params::VoiceParams;
 pub use pitch::{mtof, note_name_to_midi, note_to_freq};

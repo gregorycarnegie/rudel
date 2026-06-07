@@ -1,5 +1,6 @@
 use crate::envelope::{Adsr, adsr_value};
 use crate::filter::{FilterKind, VoiceFilter};
+use crate::fm::FM_OPS;
 use crate::oscillator::{NoiseGen, NoiseKind, Waveform};
 use crate::params::VoiceParams;
 use crate::voice::VoiceLike;
@@ -62,8 +63,8 @@ pub struct Voice {
     /// Filter chain (low/high/band-pass), applied in order to the oscillator.
     filters: Vec<VoiceFilter>,
     noise: NoiseGen,
-    /// FM modulator phase.
-    mod_phase: f32,
+    /// Per-operator FM phases (index `1..=FM_OPS`).
+    fm_phases: [f32; FM_OPS + 1],
     /// Per-voice phases for the super-saw source.
     super_phases: Vec<f32>,
     /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
@@ -127,7 +128,7 @@ impl Voice {
             hold_end,
             filters,
             noise: NoiseGen::new(),
-            mod_phase: 0.0,
+            fm_phases: [0.0; FM_OPS + 1],
             super_phases,
             pitch_env,
             done: false,
@@ -172,6 +173,38 @@ impl Voice {
         }
     }
 
+    /// Advance the FM operators one sample and return the carrier's frequency
+    /// deviation. Each operator `k` outputs `wave_k(phase) * env_k`, scaled into
+    /// its targets by `amt[k][j] * freq_k` (classic FM: index × modulator freq =
+    /// peak deviation). Operators are sampled before any phase advances, so
+    /// cross-modulation uses a one-sample delay.
+    fn fm_deviation(&mut self, carrier: f32) -> f32 {
+        let n = self.params.fm.max_op;
+        let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
+        let mut op_out = [0.0f32; FM_OPS + 1];
+        let mut op_freq = [0.0f32; FM_OPS + 1];
+        for k in 1..=n {
+            let op = self.params.fm.ops[k];
+            op_freq[k] = carrier * op.ratio;
+            let osc = op.wave.sample(self.fm_phases[k]);
+            let env = op.env.map_or(1.0, |e| adsr_value(&e, t, hold_end));
+            op_out[k] = osc * env;
+        }
+        // Advance each operator's phase by its (modulated) instantaneous freq.
+        for j in 1..=n {
+            let mut dev = 0.0;
+            for k in 1..=n {
+                dev += self.params.fm.amt[k][j] * op_freq[k] * op_out[k];
+            }
+            let inst = op_freq[j] + dev;
+            self.fm_phases[j] = (self.fm_phases[j] + inst / sr).rem_euclid(1.0);
+        }
+        // Carrier deviation (target 0).
+        (1..=n)
+            .map(|k| self.params.fm.amt[k][0] * op_freq[k] * op_out[k])
+            .sum()
+    }
+
     /// Produce the next source sample and advance the oscillator phase(s).
     fn next_source(&mut self) -> f32 {
         let sr = self.sample_rate;
@@ -204,16 +237,8 @@ impl Voice {
             Waveform::Pulse => Waveform::pulse(self.phase, self.params.pw),
             w => w.sample(self.phase),
         };
-        let inc = if let Some(index) = self.params.fm {
-            let modfreq = carrier * self.params.fmh;
-            let modv = self.params.fmwave.sample(self.mod_phase);
-            self.mod_phase = (self.mod_phase + modfreq / sr).rem_euclid(1.0);
-            // A modulation-index envelope (`fm{a,d,s,r}`) scales the index 0..1.
-            let index = match self.params.fm_env {
-                Some(env) => index * adsr_value(&env, self.t, self.hold_end),
-                None => index,
-            };
-            (carrier + index * modfreq * modv) / sr
+        let inc = if self.params.fm.active() {
+            (carrier + self.fm_deviation(carrier)) / sr
         } else {
             carrier / sr
         };

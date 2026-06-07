@@ -1,5 +1,6 @@
 use crate::envelope::Adsr;
 use crate::filter::FilterParams;
+use crate::fm::FmSpec;
 use crate::oscillator::{NoiseKind, Waveform};
 use crate::pitch::note_to_freq;
 use rudel_core::Value;
@@ -21,15 +22,9 @@ pub struct VoiceParams {
     pub detune: f32,
     /// Super-saw frequency spread in semitones (`spread`).
     pub spread: f32,
-    /// FM modulation index (`fm`/`fmi`); `None` = no FM.
-    pub fm: Option<f32>,
-    /// FM harmonicity ratio (`fmh`), modulator freq / carrier freq.
-    pub fmh: f32,
-    /// FM modulator waveform (`fmwave`); defaults to sine.
-    pub fmwave: Waveform,
-    /// FM modulation-index envelope (`fmattack`/`fmdecay`/`fmsustain`/
-    /// `fmrelease`); `None` = constant index. Scales the index 0..1.
-    pub fm_env: Option<Adsr>,
+    /// Multi-operator FM matrix (`fm`/`fmi`/`fmh`/`fmwave`/`fm{adsr}` + the
+    /// `fmiIJ` routing and per-operator `*N` variants).
+    pub fm: FmSpec,
     /// Vibrato rate in Hz (`vib`); `None`/0 = off.
     pub vib: Option<f32>,
     /// Vibrato depth in semitones (`vibmod`).
@@ -77,10 +72,7 @@ impl Default for VoiceParams {
             unison: 5,
             detune: 0.0,
             spread: 0.2,
-            fm: None,
-            fmh: 1.0,
-            fmwave: Waveform::Sine,
-            fm_env: None,
+            fm: FmSpec::default(),
             vib: None,
             vibmod: 0.5,
             penv: None,
@@ -140,41 +132,8 @@ impl VoiceParams {
         if let Some(n) = map.get("noise").and_then(|v| v.as_f64()) {
             p.noise_mix = (n as f32).clamp(0.0, 1.0);
         }
-        // FM: `fm`/`fmi` modulation index, `fmh` harmonicity ratio.
-        if let Some(i) = map
-            .get("fm")
-            .or_else(|| map.get("fmi"))
-            .and_then(|v| v.as_f64())
-        {
-            p.fm = Some(i as f32);
-        }
-        if let Some(h) = map.get("fmh").and_then(|v| v.as_f64()) {
-            p.fmh = h as f32;
-        }
-        if let Some(w) = map.get("fmwave").and_then(|v| v.as_str())
-            && let Some(wave) = Waveform::from_name(w)
-        {
-            p.fmwave = wave;
-        }
-        // FM modulation-index envelope: active if any of the fm{a,d,s,r} are set.
-        // Sustain defaults to full (1.0) when only attack/decay are given, like
-        // superdough's getADSRValues.
-        let fmv = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
-        let (fa, fd, fs, fr) = (
-            fmv("fmattack"),
-            fmv("fmdecay"),
-            fmv("fmsustain"),
-            fmv("fmrelease"),
-        );
-        if fa.is_some() || fd.is_some() || fs.is_some() || fr.is_some() {
-            let sustain = fs.unwrap_or(1.0);
-            p.fm_env = Some(Adsr {
-                attack: fa.unwrap_or(0.001).max(0.001),
-                decay: fd.unwrap_or(0.001).max(0.001),
-                sustain: sustain.clamp(0.0, 1.0),
-                release: fr.unwrap_or(0.01).max(0.01),
-            });
-        }
+        // Multi-operator FM matrix (fm/fmi/fmh/fmwave/fm{adsr} + fmiIJ + *N).
+        p.fm = FmSpec::from_controls(map);
         // Vibrato (`vib` rate Hz, `vibmod` depth semitones).
         if let Some(r) = map.get("vib").and_then(|v| v.as_f64()) {
             p.vib = Some(r as f32);

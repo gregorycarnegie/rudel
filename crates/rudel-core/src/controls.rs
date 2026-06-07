@@ -23,6 +23,17 @@ fn control(name: &'static str, pat: Pattern) -> Pattern {
     })
 }
 
+/// Wrap each value of `pat` into `{ name: value }` for a runtime control name
+/// (the `'static` variant above can't take an owned `String`). Powers the
+/// generic `ctrl(name, value)` setter for controls without a dedicated method.
+pub fn control_dyn(name: impl Into<String>, pat: impl IntoPattern) -> Pattern {
+    let name = name.into();
+    pat.into_pattern().fmap(move |v| match v {
+        Value::Map(_) => v,
+        other => single(&name, other),
+    })
+}
+
 /// The `s`/`sound` control, with `"name:index"` splitting into `{ s, n }`.
 pub fn s(pat: impl IntoPattern) -> Pattern {
     pat.into_pattern().fmap(|v| match v {
@@ -148,6 +159,15 @@ controls!(
     fmdecay,
     fmsustain,
     fmrelease,
+    // FM operator 2 (chain `op2 -> op1`); higher operators / arbitrary `fmiIJ`
+    // edges go through the generic `ctrl(name, value)` method.
+    fmi2,
+    fmh2,
+    fmwave2,
+    fmattack2,
+    fmdecay2,
+    fmsustain2,
+    fmrelease2,
     pw,
     noise,
     pcurve,
@@ -265,6 +285,15 @@ loop_controls!(
     loop_begin => "loopBegin",
     loop_end => "loopEnd",
 );
+
+impl Pattern {
+    /// Set an arbitrary named control, keeping this pattern's structure. The
+    /// escape hatch for controls without a dedicated method (e.g. FM-matrix
+    /// edges `ctrl("fmi20", 3)` or higher operators `ctrl("fmh3", 2)`).
+    pub fn ctrl(&self, name: impl Into<String>, x: impl IntoPattern) -> Pattern {
+        self.set(control_dyn(name, x))
+    }
+}
 
 #[cfg(test)]
 mod tests {
