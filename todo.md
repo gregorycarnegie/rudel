@@ -60,7 +60,17 @@ Function-by-function audit against the Strudel learn pages
 - [x] synthesized drums (`bd sd rim cp hh oh lt mt ht rd cr`) — rudel extension
 - [x] `chop` `striate` `slice` `splice` `loopAt` `fit` `begin` `end` `speed` `unit`
 - [x] sample-folder loading (app button; `Engine::load_samples`)
-- [ ] `samples(url/json)` loader (remote/JSON sample maps, `bank`, aliases)
+- [x] `samples(url/json)` loader: `Engine::samples(source)` / `SampleBank::
+      load_samples_source` accept a local sample folder, a local `strudel.json`,
+      an http(s) URL, or a `github:user/repo[/branch]` / `bubo:pack` pseudo-URL.
+      `sample_map.rs` ports the pure parts of superdough's `processSampleMap`/
+      `githubPath`/`resolveSpecialPaths` (string/array/note-keyed value forms,
+      `_base` override, URL joining); files are fetched (ureq) or read locally,
+      decoded from bytes (`Wave::load_slice`) in parallel, and registered.
+      Wired into the app's sample field. Note-keyed (pitched) maps are flattened
+      to an index list — pitch-based note selection is **not** yet applied.
+      Not done: per-pattern Koto `samples()` (needs an engine handle in the VM),
+      `bank` aliases / `registerSamplesPrefix`.
 - [x] `cut` (cut groups / choke): a `cut` control tags each voice with a group;
       when a new voice in the same group starts, any still-playing voice in that
       group is choked with a 10ms fade (matches Strudel). Applies to all voice

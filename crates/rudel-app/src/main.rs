@@ -288,7 +288,9 @@ impl RudelApp {
             self.io_error = Some("no audio engine to load samples into".to_string());
             return;
         };
-        match engine.load_samples(self.sample_dir.trim()) {
+        // `samples()` accepts a local folder, a local strudel.json, an http(s)
+        // URL, or a `github:`/`bubo:` pseudo-URL.
+        match engine.samples(self.sample_dir.trim()) {
             Ok(n) => {
                 self.sample_names = engine.sample_names();
                 self.status = format!("loaded {n} samples ({} sounds)", self.sample_names.len());
@@ -408,10 +410,10 @@ impl RudelApp {
                 ui.label("samples");
                 ui.add(
                     egui::TextEdit::singleline(&mut self.sample_dir)
-                        .hint_text("path to a folder of sample subfolders")
+                        .hint_text("folder, strudel.json, URL, or github:user/repo")
                         .desired_width(360.0),
                 );
-                if ui.button("Load folder").clicked() {
+                if ui.button("Load samples").clicked() {
                     self.load_samples();
                 }
             });

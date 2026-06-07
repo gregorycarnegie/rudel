@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 pub mod events;
+mod sample_map;
 pub mod samples;
 
 pub use events::{NoteEvent, collect_events, to_control_map};
@@ -247,6 +248,13 @@ impl Engine {
     /// Load a directory of samples (subfolders become sound names).
     pub fn load_samples(&self, dir: impl AsRef<std::path::Path>) -> Result<usize, String> {
         self.bank.write().unwrap().load_dir(dir.as_ref())
+    }
+
+    /// The `samples(...)` loader: load from a `github:`/`bubo:` pseudo-URL, an
+    /// http(s) URL to a `strudel.json`, a local `.json` map, or a local sample
+    /// directory. Returns the number of samples registered.
+    pub fn samples(&self, source: &str) -> Result<usize, String> {
+        self.bank.write().unwrap().load_samples_source(source)
     }
 
     /// Register a single decoded sample under `name`.
