@@ -829,6 +829,9 @@ fn register(prelude: &KMap) {
         Ok(KPattern(pick_args(ctx.args(), true)).into())
     });
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    prelude.add_fn("rev", |ctx| {
+        Ok(KPattern(arg_to_pattern(&arg0(ctx)).rev()).into())
+    });
     // scan: step through growing runs (run(1), run(2), ... run(n)).
     prelude.add_fn("scan", |ctx| {
         Ok(KPattern(rudel_core::scan(arg_to_f64(&arg0(ctx)) as i64)).into())
@@ -1589,6 +1592,9 @@ drums: stack(
             })
             .collect();
         assert!(pans.contains(&0.0) && pans.contains(&1.0));
+
+        let pat = eval(r#"note("0 1").jux(rev)"#).expect("eval");
+        assert!(!pat.query_arc(Frac::zero(), Frac::one()).is_empty());
     }
 
     #[test]
