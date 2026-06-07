@@ -6,6 +6,8 @@ pub enum Waveform {
     Saw,
     Square,
     Triangle,
+    /// Variable-duty pulse (`s("pulse")` + `pw`). Sampled via [`Waveform::pulse`].
+    Pulse,
 }
 
 impl Waveform {
@@ -15,6 +17,7 @@ impl Waveform {
             "saw" | "sawtooth" => Waveform::Saw,
             "square" | "sqr" => Waveform::Square,
             "triangle" | "tri" => Waveform::Triangle,
+            "pulse" => Waveform::Pulse,
             _ => return None,
         })
     }
@@ -24,7 +27,7 @@ impl Waveform {
         match self {
             Waveform::Sine => (2.0 * PI * p).sin(),
             Waveform::Saw => 2.0 * p - 1.0,
-            Waveform::Square => {
+            Waveform::Square | Waveform::Pulse => {
                 if p < 0.5 {
                     1.0
                 } else {
@@ -32,6 +35,15 @@ impl Waveform {
                 }
             }
             Waveform::Triangle => 4.0 * (if p < 0.5 { p } else { 1.0 - p }) - 1.0,
+        }
+    }
+
+    /// A pulse wave with the given duty cycle (`pw`, 0..1). 0.5 == square.
+    pub(crate) fn pulse(phase: f32, pw: f32) -> f32 {
+        if phase.rem_euclid(1.0) < pw.clamp(0.0, 1.0) {
+            1.0
+        } else {
+            -1.0
         }
     }
 }

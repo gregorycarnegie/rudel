@@ -1,9 +1,55 @@
 use crate::envelope::{Adsr, adsr_value};
 use crate::filter::{FilterKind, VoiceFilter};
-use crate::oscillator::NoiseGen;
+use crate::oscillator::{NoiseGen, NoiseKind, Waveform};
 use crate::params::VoiceParams;
 use crate::voice::VoiceLike;
 use std::f32::consts::PI;
+
+/// superdough's dry/wet crossfade gain: full across one half of the range, then
+/// a linear fade across the other. `wetfade(d<0.5)=1`, then ramps down to 0.
+fn wetfade(d: f32) -> f32 {
+    if d < 0.5 { 1.0 } else { 1.0 - (d - 0.5) / 0.5 }
+}
+
+/// Exponential (geometric) interpolation between `a` and `b` over progress `p`,
+/// matching Web Audio's `exponentialRampToValueAtTime`. Zeros are nudged off the
+/// axis; if the endpoints straddle zero (undefined for an exp ramp) it falls
+/// back to linear.
+fn geo(a: f32, b: f32, p: f32) -> f32 {
+    let nz = |x: f32| if x == 0.0 { 0.001 } else { x };
+    let (a, b) = (nz(a), nz(b));
+    if a.signum() != b.signum() {
+        a + (b - a) * p
+    } else {
+        a * (b / a).powf(p)
+    }
+}
+
+/// The pitch-envelope value (in semitones) at time `t`. Linear by default;
+/// `exp` switches to exponential ramp segments (`pcurve`).
+fn pitch_env_value(adsr: &Adsr, t: f32, hold_end: f32, min: f32, max: f32, exp: bool) -> f32 {
+    if !exp {
+        return min + adsr_value(adsr, t, hold_end) * (max - min);
+    }
+    let Adsr {
+        attack,
+        decay,
+        sustain,
+        release,
+    } = *adsr;
+    let sustain_val = min + sustain * (max - min);
+    if t < attack {
+        geo(min, max, t / attack.max(1e-9))
+    } else if t < attack + decay {
+        geo(max, sustain_val, (t - attack) / decay.max(1e-9))
+    } else if t < hold_end {
+        sustain_val
+    } else if t < hold_end + release {
+        geo(sustain_val, min, (t - hold_end) / release.max(1e-9))
+    } else {
+        min
+    }
+}
 
 pub struct Voice {
     params: VoiceParams,
@@ -110,8 +156,14 @@ impl Voice {
             semis += self.params.vibmod * (2.0 * PI * rate * self.t).sin();
         }
         if let Some((adsr, min, max)) = self.pitch_env {
-            let shape = adsr_value(&adsr, self.t, self.hold_end);
-            semis += min + shape * (max - min);
+            semis += pitch_env_value(
+                &adsr,
+                self.t,
+                self.hold_end,
+                min,
+                max,
+                self.params.pcurve_exp,
+            );
         }
         if semis == 0.0 {
             1.0
@@ -148,7 +200,10 @@ impl Voice {
         }
         // Oscillator, optionally frequency-modulated.
         let carrier = self.params.freq * pitch;
-        let s = self.params.waveform.sample(self.phase);
+        let mut s = match self.params.waveform {
+            Waveform::Pulse => Waveform::pulse(self.phase, self.params.pw),
+            w => w.sample(self.phase),
+        };
         let inc = if let Some(index) = self.params.fm {
             let modfreq = carrier * self.params.fmh;
             let modv = self.params.fmwave.sample(self.mod_phase);
@@ -163,6 +218,13 @@ impl Voice {
             carrier / sr
         };
         self.phase = (self.phase + inc).rem_euclid(1.0);
+        // `noise` blends pink noise into the oscillator (superdough's drywet
+        // crossfade: dry/wet each held at full across one half of the range).
+        if self.params.noise_mix > 0.0 {
+            let w = self.params.noise_mix;
+            let pink = self.noise.next(NoiseKind::Pink);
+            s = s * wetfade(w) + pink * wetfade(1.0 - w);
+        }
         s
     }
 

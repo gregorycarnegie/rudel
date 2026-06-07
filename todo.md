@@ -117,7 +117,10 @@ Function-by-function audit against the Strudel learn pages
       curve), additive (`partials`/`waveformN`), `zzfx`, wavetables
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
-- [ ] `pcurve` (env curve shapes), `pw` pulse-width, `noise` mix amount
+- [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),
+      `noise` mix amount (pink-noise blended into the oscillator via
+      superdough's `wetfade` dry/wet crossfade), and `pcurve` (pitch-envelope
+      ramp shape: 0 = linear, nonzero = exponential/geometric segments).
 
 ## learn/effects
 

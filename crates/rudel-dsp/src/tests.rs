@@ -231,6 +231,91 @@ fn fm_envelope_ramps_in_the_modulation() {
 }
 
 #[test]
+fn pulse_width_sets_the_duty_cycle() {
+    // pw fraction of the cycle is high (+1), the rest low (-1).
+    assert_eq!(Waveform::pulse(0.1, 0.25), 1.0);
+    assert_eq!(Waveform::pulse(0.3, 0.25), -1.0);
+    assert_eq!(Waveform::pulse(0.6, 0.75), 1.0);
+    // pw 0.5 matches the square wave.
+    for &p in &[0.1, 0.4, 0.6, 0.9] {
+        assert_eq!(Waveform::pulse(p, 0.5), Waveform::Square.sample(p));
+    }
+}
+
+#[test]
+fn pulse_resolves_from_s_and_pw_changes_output() {
+    let map = |pw: f32| {
+        let mut m = BTreeMap::new();
+        m.insert("s".to_string(), Value::Str("pulse".into()));
+        m.insert("pw".to_string(), Value::F64(pw as f64));
+        m
+    };
+    let p = VoiceParams::from_controls(&map(0.2), 1.0);
+    assert_eq!(p.waveform, Waveform::Pulse);
+    assert!((p.pw - 0.2).abs() < 1e-6);
+
+    let mut narrow = Voice::new(VoiceParams::from_controls(&map(0.1), 1.0), 44100.0);
+    let mut wide = Voice::new(VoiceParams::from_controls(&map(0.9), 1.0), 44100.0);
+    let mut diff = 0.0f32;
+    for _ in 0..2000 {
+        diff += (narrow.tick().0 - wide.tick().0).abs();
+    }
+    assert!(diff > 0.0, "different pulse widths should sound different");
+}
+
+#[test]
+fn noise_mix_blends_in_noise() {
+    let base = || VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 220.0,
+        duration: 1.0,
+        ..Default::default()
+    };
+    let mut clean = Voice::new(base(), 44100.0);
+    let mut noisy = Voice::new(
+        VoiceParams {
+            noise_mix: 0.5,
+            ..base()
+        },
+        44100.0,
+    );
+    let mut diff = 0.0f32;
+    for _ in 0..2000 {
+        diff += (clean.tick().0 - noisy.tick().0).abs();
+    }
+    assert!(
+        diff > 0.0,
+        "a noise mix should change the oscillator output"
+    );
+}
+
+#[test]
+fn pcurve_changes_the_pitch_envelope_shape() {
+    let base = || VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 220.0,
+        duration: 1.0,
+        penv: Some(12.0),
+        pattack: Some(0.3),
+        ..Default::default()
+    };
+    let mut lin = Voice::new(base(), 44100.0);
+    let mut expo = Voice::new(
+        VoiceParams {
+            pcurve_exp: true,
+            ..base()
+        },
+        44100.0,
+    );
+    // During the attack the exponential ramp differs from the linear one.
+    let mut diff = 0.0f32;
+    for _ in 0..4000 {
+        diff += (lin.tick().0 - expo.tick().0).abs();
+    }
+    assert!(diff > 0.0, "pcurve should change the pitch-envelope shape");
+}
+
+#[test]
 fn vibrato_and_pitch_env_change_pitch() {
     let base = || VoiceParams {
         waveform: Waveform::Sine,

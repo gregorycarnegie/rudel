@@ -9,6 +9,10 @@ pub struct VoiceParams {
     pub waveform: Waveform,
     /// When set, the source is noise rather than the oscillator.
     pub noise: Option<NoiseKind>,
+    /// Pulse-wave duty cycle (`pw`, 0..1) for `s("pulse")`.
+    pub pw: f32,
+    /// Pink-noise mix amount (`noise`, 0..1) blended into the oscillator.
+    pub noise_mix: f32,
     /// When true, the source is a detuned super-saw.
     pub supersaw: bool,
     /// Super-saw voice count (`unison`).
@@ -38,6 +42,9 @@ pub struct VoiceParams {
     pub prelease: Option<f32>,
     /// Pitch-envelope anchor (`panchor`); defaults to the pitch sustain.
     pub panchor: Option<f32>,
+    /// Pitch-envelope curve (`pcurve`): `false` = linear (default), `true` =
+    /// exponential ramp segments.
+    pub pcurve_exp: bool,
     pub freq: f32,
     pub gain: f32,
     /// 0.0 = hard left, 1.0 = hard right.
@@ -64,6 +71,8 @@ impl Default for VoiceParams {
         VoiceParams {
             waveform: Waveform::Sine,
             noise: None,
+            pw: 0.5,
+            noise_mix: 0.0,
             supersaw: false,
             unison: 5,
             detune: 0.0,
@@ -80,6 +89,7 @@ impl Default for VoiceParams {
             psustain: None,
             prelease: None,
             panchor: None,
+            pcurve_exp: false,
             freq: 440.0,
             gain: 1.0,
             pan: 0.5,
@@ -122,6 +132,13 @@ impl VoiceParams {
         }
         if let Some(s) = map.get("spread").and_then(|v| v.as_f64()) {
             p.spread = s as f32;
+        }
+        // Pulse-wave duty cycle and oscillator noise-mix amount.
+        if let Some(w) = map.get("pw").and_then(|v| v.as_f64()) {
+            p.pw = (w as f32).clamp(0.0, 1.0);
+        }
+        if let Some(n) = map.get("noise").and_then(|v| v.as_f64()) {
+            p.noise_mix = (n as f32).clamp(0.0, 1.0);
         }
         // FM: `fm`/`fmi` modulation index, `fmh` harmonicity ratio.
         if let Some(i) = map
@@ -184,6 +201,10 @@ impl VoiceParams {
             .get("panchor")
             .and_then(|v| v.as_f64())
             .map(|x| x as f32);
+        // `pcurve`: 0 = linear (default), nonzero = exponential ramp segments.
+        if let Some(c) = map.get("pcurve").and_then(|v| v.as_f64()) {
+            p.pcurve_exp = c != 0.0;
+        }
         if let Some(freq) = map.get("freq").and_then(|v| v.as_f64()) {
             p.freq = freq as f32;
         } else if let Some(n) = map.get("note") {
