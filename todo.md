@@ -170,9 +170,12 @@ Function-by-function audit against the Strudel learn pages
 - [x] `dry` (wet/dry of room/delay): per-voice `dry` scales the direct signal in
       the mixer (default full); reverb/delay sends are taken pre-dry, so `dry(0)`
       leaves only the wet signal.
-- [ ] `compressor*` (needs orbit/bus routing), `squiz` (sampler harmonic
-      repeats), `fshift` (frequency shifter worklet)
-- [ ] `djf`, `leslie`, `ftype`/`fanchor`, IR reverb (`ir`)
+- [x] `ftype` (filter slope): `0`/`"12db"` = single biquad (default), `2`/`"24db"`
+      = cascade the biquad twice for a steeper slope; applies to `lpf`/`hpf`/`bpf`
+      (synth) and the sampler lowpass. `1`/`"ladder"` (Moog worklet) not ported.
+- [ ] `djf`, `leslie`, IR reverb (`ir`), `squiz` (sampler harmonic repeats),
+      `compressor*` (needs orbit/bus routing), `fshift` (frequency shifter) — no
+      DSP reference in the local Strudel clone (control-only / worklet-only)
 
 ## functions/value-modifiers
 

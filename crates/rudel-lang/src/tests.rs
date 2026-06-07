@@ -845,6 +845,15 @@ fn dry_control_sets_its_key() {
 }
 
 #[test]
+fn ftype_control_sets_its_key() {
+    let pat = eval(r#"note("c3").lpf(800).ftype(2)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("ftype").and_then(|v| v.as_f64()), Some(2.0)),
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
 fn anchor_scale_stepping_via_koto() {
     // n("0 7").anchor("c5").scale("C:major") -> C5 (72) and C6 (84).
     let pat = eval(r#"n("0 7").anchor("c5").scale("C:major")"#).expect("eval");

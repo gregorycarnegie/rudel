@@ -53,6 +53,56 @@ fn dry_control_parses_and_defaults_full() {
 }
 
 #[test]
+fn ftype_24db_cascades_the_filter() {
+    use rudel_core::Value;
+    // A 24dB low-pass attenuates high frequencies more than the 12dB default.
+    // Drive each filter with a steady-ish high-frequency input and compare the
+    // residual energy.
+    fn residual(ftype: f64) -> f32 {
+        let map = BTreeMap::from([
+            ("cutoff".to_string(), Value::F64(200.0)),
+            ("ftype".to_string(), Value::F64(ftype)),
+        ]);
+        let mut p = VoiceParams::from_controls(&map, 1.0);
+        // make a bright source (square) so there's high-frequency content
+        p.waveform = Waveform::Square;
+        let mut v = Voice::new(p, 44100.0);
+        // settle, then measure peak over a window
+        for _ in 0..2000 {
+            v.tick();
+        }
+        let mut peak = 0.0f32;
+        for _ in 0..4000 {
+            let (l, _) = v.tick();
+            peak = peak.max(l.abs());
+        }
+        peak
+    }
+    let twelve = residual(0.0);
+    let twentyfour = residual(2.0);
+    // The steeper 24dB slope should pass less of the bright signal than 12dB.
+    assert!(
+        twentyfour < twelve,
+        "24dB ({twentyfour}) should attenuate more than 12dB ({twelve})"
+    );
+    // ftype parses on params: 0/1 -> single, 2 -> cascade.
+    let cascade_of = |f: f64| {
+        VoiceParams::from_controls(
+            &BTreeMap::from([
+                ("cutoff".to_string(), Value::F64(500.0)),
+                ("ftype".to_string(), Value::F64(f)),
+            ]),
+            1.0,
+        )
+        .lp
+        .cascade
+    };
+    assert!(!cascade_of(0.0));
+    assert!(!cascade_of(1.0));
+    assert!(cascade_of(2.0));
+}
+
+#[test]
 fn drum_names_resolve() {
     assert_eq!(DrumKind::from_name("bd"), Some(DrumKind::Bd));
     assert_eq!(DrumKind::from_name("hh"), Some(DrumKind::Hh));

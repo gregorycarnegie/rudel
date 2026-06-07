@@ -309,6 +309,20 @@ impl VoiceParams {
             p.hp.anchor = a;
             p.bp.anchor = a;
         }
+        // `ftype` slope: superdough's filter types are ['12db','ladder','24db'].
+        // 24dB cascades the biquad twice; 'ladder' (the Moog worklet) isn't
+        // ported, so it falls back to the default 12dB single biquad.
+        let cascade = match map.get("ftype") {
+            Some(Value::Str(s)) => s == "24db",
+            Some(v) => v
+                .as_f64()
+                .map(|f| f.rem_euclid(3.0).floor() as i32 == 2)
+                .unwrap_or(false),
+            None => false,
+        };
+        p.lp.cascade = cascade;
+        p.hp.cascade = cascade;
+        p.bp.cascade = cascade;
         if let Some(room) = map.get("room").and_then(|v| v.as_f64()) {
             p.room = room as f32;
         }

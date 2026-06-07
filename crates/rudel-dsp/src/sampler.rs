@@ -23,6 +23,8 @@ pub struct SamplerParams {
     pub release: f32,
     pub cutoff: Option<f32>,
     pub resonance: f32,
+    /// `ftype` 24dB: cascade the lowpass twice for a steeper slope.
+    pub cascade: bool,
     pub room: f32,
     pub delay: f32,
     /// Dry (direct) signal level (`dry`), 0..1. Defaults to full.
@@ -55,6 +57,7 @@ impl SamplerParams {
             release: 0.05,
             cutoff: None,
             resonance: 0.707,
+            cascade: false,
             room: 0.0,
             delay: 0.0,
             dry: 1.0,
@@ -85,6 +88,16 @@ impl SamplerParams {
         if let Some(q) = map.get("resonance").and_then(|v| v.as_f64()) {
             self.resonance = (q as f32).max(0.1);
         }
+        // `ftype` 24dB cascades the lowpass twice (see params.rs); 'ladder' is
+        // not ported and falls back to the default 12dB single biquad.
+        self.cascade = match map.get("ftype") {
+            Some(Value::Str(s)) => s == "24db",
+            Some(v) => v
+                .as_f64()
+                .map(|f| f.rem_euclid(3.0).floor() as i32 == 2)
+                .unwrap_or(false),
+            None => self.cascade,
+        };
         if let Some(room) = map.get("room").and_then(|v| v.as_f64()) {
             self.room = room as f32;
         }
@@ -139,6 +152,8 @@ pub struct SamplerVoice {
     delay: f32,
     dry: f32,
     filter: Option<Biquad>,
+    /// Second cascaded lowpass for `ftype` 24dB.
+    filter2: Option<Biquad>,
     done: bool,
     /// Looping: when active, `pos` wraps within `[loop_start, loop_end)` (in
     /// sample frames) and the voice plays until `hold_end` rather than the slice
@@ -185,6 +200,13 @@ impl SamplerVoice {
         let filter = params
             .cutoff
             .map(|c| Biquad::lowpass(sample_rate, c, params.resonance));
+        let filter2 = (params.cascade)
+            .then(|| {
+                params
+                    .cutoff
+                    .map(|c| Biquad::lowpass(sample_rate, c, params.resonance))
+            })
+            .flatten();
         SamplerVoice {
             sample: params.sample.clone(),
             pos: begin,
@@ -202,6 +224,7 @@ impl SamplerVoice {
             delay: params.delay,
             dry: params.dry,
             filter,
+            filter2,
             done: false,
             loop_on,
             loop_start,
@@ -242,6 +265,9 @@ impl VoiceLike for SamplerVoice {
         let s1 = self.sample.data[i + 1];
         let mut s = s0 + (s1 - s0) * frac;
         if let Some(f) = &mut self.filter {
+            s = f.process(s);
+        }
+        if let Some(f) = &mut self.filter2 {
             s = f.process(s);
         }
         s *= self.envelope() * self.gain;

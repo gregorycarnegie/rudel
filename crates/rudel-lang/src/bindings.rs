@@ -866,7 +866,7 @@ kpattern_methods! {
         note, n, s, gain, postgain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
         delaytime, delayfeedback, dry, attack, decay, sustain, release, vowel, bank, cut, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
-        hcutoff, hresonance, bandf, bandq,
+        hcutoff, hresonance, bandf, bandq, ftype,
         // filter envelopes + short aliases
         lpenv, lpattack, lpdecay, lpsustain, lprelease,
         hpenv, hpattack, hpdecay, hpsustain, hprelease,

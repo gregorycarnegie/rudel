@@ -98,6 +98,8 @@ pub struct FilterParams {
     pub release: Option<f32>,
     /// `fanchor`: where the base cutoff sits within the sweep (0 = bottom).
     pub anchor: f32,
+    /// `ftype` 24dB: cascade the biquad twice for a steeper slope.
+    pub cascade: bool,
 }
 
 impl Default for FilterParams {
@@ -111,6 +113,7 @@ impl Default for FilterParams {
             sustain: None,
             release: None,
             anchor: 0.0,
+            cascade: false,
         }
     }
 }
@@ -130,6 +133,8 @@ pub(crate) struct VoiceFilter {
     kind: FilterKind,
     q: f32,
     biquad: Biquad,
+    /// A second cascaded biquad for the `ftype` 24dB slope (`None` = 12dB).
+    second: Option<Biquad>,
     /// `(adsr, min_hz, max_hz)` when a cutoff envelope is active.
     env: Option<(Adsr, f32, f32)>,
 }
@@ -163,6 +168,7 @@ impl VoiceFilter {
             kind,
             q,
             biquad: Biquad::new(kind, sample_rate, base, q),
+            second: fp.cascade.then(|| Biquad::new(kind, sample_rate, base, q)),
             env,
         }
     }
@@ -172,7 +178,14 @@ impl VoiceFilter {
             let shape = adsr_value(&adsr, t, hold_end);
             let freq = min + shape * (max - min);
             self.biquad.update(self.kind, sample_rate, freq, self.q);
+            if let Some(b2) = &mut self.second {
+                b2.update(self.kind, sample_rate, freq, self.q);
+            }
         }
-        self.biquad.process(x)
+        let y = self.biquad.process(x);
+        match &mut self.second {
+            Some(b2) => b2.process(y),
+            None => y,
+        }
     }
 }

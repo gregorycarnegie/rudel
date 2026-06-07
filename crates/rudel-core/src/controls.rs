@@ -116,6 +116,7 @@ controls!(
     hresonance,
     bandf,
     bandq,
+    ftype,
     // filter envelopes
     lpenv,
     lpattack,
