@@ -142,7 +142,8 @@ Function-by-function audit against the Strudel learn pages
       (= N equal harmonics); `phases` rotates each harmonic. Built in
       `oscillator.rs` (`build_additive`/`sample_table`), stored on `VoiceParams`,
       sampled with linear interpolation. Koto `partials`/`phases` take a list.
-- [ ] `zzfx`, wavetables
+- [ ] `zzfx`, wavetables — no DSP reference in the local Strudel clone
+      (worklet-based); would need original DSP, not a port
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),
