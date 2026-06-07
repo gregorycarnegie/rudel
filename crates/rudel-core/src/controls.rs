@@ -99,6 +99,7 @@ controls!(
     note,
     n,
     gain,
+    postgain,
     pan,
     speed,
     room,

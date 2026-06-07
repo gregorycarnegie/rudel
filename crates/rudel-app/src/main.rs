@@ -313,6 +313,9 @@ impl RudelApp {
     /// Apply `samples(...)` / `aliasBank(...)` requests from the script. Sample
     /// sources already loaded are skipped, so re-evaluation doesn't re-fetch.
     fn apply_sample_effects(&mut self, effects: &rudel_lang::SampleEffects) {
+        if let Some(cps) = effects.cps {
+            self.set_cps(cps);
+        }
         if let Some(engine) = &self.engine {
             for (canonical, alias) in &effects.bank_aliases {
                 engine.alias_bank(canonical, alias);
@@ -807,6 +810,39 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn app_without_engine() -> RudelApp {
+        RudelApp {
+            engine: None,
+            audio_error: None,
+            code: String::new(),
+            eval_error: None,
+            status: String::new(),
+            cps: 0.5,
+            playing: false,
+            current: None,
+            sample_dir: String::new(),
+            sample_names: Vec::new(),
+            loaded_sample_sources: HashSet::new(),
+            sample_jobs: Vec::new(),
+            output: Output::Audio,
+            midi_port: String::new(),
+            osc_target: "127.0.0.1:57120".to_string(),
+            midi: None,
+            osc: None,
+            io_error: None,
+        }
+    }
+
+    #[test]
+    fn sample_effects_apply_cps_to_app_state() {
+        let mut app = app_without_engine();
+        app.apply_sample_effects(&rudel_lang::SampleEffects {
+            cps: Some(0.75),
+            ..Default::default()
+        });
+        assert_eq!(app.cps, 0.75);
+    }
 
     #[test]
     fn value_short_formats_common_values() {

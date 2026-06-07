@@ -147,6 +147,99 @@ fn arg_to_group(value: &KValue) -> Vec<Pattern> {
     }
 }
 
+enum PatternLookup {
+    List(Vec<Pattern>),
+    Map(HashMap<String, Pattern>),
+}
+
+fn lookup_from_koto(value: &KValue) -> Option<PatternLookup> {
+    match value {
+        KValue::List(l) => Some(PatternLookup::List(
+            l.data().iter().map(arg_to_pattern).collect(),
+        )),
+        KValue::Tuple(t) => Some(PatternLookup::List(
+            t.data().iter().map(arg_to_pattern).collect(),
+        )),
+        KValue::Map(m) => {
+            let mut out = HashMap::new();
+            for (k, v) in m.data().iter() {
+                if let KValue::Str(key) = k.value() {
+                    out.insert(key.to_string(), arg_to_pattern(v));
+                }
+            }
+            Some(PatternLookup::Map(out))
+        }
+        _ => None,
+    }
+}
+
+fn is_lookup(value: &KValue) -> bool {
+    matches!(value, KValue::List(_) | KValue::Tuple(_) | KValue::Map(_))
+}
+
+fn pick_from_lookup(lookup: PatternLookup, selector: Pattern, modulo: bool) -> Pattern {
+    match lookup {
+        PatternLookup::List(items) => {
+            if items.is_empty() {
+                return rudel_core::silence();
+            }
+            selector
+                .fmap(move |v| {
+                    let raw = v.as_f64().unwrap_or(0.0).round() as i64;
+                    let idx = if modulo {
+                        raw.rem_euclid(items.len() as i64)
+                    } else {
+                        raw.clamp(0, items.len() as i64 - 1)
+                    } as usize;
+                    Value::Pat(Box::new(items[idx].clone()))
+                })
+                .inner_join()
+        }
+        PatternLookup::Map(items) => {
+            if items.is_empty() {
+                return rudel_core::silence();
+            }
+            selector
+                .fmap(move |v| {
+                    let key = match v {
+                        Value::Str(s) => s,
+                        Value::Int(n) => n.to_string(),
+                        Value::F64(x) => {
+                            let s = format!("{x:.0}");
+                            s
+                        }
+                        _ => String::new(),
+                    };
+                    items
+                        .get(&key)
+                        .cloned()
+                        .map(|p| Value::Pat(Box::new(p)))
+                        .unwrap_or(Value::Null)
+                })
+                .filter_values(|v| !matches!(v, Value::Null))
+                .inner_join()
+        }
+    }
+}
+
+fn pick_args(args: &[KValue], modulo: bool) -> Pattern {
+    let Some(first) = args.first() else {
+        return rudel_core::silence();
+    };
+    let Some(second) = args.get(1) else {
+        return rudel_core::silence();
+    };
+    let (lookup_value, selector_value) = if is_lookup(second) && !is_lookup(first) {
+        (second, first)
+    } else {
+        (first, second)
+    };
+    let Some(lookup) = lookup_from_koto(lookup_value) else {
+        return rudel_core::silence();
+    };
+    pick_from_lookup(lookup, arg_to_pattern(selector_value), modulo)
+}
+
 fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
     ctx.args.get(i).cloned().unwrap_or(KValue::Null)
 }
@@ -519,6 +612,36 @@ macro_rules! kpattern_methods {
                 with_instance(&ctx, |pat| pat.ctrl(name.clone(), value.clone()))
             }
 
+            #[koto_method]
+            fn sound(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.s(arg.clone()))
+            }
+
+            #[koto_method(alias = "struct")]
+            fn struct_alias(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let arg = method_pattern_arg(&ctx, 0);
+                with_instance(&ctx, |pat| pat.struct_pat(arg.clone()))
+            }
+
+            #[koto_method]
+            fn pick(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let selector = ctx.instance()?.0.clone();
+                let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
+                    return Ok(KPattern::wrap(rudel_core::silence()));
+                };
+                Ok(KPattern::wrap(pick_from_lookup(lookup, selector, false)))
+            }
+
+            #[koto_method]
+            fn pickmod(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                let selector = ctx.instance()?.0.clone();
+                let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
+                    return Ok(KPattern::wrap(rudel_core::silence()));
+                };
+                Ok(KPattern::wrap(pick_from_lookup(lookup, selector, true)))
+            }
+
             #[koto_method(alias = "loop")]
             fn loop_play(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                 let arg = method_pattern_arg(&ctx, 0);
@@ -544,7 +667,7 @@ kpattern_methods! {
     pattern_arg: [
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
-        note, n, s, gain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
+        note, n, s, gain, postgain, pan, speed, cutoff, resonance, room, size, shape, crush, delay,
         delaytime, delayfeedback, attack, decay, sustain, release, vowel, bank, cut, accelerate, coarse,
         orbit, velocity, begin, end, legato, clip,
         hcutoff, hresonance, bandf, bandq,
@@ -612,6 +735,18 @@ fn register(prelude: &KMap) {
         Ok(KPattern(rudel_core::sound(arg_to_pattern(&arg0(ctx)))).into())
     });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
+    prelude.add_fn("rudel_label", |ctx| {
+        let name = match ctx.args().first() {
+            Some(KValue::Str(s)) => s.to_string(),
+            _ => String::new(),
+        };
+        let pat = ctx
+            .args()
+            .get(1)
+            .map(arg_to_pattern)
+            .unwrap_or_else(rudel_core::silence);
+        Ok(KPattern(pat.ctrl("id", rudel_core::pure(Value::Str(name)))).into())
+    });
     prelude.add_fn("stack", |ctx| {
         let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
         Ok(KPattern(rudel_core::stack(&pats)).into())
@@ -687,6 +822,13 @@ fn register(prelude: &KMap) {
         let groups: Vec<Vec<Pattern>> = ctx.args().iter().map(arg_to_group).collect();
         Ok(KPattern(rudel_core::stepalt(&groups)).into())
     });
+    prelude.add_fn("pick", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), false)).into())
+    });
+    prelude.add_fn("pickmod", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), true)).into())
+    });
+    prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
     // scan: step through growing runs (run(1), run(2), ... run(n)).
     prelude.add_fn("scan", |ctx| {
         Ok(KPattern(rudel_core::scan(arg_to_f64(&arg0(ctx)) as i64)).into())
@@ -773,6 +915,8 @@ pub struct SampleEffects {
     pub maps: Vec<(String, String)>,
     /// `aliasBank(canonical, alias, ...)` pairs to register.
     pub bank_aliases: Vec<(String, String)>,
+    /// Optional global tempo requested by `setCps`/`setcps`/`setCpm`/`setcpm`.
+    pub cps: Option<f64>,
 }
 
 /// Convert a Koto value into a `serde_json::Value` for an inline sample map.
@@ -811,6 +955,7 @@ fn koto_to_json(value: &KValue) -> Option<serde_json::Value> {
 /// its sample bank) and return an empty pattern.
 fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
     let sample_effects = effects.clone();
+    let tempo_effects = effects.clone();
     prelude.add_fn("samples", move |ctx| {
         let mut eff = sample_effects.lock().unwrap();
         let args = ctx.args();
@@ -855,6 +1000,262 @@ fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
         }
         Ok(KPattern(rudel_core::silence()).into())
     });
+
+    for (name, scale) in [
+        ("setCps", 1.0),
+        ("setcps", 1.0),
+        ("setCpm", 1.0 / 60.0),
+        ("setcpm", 1.0 / 60.0),
+    ] {
+        let effects = tempo_effects.clone();
+        prelude.add_fn(name, move |ctx| {
+            effects.lock().unwrap().cps = Some(arg_to_f64(&arg0(ctx)) * scale);
+            Ok(KPattern(rudel_core::silence()).into())
+        });
+    }
+}
+
+fn strip_line_comments(src: &str) -> String {
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut quote = None;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            quote = Some(c);
+            out.push(c);
+            i += 1;
+        } else if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+            i += 2;
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            if i < chars.len() {
+                out.push('\n');
+                i += 1;
+            }
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn rewrite_const_declarations(src: &str) -> String {
+    src.lines()
+        .map(|line| {
+            let indent_len = line.len() - line.trim_start().len();
+            let (indent, rest) = line.split_at(indent_len);
+            if let Some(stripped) = rest.strip_prefix("const ") {
+                format!("{indent}{stripped}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn normalize_string_literal(literal: &str) -> String {
+    let Some(quote) = literal.chars().next() else {
+        return literal.to_string();
+    };
+    if quote != '"' && quote != '\'' {
+        return literal.to_string();
+    }
+    let content = &literal[1..literal.len().saturating_sub(1)];
+    if !content.contains('{') && !content.contains('}') {
+        return literal.to_string();
+    }
+    let mut hashes = "#".to_string();
+    while content.contains(&format!("'{}", hashes)) {
+        hashes.push('#');
+    }
+    format!("r{hashes}'{content}'{hashes}")
+}
+
+fn rewrite_string_method_chains(src: &str) -> String {
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c != '"' && c != '\'' {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+
+        let start = i;
+        let quote = c;
+        let mut escaped = false;
+        i += 1;
+        while i < chars.len() {
+            let c = chars[i];
+            i += 1;
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == quote {
+                break;
+            }
+        }
+        let literal = normalize_string_literal(&chars[start..i].iter().collect::<String>());
+        let mut j = i;
+        while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
+            j += 1;
+        }
+        let method_chain = j + 1 < chars.len()
+            && chars[j] == '.'
+            && (chars[j + 1].is_ascii_alphabetic() || chars[j + 1] == '_')
+            && chars[j + 1] != '_';
+        if method_chain {
+            out.push_str("pat(");
+            out.push_str(&literal);
+            out.push(')');
+        } else {
+            out.push_str(&literal);
+        }
+    }
+    out
+}
+
+fn delimiter_delta(line: &str) -> i64 {
+    let mut delta = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    for c in line.chars() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            quote = Some(c);
+        } else if matches!(c, '(' | '[' | '{') {
+            delta += 1;
+        } else if matches!(c, ')' | ']' | '}') {
+            delta -= 1;
+        }
+    }
+    delta
+}
+
+fn label_at_line(line: &str) -> Option<(String, String)> {
+    if line.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
+    let mut end = 0;
+    for (i, c) in line.char_indices() {
+        let ok = if i == 0 {
+            c.is_ascii_alphabetic() || c == '_' || c == '$'
+        } else {
+            c.is_ascii_alphanumeric() || c == '_' || c == '$'
+        };
+        if ok {
+            end = i + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if end == 0 {
+        return None;
+    }
+    let rest = &line[end..];
+    rest.strip_prefix(':')
+        .map(|expr| (line[..end].to_string(), expr.trim_start().to_string()))
+}
+
+fn top_level_boundary(line: &str) -> bool {
+    !line.chars().next().is_some_and(char::is_whitespace) && !line.trim_start().starts_with('.')
+}
+
+fn sanitize_label(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if out.is_empty() {
+        out.push_str("anon");
+    }
+    out
+}
+
+fn rewrite_labels(src: &str) -> String {
+    let lines: Vec<&str> = src.lines().collect();
+    let mut out = Vec::new();
+    let mut labels = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let Some((name, rest)) = label_at_line(lines[i]) else {
+            out.push(lines[i].to_string());
+            i += 1;
+            continue;
+        };
+
+        let mut expr_lines = vec![rest];
+        let mut depth = delimiter_delta(expr_lines[0].as_str());
+        i += 1;
+        while i < lines.len() {
+            let line = lines[i];
+            if depth <= 0 {
+                if line.trim().is_empty() {
+                    i += 1;
+                    break;
+                }
+                if label_at_line(line).is_some() || top_level_boundary(line) {
+                    break;
+                }
+            }
+            expr_lines.push(line.to_string());
+            depth += delimiter_delta(line);
+            i += 1;
+        }
+
+        let var = format!("rudel_label_{}_{}", labels.len(), sanitize_label(&name));
+        let expr = expr_lines.join("\n").trim().to_string();
+        out.push(format!("{var} = rudel_label({name:?}, {expr})"));
+        labels.push(var);
+    }
+
+    if !labels.is_empty() {
+        out.push(format!("stack({})", labels.join(", ")));
+    }
+    out.join("\n")
+}
+
+fn preprocess_strudel(script: &str) -> String {
+    let script = strip_line_comments(script);
+    let script = rewrite_const_declarations(&script);
+    let script = rewrite_string_method_chains(&script);
+    rewrite_labels(&script)
 }
 
 /// Evaluate a Koto script and extract the resulting pattern.
@@ -871,7 +1272,8 @@ pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), Strin
     let mut koto = Koto::default();
     register(koto.prelude());
     register_samples(koto.prelude(), effects.clone());
-    let chunk = koto.compile(script).map_err(|e| e.to_string())?;
+    let script = preprocess_strudel(script);
+    let chunk = koto.compile(&script).map_err(|e| e.to_string())?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
     let effects = std::mem::take(&mut *effects.lock().unwrap());
     match result {
@@ -974,6 +1376,144 @@ s("bd sd")
         let parsed: serde_json::Value = serde_json::from_str(json).unwrap();
         assert_eq!(parsed["bd"], serde_json::json!("808bd/a.wav"));
         assert_eq!(parsed["sd"], serde_json::json!(["s/c.wav", "s/d.wav"]));
+    }
+
+    #[test]
+    fn strudel_const_comments_and_urls_preprocess() {
+        let (pat, effects) = eval_with_samples(
+            r#"
+samples("https://example.test/a//b")
+const gainnn = ["2", "3"] // this should disappear
+pick(gainnn, 0)
+"#,
+        )
+        .expect("eval");
+        assert_eq!(
+            effects.sources,
+            vec!["https://example.test/a//b".to_string()]
+        );
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(2)]);
+    }
+
+    #[test]
+    fn set_cps_collects_tempo_effect() {
+        let (pat, effects) = eval_with_samples(
+            r#"
+setCps(140/60/4)
+s("bd")
+"#,
+        )
+        .expect("eval");
+        assert_eq!(effects.cps, Some(140.0 / 60.0 / 4.0));
+        assert!(!pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+    }
+
+    #[test]
+    fn set_cpm_alias_collects_tempo_effect() {
+        let (_pat, effects) = eval_with_samples(
+            r#"
+setcpm(120/4)
+s("bd")
+"#,
+        )
+        .expect("eval");
+        assert_eq!(effects.cps, Some((120.0 / 4.0) / 60.0));
+    }
+
+    #[test]
+    fn labels_stack_into_the_returned_pattern() {
+        let pat = eval(
+            r#"
+bassline: s("bd")
+main_arp: note("c")
+"#,
+        )
+        .expect("eval");
+        let ids: Vec<String> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .filter_map(|h| match h.value {
+                Value::Map(m) => m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string),
+                _ => None,
+            })
+            .collect();
+        assert!(ids.contains(&"bassline".to_string()));
+        assert!(ids.contains(&"main_arp".to_string()));
+    }
+
+    #[test]
+    fn pick_supports_lists_methods_and_string_pattern_chains() {
+        let pat = eval(r#"pick(["a", "b"], 1)"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Str("b".to_string())]);
+
+        let pat = eval(r#""1".pick(["a", "b"])"#).expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Str("b".to_string())]);
+
+        let pat = eval(
+            r#"
+xs = ["0", "1"]
+pick(xs, "<0 1>".slow(2))
+"#,
+        )
+        .expect("eval");
+        assert_eq!(values(&pat, 0, 1), vec![Value::Int(0)]);
+    }
+
+    #[test]
+    fn compact_strudel_performance_script_shape_evaluates() {
+        let (pat, effects) = eval_with_samples(
+            r#"
+setCps(140/60/4)
+
+samples('github:algorave-dave/samples')
+samples('github:tidalcycles/dirt-samples')
+
+const gainnn = [
+  "2",
+  "{0.75 2.5}*4",
+]
+
+const Structures = [
+  "~",
+  "x*4",
+]
+
+const gooo = 1
+// off/on
+
+bassline: note("[eb1, eb2]!16 [f2, f1]!16")
+  .sound("supersaw")
+  .postgain(pick(gainnn, gooo))
+
+const arpeggiator = [
+  "{d4 bb3 eb3}%16",
+  "{c4 bb3 f3}%16",
+  "{d4 bb3 g3}%16",
+  "{c4 bb3 f3}%16",
+]
+
+main_arp: note(pick(arpeggiator, "<0 1 2 3>".slow(2)))//.rev()
+  .sound("supersaw")
+  .postgain(pick(gainnn, gooo))
+
+drums: stack(
+  s("tech:5").postgain(6).struct(pick(Structures, gooo)),
+)
+"#,
+        )
+        .expect("eval");
+        assert_eq!(effects.cps, Some(140.0 / 60.0 / 4.0));
+        assert_eq!(
+            effects.sources,
+            vec![
+                "github:algorave-dave/samples".to_string(),
+                "github:tidalcycles/dirt-samples".to_string(),
+            ]
+        );
+        assert!(!pat.query_arc(Frac::zero(), Frac::one()).is_empty());
     }
 
     #[test]
