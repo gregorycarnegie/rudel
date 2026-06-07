@@ -14,6 +14,9 @@ pub struct Context {
     /// The scale tagged by `.scale(...)`, used by scale-aware transforms such as
     /// `scaleTranspose`.
     pub scale: Option<String>,
+    /// The equal-division octave size tagged by `.xen("31edo")`, used as the
+    /// default by frequency transposition (`ftrans`).
+    pub edo_size: Option<f64>,
 }
 
 impl Context {
@@ -22,7 +25,12 @@ impl Context {
         locations.extend(other.locations.iter().copied());
         // Keep whichever side carries a scale tag (the later/other one wins).
         let scale = other.scale.clone().or_else(|| self.scale.clone());
-        Context { locations, scale }
+        let edo_size = other.edo_size.or(self.edo_size);
+        Context {
+            locations,
+            scale,
+            edo_size,
+        }
     }
 }
 

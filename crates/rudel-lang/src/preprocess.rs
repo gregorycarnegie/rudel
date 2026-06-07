@@ -104,10 +104,8 @@ fn rewrite_string_method_chains(src: &str) -> String {
         while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
             j += 1;
         }
-        let method_chain = j + 1 < chars.len()
-            && chars[j] == '.'
-            && (chars[j + 1].is_ascii_alphabetic() || chars[j + 1] == '_')
-            && chars[j + 1] != '_';
+        let method_chain =
+            j + 1 < chars.len() && chars[j] == '.' && chars[j + 1].is_ascii_alphabetic();
         if method_chain {
             out.push_str("pat(");
             out.push_str(&literal);

@@ -49,13 +49,24 @@ const FACTORIES: &[&str] = &[
     "pure",
     "gap",
     "silence",
+    "i",
+    "freq",
+    "getFreq",
 ];
 
 /// Control names exposed by the engine, for the reference pane.
 const CONTROLS: &[&str] = &[
     "note",
     "n",
+    "i",
+    "freq",
     "s",
+    "tune",
+    "xen",
+    "withBase",
+    "ftrans",
+    "mpe",
+    "bendRange",
     "gain",
     "pan",
     "speed",
@@ -871,6 +882,18 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
+fn main() -> eframe::Result {
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 640.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "rudel",
+        native_options,
+        Box::new(|_cc| Ok(Box::new(RudelApp::new()))),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -963,16 +986,4 @@ mod tests {
         assert_eq!(color_for("bd"), color_for("bd"));
         assert_ne!(color_for("bd"), color_for("sd"));
     }
-}
-
-fn main() -> eframe::Result {
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 640.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "rudel",
-        native_options,
-        Box::new(|_cc| Ok(Box::new(RudelApp::new()))),
-    )
 }

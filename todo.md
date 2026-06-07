@@ -65,6 +65,11 @@ Function-by-function audit against the Strudel learn pages
       `note`. `mode("below:G4")` sets both `mode` and `anchor`. Plus the voicing
       controls `chord`/`dictionary`(`dict`)/`anchor`/`offset`/`octaves` read by
       `.voicing()`.
+- [x] Xenharmonic functions (`i`, `freq`, `getFreq`, `tune`, `xen`, `withBase`,
+      `ftrans`/`fTrans`/`ftranspose`/`fTranspose`): full Tune.js scale archive
+      generated into a Rust static table, named scales normalized to ratios with
+      the octave endpoint dropped, `xen("31edo")` tagging EDO size for later
+      `ftrans`, ratio arrays for `xen([...])`, frequency arrays for `tune([...])`.
 - [ ] `degreeToNote`, `toScale` (custom interval-list scales) — not in the local
       Strudel clone, so no reference source to port from
 
@@ -245,6 +250,12 @@ Function-by-function audit against the Strudel learn pages
 ## learn/input-output
 
 - [x] MIDI out (`rudel-midi`), OSC/SuperDirt out (`rudel-osc`), app output selector
+- [x] True microtonal MIDI via lower-zone MPE: `freq` has pitch priority and
+      `freq`/fractional pitches use MPE by default; channel 1 is master, channels
+      2-16 are allocated per active note, pitch bend is sent before note-on,
+      `bendRange` controls bend scaling, exhausted member channels fall back to
+      nearest unbent master-channel notes, and stop/reset sends all-notes-off +
+      pitch-bend center on all 16 channels.
 - [x] `.midi(...)` / `.osc(...)` as Koto pattern methods (route per-pattern): tag
       haps with an `_io` control; the app runs all back-ends at once and splits
       the pattern (`rudel_lang::filter_output`/`output_targets`), with untagged

@@ -34,6 +34,23 @@ pub fn control_dyn(name: impl Into<String>, pat: impl IntoPattern) -> Pattern {
     })
 }
 
+/// Wrap each current value of `pat` into `{ name: value }`. This is the no-arg
+/// control method behavior used by Strudel for chains like
+/// `i(...).tune(...).freq()`.
+pub fn wrap_control_dyn(name: impl Into<String>, pat: impl IntoPattern) -> Pattern {
+    let name = name.into();
+    pat.into_pattern().fmap(move |v| match v {
+        Value::Map(mut m) if m.contains_key("value") => {
+            if let Some(value) = m.remove("value") {
+                m.insert(name.clone(), value);
+            }
+            Value::Map(m)
+        }
+        Value::Map(_) => v,
+        other => single(&name, other),
+    })
+}
+
 /// The `s`/`sound` control, with `"name:index"` splitting into `{ s, n }`.
 pub fn s(pat: impl IntoPattern) -> Pattern {
     pat.into_pattern().fmap(|v| match v {
@@ -100,6 +117,9 @@ macro_rules! controls {
 }
 
 controls!(
+    i,
+    freq,
+    mpe,
     note,
     n,
     gain,
@@ -210,6 +230,24 @@ controls!(
     offset,
     octaves,
 );
+
+/// The `bendRange` control. The Rust function is snake_case while the emitted
+/// control key matches Strudel's camelCase spelling.
+pub fn bend_range(pat: impl IntoPattern) -> Pattern {
+    control("bendRange", pat.into_pattern())
+}
+
+impl Pattern {
+    /// Set the `bendRange` control, keeping this pattern's structure.
+    pub fn bend_range(&self, x: impl IntoPattern) -> Pattern {
+        self.set(bend_range(x))
+    }
+
+    /// Wrap this pattern's current values into a control map.
+    pub fn wrap_control(&self, name: impl Into<String>) -> Pattern {
+        wrap_control_dyn(name, self.clone())
+    }
+}
 
 // Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).
 macro_rules! control_aliases {

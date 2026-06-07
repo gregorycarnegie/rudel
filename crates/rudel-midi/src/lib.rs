@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use midir::{Ignore, MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
-use rudel_core::{Pattern, Value, note_to_midi, query_controls};
+use rudel_core::{Pattern, Value, freq_to_midi, note_to_midi, query_controls};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -16,10 +16,15 @@ const NOTE_ON: u8 = 0x90;
 const NOTE_OFF: u8 = 0x80;
 const CONTROL_CHANGE: u8 = 0xB0;
 const PROGRAM_CHANGE: u8 = 0xC0;
+const PITCH_BEND: u8 = 0xE0;
 const CLOCK: u8 = 0xF8;
 const START: u8 = 0xFA;
 const CONTINUE: u8 = 0xFB;
 const STOP: u8 = 0xFC;
+const MPE_MASTER_CHANNEL: u8 = 0;
+const MPE_FIRST_MEMBER: u8 = 1;
+const MPE_LAST_MEMBER: u8 = 15;
+const DEFAULT_BEND_RANGE: f64 = 2.0;
 
 /// Clamp a float to a 0..=127 MIDI data byte.
 fn clamp7(x: f64) -> u8 {
@@ -32,12 +37,20 @@ fn clamp7(x: f64) -> u8 {
 pub struct MidiNote {
     /// Channel, 0..=15.
     pub channel: u8,
+    /// Fractional MIDI pitch before rounding/clamping.
+    pub pitch: f64,
     pub note: u8,
     pub velocity: u8,
     /// `(controller, value)` pairs to send at the note onset.
     pub ccs: Vec<(u8, u8)>,
     /// Program change to send at the note onset, if any.
     pub program: Option<u8>,
+    /// Use lower-zone MPE for this note.
+    pub mpe: bool,
+    /// Pitch-bend range in semitones for MPE member channels.
+    pub bend_range: f64,
+    /// 14-bit pitch bend value, centered at 8192.
+    pub bend: Option<u16>,
 }
 
 impl MidiNote {
@@ -53,10 +66,17 @@ impl MidiNote {
     pub fn program_bytes(&self, program: u8) -> [u8; 2] {
         [PROGRAM_CHANGE | (self.channel & 0x0F), program]
     }
+    pub fn pitch_bend_bytes(&self) -> Option<[u8; 3]> {
+        self.bend.map(|bend| pitch_bend_bytes(self.channel, bend))
+    }
 }
 
 fn get_f64(m: &BTreeMap<String, Value>, key: &str) -> Option<f64> {
     m.get(key).and_then(|v| v.as_f64())
+}
+
+fn get_bool(m: &BTreeMap<String, Value>, key: &str) -> Option<bool> {
+    m.get(key).map(Value::truthy)
 }
 
 /// Resolve a note value (number or note name) to a MIDI number.
@@ -70,18 +90,59 @@ fn value_to_note(v: &Value) -> Option<f64> {
     }
 }
 
+fn bend_value(pitch: f64, note: u8, range: f64) -> u16 {
+    let range = if range > 0.0 {
+        range
+    } else {
+        DEFAULT_BEND_RANGE
+    };
+    let semis = pitch - note as f64;
+    (8192.0 + (semis / range) * 8192.0)
+        .round()
+        .clamp(0.0, 16383.0) as u16
+}
+
+fn pitch_bend_bytes(channel: u8, bend: u16) -> [u8; 3] {
+    [
+        PITCH_BEND | (channel & 0x0F),
+        (bend & 0x7F) as u8,
+        ((bend >> 7) & 0x7F) as u8,
+    ]
+}
+
+/// Reset messages sent on MIDI engine shutdown.
+pub fn reset_messages() -> Vec<Vec<u8>> {
+    let mut out = Vec::with_capacity(32);
+    for ch in 0..16 {
+        out.push(vec![CONTROL_CHANGE | ch, 123, 0]);
+        out.push(pitch_bend_bytes(ch, 8192).to_vec());
+    }
+    out
+}
+
 /// Map a control map to a [`MidiNote`], or `None` if it carries no pitch.
 ///
-/// - pitch from `note`/`n` (number or note name)
+/// - pitch from `freq` first, then `note`/`n` (number or note name)
 /// - velocity from `velocity` (0..1), else `gain` (0..1), else 0.9
 /// - channel from `midichan`/`channel` (1-based), else 1
 /// - control-change from `ccn` + `ccv` (value 0..1)
 /// - program change from `progNum`
 pub fn control_to_midi(controls: &BTreeMap<String, Value>) -> Option<MidiNote> {
-    let note = controls
-        .get("note")
-        .or_else(|| controls.get("n"))
-        .and_then(value_to_note)?;
+    let freq_pitch = controls
+        .get("freq")
+        .and_then(Value::as_f64)
+        .filter(|f| *f > 0.0)
+        .map(freq_to_midi);
+    let pitch = freq_pitch.or_else(|| {
+        controls
+            .get("note")
+            .or_else(|| controls.get("n"))
+            .and_then(value_to_note)
+    })?;
+    if !pitch.is_finite() {
+        return None;
+    }
+
     let velocity = get_f64(controls, "velocity")
         .or_else(|| get_f64(controls, "gain"))
         .unwrap_or(0.9);
@@ -95,13 +156,24 @@ pub fn control_to_midi(controls: &BTreeMap<String, Value>) -> Option<MidiNote> {
         ccs.push((clamp7(n), clamp7(v * 127.0)));
     }
     let program = get_f64(controls, "progNum").map(clamp7);
+    let bend_range = get_f64(controls, "bendRange")
+        .filter(|r| *r > 0.0)
+        .unwrap_or(DEFAULT_BEND_RANGE);
+    let fractional = (pitch - pitch.round()).abs() > 1e-9;
+    let mpe = get_bool(controls, "mpe").unwrap_or(freq_pitch.is_some() || fractional);
+    let note = clamp7(pitch);
+    let bend = mpe.then(|| bend_value(pitch, note, bend_range));
 
     Some(MidiNote {
         channel,
-        note: clamp7(note),
+        pitch,
+        note,
         velocity: clamp7(velocity * 127.0),
         ccs,
         program,
+        mpe,
+        bend_range,
+        bend,
     })
 }
 
@@ -113,6 +185,102 @@ pub struct TimedMidi {
     pub data: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+struct MpeState {
+    configured_range: Option<(u8, u8)>,
+    active_until: [f64; 16],
+}
+
+impl MpeState {
+    fn new() -> Self {
+        Self {
+            configured_range: None,
+            active_until: [0.0; 16],
+        }
+    }
+
+    fn free_expired(&mut self, now: f64) {
+        for ch in MPE_FIRST_MEMBER..=MPE_LAST_MEMBER {
+            let slot = &mut self.active_until[ch as usize];
+            if *slot <= now {
+                *slot = 0.0;
+            }
+        }
+    }
+
+    fn allocate(&mut self, on: f64, off: f64) -> Option<u8> {
+        self.free_expired(on);
+        for ch in MPE_FIRST_MEMBER..=MPE_LAST_MEMBER {
+            let slot = &mut self.active_until[ch as usize];
+            if *slot <= on {
+                *slot = off;
+                return Some(ch);
+            }
+        }
+        None
+    }
+
+    fn setup_messages(&mut self, at_seconds: f64, bend_range: f64) -> Vec<TimedMidi> {
+        let key = bend_range_key(bend_range);
+        if self.configured_range == Some(key) {
+            return Vec::new();
+        }
+        self.configured_range = Some(key);
+
+        let mut out = Vec::new();
+        // Lower-zone setup: master channel 1, member channels 2-16.
+        push_rpn(
+            &mut out,
+            at_seconds,
+            MPE_MASTER_CHANNEL,
+            0,
+            6,
+            MPE_LAST_MEMBER,
+            0,
+        );
+        for ch in MPE_FIRST_MEMBER..=MPE_LAST_MEMBER {
+            push_rpn(&mut out, at_seconds, ch, 0, 0, key.0, key.1);
+        }
+        out
+    }
+}
+
+fn bend_range_key(bend_range: f64) -> (u8, u8) {
+    let range = if bend_range > 0.0 {
+        bend_range
+    } else {
+        DEFAULT_BEND_RANGE
+    }
+    .clamp(0.0, 96.0);
+    let semis = range.floor().clamp(0.0, 96.0) as u8;
+    let cents = ((range - semis as f64) * 100.0).round().clamp(0.0, 99.0) as u8;
+    (semis, cents)
+}
+
+fn push_cc(out: &mut Vec<TimedMidi>, at_seconds: f64, channel: u8, cc: u8, value: u8) {
+    out.push(TimedMidi {
+        at_seconds,
+        data: vec![CONTROL_CHANGE | (channel & 0x0F), cc, value],
+    });
+}
+
+fn push_rpn(
+    out: &mut Vec<TimedMidi>,
+    at_seconds: f64,
+    channel: u8,
+    rpn_msb: u8,
+    rpn_lsb: u8,
+    data_msb: u8,
+    data_lsb: u8,
+) {
+    push_cc(out, at_seconds, channel, 101, rpn_msb);
+    push_cc(out, at_seconds, channel, 100, rpn_lsb);
+    push_cc(out, at_seconds, channel, 6, data_msb);
+    push_cc(out, at_seconds, channel, 38, data_lsb);
+    push_cc(out, at_seconds, channel, 101, 127);
+    push_cc(out, at_seconds, channel, 100, 127);
+}
+
 /// Produce the time-stamped MIDI messages for every onset in the cycle window
 /// `[begin_cycle, end_cycle)`: a note-on (plus any CC/program) at the onset and
 /// a matching note-off at the end of the event.
@@ -122,14 +290,34 @@ pub fn schedule_window(
     begin_cycle: f64,
     end_cycle: f64,
 ) -> Vec<TimedMidi> {
+    let mut mpe = MpeState::new();
+    schedule_window_with_state(pattern, cps, begin_cycle, end_cycle, &mut mpe)
+}
+
+fn schedule_window_with_state(
+    pattern: &Pattern,
+    cps: f64,
+    begin_cycle: f64,
+    end_cycle: f64,
+    mpe_state: &mut MpeState,
+) -> Vec<TimedMidi> {
     let mut out = Vec::new();
     for ev in query_controls(pattern, cps, begin_cycle, end_cycle) {
-        let Some(note) = control_to_midi(&ev.controls) else {
+        let Some(mut note) = control_to_midi(&ev.controls) else {
             continue;
         };
         let on = ev.onset_seconds;
         // Hold for the event duration, minus a tiny gap to retrigger cleanly.
         let off = on + (ev.duration_seconds - 0.001).max(0.0);
+        if note.mpe {
+            out.extend(mpe_state.setup_messages(on, note.bend_range));
+            if let Some(channel) = mpe_state.allocate(on, off) {
+                note.channel = channel;
+            } else {
+                note.channel = MPE_MASTER_CHANNEL;
+                note.bend = None;
+            }
+        }
         if let Some(p) = note.program {
             out.push(TimedMidi {
                 at_seconds: on,
@@ -140,6 +328,12 @@ pub fn schedule_window(
             out.push(TimedMidi {
                 at_seconds: on,
                 data: note.cc_bytes(c, v).to_vec(),
+            });
+        }
+        if let Some(bytes) = note.pitch_bend_bytes() {
+            out.push(TimedMidi {
+                at_seconds: on,
+                data: bytes.to_vec(),
             });
         }
         out.push(TimedMidi {
@@ -290,17 +484,19 @@ fn run_scheduler<S: MidiSink>(
     let start = Instant::now();
     let mut scheduled_cycle = 0.0_f64;
     let mut pending: Vec<TimedMidi> = Vec::new();
+    let mut mpe_state = MpeState::new();
     while running.load(Ordering::Relaxed) {
         let cps_now = *cps.lock().unwrap();
         let now = start.elapsed().as_secs_f64();
         let target_cycle = (now + LOOKAHEAD) * cps_now;
         if target_cycle > scheduled_cycle {
             let pat = pattern.read().unwrap().clone();
-            pending.extend(schedule_window(
+            pending.extend(schedule_window_with_state(
                 &pat,
                 cps_now,
                 scheduled_cycle,
                 target_cycle,
+                &mut mpe_state,
             ));
             pending.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
             scheduled_cycle = target_cycle;
@@ -312,9 +508,9 @@ fn run_scheduler<S: MidiSink>(
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    // All-notes-off on the channels we touched would be ideal; send a coarse
-    // reset on channel 0 so a held note doesn't hang.
-    sink.send(&[CONTROL_CHANGE, 123, 0]);
+    for message in reset_messages() {
+        sink.send(&message);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +759,83 @@ mod tests {
         // sorted by time and first message is the first note-on
         assert_eq!(msgs[0].data[0] & 0xF0, NOTE_ON);
         assert!(msgs.windows(2).all(|w| w[0].at_seconds <= w[1].at_seconds));
+    }
+
+    #[test]
+    fn freq_uses_mpe_with_centered_bend() {
+        let pat = rudel_core::freq(pure(Value::F64(440.0)));
+        let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+        let data: Vec<Vec<u8>> = msgs.into_iter().map(|m| m.data).collect();
+        assert!(data.contains(&vec![0xB0, 101, 0])); // MPE setup starts on master
+        assert!(data.contains(&vec![0xB1, 6, 2])); // default member bend range
+        assert!(data.contains(&vec![0xE1, 0, 64])); // centered bend on member ch 2
+        assert!(data.contains(&vec![0x91, 69, clamp7(0.9 * 127.0)]));
+        assert!(data.contains(&vec![0x81, 69, 0]));
+    }
+
+    #[test]
+    fn fractional_pitch_emits_bend_before_note_on() {
+        let pat = note(pure(Value::F64(60.25)));
+        let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+        let data: Vec<Vec<u8>> = msgs.into_iter().map(|m| m.data).collect();
+        let bend = pitch_bend_bytes(1, bend_value(60.25, 60, DEFAULT_BEND_RANGE)).to_vec();
+        let bend_idx = data.iter().position(|m| *m == bend).unwrap();
+        let note_idx = data
+            .iter()
+            .position(|m| *m == vec![0x91, 60, clamp7(0.9 * 127.0)])
+            .unwrap();
+        assert!(bend_idx < note_idx);
+        assert!(data.contains(&vec![0x81, 60, 0]));
+    }
+
+    #[test]
+    fn overlapping_mpe_notes_use_different_member_channels() {
+        let pat =
+            rudel_core::stack(&[note(pure(Value::F64(60.25))), note(pure(Value::F64(64.25)))]);
+        let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+        let mut channels: Vec<u8> = msgs
+            .iter()
+            .filter(|m| m.data.first().map(|b| b & 0xF0) == Some(NOTE_ON))
+            .map(|m| m.data[0] & 0x0F)
+            .collect();
+        channels.sort();
+        assert_eq!(channels, vec![1, 2]);
+    }
+
+    #[test]
+    fn bend_range_changes_mpe_scaling() {
+        let pat = note(pure(Value::F64(60.25))).bend_range(12.0);
+        let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+        let data: Vec<Vec<u8>> = msgs.into_iter().map(|m| m.data).collect();
+        assert!(data.contains(&vec![0xB1, 6, 12]));
+        assert!(data.contains(&pitch_bend_bytes(1, bend_value(60.25, 60, 12.0)).to_vec()));
+    }
+
+    #[test]
+    fn exhausted_mpe_channels_fall_back_to_master_unbent() {
+        let pats: Vec<Pattern> = (0..16)
+            .map(|n| note(pure(Value::F64(60.25 + n as f64))))
+            .collect();
+        let pat = rudel_core::stack(&pats);
+        let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+        let note_on_channels: Vec<u8> = msgs
+            .iter()
+            .filter(|m| m.data.first().map(|b| b & 0xF0) == Some(NOTE_ON))
+            .map(|m| m.data[0] & 0x0F)
+            .collect();
+        assert_eq!(note_on_channels.len(), 16);
+        assert!(note_on_channels.contains(&MPE_MASTER_CHANNEL));
+        assert!(!msgs.iter().any(|m| m.data[0] == PITCH_BEND)); // no master bend
+    }
+
+    #[test]
+    fn reset_clears_all_channels_and_centers_bends() {
+        let reset = reset_messages();
+        assert_eq!(reset.len(), 32);
+        for ch in 0..16 {
+            assert!(reset.contains(&vec![CONTROL_CHANGE | ch, 123, 0]));
+            assert!(reset.contains(&vec![PITCH_BEND | ch, 0, 64]));
+        }
     }
 
     #[test]

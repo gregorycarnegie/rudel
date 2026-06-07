@@ -18,8 +18,10 @@ pub mod state;
 pub mod timespan;
 pub mod tonal;
 pub mod transforms;
+mod tune_table;
 pub mod value;
 pub mod voicing;
+pub mod xen;
 
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
@@ -42,11 +44,13 @@ pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
 pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat};
 // Controls (also available as chaining methods on `Pattern`).
-pub use controls::{control_dyn, lpf, lpq, n, note, s, sound};
+pub use controls::{bend_range, control_dyn, freq, i, lpf, lpq, mpe, n, note, s, sound};
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
 pub use input::{cc_in, clear_cc, get_cc, set_cc};
 // Tonal: note names, scales, chords.
 pub use tonal::{chord_notes, note_to_midi, note_to_midi_with_octave, scale_offset, scale_step};
+// Xenharmonic helpers.
+pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
 pub use query::{ControlEvent, query_controls, to_control_map};
 

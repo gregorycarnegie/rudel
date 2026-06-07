@@ -836,6 +836,72 @@ fn mtranspose_ctranspose_fold_into_note() {
 }
 
 #[test]
+fn xen_via_koto_produces_freq_control() {
+    let pat = eval(r#"i("0 1").xen("12edo")"#).expect("eval");
+    let got = values(&pat, 0, 1);
+    match &got[0] {
+        Value::Map(m) => assert_eq!(m.get("freq").and_then(Value::as_f64), Some(220.0)),
+        other => panic!("expected freq map, got {other:?}"),
+    }
+    match &got[1] {
+        Value::Map(m) => {
+            let freq = m.get("freq").and_then(Value::as_f64).unwrap();
+            assert!((freq - 220.0 * 2f64.powf(1.0 / 12.0)).abs() < 1e-6);
+        }
+        other => panic!("expected freq map, got {other:?}"),
+    }
+}
+
+#[test]
+fn tune_mul_freq_chain_via_koto() {
+    let pat = eval(r#"i("0 1 2").tune("hexany15").mul(220).freq()"#).expect("eval");
+    let got = values(&pat, 0, 1);
+    assert_eq!(got.len(), 3);
+    match &got[0] {
+        Value::Map(m) => assert_eq!(m.get("freq").and_then(Value::as_f64), Some(220.0)),
+        other => panic!("expected freq map, got {other:?}"),
+    }
+    assert!(
+        got.iter()
+            .all(|v| matches!(v, Value::Map(m) if m.contains_key("freq")))
+    );
+}
+
+#[test]
+fn xen_ratio_array_and_with_base_via_koto() {
+    let pat = eval(r#"i("0 1 2").xen([1, 5/4, 3/2]).withBase(440)"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| match v {
+            Value::Map(m) => m.get("freq").and_then(Value::as_f64).unwrap(),
+            other => panic!("expected freq map, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(got, vec![440.0, 550.0, 660.0]);
+}
+
+#[test]
+fn get_freq_and_ftrans_aliases_via_koto() {
+    let pat = eval(r#"freq(getFreq("c3"))"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            let got = m.get("freq").and_then(Value::as_f64).unwrap();
+            let expected = rudel_core::midi_to_freq(rudel_core::note_to_midi("c3").unwrap() as f64);
+            assert!((got - expected).abs() < 1e-9);
+        }
+        other => panic!("expected freq map, got {other:?}"),
+    }
+
+    for src in [
+        r#"freq(200).fTrans([7, 31])"#,
+        r#"freq(200).fTranspose(7)"#,
+        r#"freq(200).ftranspose(7)"#,
+    ] {
+        assert!(eval(src).is_ok(), "should eval: {src}");
+    }
+}
+
+#[test]
 fn dry_control_sets_its_key() {
     let pat = eval(r#"note("c3").room(0.8).dry(0.3)"#).expect("eval");
     match &values(&pat, 0, 1)[0] {
