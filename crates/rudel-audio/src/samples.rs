@@ -433,7 +433,7 @@ fn wave_to_sample(wave: &Wave) -> Sample {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::PI;
+    use std::f32::consts::TAU;
 
     /// Write a minimal 16-bit mono PCM WAV so we can exercise the real decoder.
     fn write_wav(path: &Path, samples: &[f32], sample_rate: u32) {
@@ -466,7 +466,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("tone.wav");
         let samples: Vec<f32> = (0..4410)
-            .map(|i| (2.0 * PI * 220.0 * i as f32 / 44100.0).sin())
+            .map(|i| (TAU * 220.0 * i as f32 / 44100.0).sin())
             .collect();
         write_wav(&path, &samples, 44100);
 

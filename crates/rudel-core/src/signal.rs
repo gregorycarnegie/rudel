@@ -7,7 +7,7 @@ use crate::fraction::Frac;
 use crate::hap::Hap;
 use crate::pattern::{Pattern, fastcat, pure};
 use crate::value::Value;
-use std::f64::consts::PI;
+use std::f64::consts::TAU;
 
 /// A continuous pattern sampling `f` at the start of the query span.
 pub fn signal<F>(f: F) -> Pattern
@@ -39,15 +39,15 @@ pub fn isaw() -> Pattern {
 }
 /// Sine 0..1.
 pub fn sine() -> Pattern {
-    signal_f64(|t| (((2.0 * PI * t).sin()) + 1.0) / 2.0)
+    signal_f64(|t| (((TAU * t).sin()) + 1.0) / 2.0)
 }
 /// Bipolar sine -1..1.
 pub fn sine2() -> Pattern {
-    signal_f64(|t| (2.0 * PI * t).sin())
+    signal_f64(|t| (TAU * t).sin())
 }
 /// Cosine 0..1.
 pub fn cosine() -> Pattern {
-    signal_f64(|t| (((2.0 * PI * t).cos()) + 1.0) / 2.0)
+    signal_f64(|t| (((TAU * t).cos()) + 1.0) / 2.0)
 }
 /// Square 0..1.
 pub fn square() -> Pattern {
@@ -70,7 +70,7 @@ pub fn isaw2() -> Pattern {
 }
 /// Bipolar cosine -1..1.
 pub fn cosine2() -> Pattern {
-    signal_f64(|t| (2.0 * PI * t).cos())
+    signal_f64(|t| (TAU * t).cos())
 }
 /// Bipolar square -1..1.
 pub fn square2() -> Pattern {

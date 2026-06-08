@@ -74,10 +74,11 @@ fn edo_divisions(name: &str) -> Option<usize> {
 }
 
 fn tune_freqs(name: &str) -> Option<&'static [f64]> {
-    crate::tune_table::TUNE_SCALES
-        .iter()
-        .find(|scale| scale.name == name)
-        .map(|scale| scale.freqs)
+    let scales = crate::tune_table::TUNE_SCALES;
+    scales
+        .binary_search_by(|scale| scale.name.cmp(name))
+        .ok()
+        .map(|idx| scales[idx].freqs)
 }
 
 fn numeric_list(value: &Value) -> Option<Vec<f64>> {
@@ -421,6 +422,18 @@ mod tests {
 
     fn approx_eq(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-8, "expected {b}, got {a}");
+    }
+
+    #[test]
+    fn tune_scales_are_sorted_for_binary_search() {
+        for pair in crate::tune_table::TUNE_SCALES.windows(2) {
+            assert!(
+                pair[0].name < pair[1].name,
+                "tune scales must stay strictly sorted for binary search: {} before {}",
+                pair[0].name,
+                pair[1].name
+            );
+        }
     }
 
     #[test]

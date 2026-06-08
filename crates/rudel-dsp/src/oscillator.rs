@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::f32::consts::TAU;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Waveform {
@@ -25,7 +25,7 @@ impl Waveform {
     pub(crate) fn sample(self, phase: f32) -> f32 {
         let p = phase.rem_euclid(1.0);
         match self {
-            Waveform::Sine => (2.0 * PI * p).sin(),
+            Waveform::Sine => (TAU * p).sin(),
             Waveform::Saw => 2.0 * p - 1.0,
             Waveform::Square | Waveform::Pulse => {
                 if p < 0.5 {
@@ -94,7 +94,6 @@ pub(crate) fn build_additive(
     phases: Option<&[f32]>,
     base: AdditiveType,
 ) -> Vec<f32> {
-    let pi2 = 2.0 * PI;
     // Per-harmonic (real, imag) coefficients, scaled by magnitude and rotated.
     let coeffs: Vec<(f32, f32)> = partials
         .iter()
@@ -105,7 +104,7 @@ pub(crate) fn build_additive(
             if let Some(ph) = phases.and_then(|p| p.get(k)).copied()
                 && ph != 0.0
             {
-                let (c, s) = ((pi2 * ph).cos(), (pi2 * ph).sin());
+                let (c, s) = ((TAU * ph).cos(), (TAU * ph).sin());
                 (r, i) = (c * r - s * i, s * r + c * i);
             }
             (r, i)
@@ -117,7 +116,7 @@ pub(crate) fn build_additive(
         let t = idx as f32 / ADDITIVE_SIZE as f32;
         let mut acc = 0.0;
         for (k, &(r, i)) in coeffs.iter().enumerate() {
-            let ang = pi2 * (k + 1) as f32 * t;
+            let ang = TAU * (k + 1) as f32 * t;
             acc += r * ang.cos() + i * ang.sin();
         }
         *slot = acc;

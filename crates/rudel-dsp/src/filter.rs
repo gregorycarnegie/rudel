@@ -1,5 +1,5 @@
 use crate::envelope::{Adsr, adsr_value};
-use std::f32::consts::PI;
+use std::f32::consts::TAU;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Biquad {
@@ -58,7 +58,7 @@ impl Biquad {
     /// (`z1`/`z2`) so the cutoff can be modulated per sample.
     fn update(&mut self, kind: FilterKind, sample_rate: f32, freq: f32, q: f32) {
         let freq = freq.clamp(20.0, sample_rate * 0.45);
-        let w0 = 2.0 * PI * freq / sample_rate;
+        let w0 = TAU * freq / sample_rate;
         let (sin, cos) = w0.sin_cos();
         let alpha = sin / (2.0 * q.max(0.1));
         let a0 = 1.0 + alpha;

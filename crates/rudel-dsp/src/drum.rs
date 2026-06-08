@@ -2,7 +2,7 @@ use crate::filter::Biquad;
 use crate::voice::VoiceLike;
 use rudel_core::Value;
 use std::collections::BTreeMap;
-use std::f32::consts::PI;
+use std::f32::consts::{ FRAC_PI_2, TAU };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrumKind {
@@ -133,8 +133,8 @@ impl DrumVoice {
             rng: 0x9E37_79B9,
             filter,
             gain: params.gain,
-            left_gain: (pan * PI / 2.0).cos(),
-            right_gain: (pan * PI / 2.0).sin(),
+            left_gain: (pan * FRAC_PI_2).cos(),
+            right_gain: (pan * FRAC_PI_2).sin(),
             room: params.room,
             delay: params.delay,
             dry: params.dry,
@@ -156,7 +156,7 @@ impl DrumVoice {
     /// Advance the tonal oscillator at `freq` Hz and return sin(phase).
     fn osc(&mut self, freq: f32) -> f32 {
         self.phase = (self.phase + freq * self.dt).rem_euclid(1.0);
-        (2.0 * PI * self.phase).sin()
+        (TAU * self.phase).sin()
     }
 
     fn mono(&mut self) -> f32 {
@@ -221,7 +221,7 @@ impl DrumVoice {
             }
             DrumKind::Rd => {
                 // metallic partials + noise shimmer
-                let metal = (self.osc(5200.0) + (2.0 * PI * 8400.0 * t).sin()) * 0.2;
+                let metal = (self.osc(5200.0) + (TAU * 8400.0 * t).sin()) * 0.2;
                 let mut s = (metal + self.noise() * 0.5) * exp(0.4);
                 if let Some(f) = &mut self.filter {
                     s = f.process(s);

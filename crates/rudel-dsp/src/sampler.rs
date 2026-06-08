@@ -2,7 +2,7 @@ use crate::filter::Biquad;
 use crate::voice::VoiceLike;
 use rudel_core::Value;
 use std::collections::BTreeMap;
-use std::f32::consts::PI;
+use std::f32::consts::FRAC_PI_2;
 use std::sync::Arc;
 
 pub struct Sample {
@@ -213,8 +213,8 @@ impl SamplerVoice {
             step,
             end_pos: end,
             gain: params.gain,
-            left_gain: (pan * PI / 2.0).cos(),
-            right_gain: (pan * PI / 2.0).sin(),
+            left_gain: (pan * FRAC_PI_2).cos(),
+            right_gain: (pan * FRAC_PI_2).sin(),
             attack: params.attack,
             release: params.release,
             t: 0.0,

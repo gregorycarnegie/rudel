@@ -1,7 +1,7 @@
 use super::*;
 use rudel_core::Value;
 use std::collections::BTreeMap;
-use std::f32::consts::PI;
+use std::f32::consts::TAU;
 use std::sync::Arc;
 
 #[test]
@@ -720,7 +720,7 @@ fn sampler_plays_a_buffer_then_finishes() {
     let sr = 44100.0;
     let n = (sr * 0.1) as usize;
     let data: Vec<f32> = (0..n)
-        .map(|i| (2.0 * PI * 200.0 * i as f32 / sr).sin())
+        .map(|i| (TAU * 200.0 * i as f32 / sr).sin())
         .collect();
     let sample = Arc::new(Sample {
         data,
@@ -765,7 +765,7 @@ fn loop_plays_past_the_buffers_natural_length() {
     let sr = 44100.0;
     let n = (sr * 0.1) as usize;
     let data: Vec<f32> = (0..n)
-        .map(|i| (2.0 * PI * 200.0 * i as f32 / sr).sin())
+        .map(|i| (TAU * 200.0 * i as f32 / sr).sin())
         .collect();
     let sample = Arc::new(Sample {
         data,

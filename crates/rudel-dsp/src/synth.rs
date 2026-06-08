@@ -4,7 +4,7 @@ use crate::fm::FM_OPS;
 use crate::oscillator::{NoiseGen, NoiseKind, Waveform, sample_table};
 use crate::params::VoiceParams;
 use crate::voice::VoiceLike;
-use std::f32::consts::PI;
+use std::f32::consts::{TAU, FRAC_PI_2};
 
 /// superdough's dry/wet crossfade gain: full across one half of the range, then
 /// a linear fade across the other. `wetfade(d<0.5)=1`, then ramps down to 0.
@@ -76,8 +76,8 @@ impl Voice {
     pub fn new(params: VoiceParams, sample_rate: f32) -> Voice {
         let pan = params.pan.clamp(0.0, 1.0);
         // equal-power panning
-        let left_gain = (pan * PI / 2.0).cos();
-        let right_gain = (pan * PI / 2.0).sin();
+        let left_gain = (pan * FRAC_PI_2).cos();
+        let right_gain = (pan * FRAC_PI_2).sin();
         let hold_end = (params.duration + params.hold).max(params.adsr.attack);
         let mut filters = Vec::new();
         if params.lp.freq.is_some() {
@@ -154,7 +154,7 @@ impl Voice {
         if let Some(rate) = self.params.vib
             && rate > 0.0
         {
-            semis += self.params.vibmod * (2.0 * PI * rate * self.t).sin();
+            semis += self.params.vibmod * (TAU * rate * self.t).sin();
         }
         if let Some((adsr, min, max)) = self.pitch_env {
             semis += pitch_env_value(
