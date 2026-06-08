@@ -1,7 +1,8 @@
-// Plays a drum pattern from a directory of samples.
-// Each subfolder is a sound name (e.g. `bd/`, `sd/`, `hh/`) holding wav files.
-// Run with:  cargo run -p rudel-audio --example samples -- C:\path\to\samples
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Plays a drum pattern from a directory of samples.
+//! Each subfolder is a sound name (e.g. `bd/`, `sd/`, `hh/`) holding wav files.
+//!
+//! Run with: `cargo run -p rudel-audio --example samples -- C:\path\to\samples`
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use rudel_audio::Engine;
 

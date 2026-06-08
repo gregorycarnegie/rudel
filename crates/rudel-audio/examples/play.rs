@@ -1,6 +1,7 @@
-// Plays a mini-notation pattern for a few seconds through the default output.
-// Run with:  cargo run -p rudel-audio --example play
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Plays a mini-notation pattern for a few seconds through the default output.
+//!
+//! Run with: `cargo run -p rudel-audio --example play`
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use rudel_audio::Engine;
 

@@ -1,11 +1,12 @@
-// rudel-mini - Strudel mini-notation parser.
-// Parses strings like "bd [hh hh] <sd cp>*2" into rudel-core patterns.
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//! rudel-mini - Strudel mini-notation parser.
+//! Parses strings like "bd [hh hh] <sd cp>*2" into rudel-core patterns.
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use pest::Parser;
 use pest::iterators::Pair;
 use rudel_core::{Frac, Pattern, Value, fastcat, pure, randcat, silence, stack, timecat};
 
+/// The Pest-based parser for Rudel's mini-notation.
 #[derive(pest_derive::Parser)]
 #[grammar = "mini.pest"]
 struct MiniParser;

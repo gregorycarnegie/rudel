@@ -1,11 +1,15 @@
-// rudel-audio - real-time clock, lookahead scheduler and cpal output.
-// The scheduler maps cycle time to the audio sample clock and feeds timed
-// note events to a mixer running in the audio callback.
-// Clock approach mirrors strudel/packages/core/{zyklus,cyclist}.mjs.
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//! rudel-audio - real-time clock, lookahead scheduler and cpal output.
+//! The scheduler maps cycle time to the audio sample clock and feeds timed
+//! note events to a mixer running in the audio callback.
+//! Clock approach mirrors strudel/packages/core/{zyklus,cyclist}.mjs.
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
+#![warn(missing_docs)]
+
+/// Note event creation and scheduling logic.
 pub mod events;
 mod sample_map;
+/// In-memory audio sample bank and decoding utilities.
 pub mod samples;
 
 pub use events::{NoteEvent, collect_events, to_control_map};
@@ -23,13 +27,18 @@ use std::time::Duration;
 
 /// A simple stereo feedback delay line for the `delay` send bus.
 struct StereoDelay {
+    /// Circular buffer for the left channel delay line.
     left: Vec<f32>,
+    /// Circular buffer for the right channel delay line.
     right: Vec<f32>,
+    /// Current circular buffer read/write index.
     idx: usize,
+    /// Feedback amount (typically between 0.0 and 1.0).
     feedback: f32,
 }
 
 impl StereoDelay {
+    /// Create a new `StereoDelay` configured for the target sample rate, delay time, and feedback level.
     fn new(sample_rate: f32, time: f32, feedback: f32) -> StereoDelay {
         let len = (sample_rate * time).max(1.0) as usize;
         StereoDelay {
@@ -40,6 +49,7 @@ impl StereoDelay {
         }
     }
 
+    /// Process a single stereo input frame and return the delayed output frame.
     fn process(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
         let out_l = self.left[self.idx];
         let out_r = self.right[self.idx];
@@ -50,16 +60,20 @@ impl StereoDelay {
     }
 }
 
+/// Stores an `f64` value in an atomic variable by encoding it as binary bits.
 fn store_f64(a: &AtomicU64, v: f64) {
     a.store(v.to_bits(), Ordering::Relaxed);
 }
+/// Loads an `f64` value from an atomic variable by decoding its binary bits.
 fn load_f64(a: &AtomicU64) -> f64 {
     f64::from_bits(a.load(Ordering::Relaxed))
 }
 
 /// A playing voice plus its `cut` group and an optional choke ramp.
 struct ActiveVoice {
+    /// The actual synthesizer or sampler voice implementation.
     voice: Box<dyn VoiceLike>,
+    /// Optional cut group (e.g. for choking open/closed hi-hats).
     cut: Option<i32>,
     /// When choked, the remaining gain (ramps 1.0 → 0.0 over `CHOKE_SECS`).
     /// `None` means the voice is playing normally.
@@ -72,17 +86,26 @@ const CHOKE_SECS: f32 = 0.01;
 /// Mixes active voices and starts new ones as their onset time arrives. Lives
 /// in the audio callback.
 struct Mixer {
+    /// Channel receiver for note events from the scheduler thread.
     rx: Receiver<NoteEvent>,
+    /// List of note events scheduled in the future.
     pending: Vec<NoteEvent>,
+    /// List of voices currently rendering audio.
     active: Vec<ActiveVoice>,
+    /// Elapsed sample clock since the audio engine started.
     sample_clock: u64,
+    /// The output device sample rate.
     sample_rate: f32,
+    /// Atomic tracking of played frames, shared with the scheduling thread.
     played: Arc<AtomicU64>,
+    /// The global stereo delay line.
     delay: StereoDelay,
+    /// The global reverb effect unit.
     reverb: Box<dyn AudioUnit>,
 }
 
 impl Mixer {
+    /// Render a single stereo frame of audio, processing active voices and global effects.
     fn render_frame(&mut self) -> (f32, f32) {
         while let Ok(ev) = self.rx.try_recv() {
             self.pending.push(ev);
@@ -314,6 +337,7 @@ impl Engine {
         store_f64(&self.cps, cps);
     }
 
+    /// The sample rate of the audio engine output.
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate
     }
@@ -345,6 +369,7 @@ fn build_reverb(sample_rate: f32) -> Box<dyn AudioUnit> {
     unit
 }
 
+/// Writes rendered mixer output frames into a target slice buffer for cpal playback.
 fn write_frames<T>(data: &mut [T], channels: usize, mixer: &mut Mixer)
 where
     T: cpal::Sample + cpal::FromSample<f32>,
@@ -365,6 +390,7 @@ where
     }
 }
 
+/// Periodically queries the pattern and sends upcoming note events to the mixer.
 #[allow(clippy::too_many_arguments)]
 fn scheduler_loop(
     pattern: Arc<RwLock<Pattern>>,

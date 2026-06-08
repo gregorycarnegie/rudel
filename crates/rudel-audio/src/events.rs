@@ -12,7 +12,9 @@ pub use rudel_core::to_control_map;
 
 /// A note to be played at `onset_seconds` (in the audio clock's timeline).
 pub struct NoteEvent {
+    /// The onset time in seconds on the audio timeline.
     pub onset_seconds: f64,
+    /// The voice specification describing how to play this note.
     pub spec: VoiceSpec,
     /// Per-voice post-effects (crush/shape/distort/coarse/postgain).
     pub fx: PostFx,

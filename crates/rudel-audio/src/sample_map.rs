@@ -68,6 +68,8 @@ pub(crate) fn join_url(base: &str, v: &str) -> String {
     format!("{base}{sep}{path}")
 }
 
+/// Percent-encode the path component of an HTTP(S) URL, leaving the scheme,
+/// authority, and query parameters untouched.
 fn encode_http_url_path(url: &str) -> String {
     let Some(scheme_end) = url.find("://") else {
         return percent_encode_path(url);
@@ -91,6 +93,8 @@ fn encode_http_url_path(url: &str) -> String {
     )
 }
 
+/// Percent-encode arbitrary string paths by replacing unsafe characters with
+/// `%HEX` sequences. Already percent-encoded sequences are preserved.
 fn percent_encode_path(path: &str) -> String {
     let bytes = path.as_bytes();
     let mut out = String::with_capacity(path.len());
@@ -113,10 +117,12 @@ fn percent_encode_path(path: &str) -> String {
     out
 }
 
+/// Check if a byte represents an ASCII hex digit.
 fn is_hex(b: u8) -> bool {
     b.is_ascii_hexdigit()
 }
 
+/// Determine if a byte is safe to include in a path segment without percent-encoding.
 fn is_path_safe(b: u8) -> bool {
     b.is_ascii_alphanumeric()
         || matches!(

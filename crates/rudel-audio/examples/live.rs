@@ -1,7 +1,8 @@
-// Evaluates a Koto script into a pattern and plays it.
-// Pass a script as the first arg, or a default is used.
-// Run with:  cargo run -p rudel-audio --example live -- 'note("c4 e4 g4 b4").fast(2).room(0.4)'
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Evaluates a Koto script into a pattern and plays it.
+//! Pass a script as the first arg, or a default is used.
+//!
+//! Run with: `cargo run -p rudel-audio --example live -- 'note("c4 e4 g4 b4").fast(2).room(0.4)'`
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use rudel_audio::Engine;
 

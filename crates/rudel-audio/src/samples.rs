@@ -16,6 +16,7 @@ use std::sync::Arc;
 struct SampleGroup {
     /// MIDI note this group is tuned to, or `None` for an un-pitched sound.
     note: Option<i32>,
+    /// The decoded audio samples in this group.
     samples: Vec<Arc<Sample>>,
 }
 
@@ -28,13 +29,18 @@ pub struct SampleBank {
     bank_aliases: HashMap<String, String>,
 }
 
+/// A sample structure parsed and loaded, but not yet merged into a SampleBank.
 pub(crate) struct LoadedSample {
+    /// Name of the sound trigger (e.g. "bd").
     name: String,
+    /// MIDI note tuning of the sample, if note-keyed.
     note: Option<i32>,
+    /// Decoded audio sample data.
     sample: Arc<Sample>,
 }
 
 impl SampleBank {
+    /// Create a new empty `SampleBank`.
     pub fn new() -> SampleBank {
         SampleBank::default()
     }
@@ -50,6 +56,7 @@ impl SampleBank {
         self.push_into(name, Some(note), sample);
     }
 
+    /// Internal helper to push a sample into the corresponding group.
     fn push_into(&mut self, name: &str, note: Option<i32>, sample: Arc<Sample>) {
         let groups = self.map.entry(name.to_string()).or_default();
         match groups.iter_mut().find(|g| g.note == note) {
@@ -61,6 +68,7 @@ impl SampleBank {
         }
     }
 
+    /// Check if the bank contains any samples for the given sound name.
     pub fn contains(&self, name: &str) -> bool {
         self.map.contains_key(name)
     }
@@ -151,6 +159,7 @@ impl SampleBank {
         Ok(self.extend_loaded(loaded))
     }
 
+    /// Scans a directory and returns loaded sample data from immediate subdirectories.
     pub(crate) fn load_dir_entries(dir: &Path) -> Result<Vec<LoadedSample>, String> {
         let mut sample_dirs: Vec<PathBuf> = std::fs::read_dir(dir)
             .map_err(|e| format!("read_dir {dir:?}: {e}"))?
@@ -200,6 +209,7 @@ impl SampleBank {
         Ok(loaded.into_iter().map(|(_, sample)| sample).collect())
     }
 
+    /// Merges loaded samples into this bank, returning the count of added samples.
     pub(crate) fn extend_loaded(&mut self, loaded: Vec<LoadedSample>) -> usize {
         let count = loaded.len();
         for LoadedSample { name, note, sample } in loaded {
@@ -227,6 +237,7 @@ impl SampleBank {
         Ok(self.extend_loaded(loaded))
     }
 
+    /// Resolves the sample source (JSON, URL, directory) into loaded sample records.
     pub(crate) fn load_samples_source_entries(source: &str) -> Result<Vec<LoadedSample>, String> {
         let resolved = sample_map::resolve_special_paths(source.trim());
         // github: bases point at the repo's strudel.json.
@@ -272,6 +283,7 @@ impl SampleBank {
         Ok(self.extend_loaded(loaded))
     }
 
+    /// Parses and downloads/reads all files in a sample map JSON content.
     pub(crate) fn load_sample_map_entries(
         json: &str,
         base: &str,
@@ -321,6 +333,7 @@ impl SampleBank {
     }
 }
 
+/// Helper to determine if a URL scheme represents HTTP or HTTPS.
 fn is_http(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
 }
@@ -376,6 +389,7 @@ fn fetch_and_decode(url: &str) -> Result<Sample, String> {
     }
 }
 
+/// Helper to check if a file extension represents a supported audio format.
 fn is_audio_file(path: &Path) -> bool {
     matches!(
         path.extension()

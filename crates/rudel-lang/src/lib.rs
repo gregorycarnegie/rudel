@@ -1,7 +1,7 @@
-// rudel-lang - Koto scripting bindings for live-coding Rudel patterns.
-// Exposes the rudel-core builder API to Koto so users can type code that is
-// evaluated at runtime (Koto replaces JS as the live layer).
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//! rudel-lang - Koto scripting bindings for live-coding Rudel patterns.
+//! Exposes the rudel-core builder API to Koto so users can type code that is
+//! evaluated at runtime (Koto replaces JS as the live layer).
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
 mod bindings;
 mod preprocess;
