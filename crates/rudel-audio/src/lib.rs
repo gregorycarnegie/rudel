@@ -436,17 +436,51 @@ fn scheduler_loop(
     while running.load(Ordering::Relaxed) {
         let cps_now = load_f64(&cps);
         let now = played.load(Ordering::Relaxed) as f64 / sample_rate as f64;
-        let target_cycle = (now + lookahead) * cps_now;
-        if target_cycle > scheduled_cycle {
+        if let Some((begin_cycle, target_cycle)) =
+            next_schedule_window(scheduled_cycle, now, cps_now, lookahead)
+        {
             let pat = pattern.read().unwrap().clone();
             let bank = bank.read().unwrap();
-            for ev in collect_events(&pat, cps_now, scheduled_cycle, target_cycle, &bank) {
+            for ev in collect_events(&pat, cps_now, begin_cycle, target_cycle, &bank) {
                 let _ = tx.send(ev);
             }
             scheduled_cycle = target_cycle;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+fn next_schedule_window(
+    scheduled_cycle: f64,
+    now_seconds: f64,
+    cps: f64,
+    lookahead_seconds: f64,
+) -> Option<(f64, f64)> {
+    if cps <= 0.0
+        || lookahead_seconds <= 0.0
+        || !cps.is_finite()
+        || !now_seconds.is_finite()
+        || !lookahead_seconds.is_finite()
+    {
+        return None;
+    }
+
+    let current_cycle = now_seconds * cps;
+    let target_cycle = (now_seconds + lookahead_seconds) * cps;
+    if !current_cycle.is_finite() || !target_cycle.is_finite() || target_cycle <= current_cycle {
+        return None;
+    }
+
+    let cursor_in_window = scheduled_cycle.is_finite()
+        && scheduled_cycle >= current_cycle
+        && scheduled_cycle <= target_cycle;
+    let begin_cycle = if cursor_in_window {
+        scheduled_cycle
+    } else {
+        current_cycle
+    };
+
+    (target_cycle > begin_cycle).then_some((begin_cycle, target_cycle))
 }
 
 #[cfg(test)]
@@ -610,5 +644,26 @@ mod tests {
         assert_eq!(mixer.render_frame(), (0.5, 0.5));
         store_f64(&volume, 2.0);
         assert_eq!(mixer.render_frame(), (2.0, 2.0));
+    }
+
+    #[test]
+    fn scheduler_window_continues_with_stable_tempo() {
+        let (begin, end) = next_schedule_window(10.08, 10.0, 1.0, 0.1).unwrap();
+        assert!((begin - 10.08).abs() < 1e-9);
+        assert!((end - 10.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scheduler_window_recovers_when_cps_drops() {
+        let (begin, end) = next_schedule_window(20.2, 10.0, 0.5, 0.1).unwrap();
+        assert!((begin - 5.0).abs() < 1e-9);
+        assert!((end - 5.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scheduler_window_recovers_when_cps_jumps() {
+        let (begin, end) = next_schedule_window(5.05, 10.0, 2.0, 0.1).unwrap();
+        assert!((begin - 20.0).abs() < 1e-9);
+        assert!((end - 20.2).abs() < 1e-9);
     }
 }
