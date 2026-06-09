@@ -4,7 +4,7 @@ use crate::fm::FM_OPS;
 use crate::oscillator::{NoiseGen, NoiseKind, Waveform, sample_table};
 use crate::params::VoiceParams;
 use crate::voice::VoiceLike;
-use std::f32::consts::{TAU, FRAC_PI_2};
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 /// superdough's dry/wet crossfade gain: full across one half of the range, then
 /// a linear fade across the other. `wetfade(d<0.5)=1`, then ramps down to 0.

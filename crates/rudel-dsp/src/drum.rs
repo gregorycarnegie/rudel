@@ -2,7 +2,7 @@ use crate::filter::Biquad;
 use crate::voice::VoiceLike;
 use rudel_core::Value;
 use std::collections::BTreeMap;
-use std::f32::consts::{ FRAC_PI_2, TAU };
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrumKind {
