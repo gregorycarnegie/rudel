@@ -82,6 +82,8 @@ struct ActiveVoice {
 
 /// Fade time applied when a `cut`-group voice is choked (matches Strudel's 10ms).
 const CHOKE_SECS: f32 = 0.01;
+const DEFAULT_MASTER_VOLUME: f64 = 1.0;
+const MAX_MASTER_VOLUME: f64 = 2.0;
 
 /// Mixes active voices and starts new ones as their onset time arrives. Lives
 /// in the audio callback.
@@ -102,6 +104,8 @@ struct Mixer {
     delay: StereoDelay,
     /// The global reverb effect unit.
     reverb: Box<dyn AudioUnit>,
+    /// Master output volume, shared with the UI/control thread.
+    volume: Arc<AtomicU64>,
 }
 
 impl Mixer {
@@ -172,9 +176,14 @@ impl Mixer {
         let mut rout = [0.0f32; 2];
         self.reverb.tick(&[rl, rr], &mut rout);
 
+        let volume = load_f64(&self.volume) as f32;
+
         self.sample_clock += 1;
         self.played.store(self.sample_clock, Ordering::Relaxed);
-        (dl + delay_l + rout[0], dr + delay_r + rout[1])
+        (
+            (dl + delay_l + rout[0]) * volume,
+            (dr + delay_r + rout[1]) * volume,
+        )
     }
 }
 
@@ -186,6 +195,7 @@ pub struct Engine {
     running: Arc<AtomicBool>,
     bank: Arc<RwLock<SampleBank>>,
     played: Arc<AtomicU64>,
+    volume: Arc<AtomicU64>,
     sample_rate: f32,
 }
 
@@ -211,6 +221,8 @@ impl Engine {
         store_f64(&cps, 0.5); // Strudel default cps
         let running = Arc::new(AtomicBool::new(true));
         let bank = Arc::new(RwLock::new(SampleBank::new()));
+        let volume = Arc::new(AtomicU64::new(0));
+        store_f64(&volume, DEFAULT_MASTER_VOLUME);
 
         let mut mixer = Mixer {
             rx,
@@ -221,6 +233,7 @@ impl Engine {
             played: played.clone(),
             delay: StereoDelay::new(sample_rate, 1.0 / 6.0, 0.4),
             reverb: build_reverb(sample_rate),
+            volume: volume.clone(),
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
@@ -268,6 +281,7 @@ impl Engine {
             running,
             bank,
             played,
+            volume,
             sample_rate,
         })
     }
@@ -335,6 +349,22 @@ impl Engine {
     /// Set cycles per second (cps). `cpm`/`bpm` can be converted by the caller.
     pub fn set_cps(&self, cps: f64) {
         store_f64(&self.cps, cps);
+    }
+
+    /// Set the master audio output volume. `1.0` is unity; values above `1.0`
+    /// boost the mixed output up to the VLC-style maximum of `2.0` (200%).
+    pub fn set_volume(&self, volume: f64) {
+        let volume = if volume.is_finite() {
+            volume.max(0.0).min(MAX_MASTER_VOLUME)
+        } else {
+            DEFAULT_MASTER_VOLUME
+        };
+        store_f64(&self.volume, volume);
+    }
+
+    /// Current master audio output volume (`1.0` = 100%).
+    pub fn volume(&self) -> f64 {
+        load_f64(&self.volume)
     }
 
     /// The sample rate of the audio engine output.
@@ -423,6 +453,33 @@ fn scheduler_loop(
 mod tests {
     use super::*;
 
+    fn test_volume(value: f64) -> Arc<AtomicU64> {
+        let volume = Arc::new(AtomicU64::new(0));
+        store_f64(&volume, value);
+        volume
+    }
+
+    fn test_mixer(rx: crossbeam_channel::Receiver<NoteEvent>) -> Mixer {
+        test_mixer_with_volume(rx, test_volume(DEFAULT_MASTER_VOLUME))
+    }
+
+    fn test_mixer_with_volume(
+        rx: crossbeam_channel::Receiver<NoteEvent>,
+        volume: Arc<AtomicU64>,
+    ) -> Mixer {
+        Mixer {
+            rx,
+            pending: Vec::new(),
+            active: Vec::new(),
+            sample_clock: 0,
+            sample_rate: 44100.0,
+            played: Arc::new(AtomicU64::new(0)),
+            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
+            reverb: build_reverb(44100.0),
+            volume,
+        }
+    }
+
     #[test]
     fn stereo_delay_echoes_after_its_time() {
         let mut d = StereoDelay::new(1000.0, 0.01, 0.5); // 10-sample delay
@@ -441,16 +498,7 @@ mod tests {
     #[test]
     fn reverb_send_produces_a_tail() {
         let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
-        let mut mixer = Mixer {
-            rx,
-            pending: Vec::new(),
-            active: Vec::new(),
-            sample_clock: 0,
-            sample_rate: 44100.0,
-            played: Arc::new(AtomicU64::new(0)),
-            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
-            reverb: build_reverb(44100.0),
-        };
+        let mut mixer = test_mixer(rx);
         // a short note with a big reverb send
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69))).room(1.0);
         for ev in collect_events(&pat, 4.0, 0.0, 1.0, &SampleBank::new()) {
@@ -475,16 +523,7 @@ mod tests {
         // the second starts, the first should be choked to silence within the
         // ~10ms fade, leaving only one voice's worth of energy.
         let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
-        let mut mixer = Mixer {
-            rx,
-            pending: Vec::new(),
-            active: Vec::new(),
-            sample_clock: 0,
-            sample_rate: 44100.0,
-            played: Arc::new(AtomicU64::new(0)),
-            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
-            reverb: build_reverb(44100.0),
-        };
+        let mut mixer = test_mixer(rx);
         // A long held saw so the voice is still audible when the next one cuts it.
         let held = |onset: f64| NoteEvent {
             onset_seconds: onset,
@@ -521,16 +560,7 @@ mod tests {
         // Drive a Mixer directly (no audio device) and confirm a scheduled
         // note produces non-silent output once its onset passes.
         let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
-        let mut mixer = Mixer {
-            rx,
-            pending: Vec::new(),
-            active: Vec::new(),
-            sample_clock: 0,
-            sample_rate: 44100.0,
-            played: Arc::new(AtomicU64::new(0)),
-            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
-            reverb: build_reverb(44100.0),
-        };
+        let mut mixer = test_mixer(rx);
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)));
         let events = collect_events(&pat, 1.0, 0.0, 1.0, &SampleBank::new());
         for ev in events {
@@ -544,5 +574,41 @@ mod tests {
             peak = peak.max(l.abs());
         }
         assert!(peak > 0.0, "scheduled note should produce sound");
+    }
+
+    #[test]
+    fn master_volume_scales_the_final_mix() {
+        struct ConstVoice;
+
+        impl VoiceLike for ConstVoice {
+            fn tick(&mut self) -> (f32, f32) {
+                (1.0, 1.0)
+            }
+
+            fn is_done(&self) -> bool {
+                false
+            }
+
+            fn room(&self) -> f32 {
+                0.0
+            }
+
+            fn delay_send(&self) -> f32 {
+                0.0
+            }
+        }
+
+        let (_tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let volume = test_volume(0.5);
+        let mut mixer = test_mixer_with_volume(rx, volume.clone());
+        mixer.active.push(ActiveVoice {
+            voice: Box::new(ConstVoice),
+            cut: None,
+            choke_gain: None,
+        });
+
+        assert_eq!(mixer.render_frame(), (0.5, 0.5));
+        store_f64(&volume, 2.0);
+        assert_eq!(mixer.render_frame(), (2.0, 2.0));
     }
 }

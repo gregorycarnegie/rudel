@@ -21,6 +21,9 @@ const DEFAULT_CODE: &str = r#"stack(
   note("c2 ~ g2 ~").s("saw").lpf("400 1600").gain(0.6).delay(0.3)
 )"#;
 
+const DEFAULT_VOLUME_PERCENT: f32 = 100.0;
+const MAX_VOLUME_PERCENT: f32 = 200.0;
+
 /// Built-in synth waveforms + noise sources (always available as `s(...)`).
 const WAVEFORMS: &[&str] = &[
     "sine", "saw", "square", "triangle", "pulse", "user", "supersaw", "white", "pink", "brown",
@@ -262,6 +265,7 @@ struct RudelApp {
     eval_error: Option<String>,
     status: String,
     cps: f64,
+    volume_percent: f32,
     playing: bool,
     current: Option<Pattern>,
 
@@ -292,6 +296,7 @@ impl RudelApp {
         let (engine, audio_error) = match Engine::new() {
             Ok(e) => {
                 e.set_cps(0.5);
+                e.set_volume((DEFAULT_VOLUME_PERCENT / 100.0) as f64);
                 (Some(e), None)
             }
             Err(e) => (None, Some(e)),
@@ -303,6 +308,7 @@ impl RudelApp {
             eval_error: None,
             status: "ready".to_string(),
             cps: 0.5,
+            volume_percent: DEFAULT_VOLUME_PERCENT,
             playing: false,
             current: None,
             sample_dir: String::new(),
@@ -485,6 +491,13 @@ impl RudelApp {
         }
     }
 
+    fn set_volume_percent(&mut self, volume_percent: f32) {
+        self.volume_percent = volume_percent.max(0.0).min(MAX_VOLUME_PERCENT);
+        if let Some(e) = &self.engine {
+            e.set_volume((self.volume_percent / 100.0) as f64);
+        }
+    }
+
     /// Split the current pattern across the audio / MIDI / OSC back-ends.
     ///
     /// Per-pattern `.midi()` / `.osc()` tags always route to their back-end;
@@ -655,6 +668,20 @@ impl RudelApp {
                     .changed()
                 {
                     self.set_cps(cps);
+                }
+                ui.separator();
+                ui.label("vol");
+                let mut volume_percent = self.volume_percent;
+                if ui
+                    .add_sized(
+                        [100.0, 18.0],
+                        egui::Slider::new(&mut volume_percent, 0.0..=MAX_VOLUME_PERCENT)
+                            .fixed_decimals(0)
+                            .suffix("%"),
+                    )
+                    .changed()
+                {
+                    self.set_volume_percent(volume_percent);
                 }
                 ui.separator();
                 ui.label("out");
@@ -1015,6 +1042,7 @@ mod tests {
             eval_error: None,
             status: String::new(),
             cps: 0.5,
+            volume_percent: DEFAULT_VOLUME_PERCENT,
             playing: false,
             current: None,
             sample_dir: String::new(),
@@ -1041,6 +1069,16 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(app.cps, 0.75);
+    }
+
+    #[test]
+    fn volume_percent_clamps_to_vlc_style_range() {
+        let mut app = app_without_engine();
+        app.set_volume_percent(250.0);
+        assert_eq!(app.volume_percent, MAX_VOLUME_PERCENT);
+
+        app.set_volume_percent(-10.0);
+        assert_eq!(app.volume_percent, 0.0);
     }
 
     #[test]
