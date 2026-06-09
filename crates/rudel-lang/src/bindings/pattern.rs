@@ -289,6 +289,104 @@ fn with_instance(
     Ok(KPattern::wrap(f(&instance.0)))
 }
 
+fn with_pattern_arg(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, Pattern) -> Pattern,
+) -> KotoResult<KValue> {
+    let arg = method_pattern_arg(ctx, 0);
+    with_instance(ctx, |pat| f(pat, arg))
+}
+
+fn with_literal_or_pattern_arg(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, Pattern) -> Pattern,
+) -> KotoResult<KValue> {
+    let arg = method_literal_or_pattern_arg(ctx, 0);
+    with_instance(ctx, |pat| f(pat, arg))
+}
+
+fn with_i64_arg(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, i64) -> Pattern,
+) -> KotoResult<KValue> {
+    let n = method_i64_arg(ctx, 0);
+    with_instance(ctx, |pat| f(pat, n))
+}
+
+fn with_frac_arg(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, Frac) -> Pattern,
+) -> KotoResult<KValue> {
+    let n = method_frac_arg(ctx, 0);
+    with_instance(ctx, |pat| f(pat, n))
+}
+
+fn with_pattern_pattern_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, Pattern, Pattern) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_pattern_arg(ctx, 0);
+    let b = method_pattern_arg(ctx, 1);
+    with_instance(ctx, |pat| f(pat, a, b))
+}
+
+fn with_frac_frac_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, Frac, Frac) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_frac_arg(ctx, 0);
+    let b = method_frac_arg(ctx, 1);
+    with_instance(ctx, |pat| f(pat, a, b))
+}
+
+fn with_f64_f64_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, f64, f64) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_f64_arg(ctx, 0);
+    let b = method_f64_arg(ctx, 1);
+    with_instance(ctx, |pat| f(pat, a, b))
+}
+
+fn with_i64_i64_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, i64, i64) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_i64_arg(ctx, 0);
+    let b = method_i64_arg(ctx, 1);
+    with_instance(ctx, |pat| f(pat, a, b))
+}
+
+fn with_i64_i64_i64_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, i64, i64, i64) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_i64_arg(ctx, 0);
+    let b = method_i64_arg(ctx, 1);
+    let c = method_i64_arg(ctx, 2);
+    with_instance(ctx, |pat| f(pat, a, b, c))
+}
+
+fn with_i64_frac_f64_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, i64, Frac, f64) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_i64_arg(ctx, 0);
+    let b = method_frac_arg(ctx, 1);
+    let c = method_f64_arg(ctx, 2);
+    with_instance(ctx, |pat| f(pat, a, b, c))
+}
+
+fn with_i64_f64_frac_args(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, i64, f64, Frac) -> Pattern,
+) -> KotoResult<KValue> {
+    let a = method_i64_arg(ctx, 0);
+    let b = method_f64_arg(ctx, 1);
+    let c = method_frac_arg(ctx, 2);
+    with_instance(ctx, |pat| f(pat, a, b, c))
+}
+
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the
 /// engine's higher-order combinators (`every`, `jux`, `sometimes`, ...) expect.
 ///
@@ -398,6 +496,244 @@ fn with_callback(
     Ok(KPattern::wrap(result))
 }
 
+/// `pat.layer([f, g, ...])`: stack the results of applying each function in
+/// the list to the pattern. Accepts a list/tuple of callables, or bare callable
+/// args.
+fn kpattern_layer(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let funcs = collect_callables(&ctx.args);
+    let mut results = Vec::with_capacity(funcs.len());
+    let mut first_err = None;
+    for func in funcs {
+        let cb = Callback::new(&ctx, func);
+        results.push(cb.apply(&pat));
+        if let Err(e) = cb.finish() {
+            first_err.get_or_insert(e);
+        }
+    }
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+    Ok(KPattern::wrap(rudel_core::stack(&results)))
+}
+
+/// `pat.fmap(f)`: Strudel's value-level mapper. The Koto VM isn't Send+Sync,
+/// so map one probe window eagerly and repeat that shape.
+fn kpattern_fmap(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    const PROBE: i64 = 16;
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let haps = pat
+        .query_arc(Frac::zero(), Frac::int(PROBE))
+        .into_iter()
+        .map(|hap| hap.with_value(|v| cb.apply_value(v)))
+        .collect();
+    cb.finish()?;
+    Ok(KPattern::wrap(static_period_pattern(
+        haps,
+        pat.steps,
+        Frac::int(PROBE),
+    )))
+}
+
+/// `pat.arp_with(|chord| ...)`: arpeggiate chords, transforming each chord
+/// (presented as a sequence of its notes) with a callback.
+///
+/// The callback can't run in the (Send+Sync) query path because the Koto VM
+/// isn't Send, so we evaluate it eagerly here: probe the distinct chords over
+/// the first `PROBE` cycles, run the callback on each, and bake the results
+/// into a lookup the query path consults. Chords first appearing after the
+/// probe window fall back to silence.
+fn kpattern_arp_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    const PROBE: i64 = 16;
+    let collected = ctx.instance()?.0.collect();
+    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let mut table: HashMap<String, Pattern> = HashMap::new();
+    for cycle in 0..PROBE {
+        for hap in collected.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
+            if let Value::List(notes) = &hap.value {
+                let sig = value_sig(&hap.value);
+                if !table.contains_key(&sig) {
+                    let pats: Vec<Pattern> = notes.iter().cloned().map(rudel_core::pure).collect();
+                    let chord = rudel_core::fastcat(&pats);
+                    table.insert(sig, cb.apply(&chord));
+                }
+            }
+        }
+    }
+    cb.finish()?;
+    let table = Arc::new(table);
+    let result = collected.inner_bind(move |value| match &value {
+        Value::List(_) => table
+            .get(&value_sig(&value))
+            .cloned()
+            .unwrap_or_else(rudel_core::silence),
+        _ => rudel_core::silence(),
+    });
+    Ok(KPattern::wrap(result))
+}
+
+fn kpattern_voicings(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let dict = match method_arg(&ctx, 0) {
+        KValue::Str(s) => s.to_string(),
+        _ => "legacy".to_string(),
+    };
+    with_instance(&ctx, |pat| pat.voicings(dict.clone()))
+}
+
+fn kpattern_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let name = match method_arg(&ctx, 0) {
+        KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
+        other => arg_to_pattern(&other),
+    };
+    with_instance(&ctx, |pat| pat.scale(name))
+}
+
+fn kpattern_i(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    if ctx.args.is_empty() {
+        with_instance(&ctx, |pat| pat.wrap_control("i"))
+    } else {
+        with_pattern_arg(&ctx, |pat, arg| pat.i(arg))
+    }
+}
+
+fn kpattern_freq(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    if ctx.args.is_empty() {
+        with_instance(&ctx, |pat| pat.wrap_control("freq"))
+    } else {
+        with_pattern_arg(&ctx, |pat, arg| pat.freq(arg))
+    }
+}
+
+fn kpattern_tune(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_literal_or_pattern_arg(&ctx, |pat, scale| pat.tune(scale))
+}
+
+fn kpattern_xen(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_literal_or_pattern_arg(&ctx, |pat, scale| pat.xen(scale))
+}
+
+fn kpattern_with_base(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_literal_or_pattern_arg(&ctx, |pat, base| pat.with_base(base))
+}
+
+fn kpattern_ftrans(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_literal_or_pattern_arg(&ctx, |pat, amount| pat.ftrans(amount))
+}
+
+fn kpattern_ftranspose(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_literal_or_pattern_arg(&ctx, |pat, amount| pat.ftrans(amount))
+}
+
+fn kpattern_partials(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let v = koto_to_value(&method_arg(&ctx, 0));
+    with_instance(&ctx, |pat| {
+        pat.ctrl("partials", rudel_core::pure(v.clone()))
+    })
+}
+
+fn kpattern_phases(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let v = koto_to_value(&method_arg(&ctx, 0));
+    with_instance(&ctx, |pat| pat.ctrl("phases", rudel_core::pure(v.clone())))
+}
+
+fn kpattern_ctrl(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let name = match method_arg(&ctx, 0) {
+        KValue::Str(s) => s.to_string(),
+        other => return runtime_error!("ctrl: expected a control name string, got {other:?}"),
+    };
+    let value = method_pattern_arg(&ctx, 1);
+    with_instance(&ctx, |pat| pat.ctrl(name.clone(), value.clone()))
+}
+
+fn kpattern_sound(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_pattern_arg(&ctx, |pat, arg| pat.s(arg))
+}
+
+fn kpattern_struct_alias(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_pattern_arg(&ctx, |pat, arg| pat.struct_pat(arg))
+}
+
+fn kpattern_pick(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let selector = ctx.instance()?.0.clone();
+    let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
+        return Ok(KPattern::wrap(rudel_core::silence()));
+    };
+    Ok(KPattern::wrap(pick_from_lookup(lookup, selector, false)))
+}
+
+fn kpattern_pickmod(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let selector = ctx.instance()?.0.clone();
+    let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
+        return Ok(KPattern::wrap(rudel_core::silence()));
+    };
+    Ok(KPattern::wrap(pick_from_lookup(lookup, selector, true)))
+}
+
+fn kpattern_loop_play(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_pattern_arg(&ctx, |pat, arg| pat.loop_play(arg))
+}
+
+fn kpattern_loop_begin(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_pattern_arg(&ctx, |pat, arg| pat.loop_begin(arg))
+}
+
+fn kpattern_loop_end(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_pattern_arg(&ctx, |pat, arg| pat.loop_end(arg))
+}
+
+fn kpattern_p(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let name = match method_arg(&ctx, 0) {
+        KValue::Str(s) => s.to_string(),
+        KValue::Number(n) => n.to_string(),
+        _ => String::new(),
+    };
+    with_instance(&ctx, |pat| {
+        pat.ctrl("id", rudel_core::pure(Value::Str(name.clone())))
+    })
+}
+
+fn kpattern_midi(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let port = match method_arg(&ctx, 0) {
+        KValue::Str(s) => Some(s.to_string()),
+        _ => None,
+    };
+    with_instance(&ctx, |pat| {
+        let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("midi".into())));
+        if let Some(port) = &port {
+            p = p.ctrl("_midiport", rudel_core::pure(Value::Str(port.clone())));
+        }
+        p
+    })
+}
+
+fn kpattern_osc(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let target = match method_arg(&ctx, 0) {
+        KValue::Str(s) => Some(s.to_string()),
+        _ => None,
+    };
+    with_instance(&ctx, |pat| {
+        let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("osc".into())));
+        if let Some((host, port)) = target.as_deref().and_then(|t| t.rsplit_once(':'))
+            && let Ok(port) = port.parse::<i64>()
+        {
+            p = p.ctrl("oschost", rudel_core::pure(Value::Str(host.to_string())));
+            p = p.ctrl("oscport", rudel_core::pure(Value::Int(port)));
+        }
+        p
+    })
+}
+
+fn kpattern_chord(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    if ctx.args.is_empty() {
+        with_instance(&ctx, |pat| pat.chord())
+    } else {
+        with_pattern_arg(&ctx, |pat, arg| {
+            pat.set(rudel_core::control_dyn("chord", arg))
+        })
+    }
+}
+
 macro_rules! kpattern_methods {
     (
         pattern_arg: [$($pattern_arg_method:ident),* $(,)?],
@@ -419,6 +755,7 @@ macro_rules! kpattern_methods {
         frac_frac_fn_arg: [$($frac_frac_fn_arg_method:ident),* $(,)?],
         // CamelCase alias groups: each maps Camel => snake
         camel_pattern: [$($camel_pattern:ident => $snake_pattern:ident),* $(,)?],
+        camel_literal_or_pattern: [$($camel_literal_or_pattern:ident => $snake_literal_or_pattern:ident),* $(,)?],
         camel_no_arg: [$($camel_no_arg:ident => $snake_no_arg:ident),* $(,)?],
         camel_noarg_fn: [$($camel_noarg_fn:ident => $snake_noarg_fn:ident),* $(,)?],
         camel_i64: [$($camel_i64:ident => $snake_i64:ident),* $(,)?],
@@ -434,8 +771,7 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 fn $pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let arg = method_pattern_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.$pattern_arg_method(arg))
+                    with_pattern_arg(&ctx, |pat, arg| pat.$pattern_arg_method(arg))
                 }
             )*
 
@@ -449,82 +785,63 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 fn $i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_i64_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.$i64_arg_method(n))
+                    with_i64_arg(&ctx, |pat, n| pat.$i64_arg_method(n))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_frac_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.$frac_arg_method(n))
+                    with_frac_arg(&ctx, |pat, n| pat.$frac_arg_method(n))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $pattern_pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_pattern_arg(&ctx, 0);
-                    let b = method_pattern_arg(&ctx, 1);
-                    with_instance(&ctx, |pat| pat.$pattern_pattern_arg_method(a, b))
+                    with_pattern_pattern_args(&ctx, |pat, a, b| pat.$pattern_pattern_arg_method(a, b))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $frac_frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_frac_arg(&ctx, 0);
-                    let b = method_frac_arg(&ctx, 1);
-                    with_instance(&ctx, |pat| pat.$frac_frac_arg_method(a, b))
+                    with_frac_frac_args(&ctx, |pat, a, b| pat.$frac_frac_arg_method(a, b))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $f64_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_f64_arg(&ctx, 0);
-                    let b = method_f64_arg(&ctx, 1);
-                    with_instance(&ctx, |pat| pat.$f64_f64_arg_method(a, b))
+                    with_f64_f64_args(&ctx, |pat, a, b| pat.$f64_f64_arg_method(a, b))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $i64_i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_i64_arg(&ctx, 0);
-                    let b = method_i64_arg(&ctx, 1);
-                    with_instance(&ctx, |pat| pat.$i64_i64_arg_method(a, b))
+                    with_i64_i64_args(&ctx, |pat, a, b| pat.$i64_i64_arg_method(a, b))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $i64_i64_i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_i64_arg(&ctx, 0);
-                    let b = method_i64_arg(&ctx, 1);
-                    let c = method_i64_arg(&ctx, 2);
-                    with_instance(&ctx, |pat| pat.$i64_i64_i64_arg_method(a, b, c))
+                    with_i64_i64_i64_args(&ctx, |pat, a, b, c| pat.$i64_i64_i64_arg_method(a, b, c))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $i64_frac_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_i64_arg(&ctx, 0);
-                    let b = method_frac_arg(&ctx, 1);
-                    let c = method_f64_arg(&ctx, 2);
-                    with_instance(&ctx, |pat| pat.$i64_frac_f64_arg_method(a, b, c))
+                    with_i64_frac_f64_args(&ctx, |pat, a, b, c| pat.$i64_frac_f64_arg_method(a, b, c))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $i64_f64_frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_i64_arg(&ctx, 0);
-                    let b = method_f64_arg(&ctx, 1);
-                    let c = method_frac_arg(&ctx, 2);
-                    with_instance(&ctx, |pat| pat.$i64_f64_frac_arg_method(a, b, c))
+                    with_i64_f64_frac_args(&ctx, |pat, a, b, c| pat.$i64_f64_frac_arg_method(a, b, c))
                 }
             )*
 
@@ -583,41 +900,14 @@ macro_rules! kpattern_methods {
             // callables, or bare callable args.
             #[koto_method]
             fn layer(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let pat = ctx.instance()?.0.clone();
-                let funcs = collect_callables(&ctx.args);
-                let mut results = Vec::with_capacity(funcs.len());
-                let mut first_err = None;
-                for func in funcs {
-                    let cb = Callback::new(&ctx, func);
-                    results.push(cb.apply(&pat));
-                    if let Err(e) = cb.finish() {
-                        first_err.get_or_insert(e);
-                    }
-                }
-                if let Some(e) = first_err {
-                    return Err(e);
-                }
-                Ok(KPattern::wrap(rudel_core::stack(&results)))
+                kpattern_layer(ctx)
             }
 
             // `pat.fmap(f)`: Strudel's value-level mapper. The Koto VM isn't
             // Send+Sync, so map one cycle eagerly and repeat that shape.
             #[koto_method]
             fn fmap(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                const PROBE: i64 = 16;
-                let pat = ctx.instance()?.0.clone();
-                let cb = Callback::new(&ctx, method_arg(&ctx, 0));
-                let haps = pat
-                    .query_arc(Frac::zero(), Frac::int(PROBE))
-                    .into_iter()
-                    .map(|hap| hap.with_value(|v| cb.apply_value(v)))
-                    .collect();
-                cb.finish()?;
-                Ok(KPattern::wrap(static_period_pattern(
-                    haps,
-                    pat.steps,
-                    Frac::int(PROBE),
-                )))
+                kpattern_fmap(ctx)
             }
 
             // CamelCase aliases: generate small wrappers that call the
@@ -628,8 +918,15 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let arg = method_pattern_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.$snake_pattern(arg.clone()))
+                    with_pattern_arg(&ctx, |pat, arg| pat.$snake_pattern(arg))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                #[allow(non_snake_case)]
+                fn $camel_literal_or_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    with_literal_or_pattern_arg(&ctx, |pat, arg| pat.$snake_literal_or_pattern(arg))
                 }
             )*
 
@@ -653,8 +950,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_i64_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.$snake_i64(n))
+                    with_i64_arg(&ctx, |pat, n| pat.$snake_i64(n))
                 }
             )*
 
@@ -662,8 +958,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_frac(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_frac_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.$snake_frac(n))
+                    with_frac_arg(&ctx, |pat, n| pat.$snake_frac(n))
                 }
             )*
 
@@ -671,9 +966,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_frac_frac(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_frac_arg(&ctx, 0);
-                    let b = method_frac_arg(&ctx, 1);
-                    with_instance(&ctx, |pat| pat.$snake_frac_frac(a, b))
+                    with_frac_frac_args(&ctx, |pat, a, b| pat.$snake_frac_frac(a, b))
                 }
             )*
 
@@ -681,9 +974,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_i64_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_i64_arg(&ctx, 0);
-                    let b = method_i64_arg(&ctx, 1);
-                    with_instance(&ctx, |pat| pat.$snake_i64_i64(a, b))
+                    with_i64_i64_args(&ctx, |pat, a, b| pat.$snake_i64_i64(a, b))
                 }
             )*
 
@@ -691,10 +982,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_i64_i64_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_i64_arg(&ctx, 0);
-                    let b = method_i64_arg(&ctx, 1);
-                    let c = method_i64_arg(&ctx, 2);
-                    with_instance(&ctx, |pat| pat.$snake_i64_i64_i64(a, b, c))
+                    with_i64_i64_i64_args(&ctx, |pat, a, b, c| pat.$snake_i64_i64_i64(a, b, c))
                 }
             )*
 
@@ -728,102 +1016,53 @@ macro_rules! kpattern_methods {
             // Chords first appearing after the probe window fall back to silence.
             #[koto_method]
             fn arp_with(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                const PROBE: i64 = 16;
-                let collected = ctx.instance()?.0.collect();
-                let cb = Callback::new(&ctx, method_arg(&ctx, 0));
-                let mut table: HashMap<String, Pattern> = HashMap::new();
-                for cycle in 0..PROBE {
-                    for hap in collected.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
-                        if let Value::List(notes) = &hap.value {
-                            let sig = value_sig(&hap.value);
-                            if !table.contains_key(&sig) {
-                                let pats: Vec<Pattern> =
-                                    notes.iter().cloned().map(rudel_core::pure).collect();
-                                let chord = rudel_core::fastcat(&pats);
-                                table.insert(sig, cb.apply(&chord));
-                            }
-                        }
-                    }
-                }
-                cb.finish()?;
-                let table = Arc::new(table);
-                let result = collected.inner_bind(move |value| match &value {
-                    Value::List(_) => table
-                        .get(&value_sig(&value))
-                        .cloned()
-                        .unwrap_or_else(rudel_core::silence),
-                    _ => rudel_core::silence(),
-                });
-                Ok(KPattern::wrap(result))
+                kpattern_arp_with(ctx)
             }
 
             // `pat.voicings("lefthand")`: voice chords with a named dictionary.
             #[koto_method]
             fn voicings(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let dict = match method_arg(&ctx, 0) {
-                    KValue::Str(s) => s.to_string(),
-                    _ => "legacy".to_string(),
-                };
-                with_instance(&ctx, |pat| pat.voicings(dict.clone()))
+                kpattern_voicings(ctx)
             }
 
             #[koto_method]
             fn scale(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let name = match method_arg(&ctx, 0) {
-                    KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
-                    other => arg_to_pattern(&other),
-                };
-                with_instance(&ctx, |pat| pat.scale(name))
+                kpattern_scale(ctx)
             }
 
             #[koto_method]
             fn i(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                if ctx.args.is_empty() {
-                    with_instance(&ctx, |pat| pat.wrap_control("i"))
-                } else {
-                    let arg = method_pattern_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.i(arg.clone()))
-                }
+                kpattern_i(ctx)
             }
 
             #[koto_method]
             fn freq(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                if ctx.args.is_empty() {
-                    with_instance(&ctx, |pat| pat.wrap_control("freq"))
-                } else {
-                    let arg = method_pattern_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| pat.freq(arg.clone()))
-                }
+                kpattern_freq(ctx)
             }
 
             #[koto_method]
             fn tune(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let scale = method_literal_or_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.tune(scale.clone()))
+                kpattern_tune(ctx)
             }
 
             #[koto_method]
             fn xen(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let scale = method_literal_or_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.xen(scale.clone()))
+                kpattern_xen(ctx)
             }
 
             #[koto_method]
             fn with_base(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let base = method_literal_or_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.with_base(base.clone()))
+                kpattern_with_base(ctx)
             }
 
             #[koto_method]
             fn ftrans(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let amount = method_literal_or_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.ftrans(amount.clone()))
+                kpattern_ftrans(ctx)
             }
 
             #[koto_method]
             fn ftranspose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let amount = method_literal_or_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.ftrans(amount.clone()))
+                kpattern_ftranspose(ctx)
             }
 
             // `bendRange` alias generated above.
@@ -836,74 +1075,54 @@ macro_rules! kpattern_methods {
             // phase offsets. The value is the whole list, applied to every event.
             #[koto_method]
             fn partials(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let v = koto_to_value(&method_arg(&ctx, 0));
-                with_instance(&ctx, |pat| pat.ctrl("partials", rudel_core::pure(v.clone())))
+                kpattern_partials(ctx)
             }
 
             #[koto_method]
             fn phases(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let v = koto_to_value(&method_arg(&ctx, 0));
-                with_instance(&ctx, |pat| pat.ctrl("phases", rudel_core::pure(v.clone())))
+                kpattern_phases(ctx)
             }
 
             // `pat.ctrl("fmi20", 3)`: set an arbitrary named control. The escape
             // hatch for FM-matrix edges / higher operators without a method.
             #[koto_method]
             fn ctrl(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let name = match method_arg(&ctx, 0) {
-                    KValue::Str(s) => s.to_string(),
-                    other => return runtime_error!("ctrl: expected a control name string, got {other:?}"),
-                };
-                let value = method_pattern_arg(&ctx, 1);
-                with_instance(&ctx, |pat| pat.ctrl(name.clone(), value.clone()))
+                kpattern_ctrl(ctx)
             }
 
             #[koto_method]
             fn sound(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let arg = method_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.s(arg.clone()))
+                kpattern_sound(ctx)
             }
 
             #[koto_method(alias = "struct")]
             fn struct_alias(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let arg = method_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.struct_pat(arg.clone()))
+                kpattern_struct_alias(ctx)
             }
 
             #[koto_method]
             fn pick(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let selector = ctx.instance()?.0.clone();
-                let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
-                    return Ok(KPattern::wrap(rudel_core::silence()));
-                };
-                Ok(KPattern::wrap(pick_from_lookup(lookup, selector, false)))
+                kpattern_pick(ctx)
             }
 
             #[koto_method]
             fn pickmod(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let selector = ctx.instance()?.0.clone();
-                let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
-                    return Ok(KPattern::wrap(rudel_core::silence()));
-                };
-                Ok(KPattern::wrap(pick_from_lookup(lookup, selector, true)))
+                kpattern_pickmod(ctx)
             }
 
             #[koto_method(alias = "loop")]
             fn loop_play(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let arg = method_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.loop_play(arg.clone()))
+                kpattern_loop_play(ctx)
             }
 
             #[koto_method(alias = "loopBegin", alias = "loopb")]
             fn loop_begin(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let arg = method_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.loop_begin(arg.clone()))
+                kpattern_loop_begin(ctx)
             }
 
             #[koto_method(alias = "loopEnd", alias = "loope")]
             fn loop_end(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let arg = method_pattern_arg(&ctx, 0);
-                with_instance(&ctx, |pat| pat.loop_end(arg.clone()))
+                kpattern_loop_end(ctx)
             }
 
             // `.p(name)`: tag a pattern with an `id` (Strudel's per-pattern
@@ -911,14 +1130,7 @@ macro_rules! kpattern_methods {
             // number (`$1`-style slots).
             #[koto_method]
             fn p(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let name = match method_arg(&ctx, 0) {
-                    KValue::Str(s) => s.to_string(),
-                    KValue::Number(n) => n.to_string(),
-                    _ => String::new(),
-                };
-                with_instance(&ctx, |pat| {
-                    pat.ctrl("id", rudel_core::pure(Value::Str(name.clone())))
-                })
+                kpattern_p(ctx)
             }
 
             // `.midi(device?)`: route this pattern to the MIDI output. The
@@ -926,37 +1138,14 @@ macro_rules! kpattern_methods {
             // routing tag the app reads via `output_targets`/`filter_output`.
             #[koto_method]
             fn midi(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let port = match method_arg(&ctx, 0) {
-                    KValue::Str(s) => Some(s.to_string()),
-                    _ => None,
-                };
-                with_instance(&ctx, |pat| {
-                    let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("midi".into())));
-                    if let Some(port) = &port {
-                        p = p.ctrl("_midiport", rudel_core::pure(Value::Str(port.clone())));
-                    }
-                    p
-                })
+                kpattern_midi(ctx)
             }
 
             // `.osc(target?)`: route this pattern to the OSC output. An optional
             // `"host:port"` target sets `oschost`/`oscport` (per-event routing).
             #[koto_method]
             fn osc(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                let target = match method_arg(&ctx, 0) {
-                    KValue::Str(s) => Some(s.to_string()),
-                    _ => None,
-                };
-                with_instance(&ctx, |pat| {
-                    let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("osc".into())));
-                    if let Some((host, port)) = target.as_deref().and_then(|t| t.rsplit_once(':'))
-                        && let Ok(port) = port.parse::<i64>()
-                    {
-                        p = p.ctrl("oschost", rudel_core::pure(Value::Str(host.to_string())));
-                        p = p.ctrl("oscport", rudel_core::pure(Value::Int(port)));
-                    }
-                    p
-                })
+                kpattern_osc(ctx)
             }
 
             // `.chord()` (zero-arg) expands chord names into note stacks;
@@ -964,14 +1153,7 @@ macro_rules! kpattern_methods {
             // `.voicing()` / `.root_notes()`.
             #[koto_method]
             fn chord(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                if ctx.args.is_empty() {
-                    with_instance(&ctx, |pat| pat.chord())
-                } else {
-                    let arg = method_pattern_arg(&ctx, 0);
-                    with_instance(&ctx, |pat| {
-                        pat.set(rudel_core::control_dyn("chord", arg.clone()))
-                    })
-                }
+                kpattern_chord(ctx)
             }
 
             // CamelCase aliases are generated above from compact lists.
@@ -1011,7 +1193,7 @@ kpattern_methods! {
         set_out, set_mix, set_squeeze, set_squeezeout,
         keep_out, keep_squeeze,
         add_poly, mul_poly, set_poly, keep_poly,
-        transpose, scale_transpose,
+        transpose, scale_transpose, bend_range,
         overlay, arp,
         // tonal / voicing controls
         mtranspose, ctranspose, dictionary, dict, anchor, offset, octaves, mode,
@@ -1044,7 +1226,8 @@ kpattern_methods! {
     pattern_fn_arg: [off, when],
     frac_frac_fn_arg: [within],
     // CamelCase alias mappings (Camel => snake)
-    camel_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose, bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose, scaleTrans => strans],
+    camel_pattern: [bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose, scaleTrans => strans],
+    camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
     camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar],
     camel_noarg_fn: [someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never],
     camel_i64: [iterBack => iter_back, repeatCycles => repeat_cycles, rootNotes => root_notes],

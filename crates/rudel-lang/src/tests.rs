@@ -948,6 +948,16 @@ fn get_freq_and_ftrans_aliases_via_koto() {
     ] {
         assert!(eval(src).is_ok(), "should eval: {src}");
     }
+
+    let pat = eval(r#"freq(200).fTrans([7, 31])"#).expect("eval");
+    let got = values(&pat, 0, 1);
+    assert!(!got.is_empty(), "fTrans list aliases should produce haps");
+
+    let pat = eval(r#"freq(220).withBase([440, 220])"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("freq").and_then(Value::as_f64), Some(440.0)),
+        other => panic!("expected freq map, got {other:?}"),
+    }
 }
 
 #[test]
