@@ -233,6 +233,174 @@ controls!(
     anchor,
     offset,
     octaves,
+    // wavetable position + envelope
+    wt,
+    wtenv,
+    wtattack,
+    wtdecay,
+    wtsustain,
+    wtrelease,
+    wtrate,
+    wtsync,
+    wtdepth,
+    wtshape,
+    wtdc,
+    wtskew,
+    wtphaserand,
+    // wavetable warp + envelope
+    warp,
+    warpenv,
+    warpattack,
+    warpdecay,
+    warpsustain,
+    warprelease,
+    warprate,
+    warpsync,
+    warpdepth,
+    warpshape,
+    warpdc,
+    warpskew,
+    warpmode,
+    // sound / amplitude / sample-window extras
+    source,
+    amp,
+    stretch,
+    duration,
+    gate,
+    // filter LFO modulation
+    lprate,
+    lpsync,
+    lpdepth,
+    lpdepthfrequency,
+    lpshape,
+    lpdc,
+    lpskew,
+    bprate,
+    bpsync,
+    bpdepth,
+    bpdepthfrequency,
+    bpshape,
+    bpdc,
+    bpskew,
+    hprate,
+    hpsync,
+    hpdepth,
+    hpdepthfrequency,
+    hpshape,
+    hpdc,
+    hpskew,
+    // delay extras + DJ filter
+    delayspeed,
+    delaysync,
+    djf,
+    lock,
+    // tremolo extras
+    tremolosync,
+    tremoloskew,
+    tremolophase,
+    tremoloshape,
+    // fx: chorus / drive / ducking / channels / pulse-width LFO / leslie
+    chorus,
+    drive,
+    duckorbit,
+    duckdepth,
+    duckonset,
+    duckattack,
+    channels,
+    channel,
+    pwrate,
+    pwsweep,
+    leslie,
+    lrate,
+    lsize,
+    // tonal / spatial extras
+    degree,
+    harmonic,
+    nudge,
+    octave,
+    bus,
+    busgain,
+    overgain,
+    overshape,
+    panspan,
+    pansplay,
+    panwidth,
+    panorient,
+    slide,
+    semitone,
+    voice,
+    // impulse-response reverb + distortion + compressor
+    ir,
+    irspeed,
+    irbegin,
+    distort,
+    distortvol,
+    distorttype,
+    compressor,
+    // SuperDirt / SuperDough misc
+    analyze,
+    fft,
+    squiz,
+    waveloss,
+    density,
+    expression,
+    sustainpedal,
+    fshift,
+    fshiftnote,
+    fshiftphase,
+    triode,
+    krush,
+    kcutoff,
+    octer,
+    octersub,
+    octersubsub,
+    ring,
+    ringf,
+    ringdf,
+    freeze,
+    xsdelay,
+    tsdelay,
+    real,
+    imag,
+    enhance,
+    comb,
+    smear,
+    scram,
+    binshift,
+    hbrick,
+    lbrick,
+    frames,
+    hours,
+    minutes,
+    seconds,
+    uid,
+    val,
+    // ZZFX
+    zrand,
+    curve,
+    znoise,
+    zmod,
+    zcrush,
+    zdelay,
+    zzfx,
+    // visuals / event metadata
+    color,
+    transient,
+    // FM envelope ramp type
+    fmenv,
+    // MIDI controls
+    midichan,
+    midimap,
+    midiport,
+    midicmd,
+    ccn,
+    ccv,
+    nrpnn,
+    nrpv,
+    sysexid,
+    sysexdata,
+    midibend,
+    miditouch,
 );
 
 /// The `bendRange` control. The Rust function is snake_case while the emitted
@@ -320,12 +488,81 @@ control_aliases!(
     prel => prelease,
     // voicing dictionary alias
     dict => dictionary,
+    // sound / amplitude / sample-window aliases
+    src => source,
+    dur => duration,
+    gat => gate,
+    // synth aliases
+    det => detune,
+    fme => fmenv,
+    fmatt => fmattack,
+    fmdec => fmdecay,
+    fmsus => fmsustain,
+    fmrel => fmrelease,
+    // wavetable / warp envelope aliases
+    wtatt => wtattack,
+    wtdec => wtdecay,
+    wtsus => wtsustain,
+    wtrel => wtrelease,
+    warpatt => warpattack,
+    warpdec => warpdecay,
+    warpsus => warpsustain,
+    warprel => warprelease,
+    // delay aliases
+    dfb => delayfeedback,
+    dt => delaytime,
+    delays => delaysync,
+    ds => delaysync,
+    // tremolo aliases
+    trem => tremolo,
+    tremdepth => tremolodepth,
+    tremskew => tremoloskew,
+    tremphase => tremolophase,
+    tremshape => tremoloshape,
+    // phaser aliases
+    ph => phaserrate,
+    phs => phasersweep,
+    phc => phasercenter,
+    phd => phaserdepth,
+    phasdp => phaserdepth,
+    // ducking aliases (Strudel's canonical key is `duckorbit`)
+    duck => duckorbit,
+    duckons => duckonset,
+    duckatt => duckattack,
+    datt => duckattack,
+    // channel / pulse-width aliases
+    ch => channels,
+    pwr => pwrate,
+    pws => pwsweep,
+    // tonal / spatial aliases
+    oct => octave,
+    bgain => busgain,
+    // reverb / distortion aliases (Rudel's canonical reverb-size key is `size`)
+    iresponse => ir,
+    roomsize => size,
+    sz => size,
+    rsize => size,
+    dist => distort,
+    distvol => distortvol,
+    disttype => distorttype,
+    // filter LFO aliases
+    lpdepthfreq => lpdepthfrequency,
+    bpdepthfreq => bpdepthfrequency,
+    hpdepthfreq => hpdepthfrequency,
+    // vibrato / color aliases
+    v => vib,
+    colour => color,
+    // byte-beat / FX-release aliases
+    bbexpr => byte_beat_expression,
+    bb => byte_beat_expression,
+    bbst => byte_beat_start_time,
+    fxr => fx_release,
 );
 
-// Sample-loop controls. The Strudel keys are `loop`/`loopBegin`/`loopEnd`, but
-// `loop` is a Rust keyword, so the builder fns are named `loop_play`/
-// `loop_begin`/`loop_end` while still writing the Strudel control keys.
-macro_rules! loop_controls {
+// Controls whose Strudel key can't be a Rust fn name (keywords like `loop`,
+// camelCase keys like `loopBegin`). The builder fn is snake_case while still
+// writing the Strudel control key.
+macro_rules! named_controls {
     ($($fn:ident => $key:literal),* $(,)?) => {
         $(
             #[doc = concat!("The `", $key, "` control.")]
@@ -344,10 +581,29 @@ macro_rules! loop_controls {
     };
 }
 
-loop_controls!(
+named_controls!(
     loop_play => "loop",
     loop_begin => "loopBegin",
     loop_end => "loopEnd",
+    steps_per_octave => "stepsPerOctave",
+    octave_r => "octaveR",
+    ctl_num => "ctlNum",
+    prog_num => "progNum",
+    poly_touch => "polyTouch",
+    compressor_knee => "compressorKnee",
+    compressor_ratio => "compressorRatio",
+    compressor_attack => "compressorAttack",
+    compressor_release => "compressorRelease",
+    frame_rate => "frameRate",
+    song_ptr => "songPtr",
+    delta_slide => "deltaSlide",
+    pitch_jump => "pitchJump",
+    pitch_jump_time => "pitchJumpTime",
+    fade_time => "fadeTime",
+    fade_in_time => "fadeInTime",
+    byte_beat_expression => "byteBeatExpression",
+    byte_beat_start_time => "byteBeatStartTime",
+    fx_release => "FXrelease",
 );
 
 /// The `mode` control. A `:`-list value (`"below:G4"`, which mini-notation
@@ -483,6 +739,49 @@ mod tests {
                 assert_eq!(m.get("mode"), Some(&Value::Str("below".to_string())));
                 assert_eq!(m.get("anchor"), Some(&Value::Str("G4".to_string())));
             }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn alias_controls_write_canonical_keys() {
+        // Aliases canonicalize like Strudel's `getControlName`: `ph` writes
+        // `phaserrate`, `duck` writes `duckorbit`, `v` writes `vib`.
+        let pat = note(seq([0])).ph(2).duck(0.5).v(4);
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("phaserrate"), Some(&Value::Int(2)));
+                assert_eq!(m.get("duckorbit"), Some(&Value::F64(0.5)));
+                assert_eq!(m.get("vib"), Some(&Value::Int(4)));
+                assert!(!m.contains_key("ph"));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn named_controls_write_literal_keys() {
+        // Snake-case builder fns write Strudel's camelCase keys.
+        let pat = note(seq([0])).compressor_knee(30).fx_release(0.2);
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("compressorKnee"), Some(&Value::Int(30)));
+                assert_eq!(m.get("FXrelease"), Some(&Value::F64(0.2)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn roomsize_aliases_map_to_size() {
+        // Rudel's canonical reverb-size key is `size`; Strudel's `roomsize`,
+        // `sz`, and `rsize` all land there.
+        let pat = note(seq([0])).roomsize(0.8);
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => assert_eq!(m.get("size"), Some(&Value::F64(0.8))),
             other => panic!("expected map, got {other:?}"),
         }
     }

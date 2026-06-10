@@ -473,6 +473,53 @@ kpattern_methods! {
         mtranspose, ctranspose, dictionary, dict, anchor, offset, octaves, mode,
         // OSC routing controls
         oschost, oscport,
+        // wavetable position / envelope (+ aliases)
+        wt, wtenv, wtattack, wtdecay, wtsustain, wtrelease, wtrate, wtsync, wtdepth,
+        wtshape, wtdc, wtskew, wtphaserand, wtatt, wtdec, wtsus, wtrel,
+        // wavetable warp (+ aliases)
+        warp, warpenv, warpattack, warpdecay, warpsustain, warprelease, warprate,
+        warpsync, warpdepth, warpshape, warpdc, warpskew, warpmode,
+        warpatt, warpdec, warpsus, warprel,
+        // sound / amplitude / sample-window extras (+ aliases)
+        source, src, amp, stretch, duration, dur, gate, gat,
+        // filter LFO modulation (+ aliases)
+        lprate, lpsync, lpdepth, lpdepthfrequency, lpdepthfreq, lpshape, lpdc, lpskew,
+        bprate, bpsync, bpdepth, bpdepthfrequency, bpdepthfreq, bpshape, bpdc, bpskew,
+        hprate, hpsync, hpdepth, hpdepthfrequency, hpdepthfreq, hpshape, hpdc, hpskew,
+        // delay extras + DJ filter (+ aliases)
+        delayspeed, delaysync, delays, ds, dfb, dt, djf, lock,
+        // tremolo extras (+ aliases)
+        tremolosync, tremoloskew, tremolophase, tremoloshape,
+        trem, tremdepth, tremskew, tremphase, tremshape,
+        // phaser aliases
+        ph, phs, phc, phd, phasdp,
+        // fx: chorus / drive / ducking / channels / pw LFO / leslie (+ aliases)
+        chorus, drive, duckorbit, duck, duckdepth, duckonset, duckons,
+        duckattack, duckatt, datt, channels, ch, channel, pwrate, pwr, pwsweep, pws,
+        leslie, lrate, lsize,
+        // tonal / spatial extras (+ aliases)
+        degree, harmonic, nudge, octave, oct, bus, busgain, bgain, overgain, overshape,
+        panspan, pansplay, panwidth, panorient, slide, semitone, voice,
+        // impulse-response reverb + distortion + compressor (+ aliases)
+        ir, iresponse, irspeed, irbegin, roomsize, sz, rsize,
+        distort, dist, distortvol, distvol, distorttype, disttype, compressor,
+        // SuperDirt / SuperDough misc
+        analyze, fft, squiz, waveloss, density, expression, sustainpedal,
+        fshift, fshiftnote, fshiftphase, triode, krush, kcutoff,
+        octer, octersub, octersubsub, ring, ringf, ringdf, freeze,
+        xsdelay, tsdelay, real, imag, enhance, comb, smear, scram,
+        binshift, hbrick, lbrick, frames, hours, minutes, seconds, uid, val,
+        // ZZFX
+        zrand, curve, znoise, zmod, zcrush, zdelay, zzfx,
+        // visuals / event metadata (+ aliases)
+        color, colour, transient,
+        // synth aliases + FM envelope
+        det, fmenv, fme, fmatt, fmdec, fmsus, fmrel, v,
+        // byte-beat / FX-release lowercase aliases
+        bbexpr, bb, bbst, fxr,
+        // MIDI controls
+        midichan, midimap, midiport, midicmd, ccn, ccv, nrpnn, nrpv,
+        sysexid, sysexdata, midibend, miditouch,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
@@ -500,7 +547,22 @@ kpattern_methods! {
     pattern_fn_arg: [off, when],
     frac_frac_fn_arg: [within],
     // CamelCase alias mappings (Camel => snake)
-    camel_pattern: [bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose, scaleTrans => strans],
+    camel_pattern: [
+        bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose,
+        scaleTrans => strans,
+        // camelCase control names (Camel => snake builder writing the Strudel key)
+        wavetablePosition => wt, wavetableWarp => warp, wavetableWarpMode => warpmode,
+        wavetablePhaseRand => wtphaserand,
+        stepsPerOctave => steps_per_octave, octaveR => octave_r,
+        ctlNum => ctl_num, progNum => prog_num, polyTouch => poly_touch,
+        compressorKnee => compressor_knee, compressorRatio => compressor_ratio,
+        compressorAttack => compressor_attack, compressorRelease => compressor_release,
+        frameRate => frame_rate, songPtr => song_ptr, deltaSlide => delta_slide,
+        pitchJump => pitch_jump, pitchJumpTime => pitch_jump_time,
+        fadeTime => fade_time, fadeOutTime => fade_time, fadeInTime => fade_in_time,
+        byteBeatExpression => byte_beat_expression, byteBeatStartTime => byte_beat_start_time,
+        FXrelease => fx_release, FXrel => fx_release, FXr => fx_release,
+    ],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
     camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar],
     camel_noarg_fn: [someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never],

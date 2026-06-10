@@ -101,8 +101,8 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 
 - [x] `s`
 - [x] `sound`
-- [ ] `source`
-- [ ] `src`
+- [x] `source`
+- [x] `src`
 - [x] `n`
 - [x] `i`
 - [x] `note`
@@ -112,57 +112,57 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 - [x] `vel`
 - [x] `gain`
 - [x] `postgain`
-- [ ] `amp`
+- [x] `amp`
 - [x] `bank`
 - [x] `pan`
 - [x] `speed`
-- [ ] `stretch`
+- [x] `stretch`
 - [x] `unit`
 - [x] `clip`
 - [x] `legato`
-- [ ] `duration`
-- [ ] `dur`
+- [x] `duration`
+- [x] `dur`
 
 ### Wavetable and Warp Controls
 
-- [ ] `wt`
-- [ ] `wavetablePosition`
-- [ ] `wtenv`
-- [ ] `wtattack`
-- [ ] `wtatt`
-- [ ] `wtdecay`
-- [ ] `wtdec`
-- [ ] `wtsustain`
-- [ ] `wtsus`
-- [ ] `wtrelease`
-- [ ] `wtrel`
-- [ ] `wtrate`
-- [ ] `wtsync`
-- [ ] `wtdepth`
-- [ ] `wtshape`
-- [ ] `wtdc`
-- [ ] `wtskew`
-- [ ] `warp`
-- [ ] `wavetableWarp`
-- [ ] `warpattack`
-- [ ] `warpatt`
-- [ ] `warpdecay`
-- [ ] `warpdec`
-- [ ] `warpsustain`
-- [ ] `warpsus`
-- [ ] `warprelease`
-- [ ] `warprel`
-- [ ] `warprate`
-- [ ] `warpdepth`
-- [ ] `warpshape`
-- [ ] `warpdc`
-- [ ] `warpskew`
-- [ ] `warpmode`
-- [ ] `wavetableWarpMode`
-- [ ] `wtphaserand`
-- [ ] `wavetablePhaseRand`
-- [ ] `warpenv`
-- [ ] `warpsync`
+- [x] `wt`
+- [x] `wavetablePosition`
+- [x] `wtenv`
+- [x] `wtattack`
+- [x] `wtatt`
+- [x] `wtdecay`
+- [x] `wtdec`
+- [x] `wtsustain`
+- [x] `wtsus`
+- [x] `wtrelease`
+- [x] `wtrel`
+- [x] `wtrate`
+- [x] `wtsync`
+- [x] `wtdepth`
+- [x] `wtshape`
+- [x] `wtdc`
+- [x] `wtskew`
+- [x] `warp`
+- [x] `wavetableWarp`
+- [x] `warpattack`
+- [x] `warpatt`
+- [x] `warpdecay`
+- [x] `warpdec`
+- [x] `warpsustain`
+- [x] `warpsus`
+- [x] `warprelease`
+- [x] `warprel`
+- [x] `warprate`
+- [x] `warpdepth`
+- [x] `warpshape`
+- [x] `warpdc`
+- [x] `warpskew`
+- [x] `warpmode`
+- [x] `wavetableWarpMode`
+- [x] `wtphaserand`
+- [x] `wavetablePhaseRand`
+- [x] `warpenv`
+- [x] `warpsync`
 
 ### FM and Supersaw Controls
 
@@ -176,14 +176,14 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 - [ ] `fmi3`-`fmi8`
 - [x] `fm`
 - [ ] `fm1`-`fm8`
-- [ ] `fmenv`
+- [x] `fmenv`
 - [ ] `fmenv1`-`fmenv8`
-- [ ] `fme`
+- [x] `fme`
 - [x] `fmattack`
 - [ ] `fmattack1`
 - [x] `fmattack2`
 - [ ] `fmattack3`-`fmattack8`
-- [ ] `fmatt`
+- [x] `fmatt`
 - [ ] `fmatt1`-`fmatt8`
 - [x] `fmwave`
 - [ ] `fmwave1`
@@ -193,25 +193,25 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 - [ ] `fmdecay1`
 - [x] `fmdecay2`
 - [ ] `fmdecay3`-`fmdecay8`
-- [ ] `fmdec`
+- [x] `fmdec`
 - [ ] `fmdec1`-`fmdec8`
 - [x] `fmsustain`
 - [ ] `fmsustain1`
 - [x] `fmsustain2`
 - [ ] `fmsustain3`-`fmsustain8`
-- [ ] `fmsus`
+- [x] `fmsus`
 - [ ] `fmsus1`-`fmsus8`
 - [x] `fmrelease`
 - [ ] `fmrelease1`
 - [x] `fmrelease2`
 - [ ] `fmrelease3`-`fmrelease8`
-- [ ] `fmrel`
+- [x] `fmrel`
 - [ ] `fmrel1`-`fmrel8`
 - [ ] `fmi11`-`fmi88`
 - [ ] `fm11`-`fm88`
 - [x] `unison`
 - [x] `detune`
-- [ ] `det`
+- [x] `det`
 - [x] `spread`
 
 ### Envelopes and Sample Windows
@@ -243,8 +243,8 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 - [x] `penv`
 - [x] `pcurve`
 - [x] `panchor`
-- [ ] `gate`
-- [ ] `gat`
+- [x] `gate`
+- [x] `gat`
 
 ### Filters and Filter Envelopes
 
@@ -296,131 +296,131 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 - [x] `bpr`
 - [x] `ftype`
 - [x] `fanchor`
-- [ ] `lprate`
-- [ ] `lpsync`
-- [ ] `lpdepth`
-- [ ] `lpdepthfrequency`
-- [ ] `lpdepthfreq`
-- [ ] `lpshape`
-- [ ] `lpdc`
-- [ ] `lpskew`
-- [ ] `bprate`
-- [ ] `bpsync`
-- [ ] `bpdepth`
-- [ ] `bpdepthfrequency`
-- [ ] `bpdepthfreq`
-- [ ] `bpshape`
-- [ ] `bpdc`
-- [ ] `bpskew`
-- [ ] `hprate`
-- [ ] `hpsync`
-- [ ] `hpdepth`
-- [ ] `hpdepthfrequency`
-- [ ] `hpdepthfreq`
-- [ ] `hpshape`
-- [ ] `hpdc`
-- [ ] `hpskew`
+- [x] `lprate`
+- [x] `lpsync`
+- [x] `lpdepth`
+- [x] `lpdepthfrequency`
+- [x] `lpdepthfreq`
+- [x] `lpshape`
+- [x] `lpdc`
+- [x] `lpskew`
+- [x] `bprate`
+- [x] `bpsync`
+- [x] `bpdepth`
+- [x] `bpdepthfrequency`
+- [x] `bpdepthfreq`
+- [x] `bpshape`
+- [x] `bpdc`
+- [x] `bpskew`
+- [x] `hprate`
+- [x] `hpsync`
+- [x] `hpdepth`
+- [x] `hpdepthfrequency`
+- [x] `hpdepthfreq`
+- [x] `hpshape`
+- [x] `hpdc`
+- [x] `hpskew`
 
 ### Modulation, Delay, and Effects
 
 - [x] `vib`
 - [x] `vibrato`
-- [ ] `v`
+- [x] `v`
 - [x] `vibmod`
 - [x] `vmod`
 - [x] `noise`
 - [x] `delay`
 - [x] `delayfeedback`
 - [x] `delayfb`
-- [ ] `dfb`
-- [ ] `delayspeed`
+- [x] `dfb`
+- [x] `delayspeed`
 - [x] `delaytime`
 - [x] `delayt`
-- [ ] `dt`
-- [ ] `delaysync`
-- [ ] `delays`
-- [ ] `ds`
+- [x] `dt`
+- [x] `delaysync`
+- [x] `delays`
+- [x] `ds`
 - [x] `dry`
 - [x] `crush`
 - [x] `coarse`
 - [x] `tremolo`
-- [ ] `trem`
-- [ ] `tremolosync`
+- [x] `trem`
+- [x] `tremolosync`
 - [x] `tremolodepth`
-- [ ] `tremdepth`
-- [ ] `tremoloskew`
-- [ ] `tremskew`
-- [ ] `tremolophase`
-- [ ] `tremphase`
-- [ ] `tremoloshape`
-- [ ] `tremshape`
+- [x] `tremdepth`
+- [x] `tremoloskew`
+- [x] `tremskew`
+- [x] `tremolophase`
+- [x] `tremphase`
+- [x] `tremoloshape`
+- [x] `tremshape`
 - [x] `phaser`
 - [x] `phaserrate`
-- [ ] `ph`
+- [x] `ph`
 - [x] `phasersweep`
-- [ ] `phs`
+- [x] `phs`
 - [x] `phasercenter`
-- [ ] `phc`
+- [x] `phc`
 - [x] `phaserdepth`
-- [ ] `phd`
-- [ ] `phasdp`
-- [ ] `chorus`
-- [ ] `drive`
-- [ ] `duck`
-- [ ] `duckdepth`
-- [ ] `duckonset`
-- [ ] `duckons`
-- [ ] `duckattack`
-- [ ] `duckatt`
-- [ ] `datt`
-- [ ] `byteBeatExpression`
-- [ ] `bbexpr`
-- [ ] `bb`
-- [ ] `byteBeatStartTime`
-- [ ] `bbst`
-- [ ] `channels`
-- [ ] `ch`
+- [x] `phd`
+- [x] `phasdp`
+- [x] `chorus`
+- [x] `drive`
+- [x] `duck`
+- [x] `duckdepth`
+- [x] `duckonset`
+- [x] `duckons`
+- [x] `duckattack`
+- [x] `duckatt`
+- [x] `datt`
+- [x] `byteBeatExpression`
+- [x] `bbexpr`
+- [x] `bb`
+- [x] `byteBeatStartTime`
+- [x] `bbst`
+- [x] `channels`
+- [x] `ch`
 - [x] `pw`
-- [ ] `pwrate`
-- [ ] `pwr`
-- [ ] `pwsweep`
-- [ ] `pws`
-- [ ] `channel`
+- [x] `pwrate`
+- [x] `pwr`
+- [x] `pwsweep`
+- [x] `pws`
+- [x] `channel`
 - [x] `cut`
-- [ ] `djf`
-- [ ] `lock`
-- [ ] `fadeTime`
-- [ ] `fadeOutTime`
-- [ ] `fadeInTime`
-- [ ] `leslie`
-- [ ] `lrate`
-- [ ] `lsize`
+- [x] `djf`
+- [x] `lock`
+- [x] `fadeTime`
+- [x] `fadeOutTime`
+- [x] `fadeInTime`
+- [x] `leslie`
+- [x] `lrate`
+- [x] `lsize`
 
 ### Tonal, Voicing, and Spatial Controls
 
 - [x] `mtranspose`
 - [x] `ctranspose`
-- [ ] `degree`
-- [ ] `harmonic`
-- [ ] `stepsPerOctave`
-- [ ] `octaveR`
-- [ ] `nudge`
-- [ ] `octave`
-- [ ] `oct`
+- [x] `degree`
+- [x] `harmonic`
+- [x] `stepsPerOctave`
+- [x] `octaveR`
+- [x] `nudge`
+- [x] `octave`
+- [x] `oct`
 - [x] `orbit`
 - [x] `o`
-- [ ] `bus`
-- [ ] `busgain`
-- [ ] `bgain`
-- [ ] `overgain`
-- [ ] `overshape`
-- [ ] `panspan`
-- [ ] `pansplay`
-- [ ] `panwidth`
-- [ ] `panorient`
-- [ ] `slide`
-- [ ] `semitone`
-- [ ] `voice`
+- [x] `bus`
+- [x] `busgain`
+- [x] `bgain`
+- [x] `overgain`
+- [x] `overshape`
+- [x] `panspan`
+- [x] `pansplay`
+- [x] `panwidth`
+- [x] `panorient`
+- [x] `slide`
+- [x] `semitone`
+- [x] `voice`
 - [x] `chord`
 - [x] `dictionary`
 - [x] `dict`
@@ -438,105 +438,105 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 - [x] `rdim`
 - [x] `roomfade`
 - [x] `rfade`
-- [ ] `ir`
-- [ ] `iresponse`
-- [ ] `irspeed`
-- [ ] `irbegin`
-- [ ] `roomsize`
+- [x] `ir`
+- [x] `iresponse`
+- [x] `irspeed`
+- [x] `irbegin`
+- [x] `roomsize`
 - [x] `size`
-- [ ] `sz`
-- [ ] `rsize`
+- [x] `sz`
+- [x] `rsize`
 - [x] `shape`
-- [ ] `distort`
-- [ ] `dist`
-- [ ] `distortvol`
-- [ ] `distvol`
-- [ ] `distorttype`
-- [ ] `disttype`
-- [ ] `compressor`
-- [ ] `compressorKnee`
-- [ ] `compressorRatio`
-- [ ] `compressorAttack`
-- [ ] `compressorRelease`
+- [x] `distort`
+- [x] `dist`
+- [x] `distortvol`
+- [x] `distvol`
+- [x] `distorttype`
+- [x] `disttype`
+- [x] `compressor`
+- [x] `compressorKnee`
+- [x] `compressorRatio`
+- [x] `compressorAttack`
+- [x] `compressorRelease`
 
 ### SuperDirt, SuperDough, ZZFX, and Miscellaneous Controls
 
-- [ ] `analyze`
-- [ ] `fft`
-- [ ] `squiz`
+- [x] `analyze`
+- [x] `fft`
+- [x] `squiz`
 - [x] `vowel`
-- [ ] `waveloss`
-- [ ] `density`
-- [ ] `expression`
-- [ ] `sustainpedal`
-- [ ] `fshift`
-- [ ] `fshiftnote`
-- [ ] `fshiftphase`
-- [ ] `triode`
-- [ ] `krush`
-- [ ] `kcutoff`
-- [ ] `octer`
-- [ ] `octersub`
-- [ ] `octersubsub`
-- [ ] `ring`
-- [ ] `ringf`
-- [ ] `ringdf`
-- [ ] `freeze`
-- [ ] `xsdelay`
-- [ ] `tsdelay`
-- [ ] `real`
-- [ ] `imag`
-- [ ] `enhance`
-- [ ] `comb`
-- [ ] `smear`
-- [ ] `scram`
-- [ ] `binshift`
-- [ ] `hbrick`
-- [ ] `lbrick`
-- [ ] `frameRate`
-- [ ] `frames`
-- [ ] `hours`
-- [ ] `minutes`
-- [ ] `seconds`
-- [ ] `songPtr`
-- [ ] `uid`
-- [ ] `val`
+- [x] `waveloss`
+- [x] `density`
+- [x] `expression`
+- [x] `sustainpedal`
+- [x] `fshift`
+- [x] `fshiftnote`
+- [x] `fshiftphase`
+- [x] `triode`
+- [x] `krush`
+- [x] `kcutoff`
+- [x] `octer`
+- [x] `octersub`
+- [x] `octersubsub`
+- [x] `ring`
+- [x] `ringf`
+- [x] `ringdf`
+- [x] `freeze`
+- [x] `xsdelay`
+- [x] `tsdelay`
+- [x] `real`
+- [x] `imag`
+- [x] `enhance`
+- [x] `comb`
+- [x] `smear`
+- [x] `scram`
+- [x] `binshift`
+- [x] `hbrick`
+- [x] `lbrick`
+- [x] `frameRate`
+- [x] `frames`
+- [x] `hours`
+- [x] `minutes`
+- [x] `seconds`
+- [x] `songPtr`
+- [x] `uid`
+- [x] `val`
 - [ ] `cps`
-- [ ] `zrand`
-- [ ] `curve`
-- [ ] `deltaSlide`
-- [ ] `pitchJump`
-- [ ] `pitchJumpTime`
-- [ ] `znoise`
-- [ ] `zmod`
-- [ ] `zcrush`
-- [ ] `zdelay`
-- [ ] `zzfx`
-- [ ] `color`
-- [ ] `colour`
-- [ ] `transient`
-- [ ] `FXrelease`
-- [ ] `FXrel`
-- [ ] `FXr`
-- [ ] `fxr`
+- [x] `zrand`
+- [x] `curve`
+- [x] `deltaSlide`
+- [x] `pitchJump`
+- [x] `pitchJumpTime`
+- [x] `znoise`
+- [x] `zmod`
+- [x] `zcrush`
+- [x] `zdelay`
+- [x] `zzfx`
+- [x] `color`
+- [x] `colour`
+- [x] `transient`
+- [x] `FXrelease`
+- [x] `FXrel`
+- [x] `FXr`
+- [x] `fxr`
 
 ### MIDI and OSC Controls
 
-- [ ] `midichan`
-- [ ] `midimap`
-- [ ] `midiport`
-- [ ] `midicmd`
-- [ ] `ccn`
-- [ ] `ccv`
-- [ ] `ctlNum`
-- [ ] `nrpnn`
-- [ ] `nrpv`
-- [ ] `progNum`
-- [ ] `sysexid`
-- [ ] `sysexdata`
-- [ ] `midibend`
-- [ ] `miditouch`
-- [ ] `polyTouch`
+- [x] `midichan`
+- [x] `midimap`
+- [x] `midiport`
+- [x] `midicmd`
+- [x] `ccn`
+- [x] `ccv`
+- [x] `ctlNum`
+- [x] `nrpnn`
+- [x] `nrpv`
+- [x] `progNum`
+- [x] `sysexid`
+- [x] `sysexdata`
+- [x] `midibend`
+- [x] `miditouch`
+- [x] `polyTouch`
 - [x] `oschost`
 - [x] `oscport`
 

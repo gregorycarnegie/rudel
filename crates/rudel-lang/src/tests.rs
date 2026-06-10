@@ -519,6 +519,40 @@ fn tremolo_phaser_controls_resolve() {
 }
 
 #[test]
+fn extended_strudel_controls_resolve() {
+    // A sampling of the wider Strudel control surface: wavetable/warp,
+    // ducking, byte-beat, compressor, ZZFX, MIDI, and short aliases.
+    for src in [
+        r#"note("c3").s("saw").wt(0.5).wtenv(1).warp(0.2).warpmode("sync")"#,
+        r#"s("bd").duck(1).duckdepth(0.5).duckattack(0.1)"#,
+        r#"s("bd").bb("t*128").bbst(2)"#,
+        r#"note("c3").compressor(-20).compressorRatio(4).compressorAttack(0.01)"#,
+        r#"note("c3").zrand(0.1).zcrush(4).zzfx(1)"#,
+        r#"note("c3").midichan(2).ccn(74).ccv(64).progNum(5)"#,
+        r#"note("c3").s("saw").ph(2).trem(4).dt(0.25).dfb(0.5).djf(0.3)"#,
+        r#"note("c3").amp(0.8).dur(0.5).gate(0.9).octave(5).oct(4)"#,
+        r#"note("c3").distort(2).dist(1).squiz(2).chorus(0.5).drive(0.7)"#,
+        r#"s("bd").fadeTime(1).fadeOutTime(2).FXrelease(0.3).fxr(0.3)"#,
+    ] {
+        assert!(eval(src).is_ok(), "should eval: {src}");
+    }
+    // aliases canonicalize: `duck` writes Strudel's `duckorbit` key, and the
+    // camelCase method writes the camelCase key.
+    let pat = eval(r#"s("bd").duck(1).compressorKnee(30)"#).expect("eval");
+    let has = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .any(|h| match h.value {
+            Value::Map(m) => {
+                m.get("duckorbit").and_then(|v| v.as_f64()) == Some(1.0)
+                    && m.get("compressorKnee").and_then(|v| v.as_f64()) == Some(30.0)
+            }
+            _ => false,
+        });
+    assert!(has, "duck/compressorKnee should land on the event map");
+}
+
+#[test]
 fn alignment_via_koto() {
     // add.out takes structure from the right pattern -> 3 onsets
     let pat = eval(r#"seq(0, 1).add_out("10 20 30")"#).expect("eval");
