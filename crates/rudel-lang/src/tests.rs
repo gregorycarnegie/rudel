@@ -553,6 +553,90 @@ fn extended_strudel_controls_resolve() {
 }
 
 #[test]
+fn envelope_and_midi_helpers_via_koto() {
+    // adsr expands a `:`-list into the four envelope controls
+    let pat = eval(r#"note("c3").adsr("0.1:0.2:0.5:0.3")"#).expect("eval");
+    let has = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .any(|h| match h.value {
+            Value::Map(m) => {
+                m.get("attack").and_then(|v| v.as_f64()) == Some(0.1)
+                    && m.get("release").and_then(|v| v.as_f64()) == Some(0.3)
+                    && !m.contains_key("adsr")
+            }
+            _ => false,
+        });
+    assert!(has, "adsr should expand into attack/decay/sustain/release");
+    // ds sets decay/sustain; control sets ccn/ccv
+    let pat = eval(r#"note("c3").ds("0.2:0.4").control("74:64")"#).expect("eval");
+    let has = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .any(|h| match h.value {
+            Value::Map(m) => {
+                m.get("decay").and_then(|v| v.as_f64()) == Some(0.2)
+                    && m.get("sustain").and_then(|v| v.as_f64()) == Some(0.4)
+                    && m.get("ccn").and_then(|v| v.as_f64()) == Some(74.0)
+                    && m.get("ccv").and_then(|v| v.as_f64()) == Some(64.0)
+            }
+            _ => false,
+        });
+    assert!(has, "ds/control should expand into their control pairs");
+}
+
+#[test]
+fn as_and_scrub_via_koto() {
+    // `as` maps positional values into named controls
+    let pat = eval(r#"pat("c:0.5").as("note:clip")"#).expect("eval");
+    let has = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .any(|h| match h.value {
+            Value::Map(m) => {
+                m.get("note") == Some(&Value::Str("c".into()))
+                    && m.get("clip").and_then(|v| v.as_f64()) == Some(0.5)
+            }
+            _ => false,
+        });
+    assert!(has, "as should map values into note/clip");
+    // scrub takes structure from the positions pattern and sets begin/clip
+    let pat = eval(r#"s("amen").scrub("0.25 0.5")"#).expect("eval");
+    let haps = pat.query_arc(Frac::zero(), Frac::one());
+    assert_eq!(haps.len(), 2, "scrub structure comes from positions");
+    let has = haps.into_iter().any(|h| match h.value {
+        Value::Map(m) => {
+            m.get("begin").and_then(|v| v.as_f64()) == Some(0.25)
+                && m.get("clip").and_then(|v| v.as_f64()) == Some(1.0)
+        }
+        _ => false,
+    });
+    assert!(has, "scrub should set begin and clip");
+}
+
+#[test]
+fn numbered_fm_controls_via_koto() {
+    for src in [
+        r#"note("c3").s("sine").fm(4).fm2(2).fm3(1).fmh3(2.01).fmwave4("square")"#,
+        r#"note("c3").fmattack5(0.1).fmdec6(0.2).fmsus7(0.5).fmrel8(0.3)"#,
+        r#"note("c3").fmenv2("lin").fme3("exp")"#,
+        r#"note("c3").fmi13(0.5).fm20(3).fmi81(0.1)"#,
+    ] {
+        assert!(eval(src).is_ok(), "should eval: {src}");
+    }
+    // matrix alias fm23 writes the canonical fmi23 key
+    let pat = eval(r#"note("c3").fm23(0.5)"#).expect("eval");
+    let has = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .any(|h| match h.value {
+            Value::Map(m) => m.get("fmi23").and_then(|v| v.as_f64()) == Some(0.5),
+            _ => false,
+        });
+    assert!(has, "fm23 should write fmi23");
+}
+
+#[test]
 fn alignment_via_koto() {
     // add.out takes structure from the right pattern -> 3 onsets
     let pat = eval(r#"seq(0, 1).add_out("10 20 30")"#).expect("eval");

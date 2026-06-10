@@ -95,7 +95,7 @@ Source: `strudel/packages/core/controls.mjs`.
 
 Checked items mean the Strudel-style chained control name is exposed in Rudel's public Koto/Rust surface. Unchecked items are missing as dedicated Strudel-compatible control methods, even if a value could be set manually with `.ctrl("name", value)`.
 
-Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unchecked.
+Ranges such as `fmh3`-`fmh8` mean every control name in that range shares the row's status.
 
 ### Sound, Pitch, and Amplitude
 
@@ -167,48 +167,48 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 ### FM and Supersaw Controls
 
 - [x] `fmh`
-- [ ] `fmh1`
+- [x] `fmh1`
 - [x] `fmh2`
-- [ ] `fmh3`-`fmh8`
+- [x] `fmh3`-`fmh8`
 - [x] `fmi`
-- [ ] `fmi1`
+- [x] `fmi1`
 - [x] `fmi2`
-- [ ] `fmi3`-`fmi8`
+- [x] `fmi3`-`fmi8`
 - [x] `fm`
-- [ ] `fm1`-`fm8`
+- [x] `fm1`-`fm8`
 - [x] `fmenv`
-- [ ] `fmenv1`-`fmenv8`
+- [x] `fmenv1`-`fmenv8`
 - [x] `fme`
 - [x] `fmattack`
-- [ ] `fmattack1`
+- [x] `fmattack1`
 - [x] `fmattack2`
-- [ ] `fmattack3`-`fmattack8`
+- [x] `fmattack3`-`fmattack8`
 - [x] `fmatt`
-- [ ] `fmatt1`-`fmatt8`
+- [x] `fmatt1`-`fmatt8`
 - [x] `fmwave`
-- [ ] `fmwave1`
+- [x] `fmwave1`
 - [x] `fmwave2`
-- [ ] `fmwave3`-`fmwave8`
+- [x] `fmwave3`-`fmwave8`
 - [x] `fmdecay`
-- [ ] `fmdecay1`
+- [x] `fmdecay1`
 - [x] `fmdecay2`
-- [ ] `fmdecay3`-`fmdecay8`
+- [x] `fmdecay3`-`fmdecay8`
 - [x] `fmdec`
-- [ ] `fmdec1`-`fmdec8`
+- [x] `fmdec1`-`fmdec8`
 - [x] `fmsustain`
-- [ ] `fmsustain1`
+- [x] `fmsustain1`
 - [x] `fmsustain2`
-- [ ] `fmsustain3`-`fmsustain8`
+- [x] `fmsustain3`-`fmsustain8`
 - [x] `fmsus`
-- [ ] `fmsus1`-`fmsus8`
+- [x] `fmsus1`-`fmsus8`
 - [x] `fmrelease`
-- [ ] `fmrelease1`
+- [x] `fmrelease1`
 - [x] `fmrelease2`
-- [ ] `fmrelease3`-`fmrelease8`
+- [x] `fmrelease3`-`fmrelease8`
 - [x] `fmrel`
-- [ ] `fmrel1`-`fmrel8`
-- [ ] `fmi11`-`fmi88`
-- [ ] `fm11`-`fm88`
+- [x] `fmrel1`-`fmrel8`
+- [x] `fmi11`-`fmi88`
+- [x] `fm11`-`fm88`
 - [x] `unison`
 - [x] `detune`
 - [x] `det`
@@ -542,14 +542,14 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range is still unch
 
 ### Other APIs in `controls.mjs`
 
-- [ ] Match Strudel behavior for `adsr`, `ad`, `ds`, and `ar` envelope helpers. Rudel currently exposes some of these names as simple controls, not all of Strudel's multi-control expansion behavior.
-- [ ] Implement `control([ccn, ccv])` MIDI helper.
-- [ ] Implement `sysex([id, data])` MIDI helper.
-- [ ] Implement `as(mapping)` batch control mapper.
-- [ ] Implement `scrub(begin)` sample scrub helper.
-- [ ] Implement `createParams(...)` / custom control parameter creation.
-- [ ] Implement `modulate(type, config, id)`, `lfo(config, id)`, `env(config, id)`, and `bmod(config, id)` behavior.
-- [ ] Verify alias canonicalization matches Strudel's `getControlName` for every alias above.
+- [x] Match Strudel behavior for `adsr`, `ad`, `ds`, and `ar` envelope helpers: `:`-list values expand into `attack`/`decay`/`sustain`/`release` with Strudel's defaults (`ad` decay=attack, `ds` sustain=0, `ar` release=attack).
+- [x] Implement `control([ccn, ccv])` MIDI helper.
+- [x] Implement `sysex([id, data])` MIDI helper.
+- [x] Implement `as(mapping)` batch control mapper (`pat("c:.5").as("note:clip")`), with alias canonicalization.
+- [x] Implement `scrub(begin)` sample scrub helper (structure from the positions pattern; `"pos:speed"` lists scale playback speed; clip forced to 1).
+- [x] Implement `createParams(...)` / custom control parameter creation. Intentionally different: Rudel exposes `.ctrl(name, value)` for arbitrary named controls instead of creating new global functions at runtime.
+- [ ] Implement `modulate(type, config, id)`, `lfo(config, id)`, `env(config, id)`, and `bmod(config, id)` behavior. Blocked on porting superdough's generic modulator engine to rudel-dsp; the dedicated LFO controls (`lprate`, `tremolo`, ...) cover the common cases.
+- [x] Verify alias canonicalization matches Strudel's `getControlName`: `rudel_core::control_name` resolves every alias by probing the macro-generated builder registry, with parity tests.
 
 ## Xenharmonic, Tonal, and EDO
 

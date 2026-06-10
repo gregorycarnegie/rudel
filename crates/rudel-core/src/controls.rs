@@ -114,6 +114,12 @@ macro_rules! controls {
                 self.set(s(x))
             }
         }
+
+        /// `(name, builder)` pairs for the plain controls above; used by
+        /// [`control_name`] to resolve canonical control keys.
+        static PLAIN_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
+            $( (stringify!($name), |p: Pattern| $name(p)) ),*
+        ];
     };
 }
 
@@ -190,8 +196,8 @@ controls!(
     fmdecay,
     fmsustain,
     fmrelease,
-    // FM operator 2 (chain `op2 -> op1`); higher operators / arbitrary `fmiIJ`
-    // edges go through the generic `ctrl(name, value)` method.
+    // FM operator 2 (chain `op2 -> op1`); operators 3-8 and the full
+    // `fmi{from}{to}` matrix follow further down the list.
     fmi2,
     fmh2,
     fmwave2,
@@ -202,9 +208,6 @@ controls!(
     pw,
     noise,
     pcurve,
-    adsr,
-    ad,
-    ar,
     hold,
     // vibrato + pitch envelope
     vib,
@@ -401,6 +404,138 @@ controls!(
     sysexdata,
     midibend,
     miditouch,
+    // numbered FM operators (chain controls + per-operator envelope/wave)
+    fmh3,
+    fmh4,
+    fmh5,
+    fmh6,
+    fmh7,
+    fmh8,
+    fmi3,
+    fmi4,
+    fmi5,
+    fmi6,
+    fmi7,
+    fmi8,
+    fmenv2,
+    fmenv3,
+    fmenv4,
+    fmenv5,
+    fmenv6,
+    fmenv7,
+    fmenv8,
+    fmattack3,
+    fmattack4,
+    fmattack5,
+    fmattack6,
+    fmattack7,
+    fmattack8,
+    fmdecay3,
+    fmdecay4,
+    fmdecay5,
+    fmdecay6,
+    fmdecay7,
+    fmdecay8,
+    fmsustain3,
+    fmsustain4,
+    fmsustain5,
+    fmsustain6,
+    fmsustain7,
+    fmsustain8,
+    fmrelease3,
+    fmrelease4,
+    fmrelease5,
+    fmrelease6,
+    fmrelease7,
+    fmrelease8,
+    fmwave3,
+    fmwave4,
+    fmwave5,
+    fmwave6,
+    fmwave7,
+    fmwave8,
+    // FM matrix edges `fmi{from}{to}` (target 0 is the carrier)
+    fmi00,
+    fmi01,
+    fmi02,
+    fmi03,
+    fmi04,
+    fmi05,
+    fmi06,
+    fmi07,
+    fmi08,
+    fmi10,
+    fmi11,
+    fmi12,
+    fmi13,
+    fmi14,
+    fmi15,
+    fmi16,
+    fmi17,
+    fmi18,
+    fmi20,
+    fmi21,
+    fmi22,
+    fmi23,
+    fmi24,
+    fmi25,
+    fmi26,
+    fmi27,
+    fmi28,
+    fmi30,
+    fmi31,
+    fmi32,
+    fmi33,
+    fmi34,
+    fmi35,
+    fmi36,
+    fmi37,
+    fmi38,
+    fmi40,
+    fmi41,
+    fmi42,
+    fmi43,
+    fmi44,
+    fmi45,
+    fmi46,
+    fmi47,
+    fmi48,
+    fmi50,
+    fmi51,
+    fmi52,
+    fmi53,
+    fmi54,
+    fmi55,
+    fmi56,
+    fmi57,
+    fmi58,
+    fmi60,
+    fmi61,
+    fmi62,
+    fmi63,
+    fmi64,
+    fmi65,
+    fmi66,
+    fmi67,
+    fmi68,
+    fmi70,
+    fmi71,
+    fmi72,
+    fmi73,
+    fmi74,
+    fmi75,
+    fmi76,
+    fmi77,
+    fmi78,
+    fmi80,
+    fmi81,
+    fmi82,
+    fmi83,
+    fmi84,
+    fmi85,
+    fmi86,
+    fmi87,
+    fmi88,
 );
 
 /// The `bendRange` control. The Rust function is snake_case while the emitted
@@ -438,6 +573,12 @@ macro_rules! control_aliases {
                 }
             )*
         }
+
+        /// `(alias, builder)` pairs for the aliases above; used by
+        /// [`control_name`] to resolve canonical control keys.
+        static ALIAS_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
+            $( (stringify!($alias), |p: Pattern| $target(p)) ),*
+        ];
     };
 }
 
@@ -512,7 +653,6 @@ control_aliases!(
     dfb => delayfeedback,
     dt => delaytime,
     delays => delaysync,
-    ds => delaysync,
     // tremolo aliases
     trem => tremolo,
     tremdepth => tremolodepth,
@@ -557,6 +697,145 @@ control_aliases!(
     bb => byte_beat_expression,
     bbst => byte_beat_start_time,
     fxr => fx_release,
+    // numbered FM aliases (`fmN` ~ `fmiN`, `fmattN` ~ `fmattackN`, ...)
+    fmh1 => fmh,
+    fmi1 => fmi,
+    fm1 => fm,
+    fmenv1 => fmenv,
+    fmattack1 => fmattack,
+    fmwave1 => fmwave,
+    fmdecay1 => fmdecay,
+    fmsustain1 => fmsustain,
+    fmrelease1 => fmrelease,
+    fm2 => fmi2,
+    fm3 => fmi3,
+    fm4 => fmi4,
+    fm5 => fmi5,
+    fm6 => fmi6,
+    fm7 => fmi7,
+    fm8 => fmi8,
+    fme1 => fmenv,
+    fme2 => fmenv2,
+    fme3 => fmenv3,
+    fme4 => fmenv4,
+    fme5 => fmenv5,
+    fme6 => fmenv6,
+    fme7 => fmenv7,
+    fme8 => fmenv8,
+    fmatt1 => fmattack,
+    fmatt2 => fmattack2,
+    fmatt3 => fmattack3,
+    fmatt4 => fmattack4,
+    fmatt5 => fmattack5,
+    fmatt6 => fmattack6,
+    fmatt7 => fmattack7,
+    fmatt8 => fmattack8,
+    fmdec1 => fmdecay,
+    fmdec2 => fmdecay2,
+    fmdec3 => fmdecay3,
+    fmdec4 => fmdecay4,
+    fmdec5 => fmdecay5,
+    fmdec6 => fmdecay6,
+    fmdec7 => fmdecay7,
+    fmdec8 => fmdecay8,
+    fmsus1 => fmsustain,
+    fmsus2 => fmsustain2,
+    fmsus3 => fmsustain3,
+    fmsus4 => fmsustain4,
+    fmsus5 => fmsustain5,
+    fmsus6 => fmsustain6,
+    fmsus7 => fmsustain7,
+    fmsus8 => fmsustain8,
+    fmrel1 => fmrelease,
+    fmrel2 => fmrelease2,
+    fmrel3 => fmrelease3,
+    fmrel4 => fmrelease4,
+    fmrel5 => fmrelease5,
+    fmrel6 => fmrelease6,
+    fmrel7 => fmrelease7,
+    fmrel8 => fmrelease8,
+    // FM matrix aliases `fm{from}{to}` => `fmi{from}{to}`
+    fm00 => fmi00,
+    fm01 => fmi01,
+    fm02 => fmi02,
+    fm03 => fmi03,
+    fm04 => fmi04,
+    fm05 => fmi05,
+    fm06 => fmi06,
+    fm07 => fmi07,
+    fm08 => fmi08,
+    fm10 => fmi10,
+    fm11 => fmi11,
+    fm12 => fmi12,
+    fm13 => fmi13,
+    fm14 => fmi14,
+    fm15 => fmi15,
+    fm16 => fmi16,
+    fm17 => fmi17,
+    fm18 => fmi18,
+    fm20 => fmi20,
+    fm21 => fmi21,
+    fm22 => fmi22,
+    fm23 => fmi23,
+    fm24 => fmi24,
+    fm25 => fmi25,
+    fm26 => fmi26,
+    fm27 => fmi27,
+    fm28 => fmi28,
+    fm30 => fmi30,
+    fm31 => fmi31,
+    fm32 => fmi32,
+    fm33 => fmi33,
+    fm34 => fmi34,
+    fm35 => fmi35,
+    fm36 => fmi36,
+    fm37 => fmi37,
+    fm38 => fmi38,
+    fm40 => fmi40,
+    fm41 => fmi41,
+    fm42 => fmi42,
+    fm43 => fmi43,
+    fm44 => fmi44,
+    fm45 => fmi45,
+    fm46 => fmi46,
+    fm47 => fmi47,
+    fm48 => fmi48,
+    fm50 => fmi50,
+    fm51 => fmi51,
+    fm52 => fmi52,
+    fm53 => fmi53,
+    fm54 => fmi54,
+    fm55 => fmi55,
+    fm56 => fmi56,
+    fm57 => fmi57,
+    fm58 => fmi58,
+    fm60 => fmi60,
+    fm61 => fmi61,
+    fm62 => fmi62,
+    fm63 => fmi63,
+    fm64 => fmi64,
+    fm65 => fmi65,
+    fm66 => fmi66,
+    fm67 => fmi67,
+    fm68 => fmi68,
+    fm70 => fmi70,
+    fm71 => fmi71,
+    fm72 => fmi72,
+    fm73 => fmi73,
+    fm74 => fmi74,
+    fm75 => fmi75,
+    fm76 => fmi76,
+    fm77 => fmi77,
+    fm78 => fmi78,
+    fm80 => fmi80,
+    fm81 => fmi81,
+    fm82 => fmi82,
+    fm83 => fmi83,
+    fm84 => fmi84,
+    fm85 => fmi85,
+    fm86 => fmi86,
+    fm87 => fmi87,
+    fm88 => fmi88,
 );
 
 // Controls whose Strudel key can't be a Rust fn name (keywords like `loop`,
@@ -578,6 +857,12 @@ macro_rules! named_controls {
                 }
             )*
         }
+
+        /// `(key, builder)` pairs for the controls above; used by
+        /// [`control_name`] to resolve canonical control keys.
+        static NAMED_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
+            $( ($key, |p: Pattern| $fn(p)) ),*
+        ];
     };
 }
 
@@ -643,8 +928,7 @@ impl Pattern {
     }
 
     /// Set an arbitrary named control, keeping this pattern's structure. The
-    /// escape hatch for controls without a dedicated method (e.g. FM-matrix
-    /// edges `ctrl("fmi20", 3)` or higher operators `ctrl("fmh3", 2)`).
+    /// escape hatch for controls without a dedicated method.
     pub fn ctrl(&self, name: impl Into<String>, x: impl IntoPattern) -> Pattern {
         self.set(control_dyn(name, x))
     }
@@ -663,6 +947,207 @@ impl Pattern {
                 Value::Map(m)
             }
             other => other,
+        })
+    }
+}
+
+/// Resolve a control or alias name to the canonical key it writes, mirroring
+/// Strudel's `getControlName`. Unknown names resolve to themselves.
+pub fn control_name(name: &str) -> String {
+    // Aliases that don't exist as Rust builder fns (bespoke controls and
+    // camelCase aliases that live in the language-binding layer).
+    const EXTRA_ALIASES: &[(&str, &str)] = &[
+        ("s", "s"),
+        ("sound", "s"),
+        ("mode", "mode"),
+        ("bendRange", "bendRange"),
+        ("wavetablePosition", "wt"),
+        ("wavetableWarp", "warp"),
+        ("wavetableWarpMode", "warpmode"),
+        ("wavetablePhaseRand", "wtphaserand"),
+        ("fadeOutTime", "fadeTime"),
+        ("FXrel", "FXrelease"),
+        ("FXr", "FXrelease"),
+        ("loopb", "loopBegin"),
+        ("loope", "loopEnd"),
+    ];
+    if let Some((_, key)) = EXTRA_ALIASES.iter().find(|(n, _)| *n == name) {
+        return key.to_string();
+    }
+    let builder = PLAIN_CONTROL_BUILDERS
+        .iter()
+        .chain(ALIAS_CONTROL_BUILDERS)
+        .chain(NAMED_CONTROL_BUILDERS)
+        .find(|(n, _)| *n == name)
+        .map(|(_, f)| *f);
+    // Probe the builder with a scalar and read back the key it writes. This
+    // keeps the alias -> key mapping in one place (the macros above) instead
+    // of a second hand-maintained table that could drift.
+    if let Some(f) = builder {
+        let probe = f(crate::pure(Value::Int(0)));
+        if let Some(hap) = probe
+            .query_arc(crate::Frac::zero(), crate::Frac::one())
+            .first()
+        {
+            if let Value::Map(m) = &hap.value {
+                if let Some(k) = m.keys().next() {
+                    return k.clone();
+                }
+            }
+        }
+    }
+    name.to_string()
+}
+
+/// View a value as positional parts: a list yields its items, anything else
+/// is a single part. Mini-notation `a:b:c` values arrive as lists.
+fn value_parts(v: &Value) -> Vec<Value> {
+    match v {
+        Value::List(items) => items.clone(),
+        other => vec![other.clone()],
+    }
+}
+
+/// Wrap positional values into the given control keys: `[x, y]` becomes
+/// `{ names[0]: x, names[1]: y }`. Extra parts are dropped, missing parts
+/// leave their key unset. Powers Strudel's multi-control helpers.
+fn spread_control(names: &'static [&'static str], pat: Pattern) -> Pattern {
+    pat.fmap(move |v| match v {
+        Value::Map(_) => v,
+        other => {
+            let mut m = BTreeMap::new();
+            for (key, val) in names.iter().zip(value_parts(&other)) {
+                m.insert(key.to_string(), val);
+            }
+            Value::Map(m)
+        }
+    })
+}
+
+/// Strudel's `adsr` helper: a `:`-list (`".1:.2:.5:.3"`) expands into
+/// `attack`/`decay`/`sustain`/`release`. Missing entries are left unset.
+pub fn adsr(pat: impl IntoPattern) -> Pattern {
+    spread_control(
+        &["attack", "decay", "sustain", "release"],
+        pat.into_pattern(),
+    )
+}
+
+/// Strudel's `ad` helper: `attack:decay`, with `decay` defaulting to the
+/// attack time.
+pub fn ad(pat: impl IntoPattern) -> Pattern {
+    pat.into_pattern().fmap(|v| match v {
+        Value::Map(_) => v,
+        other => {
+            let parts = value_parts(&other);
+            let attack = parts.first().cloned().unwrap_or(Value::Int(0));
+            let decay = parts.get(1).cloned().unwrap_or_else(|| attack.clone());
+            let mut m = BTreeMap::new();
+            m.insert("attack".to_string(), attack);
+            m.insert("decay".to_string(), decay);
+            Value::Map(m)
+        }
+    })
+}
+
+/// Strudel's `ds` helper: `decay:sustain`, with `sustain` defaulting to 0.
+pub fn ds(pat: impl IntoPattern) -> Pattern {
+    pat.into_pattern().fmap(|v| match v {
+        Value::Map(_) => v,
+        other => {
+            let parts = value_parts(&other);
+            let decay = parts.first().cloned().unwrap_or(Value::Int(0));
+            let sustain = parts.get(1).cloned().unwrap_or(Value::Int(0));
+            let mut m = BTreeMap::new();
+            m.insert("decay".to_string(), decay);
+            m.insert("sustain".to_string(), sustain);
+            Value::Map(m)
+        }
+    })
+}
+
+/// Strudel's `ar` helper: `attack:release`, with `release` defaulting to the
+/// attack time.
+pub fn ar(pat: impl IntoPattern) -> Pattern {
+    pat.into_pattern().fmap(|v| match v {
+        Value::Map(_) => v,
+        other => {
+            let parts = value_parts(&other);
+            let attack = parts.first().cloned().unwrap_or(Value::Int(0));
+            let release = parts.get(1).cloned().unwrap_or_else(|| attack.clone());
+            let mut m = BTreeMap::new();
+            m.insert("attack".to_string(), attack);
+            m.insert("release".to_string(), release);
+            Value::Map(m)
+        }
+    })
+}
+
+impl Pattern {
+    /// Strudel's `adsr` envelope helper (see [`adsr`]).
+    pub fn adsr(&self, x: impl IntoPattern) -> Pattern {
+        self.set(adsr(x))
+    }
+
+    /// Strudel's `ad` envelope helper (see [`ad`]).
+    pub fn ad(&self, x: impl IntoPattern) -> Pattern {
+        self.set(ad(x))
+    }
+
+    /// Strudel's `ds` envelope helper (see [`ds`]).
+    pub fn ds(&self, x: impl IntoPattern) -> Pattern {
+        self.set(ds(x))
+    }
+
+    /// Strudel's `ar` envelope helper (see [`ar`]).
+    pub fn ar(&self, x: impl IntoPattern) -> Pattern {
+        self.set(ar(x))
+    }
+
+    /// Strudel's `control([ccn, ccv])` MIDI helper: a `:`-list sets the MIDI
+    /// control number and value together.
+    pub fn control(&self, x: impl IntoPattern) -> Pattern {
+        self.set(spread_control(&["ccn", "ccv"], x.into_pattern()))
+    }
+
+    /// Strudel's `sysex([id, data])` MIDI helper: a `:`-list sets the sysex
+    /// id and data together.
+    pub fn sysex(&self, x: impl IntoPattern) -> Pattern {
+        self.set(spread_control(&["sysexid", "sysexdata"], x.into_pattern()))
+    }
+
+    /// Strudel's `as(mapping)`: map bare positional values into named
+    /// controls, e.g. `pat("c:.5").as_controls(&["note", "clip"])`. Alias
+    /// names resolve through [`control_name`].
+    pub fn as_controls(&self, names: &[&str]) -> Pattern {
+        let keys: Vec<String> = names.iter().map(|n| control_name(n)).collect();
+        self.fmap(move |v| {
+            let mut m = BTreeMap::new();
+            for (key, val) in keys.iter().zip(value_parts(&v)) {
+                m.insert(key.clone(), val);
+            }
+            Value::Map(m)
+        })
+    }
+
+    /// Strudel's `scrub(positions)`: scrub through a sample like a tape loop.
+    /// Structure comes from the positions pattern; a `:`-list (`"0.5:2"`)
+    /// also scales playback speed. Events are clipped to their span.
+    pub fn scrub(&self, positions: impl IntoPattern) -> Pattern {
+        let pat = self.clone();
+        positions.into_pattern().outer_bind(move |v| {
+            let parts = value_parts(&v);
+            let begin_v = parts.first().cloned().unwrap_or(Value::Int(0));
+            let speed_mul = parts.get(1).and_then(Value::as_f64).unwrap_or(1.0);
+            pat.begin(begin_v).fmap(move |v| match v {
+                Value::Map(mut m) => {
+                    let speed = m.get("speed").and_then(Value::as_f64).unwrap_or(1.0);
+                    m.insert("speed".to_string(), Value::F64(speed * speed_mul));
+                    m.insert("clip".to_string(), Value::Int(1));
+                    Value::Map(m)
+                }
+                other => other,
+            })
         })
     }
 }
@@ -782,6 +1267,152 @@ mod tests {
         let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
         match &first.value {
             Value::Map(m) => assert_eq!(m.get("size"), Some(&Value::F64(0.8))),
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn adsr_expands_into_envelope_keys() {
+        // `adsr(".1:.2:.5:.3")` (a `:`-list) expands into the four envelope
+        // controls, like Strudel's multi-control helper.
+        let pat = adsr(Value::List(vec![
+            Value::F64(0.1),
+            Value::F64(0.2),
+            Value::F64(0.5),
+            Value::F64(0.3),
+        ]));
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("attack"), Some(&Value::F64(0.1)));
+                assert_eq!(m.get("decay"), Some(&Value::F64(0.2)));
+                assert_eq!(m.get("sustain"), Some(&Value::F64(0.5)));
+                assert_eq!(m.get("release"), Some(&Value::F64(0.3)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+        // a scalar only sets `attack`
+        let pat = adsr(Value::F64(0.1));
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("attack"), Some(&Value::F64(0.1)));
+                assert!(!m.contains_key("decay"));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn envelope_helper_defaults_match_strudel() {
+        // `ad(x)`: decay defaults to attack; `ar(x)`: release defaults to
+        // attack; `ds(x)`: sustain defaults to 0.
+        let first = &ad(Value::F64(0.2)).query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("attack"), Some(&Value::F64(0.2)));
+                assert_eq!(m.get("decay"), Some(&Value::F64(0.2)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+        let first = &ds(Value::F64(0.3)).query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("decay"), Some(&Value::F64(0.3)));
+                assert_eq!(m.get("sustain"), Some(&Value::Int(0)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+        let first = &ar(Value::F64(0.4)).query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("attack"), Some(&Value::F64(0.4)));
+                assert_eq!(m.get("release"), Some(&Value::F64(0.4)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_and_sysex_spread_pairs() {
+        let pat = note(seq([0])).control(Value::List(vec![Value::Int(74), Value::Int(64)]));
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("ccn"), Some(&Value::Int(74)));
+                assert_eq!(m.get("ccv"), Some(&Value::Int(64)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+        let pat = note(seq([0])).sysex(Value::List(vec![Value::Int(7), Value::Int(1)]));
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("sysexid"), Some(&Value::Int(7)));
+                assert_eq!(m.get("sysexdata"), Some(&Value::Int(1)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_name_resolves_aliases() {
+        // mirrors Strudel's getControlName: aliases resolve to the canonical
+        // key they write, unknown names resolve to themselves.
+        assert_eq!(control_name("lpf"), "cutoff");
+        assert_eq!(control_name("bb"), "byteBeatExpression");
+        assert_eq!(control_name("fm23"), "fmi23");
+        assert_eq!(control_name("vel"), "velocity");
+        assert_eq!(control_name("sound"), "s");
+        assert_eq!(control_name("loopb"), "loopBegin");
+        assert_eq!(control_name("note"), "note");
+        assert_eq!(control_name("not_a_control"), "not_a_control");
+    }
+
+    #[test]
+    fn as_controls_maps_positional_values() {
+        // `"c:.5".as("note:clip")`: list values map positionally, with alias
+        // names canonicalized (vel -> velocity).
+        let pat = crate::pure(Value::List(vec![Value::Str("c".into()), Value::F64(0.5)]))
+            .as_controls(&["note", "vel"]);
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("note"), Some(&Value::Str("c".into())));
+                assert_eq!(m.get("velocity"), Some(&Value::F64(0.5)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scrub_sets_begin_speed_and_clip() {
+        // scrub("0.5:2"): structure from the positions pattern; begin set,
+        // speed multiplied, clip forced to 1.
+        let positions = crate::pure(Value::List(vec![Value::F64(0.5), Value::Int(2)]));
+        let pat = s("amen".into_pattern()).speed(0.5).scrub(positions);
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("begin"), Some(&Value::F64(0.5)));
+                assert_eq!(m.get("speed"), Some(&Value::F64(1.0)));
+                assert_eq!(m.get("clip"), Some(&Value::Int(1)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fm_matrix_aliases_write_fmi_keys() {
+        // `fm23` is Strudel's alias for the matrix edge `fmi23`.
+        let pat = note(seq([0])).fm23(0.5).fmh3(2);
+        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
+        match &first.value {
+            Value::Map(m) => {
+                assert_eq!(m.get("fmi23"), Some(&Value::F64(0.5)));
+                assert_eq!(m.get("fmh3"), Some(&Value::Int(2)));
+                assert!(!m.contains_key("fm23"));
+            }
             other => panic!("expected map, got {other:?}"),
         }
     }

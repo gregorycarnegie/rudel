@@ -222,6 +222,36 @@ pub(super) fn kpattern_pickmod(ctx: MethodContext<KPattern>) -> KotoResult<KValu
     Ok(KPattern::wrap(pick_from_lookup(lookup, selector, true)))
 }
 
+/// `pat.as("note:clip")` / `pat.as(["note", "clip"])`: map bare positional
+/// values into named controls (Strudel's `as`).
+pub(super) fn kpattern_as_controls(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let names: Vec<String> = match method_arg(&ctx, 0) {
+        KValue::Str(s) => s.split(':').map(str::to_string).collect(),
+        KValue::List(items) => items
+            .data()
+            .iter()
+            .filter_map(|v| match v {
+                KValue::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .collect(),
+        KValue::Tuple(items) => items
+            .iter()
+            .filter_map(|v| match v {
+                KValue::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .collect(),
+        other => {
+            return runtime_error!("as: expected a control-name string or list, got {other:?}");
+        }
+    };
+    with_instance(&ctx, |pat| {
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        pat.as_controls(&refs)
+    })
+}
+
 pub(super) fn kpattern_loop_play(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     with_pattern_arg(&ctx, |pat, arg| pat.loop_play(arg))
 }
