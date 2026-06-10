@@ -196,15 +196,6 @@ controls!(
     fmdecay,
     fmsustain,
     fmrelease,
-    // FM operator 2 (chain `op2 -> op1`); operators 3-8 and the full
-    // `fmi{from}{to}` matrix follow further down the list.
-    fmi2,
-    fmh2,
-    fmwave2,
-    fmattack2,
-    fmdecay2,
-    fmsustain2,
-    fmrelease2,
     pw,
     noise,
     pcurve,
@@ -404,138 +395,6 @@ controls!(
     sysexdata,
     midibend,
     miditouch,
-    // numbered FM operators (chain controls + per-operator envelope/wave)
-    fmh3,
-    fmh4,
-    fmh5,
-    fmh6,
-    fmh7,
-    fmh8,
-    fmi3,
-    fmi4,
-    fmi5,
-    fmi6,
-    fmi7,
-    fmi8,
-    fmenv2,
-    fmenv3,
-    fmenv4,
-    fmenv5,
-    fmenv6,
-    fmenv7,
-    fmenv8,
-    fmattack3,
-    fmattack4,
-    fmattack5,
-    fmattack6,
-    fmattack7,
-    fmattack8,
-    fmdecay3,
-    fmdecay4,
-    fmdecay5,
-    fmdecay6,
-    fmdecay7,
-    fmdecay8,
-    fmsustain3,
-    fmsustain4,
-    fmsustain5,
-    fmsustain6,
-    fmsustain7,
-    fmsustain8,
-    fmrelease3,
-    fmrelease4,
-    fmrelease5,
-    fmrelease6,
-    fmrelease7,
-    fmrelease8,
-    fmwave3,
-    fmwave4,
-    fmwave5,
-    fmwave6,
-    fmwave7,
-    fmwave8,
-    // FM matrix edges `fmi{from}{to}` (target 0 is the carrier)
-    fmi00,
-    fmi01,
-    fmi02,
-    fmi03,
-    fmi04,
-    fmi05,
-    fmi06,
-    fmi07,
-    fmi08,
-    fmi10,
-    fmi11,
-    fmi12,
-    fmi13,
-    fmi14,
-    fmi15,
-    fmi16,
-    fmi17,
-    fmi18,
-    fmi20,
-    fmi21,
-    fmi22,
-    fmi23,
-    fmi24,
-    fmi25,
-    fmi26,
-    fmi27,
-    fmi28,
-    fmi30,
-    fmi31,
-    fmi32,
-    fmi33,
-    fmi34,
-    fmi35,
-    fmi36,
-    fmi37,
-    fmi38,
-    fmi40,
-    fmi41,
-    fmi42,
-    fmi43,
-    fmi44,
-    fmi45,
-    fmi46,
-    fmi47,
-    fmi48,
-    fmi50,
-    fmi51,
-    fmi52,
-    fmi53,
-    fmi54,
-    fmi55,
-    fmi56,
-    fmi57,
-    fmi58,
-    fmi60,
-    fmi61,
-    fmi62,
-    fmi63,
-    fmi64,
-    fmi65,
-    fmi66,
-    fmi67,
-    fmi68,
-    fmi70,
-    fmi71,
-    fmi72,
-    fmi73,
-    fmi74,
-    fmi75,
-    fmi76,
-    fmi77,
-    fmi78,
-    fmi80,
-    fmi81,
-    fmi82,
-    fmi83,
-    fmi84,
-    fmi85,
-    fmi86,
-    fmi87,
-    fmi88,
 );
 
 /// The `bendRange` control. The Rust function is snake_case while the emitted
@@ -697,145 +556,6 @@ control_aliases!(
     bb => byte_beat_expression,
     bbst => byte_beat_start_time,
     fxr => fx_release,
-    // numbered FM aliases (`fmN` ~ `fmiN`, `fmattN` ~ `fmattackN`, ...)
-    fmh1 => fmh,
-    fmi1 => fmi,
-    fm1 => fm,
-    fmenv1 => fmenv,
-    fmattack1 => fmattack,
-    fmwave1 => fmwave,
-    fmdecay1 => fmdecay,
-    fmsustain1 => fmsustain,
-    fmrelease1 => fmrelease,
-    fm2 => fmi2,
-    fm3 => fmi3,
-    fm4 => fmi4,
-    fm5 => fmi5,
-    fm6 => fmi6,
-    fm7 => fmi7,
-    fm8 => fmi8,
-    fme1 => fmenv,
-    fme2 => fmenv2,
-    fme3 => fmenv3,
-    fme4 => fmenv4,
-    fme5 => fmenv5,
-    fme6 => fmenv6,
-    fme7 => fmenv7,
-    fme8 => fmenv8,
-    fmatt1 => fmattack,
-    fmatt2 => fmattack2,
-    fmatt3 => fmattack3,
-    fmatt4 => fmattack4,
-    fmatt5 => fmattack5,
-    fmatt6 => fmattack6,
-    fmatt7 => fmattack7,
-    fmatt8 => fmattack8,
-    fmdec1 => fmdecay,
-    fmdec2 => fmdecay2,
-    fmdec3 => fmdecay3,
-    fmdec4 => fmdecay4,
-    fmdec5 => fmdecay5,
-    fmdec6 => fmdecay6,
-    fmdec7 => fmdecay7,
-    fmdec8 => fmdecay8,
-    fmsus1 => fmsustain,
-    fmsus2 => fmsustain2,
-    fmsus3 => fmsustain3,
-    fmsus4 => fmsustain4,
-    fmsus5 => fmsustain5,
-    fmsus6 => fmsustain6,
-    fmsus7 => fmsustain7,
-    fmsus8 => fmsustain8,
-    fmrel1 => fmrelease,
-    fmrel2 => fmrelease2,
-    fmrel3 => fmrelease3,
-    fmrel4 => fmrelease4,
-    fmrel5 => fmrelease5,
-    fmrel6 => fmrelease6,
-    fmrel7 => fmrelease7,
-    fmrel8 => fmrelease8,
-    // FM matrix aliases `fm{from}{to}` => `fmi{from}{to}`
-    fm00 => fmi00,
-    fm01 => fmi01,
-    fm02 => fmi02,
-    fm03 => fmi03,
-    fm04 => fmi04,
-    fm05 => fmi05,
-    fm06 => fmi06,
-    fm07 => fmi07,
-    fm08 => fmi08,
-    fm10 => fmi10,
-    fm11 => fmi11,
-    fm12 => fmi12,
-    fm13 => fmi13,
-    fm14 => fmi14,
-    fm15 => fmi15,
-    fm16 => fmi16,
-    fm17 => fmi17,
-    fm18 => fmi18,
-    fm20 => fmi20,
-    fm21 => fmi21,
-    fm22 => fmi22,
-    fm23 => fmi23,
-    fm24 => fmi24,
-    fm25 => fmi25,
-    fm26 => fmi26,
-    fm27 => fmi27,
-    fm28 => fmi28,
-    fm30 => fmi30,
-    fm31 => fmi31,
-    fm32 => fmi32,
-    fm33 => fmi33,
-    fm34 => fmi34,
-    fm35 => fmi35,
-    fm36 => fmi36,
-    fm37 => fmi37,
-    fm38 => fmi38,
-    fm40 => fmi40,
-    fm41 => fmi41,
-    fm42 => fmi42,
-    fm43 => fmi43,
-    fm44 => fmi44,
-    fm45 => fmi45,
-    fm46 => fmi46,
-    fm47 => fmi47,
-    fm48 => fmi48,
-    fm50 => fmi50,
-    fm51 => fmi51,
-    fm52 => fmi52,
-    fm53 => fmi53,
-    fm54 => fmi54,
-    fm55 => fmi55,
-    fm56 => fmi56,
-    fm57 => fmi57,
-    fm58 => fmi58,
-    fm60 => fmi60,
-    fm61 => fmi61,
-    fm62 => fmi62,
-    fm63 => fmi63,
-    fm64 => fmi64,
-    fm65 => fmi65,
-    fm66 => fmi66,
-    fm67 => fmi67,
-    fm68 => fmi68,
-    fm70 => fmi70,
-    fm71 => fmi71,
-    fm72 => fmi72,
-    fm73 => fmi73,
-    fm74 => fmi74,
-    fm75 => fmi75,
-    fm76 => fmi76,
-    fm77 => fmi77,
-    fm78 => fmi78,
-    fm80 => fmi80,
-    fm81 => fmi81,
-    fm82 => fmi82,
-    fm83 => fmi83,
-    fm84 => fmi84,
-    fm85 => fmi85,
-    fm86 => fmi86,
-    fm87 => fmi87,
-    fm88 => fmi88,
 );
 
 // Controls whose Strudel key can't be a Rust fn name (keywords like `loop`,
@@ -983,6 +703,59 @@ pub fn control_builders() -> impl Iterator<Item = (&'static str, fn(Pattern) -> 
         .copied()
 }
 
+/// `(name, canonical key)` pairs for the numbered FM controls, mirroring
+/// Strudel's `registerMultiControl` loops: per-operator families
+/// (`fmh1`-`fmh8`, `fmattack1`-`fmattack8`, short spellings like `fmatt3`)
+/// and the `fmi{from}{to}` routing matrix with its `fm{from}{to}` aliases
+/// (target 0 is the carrier). `{name}1` resolves to the bare control.
+///
+/// These names are generated rather than declared, so they have no dedicated
+/// Rust builder fns (use `ctrl(name, value)` from Rust); the language
+/// bindings register them as pattern methods alongside [`control_builders`].
+pub fn numbered_control_names() -> Vec<(String, String)> {
+    let families: &[(&str, Option<&str>)] = &[
+        ("fmh", None),
+        ("fmi", None),
+        ("fmwave", None),
+        ("fmenv", Some("fme")),
+        ("fmattack", Some("fmatt")),
+        ("fmdecay", Some("fmdec")),
+        ("fmsustain", Some("fmsus")),
+        ("fmrelease", Some("fmrel")),
+    ];
+    let mut names = Vec::new();
+    for &(family, short) in families {
+        for op in 1..=8 {
+            let key = if op == 1 {
+                family.to_string()
+            } else {
+                format!("{family}{op}")
+            };
+            names.push((format!("{family}{op}"), key.clone()));
+            if let Some(short) = short {
+                names.push((format!("{short}{op}"), key));
+            }
+        }
+    }
+    // `fm` ~ `fmi`: `fm1` is the bare `fm`, `fmN` aliases the chain `fmiN`.
+    for op in 1..=8 {
+        let key = if op == 1 {
+            "fm".to_string()
+        } else {
+            format!("fmi{op}")
+        };
+        names.push((format!("fm{op}"), key));
+    }
+    for from in 0..=8 {
+        for to in 0..=8 {
+            let key = format!("fmi{from}{to}");
+            names.push((key.clone(), key.clone()));
+            names.push((format!("fm{from}{to}"), key));
+        }
+    }
+    names
+}
+
 /// Resolve a control or alias name to the canonical key it writes, mirroring
 /// Strudel's `getControlName`. Unknown names resolve to themselves.
 pub fn control_name(name: &str) -> String {
@@ -1001,6 +774,12 @@ pub fn control_name(name: &str) -> String {
                 }
             }
         }
+    }
+    if let Some((_, key)) = numbered_control_names()
+        .into_iter()
+        .find(|(n, _)| n == name)
+    {
+        return key;
     }
     name.to_string()
 }
@@ -1409,18 +1188,27 @@ mod tests {
     }
 
     #[test]
-    fn fm_matrix_aliases_write_fmi_keys() {
-        // `fm23` is Strudel's alias for the matrix edge `fmi23`.
-        let pat = note(seq([0])).fm23(0.5).fmh3(2);
-        let first = &pat.query_arc(crate::Frac::zero(), crate::Frac::one())[0];
-        match &first.value {
-            Value::Map(m) => {
-                assert_eq!(m.get("fmi23"), Some(&Value::F64(0.5)));
-                assert_eq!(m.get("fmh3"), Some(&Value::Int(2)));
-                assert!(!m.contains_key("fm23"));
-            }
-            other => panic!("expected map, got {other:?}"),
-        }
+    fn numbered_fm_names_resolve_to_canonical_keys() {
+        // 8 families * 8 ops + 5 short spellings * 8 + fm1-fm8 + the 9x9
+        // matrix under both spellings.
+        let names = numbered_control_names();
+        assert_eq!(names.len(), 8 * 8 + 5 * 8 + 8 + 9 * 9 * 2);
+        let key = |name: &str| {
+            names
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, k)| k.as_str())
+                .unwrap_or_else(|| panic!("{name} missing"))
+        };
+        // `{name}1` is the bare control; `fmN` aliases the chain `fmiN`;
+        // `fm{i}{j}` aliases the matrix edge `fmi{i}{j}`.
+        assert_eq!(key("fmh1"), "fmh");
+        assert_eq!(key("fm1"), "fm");
+        assert_eq!(key("fm3"), "fmi3");
+        assert_eq!(key("fmatt5"), "fmattack5");
+        assert_eq!(key("fme1"), "fmenv");
+        assert_eq!(key("fm23"), "fmi23");
+        assert_eq!(key("fmi20"), "fmi20");
     }
 
     #[test]

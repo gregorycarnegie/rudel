@@ -69,19 +69,41 @@ pub(crate) fn extend_control_entries() {
             entries.insert(
                 name,
                 KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                    use koto::runtime::{ErrorKind, MethodContext, runtime_error};
-                    match ctx.instance_and_args(
-                        |i| matches!(i, KValue::Object(_)),
-                        KPattern::type_static(),
-                    )? {
-                        (KValue::Object(o), extra_args) => {
-                            let mctx = MethodContext::new(&o, extra_args, ctx.vm);
-                            args::with_pattern_arg(&mctx, |pat, arg| pat.set(builder(arg)))
-                        }
-                        _ => runtime_error!(ErrorKind::UnexpectedError),
-                    }
+                    control_method_call(ctx, |pat, arg| pat.set(builder(arg)))
                 })),
             );
         }
+        // Numbered FM controls have no Rust builder fns; their names and
+        // canonical keys are generated at runtime.
+        for (name, key) in rudel_core::numbered_control_names() {
+            if entries.get(name.as_str()).is_some() {
+                continue;
+            }
+            entries.insert(
+                name.as_str(),
+                KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+                    let key = key.clone();
+                    control_method_call(ctx, move |pat, arg| {
+                        pat.set(rudel_core::control_dyn(key, arg))
+                    })
+                })),
+            );
+        }
+    }
+}
+
+/// Call a control body as a `KPattern` method: extract the instance and the
+/// value argument the same way the generated `#[koto_method]` wrappers do.
+fn control_method_call(
+    ctx: &mut koto::runtime::CallContext,
+    body: impl FnOnce(&Pattern, Pattern) -> Pattern,
+) -> koto::runtime::Result<KValue> {
+    use koto::runtime::{ErrorKind, MethodContext, runtime_error};
+    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
+        (KValue::Object(o), extra_args) => {
+            let mctx = MethodContext::new(&o, extra_args, ctx.vm);
+            args::with_pattern_arg(&mctx, body)
+        }
+        _ => runtime_error!(ErrorKind::UnexpectedError),
     }
 }
