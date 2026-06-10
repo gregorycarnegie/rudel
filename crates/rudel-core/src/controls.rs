@@ -951,39 +951,45 @@ impl Pattern {
     }
 }
 
-/// Resolve a control or alias name to the canonical key it writes, mirroring
-/// Strudel's `getControlName`. Unknown names resolve to themselves.
-pub fn control_name(name: &str) -> String {
-    // Aliases that don't exist as Rust builder fns (bespoke controls and
-    // camelCase aliases that live in the language-binding layer).
-    const EXTRA_ALIASES: &[(&str, &str)] = &[
-        ("s", "s"),
-        ("sound", "s"),
-        ("mode", "mode"),
-        ("bendRange", "bendRange"),
-        ("wavetablePosition", "wt"),
-        ("wavetableWarp", "warp"),
-        ("wavetableWarpMode", "warpmode"),
-        ("wavetablePhaseRand", "wtphaserand"),
-        ("fadeOutTime", "fadeTime"),
-        ("FXrel", "FXrelease"),
-        ("FXr", "FXrelease"),
-        ("loopb", "loopBegin"),
-        ("loope", "loopEnd"),
-    ];
-    if let Some((_, key)) = EXTRA_ALIASES.iter().find(|(n, _)| *n == name) {
-        return key.to_string();
-    }
-    let builder = PLAIN_CONTROL_BUILDERS
+/// Control spellings without a same-named Rust builder fn: bespoke controls
+/// (`s` splits `name:index`, `mode` also sets `anchor`) and camelCase /
+/// keyword-safe aliases that otherwise only exist in the language bindings.
+static EXTRA_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
+    ("s", |p| s(p)),
+    ("sound", |p| sound(p)),
+    ("mode", |p| mode(p)),
+    ("bendRange", |p| bend_range(p)),
+    ("wavetablePosition", |p| wt(p)),
+    ("wavetableWarp", |p| warp(p)),
+    ("wavetableWarpMode", |p| warpmode(p)),
+    ("wavetablePhaseRand", |p| wtphaserand(p)),
+    ("fadeOutTime", |p| fade_time(p)),
+    ("FXrel", |p| fx_release(p)),
+    ("FXr", |p| fx_release(p)),
+    ("loopb", |p| loop_begin(p)),
+    ("loope", |p| loop_end(p)),
+];
+
+/// Every `(name, builder)` control pair: plain controls, aliases,
+/// literal-key controls, and binding-layer spellings. Each builder wraps a
+/// value pattern into the control's map; the language bindings use this to
+/// expose every control as a pattern method without hand-listing names.
+pub fn control_builders() -> impl Iterator<Item = (&'static str, fn(Pattern) -> Pattern)> {
+    PLAIN_CONTROL_BUILDERS
         .iter()
         .chain(ALIAS_CONTROL_BUILDERS)
         .chain(NAMED_CONTROL_BUILDERS)
-        .find(|(n, _)| *n == name)
-        .map(|(_, f)| *f);
+        .chain(EXTRA_CONTROL_BUILDERS)
+        .copied()
+}
+
+/// Resolve a control or alias name to the canonical key it writes, mirroring
+/// Strudel's `getControlName`. Unknown names resolve to themselves.
+pub fn control_name(name: &str) -> String {
     // Probe the builder with a scalar and read back the key it writes. This
-    // keeps the alias -> key mapping in one place (the macros above) instead
-    // of a second hand-maintained table that could drift.
-    if let Some(f) = builder {
+    // keeps the alias -> key mapping in one place (the registries above)
+    // instead of a second hand-maintained table that could drift.
+    if let Some((_, f)) = control_builders().find(|(n, _)| *n == name) {
         let probe = f(crate::pure(Value::Int(0)));
         if let Some(hap) = probe
             .query_arc(crate::Frac::zero(), crate::Frac::one())

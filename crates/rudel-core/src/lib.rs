@@ -44,7 +44,10 @@ pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
 pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat};
 // Controls (also available as chaining methods on `Pattern`).
-pub use controls::{bend_range, control_dyn, freq, i, lpf, lpq, mpe, n, note, s, sound};
+pub use controls::{
+    bend_range, control_builders, control_dyn, control_name, freq, i, lpf, lpq, mpe, n, note, s,
+    sound,
+};
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
 pub use input::{cc_in, clear_cc, get_cc, set_cc};
 // Tonal: note names, scales, chords.

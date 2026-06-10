@@ -7,6 +7,9 @@ use rudel_core::{Frac, Pattern, Value};
 
 /// Add the rudel top-level functions to a Koto prelude.
 pub(crate) fn register(prelude: &KMap) {
+    // Make every rudel-core control available as a KPattern method (a
+    // process-wide one-time extension of the generated method map).
+    super::pattern::extend_control_entries();
     let math = KMap::new();
     math.add_fn("pow", |ctx| {
         let base = super::pattern::arg_to_f64(&arg0(ctx));
