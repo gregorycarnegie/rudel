@@ -8,7 +8,7 @@
 
 mod common;
 use common::{golden_rows, rudel_rows};
-use rudel_core::{Frac, Pattern, note, s};
+use rudel_core::{Frac, Pattern, note, randrun, s, zip};
 use rudel_mini::parse;
 
 fn p(code: &str) -> Pattern {
@@ -48,6 +48,12 @@ fn build(label: &str) -> Pattern {
         "keep_out" => note(p("0 1")).keep_out(s(p("a b c"))),
         "add_poly" => p("0 1 2").add_poly(p("10 20")),
         "set_poly" => note(p("0 1 2")).set_poly(s(p("a b"))),
+        "randrun8" => randrun(8),
+        "shuffle4" => p("0 1 2 3").shuffle(4),
+        "shuffle2" => p("a b c d").shuffle(2),
+        "scramble4" => p("0 1 2 3").scramble(4),
+        "tour" => p("[c g]").tour(&[p("e f"), p("e f g"), p("g f e c")]),
+        "zip" => zip(&[p("e f"), p("e f g"), p("g [f e] a f4 c")]),
         other => panic!("unknown golden label {other:?}"),
     }
 }

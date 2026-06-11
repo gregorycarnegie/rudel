@@ -38,14 +38,26 @@ fn value_sig(v: &Value) -> String {
     }
 }
 
-/// Collect callable arguments for `layer`: a single list/tuple is expanded into
-/// its elements, otherwise the varargs are used as-is.
+/// Collect vararg-style arguments (`layer`, `tour`): a single list/tuple is
+/// expanded into its elements, otherwise the varargs are used as-is.
 fn collect_callables(args: &[KValue]) -> Vec<KValue> {
     match args {
         [KValue::List(l)] => l.data().iter().cloned().collect(),
         [KValue::Tuple(t)] => t.data().to_vec(),
         _ => args.to_vec(),
     }
+}
+
+/// `pat.tour(a, b, ...)`: insert the pattern into the list of patterns
+/// stepwise, moving backwards one slot per repetition (also accepts a single
+/// list/tuple of patterns).
+pub(super) fn kpattern_tour(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let many: Vec<Pattern> = collect_callables(&ctx.args)
+        .iter()
+        .map(arg_to_pattern)
+        .collect();
+    Ok(KPattern::wrap(pat.tour(&many)))
 }
 
 /// `pat.layer([f, g, ...])`: stack the results of applying each function in

@@ -113,6 +113,8 @@ pub(crate) fn register(prelude: &KMap) {
     };
     prelude.add_fn("stepcat", stepcat);
     prelude.add_fn("timecat", stepcat);
+    prelude.add_fn("timeCat", stepcat);
+    prelude.add_fn("s_cat", stepcat); // deprecated Strudel alias
     // arrange: each arg is a `[cycles, pattern]` section laid out on a timeline.
     prelude.add_fn("arrange", |ctx| {
         let sections: Vec<(Frac, Pattern)> = ctx.args().iter().map(arg_to_weighted_pair).collect();
@@ -125,6 +127,7 @@ pub(crate) fn register(prelude: &KMap) {
     };
     prelude.add_fn("polymeter", polymeter);
     prelude.add_fn("pm", polymeter);
+    prelude.add_fn("s_polymeter", polymeter); // deprecated Strudel alias
     // wchoose: continuously choose from weighted [pattern, weight] pairs.
     prelude.add_fn("wchoose", |ctx| {
         let pairs: Vec<(Pattern, f64)> = ctx.args().iter().map(arg_to_pattern_weight).collect();
@@ -138,10 +141,12 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("wchooseCycles", wrandcat);
     prelude.add_fn("wrandcat", wrandcat);
     // stepalt: alternate stepwise between groups of patterns.
-    prelude.add_fn("stepalt", |ctx| {
+    let stepalt = |ctx: &mut CallContext| {
         let groups: Vec<Vec<Pattern>> = ctx.args().iter().map(arg_to_group).collect();
         Ok(KPattern(rudel_core::stepalt(&groups)).into())
-    });
+    };
+    prelude.add_fn("stepalt", stepalt);
+    prelude.add_fn("s_alt", stepalt); // deprecated Strudel alias
     prelude.add_fn("pick", |ctx| {
         Ok(KPattern(pick_args(ctx.args(), false)).into())
     });
@@ -158,6 +163,21 @@ pub(crate) fn register(prelude: &KMap) {
             super::pattern::arg_to_f64(&arg0(ctx)) as i64
         ))
         .into())
+    });
+    // zip: interleave the steps of the given patterns into one dense cycle.
+    let zip = |ctx: &mut CallContext| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::zip(&pats)).into())
+    };
+    prelude.add_fn("zip", zip);
+    prelude.add_fn("s_zip", zip); // deprecated Strudel alias
+    // tour(pat, a, b, ...): standalone form of `pat.tour(a, b, ...)`.
+    prelude.add_fn("tour", |ctx| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        let Some((head, many)) = pats.split_first() else {
+            return Ok(KPattern(rudel_core::silence()).into());
+        };
+        Ok(KPattern(head.tour(many)).into())
     });
 
     // -- Signals --------------------------------------------------------
@@ -181,6 +201,13 @@ pub(crate) fn register(prelude: &KMap) {
     // Signals taking an integer count.
     prelude.add_fn("irand", |ctx| {
         Ok(KPattern(rudel_core::irand(
+            super::pattern::arg_to_f64(&arg0(ctx)) as i64
+        ))
+        .into())
+    });
+    // randrun(n): the integers 0..n once each per cycle, in a random order.
+    prelude.add_fn("randrun", |ctx| {
+        Ok(KPattern(rudel_core::randrun(
             super::pattern::arg_to_f64(&arg0(ctx)) as i64
         ))
         .into())

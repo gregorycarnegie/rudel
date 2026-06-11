@@ -66,7 +66,7 @@ Completing this file should mean that Rudel can run Strudel code, mini-notation,
 - [ ] Match Strudel's currying, registration, alias, and method-chaining behavior.
 - [ ] Match Strudel's higher-order function behavior for callbacks, pattern-of-functions, and pattern-valued functions.
 - [ ] Match Strudel's pattern alignment behavior across all in/out/mix/squeeze/reset/restart/poly variants.
-- [ ] Match Strudel's stepwise functions: `take`, `drop`, `expand`, `extend`, `contract`, `shrink`, `grow`, `tour`, `zip`, `pace`, `stepcat`, `timecat`, `stepalt`, and aliases.
+- [x] Match Strudel's stepwise functions: `take`, `drop`, `expand`, `extend`, `contract`, `shrink`, `grow`, `tour`, `zip`, `pace`, `stepcat`, `timecat`, `stepalt`, and aliases (`timeCat`, `steps`, and the deprecated `s_*` family). Intentionally not exposed: `shrinklist`/`s_taperlist` (internal helper in Rudel).
 - [ ] Match Strudel's sample/time transforms: `chop`, `striate`, `loopAt`, `loopAtCps`, `slice`, `splice`, `fit`, `scrub`, and related helpers.
 - [ ] Match Strudel's distortion/worklet/effects pattern helpers such as `soft`, `hard`, `cubic`, `diode`, `asym`, `fold`, `sinefold`, `chebyshev`, `partials`, `phases`, `FX`, and `worklet`.
 - [ ] Match Strudel REPL pattern slots and aliases from `core/repl.mjs`, including `p`, `q`, `d1`-style slots, `p1`-style slots, `q1`-style silence helpers, `cpm`, stack behavior, and hush/update behavior.

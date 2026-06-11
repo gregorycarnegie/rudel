@@ -500,6 +500,72 @@ impl Pattern {
             fastcat(&pats)
         })
     }
+
+    /// `shuffle(n)`: slice the pattern into `n` parts and play them in a random
+    /// order; each part plays exactly once per cycle.
+    pub fn shuffle(&self, n: i64) -> Pattern {
+        rearrange_with(crate::signal::randrun(n), n, self)
+    }
+
+    /// `scramble(n)`: slice the pattern into `n` parts and play parts picked at
+    /// random — unlike [`shuffle`](Self::shuffle), parts may repeat or be
+    /// skipped within a cycle.
+    pub fn scramble(&self, n: i64) -> Pattern {
+        rearrange_with(crate::signal::irand(n)._segment(Frac::int(n)), n, self)
+    }
+
+    /// `tour`: insert this pattern into a list of patterns, first at the end,
+    /// then moving backwards through the list on successive repetitions, all
+    /// concatenated stepwise into a single cycle.
+    pub fn tour(&self, many: &[Pattern]) -> Pattern {
+        let len = many.len();
+        let mut pats: Vec<Pattern> = Vec::new();
+        for i in 0..len {
+            pats.extend_from_slice(&many[..len - i]);
+            pats.push(self.clone());
+            pats.extend_from_slice(&many[len - i..]);
+        }
+        pats.push(self.clone());
+        pats.extend_from_slice(many);
+        crate::pattern::stepcat(&pats)
+    }
+}
+
+/// Slice `pat` into `n` parts and rearrange them per the integer signal `ipat`
+/// (signal.mjs `_rearrangeWith`; shared by `shuffle`/`scramble`).
+fn rearrange_with(ipat: Pattern, n: i64, pat: &Pattern) -> Pattern {
+    if n <= 0 {
+        return silence();
+    }
+    let parts: Vec<Pattern> = (0..n)
+        .map(|i| pat.zoom(Frac::int(i) / Frac::int(n), Frac::int(i + 1) / Frac::int(n)))
+        .collect();
+    ipat.inner_bind(move |v| {
+        let i = (v.as_f64().unwrap_or(0.0) as i64).rem_euclid(n) as usize;
+        parts[i].repeat_cycles(n)._fast(Frac::int(n))
+    })
+}
+
+/// 'zip' the steps of the given patterns together into one dense cycle:
+/// step 1 of each pattern, then step 2 of each, … Patterns without step
+/// metadata are ignored (`zip`).
+pub fn zip(pats: &[Pattern]) -> Pattern {
+    let stepped: Vec<&Pattern> = pats
+        .iter()
+        .filter(|p| p.steps.is_some_and(|s| s > Frac::zero()))
+        .collect();
+    let Some(steps) = stepped
+        .iter()
+        .filter_map(|p| p.steps)
+        .reduce(|a, b| a.lcm(b))
+    else {
+        return silence();
+    };
+    let slowed: Vec<Pattern> = stepped
+        .iter()
+        .map(|p| p._slow(p.steps.unwrap_or_else(Frac::one)))
+        .collect();
+    slowcat(&slowed)._fast(steps).set_steps(Some(steps))
 }
 
 fn seq2(a: Frac, b: Frac) -> Pattern {

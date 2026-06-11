@@ -36,13 +36,13 @@ pub use value::Value;
 
 // Signals and randomness.
 pub use signal::{
-    cosine, cosine2, irand, isaw, isaw2, perlin, rand, rand2, run, saw, saw2, scan, sine, sine2,
-    square, square2, time, tri, tri2,
+    cosine, cosine2, irand, isaw, isaw2, perlin, rand, rand2, randrun, run, saw, saw2, scan, sine,
+    sine2, square, square2, time, tri, tri2,
 };
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
-pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat};
+pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat, zip};
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{
     bend_range, control_builders, control_dyn, control_name, freq, i, lpf, lpq, mpe, n, note,

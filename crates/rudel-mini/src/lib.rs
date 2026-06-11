@@ -74,7 +74,9 @@ fn build_sequence(pair: Pair<Rule>) -> (Pattern, Frac) {
         silence()
     } else if all_unit {
         let pats: Vec<Pattern> = elems.iter().map(|(_, p)| p.clone()).collect();
-        fastcat(&pats)
+        // A sequence's step count is its total weight, even when it has a
+        // single (possibly multi-step) element: `[c g]` is one step.
+        fastcat(&pats).set_steps(Some(total))
     } else {
         timecat(&elems)
     };

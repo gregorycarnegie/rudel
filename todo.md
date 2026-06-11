@@ -215,6 +215,10 @@ Function-by-function audit against the Strudel learn pages
 - [x] `euclid`, `euclidRot`/`euclid_rot` (3-arg rotation now bound)
 - [x] `euclidLegato`/`euclidLegatoRot` (gapless held pulses; rotation as a late
       offset, matching superdough's `_euclidLegato`)
+- [x] `shuffle(n)` / `scramble(n)` / `randrun(n)` — slice-rearranging
+      randomizers from signal.mjs (`_rearrangeWith`), parity-tested against the
+      oracle. Fixing these also fixed `time_to_rands` to match Strudel's legacy
+      RNG (signed values for `n > 1`, initial `xorwise` applied).
 - [ ] `whenKey`/`keyDown` (keyboard), `ifp`
 
 ## learn/accumulation
@@ -236,7 +240,13 @@ Function-by-function audit against the Strudel learn pages
       `take`/`drop` (keep/discard the first N steps; negative counts from the end)
 - [x] stepwise `expand`/`contract`/`shrink`/`grow` step-counters (fixed numeric
       amounts; pattern-varying step metadata still out of scope)
-- [ ] `ncat`
+- [x] `tour` (insert a pattern into a list stepwise, rotating backwards one
+      slot per repetition) and `zip` (interleave the steps of several patterns
+      into one dense run), both parity-tested. Bound with the current aliases
+      (`timeCat`, `steps` = `pace`) and the deprecated `s_*` family (`s_cat`,
+      `s_alt`, `s_polymeter`, `s_taper`, `s_add`, `s_sub`, `s_expand`,
+      `s_extend`, `s_contract`, `s_tour`, `s_zip`).
+- [ ] `ncat` — not in the local Strudel clone, so no reference source to port
 
 ## learn/mini-notation (parser — parity-tested)
 
@@ -371,9 +381,11 @@ Function-by-function audit against the Strudel learn pages
       - core transforms (`crates/rudel-mini/tests/transform_parity.rs`):
         18 cases (`rev`/`fast`/`slow`/`ply`/`iter`/`palindrome`/`every`/`off`/
         `chop`/`striate`/`chunk`/`within`/`struct`/`mask`/`jux`/`add`/`degrade`/
-        `superimpose`).
-      Caught and fixed a real bug: euclidean rotation was rotating the wrong
-      direction (Strudel rotates right by `rotation`).
+        `superimpose`), plus `randrun`/`shuffle`/`scramble`/`tour`/`zip`.
+      Caught and fixed real bugs: euclidean rotation was rotating the wrong
+      direction (Strudel rotates right by `rotation`), and a mini-notation
+      sequence with a single multi-step element reported the inner step count
+      (`"[c g]"` had 2 steps; Strudel says 1 — caught by the `tour` case).
 - [x] Alignment matrix (`.add.out` / `.set.squeeze` / …). Engine primitives
       `op_in`/`op_out`/`op_mix`/`op_squeeze`/`op_squeeze_out`/`op_reset`/
       `op_restart`/`op_poly` (+ `reset_join`/`restart_join`/`poly_join` and the

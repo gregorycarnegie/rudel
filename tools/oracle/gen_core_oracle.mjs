@@ -8,7 +8,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { mini } from '@strudel/mini';
-import { rev, s, note } from '@strudel/core';
+import { rev, s, note, randrun, zip } from '@strudel/core';
 
 // label -> Pattern (built from the same mini strings the Rust side uses).
 const CASES = {
@@ -46,6 +46,16 @@ const CASES = {
   keep_out: note(mini('0 1')).keep.out(s(mini('a b c'))),
   add_poly: mini('0 1 2').add.poly(mini('10 20')),
   set_poly: note(mini('0 1 2')).set.poly(s(mini('a b'))),
+
+  // random rearrangement (signal.mjs randrun/shuffle/scramble)
+  randrun8: randrun(8),
+  shuffle4: mini('0 1 2 3').shuffle(4),
+  shuffle2: mini('a b c d').shuffle(2),
+  scramble4: mini('0 1 2 3').scramble(4),
+
+  // stepwise tour/zip (pattern.mjs)
+  tour: mini('[c g]').tour(mini('e f'), mini('e f g'), mini('g f e c')),
+  zip: zip(mini('e f'), mini('e f g'), mini('g [f e] a f4 c')),
 };
 const CYCLES = 4;
 

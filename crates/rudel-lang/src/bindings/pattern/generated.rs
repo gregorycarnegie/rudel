@@ -184,6 +184,19 @@ macro_rules! kpattern_methods {
                 kpattern_fmap(ctx)
             }
 
+            // `pat.tour(a, b, ...)`: insert the pattern into the list of
+            // patterns stepwise, moving backwards one slot per repetition.
+            #[koto_method]
+            fn tour(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_tour(ctx)
+            }
+
+            // Deprecated Strudel alias for `tour`.
+            #[koto_method]
+            fn s_tour(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_tour(ctx)
+            }
+
             // CamelCase aliases: generate small wrappers that call the
             // existing snake_case implementations to reduce duplication.
             // Each alias group maps CamelCase -> snake_case and uses the
@@ -470,7 +483,7 @@ kpattern_methods! {
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
-        chop, striate, take, drop, root_notes,
+        chop, striate, take, drop, root_notes, shuffle, scramble,
     ],
     frac_arg: [hurry, press_by, swing, loop_at, pace],
     pattern_pattern_arg: [slice, splice],
@@ -500,8 +513,13 @@ kpattern_methods! {
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
     camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar],
     camel_noarg_fn: [someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never],
-    camel_i64: [iterBack => iter_back, repeatCycles => repeat_cycles, rootNotes => root_notes],
-    camel_frac: [pressBy => press_by, loopAt => loop_at],
+    camel_i64: [
+        iterBack => iter_back, repeatCycles => repeat_cycles, rootNotes => root_notes,
+        // deprecated Strudel stepwise aliases
+        s_taper => shrink, s_add => take, s_sub => drop,
+        s_expand => expand, s_extend => extend, s_contract => contract,
+    ],
+    camel_frac: [pressBy => press_by, loopAt => loop_at, steps => pace],
     camel_frac_frac: [swingBy => swing_by],
     camel_i64_i64: [euclidLegato => euclid_legato],
     camel_i64_i64_i64: [euclidRot => euclid_rot, euclidLegatoRot => euclid_legato_rot],

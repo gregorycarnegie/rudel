@@ -106,12 +106,16 @@ pub fn time_to_rand(t: f64) -> f64 {
     int_seed_to_rand(xorwise(time_to_int_seed(t))).abs()
 }
 
-/// `n` pseudo-random numbers at time `t` (legacy generator).
+/// `n` pseudo-random numbers at time `t` (legacy generator). Values keep
+/// their sign, matching Strudel's `__timeToRandsPrime` for `n > 1` (only the
+/// scalar `n == 1` path — [`time_to_rand`] — takes the absolute value).
 pub fn time_to_rands(t: f64, n: usize) -> Vec<f64> {
-    let mut seed = time_to_int_seed(t);
+    // JS folds the first `xorwise` into `__timeToIntSeed`; Rudel keeps
+    // `time_to_int_seed` raw and applies it here (as `time_to_rand` does).
+    let mut seed = xorwise(time_to_int_seed(t));
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
-        out.push(int_seed_to_rand(seed).abs());
+        out.push(int_seed_to_rand(seed));
         seed = xorwise(seed);
     }
     out
@@ -143,6 +147,33 @@ pub fn run(n: i64) -> Pattern {
 pub fn scan(n: i64) -> Pattern {
     let runs: Vec<Pattern> = (1..=n.max(0)).map(run).collect();
     crate::pattern::slowcat(&runs)
+}
+
+/// `randrun(n)`: each cycle plays the integers `0..n` once each, in an order
+/// shuffled per cycle. Reads an optional `randSeed` control. Used by `shuffle`.
+pub fn randrun(n: i64) -> Pattern {
+    if n <= 0 {
+        return crate::pattern::silence();
+    }
+    Pattern::new(move |state| {
+        let seed = state
+            .controls
+            .get("randSeed")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let t = state.span.begin;
+        // Without adding 0.5, the first cycle is always 0,1,2,3,...
+        let rands = time_to_rands(t.floor().to_f64() + 0.5 + seed, n as usize);
+        let mut order: Vec<usize> = (0..n as usize).collect();
+        order.sort_by(|&a, &b| {
+            rands[a]
+                .partial_cmp(&rands[b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let i = ((t.cycle_pos() * Frac::int(n)).floor().to_f64() as i64).rem_euclid(n) as usize;
+        vec![Hap::new(None, state.span, Value::Int(order[i] as i64))]
+    })
+    ._segment(Frac::int(n))
 }
 
 // ---------------------------------------------------------------------------

@@ -715,6 +715,62 @@ fn take_drop_scan_via_koto() {
 }
 
 #[test]
+fn shuffle_scramble_tour_zip_via_koto() {
+    // shuffle(4): a permutation — each cycle plays every part exactly once.
+    let pat = eval(r#"pat("0 1 2 3").shuffle(4)"#).expect("eval");
+    for c in 0..4 {
+        let mut v = values(&pat, c, c + 1);
+        v.sort_by_key(|x| x.as_f64().map(|f| f as i64));
+        assert_eq!(
+            v,
+            vec![Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3)],
+            "shuffle cycle {c} should be a permutation"
+        );
+    }
+    // scramble(4): four parts per cycle, possibly with repeats.
+    let pat = eval(r#"pat("0 1 2 3").scramble(4)"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4);
+    // randrun(3): a permutation of 0..3 each cycle.
+    let pat = eval(r#"randrun(3)"#).expect("eval");
+    let mut v = values(&pat, 1, 2);
+    v.sort_by_key(|x| x.as_f64().map(|f| f as i64));
+    assert_eq!(v, vec![Value::Int(0), Value::Int(1), Value::Int(2)]);
+    // tour with one pattern: "a b" + x appended, then x prepended, all in one
+    // cycle: "a b x x a b" stepwise.
+    let pat = eval(r#"pat("x").tour("a b")"#).expect("eval");
+    assert_eq!(
+        values(&pat, 0, 1),
+        vec![
+            Value::Str("a".into()),
+            Value::Str("b".into()),
+            Value::Str("x".into()),
+            Value::Str("x".into()),
+            Value::Str("a".into()),
+            Value::Str("b".into()),
+        ]
+    );
+    // zip: steps interleave — step k of each pattern in turn ("a c", then "b d").
+    let pat = eval(r#"zip("a b", "c d")"#).expect("eval");
+    assert_eq!(
+        values(&pat, 0, 1),
+        vec![Value::Str("a".into()), Value::Str("c".into())]
+    );
+    assert_eq!(
+        values(&pat, 1, 2),
+        vec![Value::Str("b".into()), Value::Str("d".into())]
+    );
+    // `steps` (alias of pace) and the deprecated s_* stepwise aliases resolve.
+    let pat = eval(r#"zip("a b", "c d").steps(4)"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4);
+    assert!(eval(r#"s_zip("a b", "c d")"#).is_ok());
+    assert!(eval(r#"pat("x").s_tour("a b")"#).is_ok());
+    assert!(eval(r#"pat("0 1 2 3").s_taper(1)"#).is_ok());
+    assert!(eval(r#"pat("0 1 2 3").s_add(2)"#).is_ok());
+    assert!(eval(r#"s_cat("0 1", "2")"#).is_ok());
+    assert!(eval(r#"s_alt(["0 1", "2"], "3")"#).is_ok());
+}
+
+#[test]
 fn weighted_choosers_and_stepalt_via_koto() {
     // wrandcat: heavy weight on 0 dominates, one value per cycle
     let pat = eval(r#"wrandcat([0, 1000], [1, 1])"#).expect("eval");
