@@ -275,6 +275,7 @@ controls!(
     seconds,
     uid,
     val,
+    cps,
     // ZZFX
     zrand,
     curve,

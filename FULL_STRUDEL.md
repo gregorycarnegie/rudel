@@ -501,7 +501,7 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range shares the ro
 - [x] `songPtr`
 - [x] `uid`
 - [x] `val`
-- [ ] `cps`
+- [x] `cps`
 - [x] `zrand`
 - [x] `curve`
 - [x] `deltaSlide`

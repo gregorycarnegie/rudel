@@ -96,6 +96,13 @@ pub fn superdirt_message(
     // `oschost`/`oscport` are client-side routing, not SuperDirt synth params.
     map.remove("oschost");
     map.remove("oscport");
+    // An event-level `cps` control overrides the engine tempo, like Strudel's
+    // `{ cps, cycle, delta, ...hap.value }` spread.
+    let cps = map
+        .remove("cps")
+        .and_then(|v| v.as_f64())
+        .filter(|c| *c > 0.0)
+        .unwrap_or(cps);
 
     // note -> midinote (number); keep the original note too.
     if let Some(note) = map.get("note") {
@@ -407,6 +414,24 @@ mod tests {
                 .iter()
                 .any(|c| c[0] == OscArg::Str("s".into()) && c[1] == OscArg::Str("piano".into()))
         );
+    }
+
+    #[test]
+    fn event_cps_control_overrides_engine_cps() {
+        let controls = BTreeMap::from([
+            ("s".to_string(), Value::Str("bd".into())),
+            ("cps".to_string(), Value::F64(1.5)),
+        ]);
+        let msg = superdirt_message(&controls, 0.5, 0.0, 1.0);
+        assert_eq!(msg.args[0], OscArg::Str("cps".into()));
+        assert_eq!(msg.args[1], OscArg::Float(1.5));
+        // The control is folded into the leading pair, not emitted twice.
+        let cps_count = msg
+            .args
+            .iter()
+            .filter(|a| **a == OscArg::Str("cps".into()))
+            .count();
+        assert_eq!(cps_count, 1);
     }
 
     #[test]
