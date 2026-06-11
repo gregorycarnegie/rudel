@@ -7,6 +7,7 @@ use super::methods::*;
 use koto::derive::*;
 use koto::prelude::*;
 use koto::runtime::Result as KotoResult;
+use rudel_core::PickJoin;
 
 macro_rules! kpattern_methods {
     (
@@ -394,14 +395,70 @@ macro_rules! kpattern_methods {
                 kpattern_struct_alias(ctx)
             }
 
+            // The pick family (strudel core/pick.mjs): the instance is the
+            // selector pattern, the argument a list/map of patterns. Variants
+            // differ in index wrapping (`pickmod*`) and join: pick = inner,
+            // pickOut = outer, pickReset/pickRestart = retriggering,
+            // inhabit/pickSqueeze = squeeze.
             #[koto_method]
             fn pick(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick(ctx)
+                kpattern_pick_join(ctx, false, PickJoin::Inner)
             }
 
             #[koto_method]
             fn pickmod(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pickmod(ctx)
+                kpattern_pick_join(ctx, true, PickJoin::Inner)
+            }
+
+            #[koto_method(alias = "pickOut")]
+            fn pick_out(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, false, PickJoin::Outer)
+            }
+
+            #[koto_method(alias = "pickmodOut")]
+            fn pickmod_out(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, true, PickJoin::Outer)
+            }
+
+            #[koto_method(alias = "pickReset")]
+            fn pick_reset(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, false, PickJoin::Reset)
+            }
+
+            #[koto_method(alias = "pickmodReset")]
+            fn pickmod_reset(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, true, PickJoin::Reset)
+            }
+
+            #[koto_method(alias = "pickRestart")]
+            fn pick_restart(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, false, PickJoin::Restart)
+            }
+
+            #[koto_method(alias = "pickmodRestart")]
+            fn pickmod_restart(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, true, PickJoin::Restart)
+            }
+
+            #[koto_method(alias = "pickSqueeze", alias = "pick_squeeze")]
+            fn inhabit(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, false, PickJoin::Squeeze)
+            }
+
+            #[koto_method(alias = "pickmodSqueeze", alias = "pickmod_squeeze")]
+            fn inhabitmod(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_join(ctx, true, PickJoin::Squeeze)
+            }
+
+            // `pat.pickF(selector, funcs)`: pick which function to apply.
+            #[koto_method(alias = "pickF")]
+            fn pick_f(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_f(ctx, false)
+            }
+
+            #[koto_method(alias = "pickmodF")]
+            fn pickmod_f(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_pick_f(ctx, true)
             }
 
             #[koto_method(alias = "loop")]

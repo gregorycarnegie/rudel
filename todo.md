@@ -229,6 +229,23 @@ Function-by-function audit against the Strudel learn pages
 - [x] `wchoose` (continuous), `wchooseCycles`/`wrandcat` (per-cycle) — weighted
       `[pattern, weight]` pairs; `scan(n)` (growing runs, one per cycle)
 
+## pick family (core/pick.mjs — parity-tested)
+
+- [x] `pick`/`pickmod` (inner join; clamp vs wrap for list lookups),
+      `pickOut`/`pickmodOut` (outer join), `pickReset`/`pickmodReset` and
+      `pickRestart`/`pickmodRestart` (retriggering joins),
+      `inhabit`/`pickSqueeze` + `inhabitmod`/`pickmodSqueeze` (squeeze join),
+      and standalone `squeeze` (== `inhabitmod` for lists). Core logic in
+      `rudel-core/transforms/pick.rs` (`pick_list`/`pick_map` + `PickJoin`);
+      bound as KPattern methods and prelude factories with flexible
+      (lookup, selector) arg order. List lookups index by rounded number;
+      map lookups go by name (missing keys → silence).
+- [x] `pickF`/`pickmodF` — a pattern of indices/names picks which function
+      transforms the pattern. Functions are applied eagerly via the Callback
+      marshaler (the Koto VM can't run in the query path), then picked among
+      with an inner join — equivalent to Strudel's
+      `pat.apply(pick(lookup, pickPattern))` composition.
+
 ## learn/factories
 
 - [x] `stack` `cat`(slowcat) `seq`(fastcat) `fastcat` `slowcat` `randcat`

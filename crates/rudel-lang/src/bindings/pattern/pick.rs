@@ -1,6 +1,6 @@
 use super::convert::arg_to_pattern;
 use koto::prelude::*;
-use rudel_core::{Pattern, Value};
+use rudel_core::{Pattern, PickJoin};
 use std::collections::HashMap;
 
 pub(super) enum PatternLookup {
@@ -29,56 +29,23 @@ pub(super) fn lookup_from_koto(value: &KValue) -> Option<PatternLookup> {
     }
 }
 
-fn is_lookup(value: &KValue) -> bool {
+pub(super) fn is_lookup(value: &KValue) -> bool {
     matches!(value, KValue::List(_) | KValue::Tuple(_) | KValue::Map(_))
 }
 
-pub(super) fn pick_from_lookup(lookup: PatternLookup, selector: Pattern, modulo: bool) -> Pattern {
+pub(super) fn pick_from_lookup(
+    lookup: PatternLookup,
+    selector: Pattern,
+    modulo: bool,
+    join: PickJoin,
+) -> Pattern {
     match lookup {
-        PatternLookup::List(items) => {
-            if items.is_empty() {
-                return rudel_core::silence();
-            }
-            selector
-                .fmap(move |v| {
-                    let raw = v.as_f64().unwrap_or(0.0).round() as i64;
-                    let idx = if modulo {
-                        raw.rem_euclid(items.len() as i64)
-                    } else {
-                        raw.clamp(0, items.len() as i64 - 1)
-                    } as usize;
-                    Value::Pat(Box::new(items[idx].clone()))
-                })
-                .inner_join()
-        }
-        PatternLookup::Map(items) => {
-            if items.is_empty() {
-                return rudel_core::silence();
-            }
-            selector
-                .fmap(move |v| {
-                    let key = match v {
-                        Value::Str(s) => s,
-                        Value::Int(n) => n.to_string(),
-                        Value::F64(x) => {
-                            let s = format!("{x:.0}");
-                            s
-                        }
-                        _ => String::new(),
-                    };
-                    items
-                        .get(&key)
-                        .cloned()
-                        .map(|p| Value::Pat(Box::new(p)))
-                        .unwrap_or(Value::Null)
-                })
-                .filter_values(|v| !matches!(v, Value::Null))
-                .inner_join()
-        }
+        PatternLookup::List(items) => rudel_core::pick_list(&items, &selector, modulo, join),
+        PatternLookup::Map(items) => rudel_core::pick_map(&items, &selector, join),
     }
 }
 
-pub(in crate::bindings) fn pick_args(args: &[KValue], modulo: bool) -> Pattern {
+pub(in crate::bindings) fn pick_args(args: &[KValue], modulo: bool, join: PickJoin) -> Pattern {
     let Some(first) = args.first() else {
         return rudel_core::silence();
     };
@@ -93,5 +60,5 @@ pub(in crate::bindings) fn pick_args(args: &[KValue], modulo: bool) -> Pattern {
     let Some(lookup) = lookup_from_koto(lookup_value) else {
         return rudel_core::silence();
     };
-    pick_from_lookup(lookup, arg_to_pattern(selector_value), modulo)
+    pick_from_lookup(lookup, arg_to_pattern(selector_value), modulo, join)
 }

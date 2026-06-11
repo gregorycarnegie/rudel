@@ -3,7 +3,7 @@ use super::pattern::{
     arg_to_weighted_pair, arg0, koto_to_value, pick_args,
 };
 use koto::prelude::*;
-use rudel_core::{Frac, Pattern, Value};
+use rudel_core::{Frac, Pattern, PickJoin, Value};
 
 /// Add the rudel top-level functions to a Koto prelude.
 pub(crate) fn register(prelude: &KMap) {
@@ -147,12 +147,45 @@ pub(crate) fn register(prelude: &KMap) {
     };
     prelude.add_fn("stepalt", stepalt);
     prelude.add_fn("s_alt", stepalt); // deprecated Strudel alias
+    // The pick family (strudel core/pick.mjs): select patterns from a list
+    // (by index) or a map (by name) via a selector pattern. `pickmod*` wraps
+    // out-of-range indices instead of clamping; the suffix picks the join.
     prelude.add_fn("pick", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), false)).into())
+        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Inner)).into())
     });
     prelude.add_fn("pickmod", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), true)).into())
+        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Inner)).into())
     });
+    prelude.add_fn("pickOut", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Outer)).into())
+    });
+    prelude.add_fn("pickmodOut", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Outer)).into())
+    });
+    prelude.add_fn("pickReset", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Reset)).into())
+    });
+    prelude.add_fn("pickmodReset", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Reset)).into())
+    });
+    prelude.add_fn("pickRestart", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Restart)).into())
+    });
+    prelude.add_fn("pickmodRestart", |ctx| {
+        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Restart)).into())
+    });
+    let inhabit = |ctx: &mut CallContext| {
+        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Squeeze)).into())
+    };
+    prelude.add_fn("inhabit", inhabit);
+    prelude.add_fn("pickSqueeze", inhabit);
+    let inhabitmod =
+        |ctx: &mut CallContext| Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Squeeze)).into());
+    prelude.add_fn("inhabitmod", inhabitmod);
+    prelude.add_fn("pickmodSqueeze", inhabitmod);
+    // squeeze(pat, xs): pick from a list with wrapping, squeezing the picked
+    // pattern into the selecting event (strudel's standalone `squeeze`).
+    prelude.add_fn("squeeze", inhabitmod);
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
     prelude.add_fn("rev", |ctx| {
         Ok(KPattern(arg_to_pattern(&arg0(ctx)).rev()).into())

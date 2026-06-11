@@ -59,7 +59,7 @@ Completing this file should mean that Rudel can run Strudel code, mini-notation,
 - [ ] Match query semantics including `query`, `queryArc`, whole spans, part spans, event splitting, event clipping, and source locations.
 - [ ] Audit and implement every export and `Pattern.prototype` method in `core/pattern.mjs`.
 - [ ] Audit and implement every export in `core/euclid.mjs`, including aliases such as `euclidRot`, `euclidLegato`, `euclidLegatoRot`, `euclidish`, and `eish`.
-- [ ] Audit and implement every export in `core/pick.mjs`, including `pick`, `pickmod`, `pickF`, `pickmodF`, `pickOut`, `pickmodOut`, `pickRestart`, `pickmodRestart`, `pickReset`, `pickmodReset`, `inhabit`, `pickSqueeze`, `inhabitmod`, and `pickmodSqueeze`.
+- [x] Audit and implement every export in `core/pick.mjs`, including `pick`, `pickmod`, `pickF`, `pickmodF`, `pickOut`, `pickmodOut`, `pickRestart`, `pickmodRestart`, `pickReset`, `pickmodReset`, `inhabit`, `pickSqueeze`, `inhabitmod`, `pickmodSqueeze`, and the standalone `squeeze`. All bound as methods and prelude factories, parity-tested against the oracle. Intentionally different: `pickF`/`pickmodF` apply their function lookups eagerly at construction (the Koto VM can't be driven from the query path), so functions of time-varying patterns are baked once — equivalent for the function lookups Strudel docs show.
 - [ ] Audit and implement every export in `core/signal.mjs`, including continuous signals, random signals, seed behavior, `choose`, weighted choice, `shuffle`, `scramble`, conditional transforms, keyboard signals, and `per`/`cyclesPer`.
 - [ ] Audit and implement every export in `core/value.mjs`.
 - [ ] Audit and implement every public utility from `core/util.mjs` that Strudel users can reach from the REPL.

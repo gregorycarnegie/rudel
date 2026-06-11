@@ -43,6 +43,8 @@ pub use signal::{
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
 pub use transforms::{choose_cycles, randcat, ratio_value, stepalt, wchoose, wrandcat, zip};
+// Pick combinators (select patterns from a list/table via a selector pattern).
+pub use transforms::{PickJoin, pick_list, pick_map};
 // Controls (also available as chaining methods on `Pattern`).
 pub use controls::{
     bend_range, control_builders, control_dyn, control_name, freq, i, lpf, lpq, mpe, n, note,

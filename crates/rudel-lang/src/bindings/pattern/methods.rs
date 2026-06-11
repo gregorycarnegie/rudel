@@ -4,11 +4,11 @@ use super::args::{
 };
 use super::callback::{Callback, static_period_pattern};
 use super::convert::{arg_to_pattern, koto_to_value};
-use super::pick::{lookup_from_koto, pick_from_lookup};
+use super::pick::{is_lookup, lookup_from_koto, pick_from_lookup};
 use crate::bindings::routing::IO_KEY;
 use koto::prelude::*;
 use koto::runtime::Result as KotoResult;
-use rudel_core::{Frac, Pattern, Value};
+use rudel_core::{Frac, Pattern, PickJoin, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -218,20 +218,70 @@ pub(super) fn kpattern_struct_alias(ctx: MethodContext<KPattern>) -> KotoResult<
     with_pattern_arg(&ctx, |pat, arg| pat.struct_pat(arg))
 }
 
-pub(super) fn kpattern_pick(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+/// Shared body for the pick family: the instance is the selector pattern and
+/// arg 0 is the lookup (list/tuple/map of patterns). The variants differ only
+/// in index wrapping (`pickmod*`) and which join flattens the result.
+pub(super) fn kpattern_pick_join(
+    ctx: MethodContext<KPattern>,
+    modulo: bool,
+    join: PickJoin,
+) -> KotoResult<KValue> {
     let selector = ctx.instance()?.0.clone();
     let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
         return Ok(KPattern::wrap(rudel_core::silence()));
     };
-    Ok(KPattern::wrap(pick_from_lookup(lookup, selector, false)))
+    Ok(KPattern::wrap(pick_from_lookup(
+        lookup, selector, modulo, join,
+    )))
 }
 
-pub(super) fn kpattern_pickmod(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let selector = ctx.instance()?.0.clone();
-    let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
-        return Ok(KPattern::wrap(rudel_core::silence()));
+/// `pat.pickF(selector, [f, g, ...])` / `pat.pickF(selector, {a: f, ...})`:
+/// use a pattern of indices/names to pick which function transforms the
+/// pattern. Strudel composes `pat.apply(pick(lookup, selector))`, which
+/// reduces to picking among the (eagerly) applied results with an inner join
+/// — eager application is required here because the Koto VM can't be driven
+/// from the query path.
+pub(super) fn kpattern_pick_f(ctx: MethodContext<KPattern>, modulo: bool) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let (selector_value, funcs_value) = {
+        let a = method_arg(&ctx, 0);
+        let b = method_arg(&ctx, 1);
+        if is_lookup(&a) && !is_lookup(&b) {
+            (b, a)
+        } else {
+            (a, b)
+        }
     };
-    Ok(KPattern::wrap(pick_from_lookup(lookup, selector, true)))
+    let selector = arg_to_pattern(&selector_value);
+    let apply = |func: &KValue| -> KotoResult<Pattern> {
+        let cb = Callback::new(&ctx, func.clone());
+        let applied = cb.apply(&pat);
+        cb.finish()?;
+        Ok(applied)
+    };
+    let picked = match &funcs_value {
+        KValue::List(l) => {
+            let items = l.data().iter().map(apply).collect::<KotoResult<Vec<_>>>()?;
+            rudel_core::pick_list(&items, &selector, modulo, PickJoin::Inner)
+        }
+        KValue::Tuple(t) => {
+            let items = t.iter().map(apply).collect::<KotoResult<Vec<_>>>()?;
+            rudel_core::pick_list(&items, &selector, modulo, PickJoin::Inner)
+        }
+        KValue::Map(m) => {
+            let mut items = HashMap::new();
+            for (k, v) in m.data().iter() {
+                if let KValue::Str(key) = k.value() {
+                    items.insert(key.to_string(), apply(v)?);
+                }
+            }
+            rudel_core::pick_map(&items, &selector, PickJoin::Inner)
+        }
+        other => {
+            return runtime_error!("pickF: expected a list or map of functions, got {other:?}");
+        }
+    };
+    Ok(KPattern::wrap(picked))
 }
 
 /// `pat.as("note:clip")` / `pat.as(["note", "clip"])`: map bare positional

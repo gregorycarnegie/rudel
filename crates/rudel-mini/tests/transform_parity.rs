@@ -8,11 +8,16 @@
 
 mod common;
 use common::{golden_rows, rudel_rows};
-use rudel_core::{Frac, Pattern, note, randrun, s, zip};
+use rudel_core::{Frac, Pattern, PickJoin, note, pick_list, pick_map, randrun, s, zip};
 use rudel_mini::parse;
+use std::collections::HashMap;
 
 fn p(code: &str) -> Pattern {
     parse(code).expect("parse")
+}
+
+fn pmap(entries: &[(&str, &str)]) -> HashMap<String, Pattern> {
+    entries.iter().map(|(k, v)| (k.to_string(), p(v))).collect()
 }
 
 /// Rebuild the rudel pattern for a golden label (mirrors gen_core_oracle.mjs).
@@ -54,6 +59,64 @@ fn build(label: &str) -> Pattern {
         "scramble4" => p("0 1 2 3").scramble(4),
         "tour" => p("[c g]").tour(&[p("e f"), p("e f g"), p("g f e c")]),
         "zip" => zip(&[p("e f"), p("e f g"), p("g [f e] a f4 c")]),
+        "pick" => pick_list(
+            &[p("g a"), p("e f"), p("f g f g"), p("g c d")],
+            &p("<0 1 2 3>"),
+            false,
+            PickJoin::Inner,
+        ),
+        "pick_clamp" => pick_list(&[p("a"), p("b c")], &p("0 1 5"), false, PickJoin::Inner),
+        "pickmod_wrap" => pick_list(&[p("a"), p("b c")], &p("0 1 5"), true, PickJoin::Inner),
+        "pick_out" => pick_list(&[p("a b c"), p("d e")], &p("0 1"), false, PickJoin::Outer),
+        "pickmod_out" => pick_list(&[p("a b c"), p("d e")], &p("0 5"), true, PickJoin::Outer),
+        "pick_reset" => pick_map(
+            &pmap(&[("a", "<0 1>"), ("b", "<2 3> 4")]),
+            &p("a [~ b]"),
+            PickJoin::Reset,
+        ),
+        "pick_restart" => pick_map(
+            &pmap(&[("a", "<0 1>"), ("b", "<2 3> 4")]),
+            &p("a [~ b]"),
+            PickJoin::Restart,
+        ),
+        "inhabit" => pick_list(
+            &[p("x y"), p("z w v")],
+            &p("<0 1 [0 1]>"),
+            false,
+            PickJoin::Squeeze,
+        ),
+        "inhabit_map" => pick_map(
+            &pmap(&[("a", "0 1 2"), ("b", "3 4")]),
+            &p("a@2 [a b] a"),
+            PickJoin::Squeeze,
+        ),
+        "inhabitmod_wrap" => pick_list(&[p("x y"), p("z")], &p("0 5"), true, PickJoin::Squeeze),
+        // standalone squeeze(pat, xs) == inhabitmod restricted to lists
+        "squeeze" => pick_list(
+            &[p("g a"), p("f g f g"), p("g a c d")],
+            &p("<0@2 [1!2] 2>"),
+            true,
+            PickJoin::Squeeze,
+        ),
+        // pickF == pick among the eagerly applied results (inner join)
+        "pickF" => {
+            let base = s(p("bd [rim hh]"));
+            pick_list(
+                &[base.rev(), base.jux(|x| x.rev()), base.fast(2)],
+                &p("<0 1 2>"),
+                false,
+                PickJoin::Inner,
+            )
+        }
+        "pickmodF" => {
+            let base = s(p("bd [rim hh]"));
+            pick_list(
+                &[base.rev(), base.jux(|x| x.rev()), base.fast(2)],
+                &p("<0 1 5>"),
+                true,
+                PickJoin::Inner,
+            )
+        }
         other => panic!("unknown golden label {other:?}"),
     }
 }

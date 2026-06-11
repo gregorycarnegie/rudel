@@ -8,7 +8,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { mini } from '@strudel/mini';
-import { rev, s, note, randrun, zip } from '@strudel/core';
+import { rev, s, note, randrun, zip, fast, jux, squeeze } from '@strudel/core';
 
 // label -> Pattern (built from the same mini strings the Rust side uses).
 const CASES = {
@@ -56,6 +56,22 @@ const CASES = {
   // stepwise tour/zip (pattern.mjs)
   tour: mini('[c g]').tour(mini('e f'), mini('e f g'), mini('g f e c')),
   zip: zip(mini('e f'), mini('e f g'), mini('g [f e] a f4 c')),
+
+  // the pick family (pick.mjs): join variants, clamping vs wrapping, list and
+  // name lookups, function lookups (pickF), and standalone squeeze
+  pick: mini('<0 1 2 3>').pick([mini('g a'), mini('e f'), mini('f g f g'), mini('g c d')]),
+  pick_clamp: mini('0 1 5').pick([mini('a'), mini('b c')]),
+  pickmod_wrap: mini('0 1 5').pickmod([mini('a'), mini('b c')]),
+  pick_out: mini('0 1').pickOut([mini('a b c'), mini('d e')]),
+  pickmod_out: mini('0 5').pickmodOut([mini('a b c'), mini('d e')]),
+  pick_reset: mini('a [~ b]').pickReset({ a: mini('<0 1>'), b: mini('<2 3> 4') }),
+  pick_restart: mini('a [~ b]').pickRestart({ a: mini('<0 1>'), b: mini('<2 3> 4') }),
+  inhabit: mini('<0 1 [0 1]>').inhabit([mini('x y'), mini('z w v')]),
+  inhabit_map: mini('a@2 [a b] a').inhabit({ a: mini('0 1 2'), b: mini('3 4') }),
+  inhabitmod_wrap: mini('0 5').inhabitmod([mini('x y'), mini('z')]),
+  squeeze: squeeze(mini('<0@2 [1!2] 2>'), [mini('g a'), mini('f g f g'), mini('g a c d')]),
+  pickF: s(mini('bd [rim hh]')).pickF(mini('<0 1 2>'), [rev, jux(rev), fast(2)]),
+  pickmodF: s(mini('bd [rim hh]')).pickmodF(mini('<0 1 5>'), [rev, jux(rev), fast(2)]),
 };
 const CYCLES = 4;
 
