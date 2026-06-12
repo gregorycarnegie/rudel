@@ -76,11 +76,11 @@ Completing this file should mean that Rudel can run Strudel code, mini-notation,
 
 ## Mini-Notation and Transpilation
 
-- [ ] Match `mini/krill.pegjs` grammar behavior.
-- [ ] Match `mini/krill-parser.js` output for all upstream mini tests.
-- [ ] Match `mini/mini.mjs` APIs: `mini2ast`, `getLeaves`, `getLeafLocation`, `getLeafLocations`, `mini`, `m`, `h`, `minify`, and `miniAllStrings`.
+- [x] Match `mini/krill.pegjs` grammar behavior: greedy step tokens (letters, digits, `~ - # . ^ _`), JS `Number()` atom classification (`1e3`, `0x10`, `.5`, `-x`), `~`/`-` rests, `^` steps marker, adjacency rules for `@`/`!`/`?` amounts, and `slice_with_ops` euclid args (ops parsed but discarded, as in mini.mjs). Intentionally different: the experimental "haskellish" operator/command layer at the bottom of krill.pegjs (`cat [...]`, `setcps`, `hush`, reached only via the `h()` API) is not implemented; a lone `^` atom is a parse error in Rudel instead of the atom `"^"`.
+- [x] Match `mini/krill-parser.js` output for all upstream mini tests: every deterministic case from `mini/test/mini.test.mjs` (plus tokenizer edge cases) is golden-tested hap-for-hap against Strudel's real parser via `tools/oracle/gen_mini_oracle.mjs`, including `_steps`. Upstream's statistical PRNG tests are covered more strongly by exact PRNG-parity goldens (`?`/`|` use per-occurrence seeds offsetting `rand` by `0.0003 * seed`, matching krill's `seed++` order).
+- [ ] Match `mini/mini.mjs` APIs: `mini2ast`, `getLeaves`, `getLeafLocation`, `getLeafLocations`, `mini`, `m`, `h`, `minify`, and `miniAllStrings`. (`mini` ≈ `rudel_mini::parse`, `miniAllStrings` ≈ `rudel_mini::install`; the AST/leaf-location APIs and `h` are missing.)
 - [ ] Preserve source locations from mini-notation leaves through Rudel patterns.
-- [ ] Match mini-notation parser edge cases: nesting, alternation, Euclidean syntax, polymeter syntax, ratios, weights, rests, holds, lists, subdivisions, repetition, degradation, randomness, and source offsets.
+- [x] Match mini-notation parser edge cases: nesting, alternation, Euclidean syntax (incl. patterned args `a(<3 5>,<8 16>)` via appLeft+innerJoin), polymeter syntax (incl. patterned `%<2 3>` and weighted sequences), ratios, weights, rests, holds, lists, subdivisions, repetition (krill's accumulate/move-to-end op semantics for `!`, `_repeatCycles`-based), degradation, randomness, and patterned ranges (`<0 1> .. <2 4>` via squeezeBind). Source offsets are tracked by the source-locations item above.
 - [ ] Match `transpiler/transpiler.mjs` behavior.
 - [ ] Match `transpiler/plugin-mini.mjs` double-quoted mini-notation transformation.
 - [ ] Match `transpiler/plugin-widgets.mjs` inline widget transformation.

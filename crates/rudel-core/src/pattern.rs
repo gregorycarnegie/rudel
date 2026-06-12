@@ -687,7 +687,12 @@ pub fn sequence(pats: &[Pattern]) -> Pattern {
 
 /// Weighted concatenation: each `(weight, pattern)` pair fills a proportional
 /// slice of the cycle (`timeCat`). Used by mini-notation `@`/`_` weights.
+/// Like Strudel's `stepcat`, a single pair returns its pattern uncompressed
+/// (so it isn't query-split per cycle), and zero-weight pairs are skipped.
 pub fn timecat(pairs: &[(Frac, Pattern)]) -> Pattern {
+    if let [(w, p)] = pairs {
+        return p.clone().set_steps(Some(*w));
+    }
     let total: Frac = pairs.iter().fold(Frac::zero(), |acc, (w, _)| acc + *w);
     if total == Frac::zero() {
         return silence();
@@ -695,6 +700,9 @@ pub fn timecat(pairs: &[(Frac, Pattern)]) -> Pattern {
     let mut begin = Frac::zero();
     let mut pats = Vec::with_capacity(pairs.len());
     for (w, p) in pairs {
+        if *w == Frac::zero() {
+            continue;
+        }
         let end = begin + *w / total;
         pats.push(p._compress(begin, end));
         begin = end;

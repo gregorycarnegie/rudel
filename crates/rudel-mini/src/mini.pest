@@ -16,7 +16,7 @@ steps_marker = { "^" }
 
 slice_with_ops = { slice ~ slice_op* }
 
-slice = { rest | step | sub_cycle | slow_sequence | polymeter }
+slice = { step | sub_cycle | slow_sequence | polymeter }
 
 sub_cycle     = { "[" ~ stack_or_choose ~ "]" }
 slow_sequence = { "<" ~ poly_stack ~ ">" }
@@ -24,22 +24,26 @@ polymeter     = { "{" ~ poly_stack ~ "}" ~ polymeter_steps? }
 poly_stack    = { sequence ~ ("," ~ sequence)* }
 polymeter_steps = { "%" ~ slice }
 
-rest   = @{ "~" | ("-" ~ !ASCII_DIGIT) }
-step   = @{ interval | number | word }
-// Named intervals (e.g. `3M`, `5P`, `-2M`) for `transpose`: signed digits
-// followed by quality letters. Tried before `number` so the quality suffix is
-// kept; a bare number has no quality letters and still falls through to `number`.
-interval = { "-"? ~ ASCII_DIGIT+ ~ ("d" | "m" | "M" | "P" | "A")+ }
-number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
-word   = @{ ("#" | ASCII_ALPHA) ~ (ASCII_ALPHANUMERIC | "#" | "-")* }
+// One mini-notation token: any run of step characters, except a lone "."
+// (foot separator) or "_" (elongation). Mirrors krill's `step_char`, which
+// admits letters, digits, and `~ - # . ^ _`; the resulting string is
+// classified as number/rest/word later, like mini.mjs does with Number().
+step      = @{ !(("." | "_") ~ !step_char) ~ step_char+ }
+step_char = _{ LETTER | LETTER_NUMBER | ASCII_DIGIT | "~" | "-" | "#" | "." | "^" | "_" }
 
-slice_op = _{ op_fast | op_slow | op_replicate | op_weight | op_degrade | op_euclid | op_range | op_tail }
-op_fast      = { "*" ~ factor }
-op_slow      = { "/" ~ factor }
-op_replicate = { "!" ~ number? }
-op_weight    = { ("@" ~ number?) | "_" }
-op_degrade   = { "?" ~ number? }
-op_euclid    = { "(" ~ sequence ~ "," ~ sequence ~ ("," ~ sequence)? ~ ")" }
-op_range     = { ".." ~ slice }
+// Op amounts (krill `number`): no leading whitespace, no leading zeros.
+number = @{ "-"? ~ int ~ frac? ~ exp? }
+int  = _{ "0" | (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) }
+frac = _{ "." ~ ASCII_DIGIT+ }
+exp  = _{ ("e" | "E") ~ ("-" | "+")? ~ ASCII_DIGIT+ }
+
+// `@`/`!`/`?` amounts must be adjacent (no whitespace), hence compound-atomic.
+slice_op = _{ op_weight | op_euclid | op_slow | op_fast | op_replicate | op_degrade | op_tail | op_range }
+op_weight    = ${ ("@" ~ number?) | "_" }
+op_replicate = ${ "!" ~ number? }
+op_degrade   = ${ "?" ~ number? }
+op_fast      = { "*" ~ slice }
+op_slow      = { "/" ~ slice }
+op_euclid    = { "(" ~ slice_with_ops ~ "," ~ slice_with_ops ~ ","? ~ slice_with_ops? ~ ")" }
 op_tail      = { ":" ~ slice }
-factor       = { slice }
+op_range     = { ".." ~ slice }
