@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 mod common;
-use common::{golden_rows, rudel_rows};
+use common::{canon_locs, golden_locs, golden_rows, rudel_rows};
 
 #[test]
 fn mini_notation_matches_strudel() {
@@ -18,13 +18,13 @@ fn mini_notation_matches_strudel() {
 
     let mut failures = Vec::new();
     for (code, entry) in &golden {
-        let want = golden_rows(entry["haps"].as_array().expect("haps array"));
+        let want = golden_rows(entry["haps"].as_array().expect("haps array"), true);
         let want_steps = match &entry["steps"] {
             serde_json::Value::String(s) => s.clone(),
             _ => "_".to_string(),
         };
         let pat = rudel_mini::parse(code).unwrap_or_else(|e| panic!("rudel parse {code:?}: {e:?}"));
-        let got = rudel_rows(&pat, CYCLES);
+        let got = rudel_rows(&pat, CYCLES, true);
         if got != want {
             failures.push(format!(
                 "pattern {code:?}\n  strudel ({} haps): {:#?}\n  rudel   ({} haps): {:#?}",
@@ -41,6 +41,13 @@ fn mini_notation_matches_strudel() {
         if got_steps != want_steps {
             failures.push(format!(
                 "pattern {code:?} steps: strudel {want_steps}, rudel {got_steps}"
+            ));
+        }
+        let want_locs = canon_locs(golden_locs(&entry["locs"]));
+        let got_locs = canon_locs(rudel_mini::leaf_locations(code).expect("leaf locations"));
+        if got_locs != want_locs {
+            failures.push(format!(
+                "pattern {code:?} leaf locations: strudel [{want_locs}], rudel [{got_locs}]"
             ));
         }
     }

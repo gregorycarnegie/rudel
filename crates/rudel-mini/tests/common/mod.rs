@@ -66,8 +66,18 @@ fn frac_str(f: Frac) -> String {
     format!("{}/{}", f.numer(), f.denom())
 }
 
-/// Sorted "pb|pe|wb|we|value" lines for a rudel pattern over cycles `0..cycles`.
-pub fn rudel_rows(pat: &Pattern, cycles: i64) -> Vec<String> {
+/// Canonical "a..b,c..d" form of sorted source locations.
+pub fn canon_locs(mut locs: Vec<(usize, usize)>) -> String {
+    locs.sort_unstable();
+    locs.iter()
+        .map(|(a, b)| format!("{a}..{b}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Sorted "pb|pe|wb|we|value|locs" lines for a rudel pattern over cycles
+/// `0..cycles`. `with_locs` is false for goldens predating location dumps.
+pub fn rudel_rows(pat: &Pattern, cycles: i64, with_locs: bool) -> Vec<String> {
     let mut rows: Vec<String> = pat
         .query_arc(Frac::zero(), Frac::int(cycles))
         .into_iter()
@@ -76,13 +86,19 @@ pub fn rudel_rows(pat: &Pattern, cycles: i64) -> Vec<String> {
                 Some(w) => (frac_str(w.begin), frac_str(w.end)),
                 None => ("_".to_string(), "_".to_string()),
             };
+            let locs = if with_locs {
+                format!("|{}", canon_locs(h.context.locations.clone()))
+            } else {
+                String::new()
+            };
             format!(
-                "{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}{}",
                 frac_str(h.part.begin),
                 frac_str(h.part.end),
                 wb,
                 we,
-                canon_value(&h.value)
+                canon_value(&h.value),
+                locs
             )
         })
         .collect();
@@ -90,8 +106,25 @@ pub fn rudel_rows(pat: &Pattern, cycles: i64) -> Vec<String> {
     rows
 }
 
+/// Parse a golden `[[a,b],...]` location list.
+pub fn golden_locs(v: &serde_json::Value) -> Vec<(usize, usize)> {
+    v.as_array()
+        .map(|pairs| {
+            pairs
+                .iter()
+                .map(|p| {
+                    (
+                        p[0].as_u64().unwrap_or(0) as usize,
+                        p[1].as_u64().unwrap_or(0) as usize,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The matching sorted lines from a golden JSON hap array.
-pub fn golden_rows(rows: &[serde_json::Value]) -> Vec<String> {
+pub fn golden_rows(rows: &[serde_json::Value], with_locs: bool) -> Vec<String> {
     let s = |r: &serde_json::Value, k: &str| match &r[k] {
         serde_json::Value::String(s) => s.clone(),
         serde_json::Value::Null => "_".to_string(),
@@ -100,13 +133,19 @@ pub fn golden_rows(rows: &[serde_json::Value]) -> Vec<String> {
     let mut out: Vec<String> = rows
         .iter()
         .map(|r| {
+            let locs = if with_locs {
+                format!("|{}", canon_locs(golden_locs(&r["l"])))
+            } else {
+                String::new()
+            };
             format!(
-                "{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}{}",
                 s(r, "pb"),
                 s(r, "pe"),
                 s(r, "wb"),
                 s(r, "we"),
-                canon_json(&r["v"])
+                canon_json(&r["v"]),
+                locs
             )
         })
         .collect();

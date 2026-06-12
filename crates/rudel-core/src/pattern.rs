@@ -20,6 +20,10 @@ pub struct Pattern {
     /// Set when this pattern is a `pure` value, enabling the patternify
     /// fast-path (Strudel's `__pure`). Cleared by transforms.
     pub pure_value: Option<Box<Value>>,
+    /// Source location of the `pure` value, when it came from mini-notation
+    /// (Strudel's `__pure_loc`). Lets the patternify fast-path keep the
+    /// argument's location even though the argument pattern is bypassed.
+    pub pure_loc: Option<(usize, usize)>,
 }
 
 impl Pattern {
@@ -31,6 +35,7 @@ impl Pattern {
             query: Arc::new(query),
             steps: None,
             pure_value: None,
+            pure_loc: None,
         }
     }
 
@@ -144,6 +149,36 @@ impl Pattern {
 
     pub fn set_context(&self, context: Context) -> Pattern {
         self.with_hap(move |hap| hap.set_context(context.clone()))
+    }
+
+    /// Rewrite the context of every hap (`withContext`). Preserves the `pure`
+    /// fast-path metadata, like Strudel.
+    pub fn with_context<F>(&self, f: F) -> Pattern
+    where
+        F: Fn(&Context) -> Context + Send + Sync + 'static,
+    {
+        let mut result = self.with_hap(move |hap| {
+            let context = f(&hap.context);
+            hap.set_context(context)
+        });
+        result.steps = self.steps;
+        result.pure_value = self.pure_value.clone();
+        result.pure_loc = self.pure_loc;
+        result
+    }
+
+    /// Tag every hap with a source location (`withLoc`), used by mini-notation
+    /// so editors can map events back to the code that produced them.
+    pub fn with_loc(&self, start: usize, end: usize) -> Pattern {
+        let mut result = self.with_context(move |context| {
+            let mut context = context.clone();
+            context.locations.push((start, end));
+            context
+        });
+        if result.pure_value.is_some() {
+            result.pure_loc = Some((start, end));
+        }
+        result
     }
 
     /// Split queries at cycle boundaries so every hap stays within one cycle.

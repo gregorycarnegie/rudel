@@ -6,13 +6,16 @@
 // Resolution: tools/oracle/node_modules has fraction.js plus junctions
 // @strudel/core and @strudel/mini -> strudel/packages/{core,mini}.
 //
-// Emits JSON: { "<pattern>": { "steps": "num/den"|null, "haps": [ {pb,pe,wb,we,v}, ... ] } }
-// where pb/pe are the part begin/end and wb/we the whole begin/end, each as a
-// reduced "num/den" string (or null for a continuous whole), v the normalised
-// value, and steps the pattern's `_steps`.
+// Emits JSON: { "<pattern>": { "steps": "num/den"|null, "locs": [[a,b],...],
+// "haps": [ {pb,pe,wb,we,v,l}, ... ] } } where pb/pe are the part begin/end
+// and wb/we the whole begin/end, each as a reduced "num/den" string (or null
+// for a continuous whole), v the normalised value, l the hap's sorted source
+// locations, steps the pattern's `_steps`, and locs the sorted leaf locations.
+// Strudel's locations are relative to the quoted code, so 1 is subtracted to
+// make them offsets into the bare pattern string (matching rudel's parse).
 
 import { writeFileSync } from 'node:fs';
-import { mini } from '@strudel/mini';
+import { mini, getLeafLocations } from '@strudel/mini';
 import Fraction from '@strudel/core/fraction.mjs';
 
 // Patterns exercising the mini-notation grammar, including the cases from
@@ -149,6 +152,8 @@ function normValue(v) {
   return v; // number | string | boolean
 }
 
+const sortPairs = (locs) => locs.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+
 function dump(code) {
   const pat = mini(code);
   const haps = pat.queryArc(0, CYCLES);
@@ -160,6 +165,7 @@ function dump(code) {
       wb: whole ? whole.b : null,
       we: whole ? whole.e : null,
       v: normValue(h.value),
+      l: sortPairs((h.context.locations || []).map(({ start, end }) => [start - 1, end - 1])),
     };
   });
   // Stable sort: by part begin, then end, then value JSON.
@@ -168,7 +174,8 @@ function dump(code) {
     return k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0;
   });
   const steps = pat._steps === undefined ? null : fracStr(Fraction(pat._steps));
-  return { steps, haps: rows };
+  const locs = sortPairs(getLeafLocations(`"${code}"`).map(([a, b]) => [a - 1, b - 1]));
+  return { steps, locs, haps: rows };
 }
 
 const out = {};

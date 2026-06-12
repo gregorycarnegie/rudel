@@ -32,6 +32,17 @@ per-occurrence PRNG seeds used by `?` and `|`).
 let pat = rudel_mini::parse("bd [hh hh] <sd cp>*2")?;
 ```
 
+## Source Locations
+
+Every hap carries the byte spans of the tokens that produced it (in
+`hap.context.locations`), for editor highlighting:
+
+```rust
+let pat = rudel_mini::parse("bd sd")?;            // haps tagged (0,2) / (3,5)
+let pat = rudel_mini::parse_with_offset(src, 10)?; // shifted by 10
+let spans = rudel_mini::leaf_locations("bd*2")?;   // [(0,2), (3,4)]
+```
+
 Install the parser to make `&str` pattern arguments in `rudel-core` behave like
 mini-notation:
 

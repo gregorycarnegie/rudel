@@ -64,7 +64,17 @@ where
     F: Fn(&Pattern, Frac) -> Pattern + Send + Sync + 'static,
 {
     if let Some(v) = &arg.pure_value {
-        return f(pat, v.to_frac());
+        let result = f(pat, v.to_frac());
+        // Strudel's register keeps the bypassed pure argument's source
+        // location by appending it to every hap's context.
+        if let Some((start, end)) = arg.pure_loc {
+            return result.with_context(move |context| {
+                let mut context = context.clone();
+                context.locations.push((start, end));
+                context
+            });
+        }
+        return result;
     }
     let pat = pat.clone();
     let f = Arc::new(f);

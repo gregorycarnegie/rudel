@@ -129,8 +129,8 @@ fn transforms_match_strudel() {
 
     let mut failures = Vec::new();
     for (label, rows) in &golden {
-        let want = golden_rows(rows.as_array().expect("array"));
-        let got = rudel_rows(&build(label), CYCLES);
+        let want = golden_rows(rows.as_array().expect("array"), false);
+        let got = rudel_rows(&build(label), CYCLES, false);
         if got != want {
             failures.push(format!(
                 "transform {label:?}\n  strudel ({} haps): {:#?}\n  rudel   ({} haps): {:#?}",

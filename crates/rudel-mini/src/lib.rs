@@ -17,16 +17,46 @@ struct MiniParser;
 /// `seed` counts those operators left-to-right within one parsed string.
 const RAND_OFFSET: f64 = 0.0003;
 
-/// Parse a mini-notation string into a pattern.
+/// Parse a mini-notation string into a pattern. Leaf locations are byte
+/// offsets into `input`.
 pub fn parse(input: &str) -> Result<Pattern, String> {
+    parse_with_offset(input, 0)
+}
+
+/// Like [`parse`], shifting every leaf location by `offset` — the position of
+/// `input` within the surrounding source code (mirrors Strudel's `m(str,
+/// offset)`, used when mini strings are embedded in larger programs).
+pub fn parse_with_offset(input: &str, offset: usize) -> Result<Pattern, String> {
     let mut pairs = MiniParser::parse(Rule::mini, input).map_err(|e| e.to_string())?;
     let mini = pairs.next().ok_or("empty parse")?;
     let soc = mini
         .into_inner()
         .find(|p| p.as_rule() == Rule::stack_or_choose)
         .ok_or("no pattern")?;
-    let mut seed = 0;
-    Ok(build_stack_or_choose(soc, &mut seed).pat)
+    let mut ctx = Ctx { seed: 0, offset };
+    Ok(build_stack_or_choose(soc, &mut ctx).pat)
+}
+
+/// Byte spans of every mini-notation leaf (steps, op arguments, rests) in
+/// source order (mirrors Strudel's `getLeafLocations`, which editors use to
+/// map tokens to events).
+pub fn leaf_locations(input: &str) -> Result<Vec<(usize, usize)>, String> {
+    let mut pairs = MiniParser::parse(Rule::mini, input).map_err(|e| e.to_string())?;
+    let mini = pairs.next().ok_or("empty parse")?;
+    let mut locs = Vec::new();
+    collect_steps(mini, &mut locs);
+    Ok(locs)
+}
+
+fn collect_steps(pair: Pair<Rule>, out: &mut Vec<(usize, usize)>) {
+    if pair.as_rule() == Rule::step {
+        let span = pair.as_span();
+        out.push((span.start(), span.end()));
+        return;
+    }
+    for inner in pair.into_inner() {
+        collect_steps(inner, out);
+    }
 }
 
 /// Parse, falling back to silence on error (used as the installed string
@@ -65,10 +95,20 @@ impl Built {
     }
 }
 
-fn next_seed(seed: &mut i64) -> i64 {
-    let s = *seed;
-    *seed += 1;
-    s
+/// Per-parse state: the krill-order PRNG seed counter and the position of
+/// the mini string within the surrounding source code (added to every leaf
+/// location).
+struct Ctx {
+    seed: i64,
+    offset: usize,
+}
+
+impl Ctx {
+    fn next_seed(&mut self) -> i64 {
+        let s = self.seed;
+        self.seed += 1;
+        s
+    }
 }
 
 /// `rand` shifted earlier by the per-operator seed offset.
@@ -86,16 +126,16 @@ fn marked_lcm(children: &[Built]) -> Option<Frac> {
     Some(steps.fold(first, |a, b| a.lcm(b)))
 }
 
-fn build_stack_or_choose(pair: Pair<Rule>, seed: &mut i64) -> Built {
+fn build_stack_or_choose(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
     let mut inner = pair.into_inner();
-    let head = build_sequence(inner.next().expect("stack_or_choose head"), seed);
+    let head = build_sequence(inner.next().expect("stack_or_choose head"), ctx);
     let Some(tail) = inner.next() else {
         return head;
     };
     let rule = tail.as_rule();
     let mut children = vec![head];
     for s in tail.into_inner() {
-        children.push(build_sequence(s, seed));
+        children.push(build_sequence(s, ctx));
     }
     let pats: Vec<Pattern> = children.iter().map(|c| c.pat.clone()).collect();
     let pat = match rule {
@@ -107,7 +147,7 @@ fn build_stack_or_choose(pair: Pair<Rule>, seed: &mut i64) -> Built {
             p
         }
         Rule::choose_tail => {
-            let s = next_seed(seed);
+            let s = ctx.next_seed();
             let mut p = choose_in_with(seeded_rand(s).segment(1), pats);
             if let Some(l) = marked_lcm(&children) {
                 p = p.set_steps(Some(l));
@@ -116,7 +156,7 @@ fn build_stack_or_choose(pair: Pair<Rule>, seed: &mut i64) -> Built {
         }
         // Feet: each foot becomes one step. krill burns a seed for the group.
         _ => {
-            next_seed(seed);
+            ctx.next_seed();
             fastcat(&pats)
         }
     };
@@ -129,13 +169,13 @@ fn build_stack_or_choose(pair: Pair<Rule>, seed: &mut i64) -> Built {
 
 /// Build a sequence node: a weighted `timecat` of its elements, with
 /// `_steps` = weight sum, scaled by the lcm of `^`-marked children.
-fn build_sequence(pair: Pair<Rule>, seed: &mut i64) -> Built {
+fn build_sequence(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
     let mut marked = false;
     let mut elems: Vec<Built> = Vec::new();
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::steps_marker => marked = true,
-            Rule::slice_with_ops => elems.push(build_slice_with_ops(inner, seed)),
+            Rule::slice_with_ops => elems.push(build_slice_with_ops(inner, ctx)),
             _ => {}
         }
     }
@@ -173,9 +213,9 @@ enum Op {
 }
 
 /// Build one element: its slice with all ops applied, plus its weight.
-fn build_slice_with_ops(pair: Pair<Rule>, seed: &mut i64) -> Built {
+fn build_slice_with_ops(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
     let mut inner = pair.into_inner();
-    let built = build_slice(inner.next().expect("slice"), seed);
+    let built = build_slice(inner.next().expect("slice"), ctx);
     let mut weight = Frac::one();
     let mut reps = Frac::one();
     let mut ops: Vec<Op> = Vec::new();
@@ -192,14 +232,14 @@ fn build_slice_with_ops(pair: Pair<Rule>, seed: &mut i64) -> Built {
                 ops.retain(|o| !matches!(o, Op::Replicate));
                 ops.push(Op::Replicate);
             }
-            Rule::op_fast => ops.push(Op::Fast(op_slice(op, seed))),
-            Rule::op_slow => ops.push(Op::Slow(op_slice(op, seed))),
+            Rule::op_fast => ops.push(Op::Fast(op_slice(op, ctx))),
+            Rule::op_slow => ops.push(Op::Slow(op_slice(op, ctx))),
             Rule::op_degrade => ops.push(Op::Degrade {
                 amount: number_in(&op).unwrap_or(0.5),
-                seed: next_seed(seed),
+                seed: ctx.next_seed(),
             }),
             Rule::op_euclid => {
-                let mut args = op.into_inner().map(|a| build_euclid_arg(a, seed));
+                let mut args = op.into_inner().map(|a| build_euclid_arg(a, ctx));
                 let pulse = args.next().expect("euclid pulse");
                 let step = args.next().expect("euclid steps");
                 let rotation = args.next();
@@ -209,8 +249,8 @@ fn build_slice_with_ops(pair: Pair<Rule>, seed: &mut i64) -> Built {
                     rotation,
                 });
             }
-            Rule::op_tail => ops.push(Op::Tail(op_slice(op, seed))),
-            Rule::op_range => ops.push(Op::Range(op_slice(op, seed))),
+            Rule::op_tail => ops.push(Op::Tail(op_slice(op, ctx))),
+            Rule::op_range => ops.push(Op::Range(op_slice(op, ctx))),
             _ => {}
         }
     }
@@ -249,31 +289,32 @@ fn apply_op(pat: Pattern, op: Op, reps: Frac) -> Pattern {
     }
 }
 
-fn build_slice(pair: Pair<Rule>, seed: &mut i64) -> Built {
+fn build_slice(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
     let inner = pair.into_inner().next().expect("slice inner");
     match inner.as_rule() {
-        Rule::step => build_step(inner),
+        Rule::step => build_step(inner, ctx),
         Rule::sub_cycle => {
-            build_stack_or_choose(inner.into_inner().next().expect("sub_cycle body"), seed)
+            build_stack_or_choose(inner.into_inner().next().expect("sub_cycle body"), ctx)
         }
-        Rule::slow_sequence => build_slow_sequence(inner, seed),
-        Rule::polymeter => build_polymeter(inner, seed),
+        Rule::slow_sequence => build_slow_sequence(inner, ctx),
+        Rule::polymeter => build_polymeter(inner, ctx),
         _ => Built::plain(silence()),
     }
 }
 
-fn build_step(pair: Pair<Rule>) -> Built {
+fn build_step(pair: Pair<Rule>, ctx: &Ctx) -> Built {
+    let span = pair.as_span();
     Built::plain(match atom_value(pair.as_str()) {
-        Some(v) => pure(v),
+        Some(v) => pure(v).with_loc(span.start() + ctx.offset, span.end() + ctx.offset),
         None => silence(),
     })
 }
 
 /// `<a b c>`: stack of the sequences, each slowed by its own weight so one
 /// step plays per cycle.
-fn build_slow_sequence(pair: Pair<Rule>, seed: &mut i64) -> Built {
+fn build_slow_sequence(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
     let poly = pair.into_inner().next().expect("poly_stack");
-    let children: Vec<Built> = poly.into_inner().map(|s| build_sequence(s, seed)).collect();
+    let children: Vec<Built> = poly.into_inner().map(|s| build_sequence(s, ctx)).collect();
     let slowed: Vec<Pattern> = children
         .iter()
         .map(|c| {
@@ -297,13 +338,13 @@ fn build_slow_sequence(pair: Pair<Rule>, seed: &mut i64) -> Built {
 
 /// `{a b, c d e}%n`: stack of the sequences, each sped up so `n` (or the
 /// first sequence's) steps fill one cycle.
-fn build_polymeter(pair: Pair<Rule>, seed: &mut i64) -> Built {
+fn build_polymeter(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
     let mut inner = pair.into_inner();
     let poly = inner.next().expect("poly_stack");
-    let children: Vec<Built> = poly.into_inner().map(|s| build_sequence(s, seed)).collect();
+    let children: Vec<Built> = poly.into_inner().map(|s| build_sequence(s, ctx)).collect();
     let steps_pat = inner
         .next()
-        .map(|ps| build_slice(ps.into_inner().next().expect("polymeter_steps slice"), seed).pat);
+        .map(|ps| build_slice(ps.into_inner().next().expect("polymeter_steps slice"), ctx).pat);
     let aligned: Vec<Pattern> = match steps_pat {
         None => {
             let spc = children
@@ -341,27 +382,27 @@ fn build_polymeter(pair: Pair<Rule>, seed: &mut i64) -> Built {
 
 /// krill's bjorklund args are `slice_with_ops`, but mini.mjs only enters the
 /// slice and discards the ops; their seeds are still consumed by the parser.
-fn build_euclid_arg(pair: Pair<Rule>, seed: &mut i64) -> Pattern {
+fn build_euclid_arg(pair: Pair<Rule>, ctx: &mut Ctx) -> Pattern {
     let mut inner = pair.into_inner();
-    let pat = build_slice(inner.next().expect("euclid arg slice"), seed).pat;
+    let pat = build_slice(inner.next().expect("euclid arg slice"), ctx).pat;
     for op in inner {
-        consume_op_seeds(op, seed);
+        consume_op_seeds(op, ctx);
     }
     pat
 }
 
 /// Walk a discarded op purely for its seed side effects.
-fn consume_op_seeds(op: Pair<Rule>, seed: &mut i64) {
+fn consume_op_seeds(op: Pair<Rule>, ctx: &mut Ctx) {
     match op.as_rule() {
         Rule::op_degrade => {
-            next_seed(seed);
+            ctx.next_seed();
         }
         Rule::op_fast | Rule::op_slow | Rule::op_tail | Rule::op_range => {
-            op_slice(op, seed);
+            op_slice(op, ctx);
         }
         Rule::op_euclid => {
             for arg in op.into_inner() {
-                build_euclid_arg(arg, seed);
+                build_euclid_arg(arg, ctx);
             }
         }
         _ => {}
@@ -451,9 +492,9 @@ fn choose_in_with(chooser: Pattern, pats: Vec<Pattern>) -> Pattern {
         .inner_join()
 }
 
-fn op_slice(op: Pair<Rule>, seed: &mut i64) -> Pattern {
+fn op_slice(op: Pair<Rule>, ctx: &mut Ctx) -> Pattern {
     let slice = op.into_inner().next().expect("op slice");
-    build_slice(slice, seed).pat
+    build_slice(slice, ctx).pat
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -812,6 +853,44 @@ mod tests {
             parse("[^a b c] [d [^e f]]").unwrap().steps,
             Some(Frac::int(24)),
         );
+    }
+
+    #[test]
+    fn leaf_locations_match_strudel() {
+        // Strudel's getLeafLocations tests, shifted by -1 (no wrapping quote).
+        assert_eq!(leaf_locations("bd sd").unwrap(), vec![(0, 2), (3, 5)]);
+        assert_eq!(
+            leaf_locations("bd*2 [sd cp]").unwrap(),
+            vec![(0, 2), (3, 4), (6, 8), (9, 11)],
+        );
+        assert_eq!(
+            leaf_locations("bd*<2 3>").unwrap(),
+            vec![(0, 2), (4, 5), (6, 7)],
+        );
+    }
+
+    #[test]
+    fn haps_carry_source_locations() {
+        let pat = parse("bd sd").unwrap();
+        let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+        haps.sort_by_key(|h| h.part.begin);
+        assert_eq!(haps[0].context.locations, vec![(0, 2)]);
+        assert_eq!(haps[1].context.locations, vec![(3, 5)]);
+
+        // op arguments keep their location too, even through the pure
+        // fast-path ("2" in bd*2)
+        let pat = parse("bd*2").unwrap();
+        let hap = &pat.query_arc(Frac::zero(), Frac::one())[0];
+        let mut locs = hap.context.locations.clone();
+        locs.sort_unstable();
+        assert_eq!(locs, vec![(0, 2), (3, 4)]);
+
+        // parse_with_offset shifts everything by the embedding position
+        let pat = parse_with_offset("bd sd", 10).unwrap();
+        let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+        haps.sort_by_key(|h| h.part.begin);
+        assert_eq!(haps[0].context.locations, vec![(10, 12)]);
+        assert_eq!(haps[1].context.locations, vec![(13, 15)]);
     }
 
     #[test]
