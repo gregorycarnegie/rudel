@@ -6,11 +6,15 @@ const CODE_INDENT: &str = "  ";
 
 pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String, active: &[(usize, usize)]) {
     let editor_id = ui.make_persistent_id(egui::Id::new(CODE_EDITOR_ID));
+    let bracket_id = editor_id.with("bracket_match");
     let shortcuts = capture_editor_shortcuts(ui, editor_id);
     let typed_text = editor_typed_text(ui);
     let enter_pressed = editor_enter_pressed(ui);
+    // Bracket-match spans computed from last frame's cursor (the layouter runs
+    // before this frame's cursor is known); recomputed and stored below.
+    let brackets: Vec<(usize, usize)> = ui.data(|d| d.get_temp(bracket_id)).unwrap_or_default();
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-        let job = highlighted_editor_job(text.as_str(), ui, wrap_width, active);
+        let job = highlighted_editor_job(text.as_str(), ui, wrap_width, active, &brackets);
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
     let mut output = egui::TextEdit::multiline(code)
@@ -22,16 +26,32 @@ pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String, active: &[(usize
         .show(ui);
     if output.response.has_focus()
         && let Some(cursor_range) = output.cursor_range
-        && let Some(new_range) = apply_editor_text_edits(
+    {
+        let edited = apply_editor_text_edits(
             code,
             cursor_range,
             shortcuts,
             typed_text.as_deref(),
             enter_pressed,
-        )
-    {
-        output.state.cursor.set_char_range(Some(new_range));
-        output.state.store(ui.ctx(), output.response.id);
+        );
+        let cursor = edited
+            .map(|r| r.primary.index)
+            .unwrap_or(cursor_range.primary.index);
+        if let Some(new_range) = edited {
+            output.state.cursor.set_char_range(Some(new_range));
+            output.state.store(ui.ctx(), output.response.id);
+        }
+        // Refresh the bracket-match highlight for the (possibly moved) cursor.
+        let new_brackets = bracket_match_spans(code, cursor)
+            .map(|pair| pair.to_vec())
+            .unwrap_or_default();
+        if new_brackets != brackets {
+            ui.data_mut(|d| d.insert_temp(bracket_id, new_brackets));
+            ui.ctx().request_repaint();
+        }
+    } else if !brackets.is_empty() {
+        ui.data_mut(|d| d.insert_temp(bracket_id, Vec::<(usize, usize)>::new()));
+        ui.ctx().request_repaint();
     }
 }
 
@@ -79,6 +99,7 @@ fn highlighted_editor_job(
     ui: &egui::Ui,
     wrap_width: f32,
     active: &[(usize, usize)],
+    brackets: &[(usize, usize)],
 ) -> egui::text::LayoutJob {
     let font_id = egui::TextStyle::Monospace.resolve(ui.style());
     let normal = egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
@@ -93,8 +114,10 @@ fn highlighted_editor_job(
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = wrap_width;
 
-    // Background flashed under spans of code currently producing a hap.
+    // Background flashed under spans of code currently producing a hap, and a
+    // distinct one under the bracket pair around the cursor.
     let flash = egui::Color32::from_rgb(74, 68, 38);
+    let bracket_flash = egui::Color32::from_rgb(60, 84, 104);
 
     for (start, end, token) in tokenize(code) {
         let base = match token {
@@ -108,6 +131,13 @@ fn highlighted_editor_job(
             Token::MiniOp => &mini_op,
         };
         let mut format = base.clone();
+        // Active-event flash wins over bracket matching when they coincide.
+        if brackets
+            .iter()
+            .any(|&span| spans_overlap((start, end), span))
+        {
+            format.background = bracket_flash;
+        }
         if active.iter().any(|&span| spans_overlap((start, end), span)) {
             format.background = flash;
         }
@@ -262,6 +292,8 @@ struct EditorShortcuts {
     comment_toggle: bool,
     indent: bool,
     outdent: bool,
+    jump_next: bool,
+    jump_prev: bool,
 }
 
 fn capture_editor_shortcuts(ui: &mut egui::Ui, editor_id: egui::Id) -> EditorShortcuts {
@@ -275,6 +307,9 @@ fn capture_editor_shortcuts(ui: &mut egui::Ui, editor_id: egui::Id) -> EditorSho
             | i.consume_key(egui::Modifiers::CTRL, egui::Key::Backslash),
         indent: i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
         outdent: i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab),
+        // Strudel's REPL jumps the cursor between `$` block markers.
+        jump_next: i.consume_key(egui::Modifiers::ALT, egui::Key::W),
+        jump_prev: i.consume_key(egui::Modifiers::ALT, egui::Key::Q),
     })
 }
 
@@ -313,6 +348,12 @@ fn apply_editor_text_edits(
     typed_text: Option<&str>,
     enter_pressed: bool,
 ) -> Option<egui::text::CCursorRange> {
+    if shortcuts.jump_next || shortcuts.jump_prev {
+        if let Some(idx) = jump_to_marker(text, cursor_range.primary.index, shortcuts.jump_next) {
+            return Some(egui::text::CCursorRange::one(egui::text::CCursor::new(idx)));
+        }
+        return None;
+    }
     if shortcuts.comment_toggle {
         return Some(toggle_line_comments(text, cursor_range));
     }
@@ -667,6 +708,77 @@ fn is_quote_pair(ch: char) -> bool {
     matches!(ch, '"' | '\'' | '`')
 }
 
+/// The char index of the nearest `$` block marker after (`forward`) or before
+/// the cursor, mirroring Strudel's `Alt+w`/`Alt+q` jump-to-character.
+fn jump_to_marker(text: &str, cursor_char: usize, forward: bool) -> Option<usize> {
+    let markers = text.chars().enumerate().filter(|(_, c)| *c == '$');
+    if forward {
+        markers.map(|(i, _)| i).find(|&i| i > cursor_char)
+    } else {
+        markers.map(|(i, _)| i).filter(|&i| i < cursor_char).last()
+    }
+}
+
+/// When the cursor sits next to a bracket, the byte spans of that bracket and
+/// its match (CodeMirror's `bracketMatching`). The cursor's right-hand char is
+/// preferred, then its left-hand char.
+fn bracket_match_spans(text: &str, cursor_char: usize) -> Option<[(usize, usize); 2]> {
+    let chars: Vec<char> = text.chars().collect();
+    let bracket = |i: usize| chars.get(i).copied().filter(|c| is_bracket(*c));
+    let pos = if bracket(cursor_char).is_some() {
+        cursor_char
+    } else if cursor_char > 0 && bracket(cursor_char - 1).is_some() {
+        cursor_char - 1
+    } else {
+        return None;
+    };
+    let other = matching_bracket_index(&chars, pos)?;
+    Some([char_span_bytes(text, pos), char_span_bytes(text, other)])
+}
+
+fn is_bracket(ch: char) -> bool {
+    matches!(ch, '(' | ')' | '[' | ']' | '{' | '}')
+}
+
+/// The index of the bracket matching the one at `pos`, scanning outward and
+/// tracking nesting depth of the same bracket family.
+fn matching_bracket_index(chars: &[char], pos: usize) -> Option<usize> {
+    let (open, close, forward) = match chars[pos] {
+        '(' => ('(', ')', true),
+        '[' => ('[', ']', true),
+        '{' => ('{', '}', true),
+        ')' => ('(', ')', false),
+        ']' => ('[', ']', false),
+        '}' => ('{', '}', false),
+        _ => return None,
+    };
+    let mut depth = 0i32;
+    let indices: Vec<usize> = if forward {
+        (pos..chars.len()).collect()
+    } else {
+        (0..=pos).rev().collect()
+    };
+    for i in indices {
+        if chars[i] == open {
+            depth += if forward { 1 } else { -1 };
+        } else if chars[i] == close {
+            depth += if forward { -1 } else { 1 };
+        }
+        if depth == 0 {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// The byte range of the single char at `char_idx`.
+fn char_span_bytes(text: &str, char_idx: usize) -> (usize, usize) {
+    (
+        byte_index_at_char(text, char_idx),
+        byte_index_at_char(text, char_idx + 1),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,6 +833,41 @@ mod tests {
         let toks = classify(r#"note("c#4 -1.5")"#);
         assert!(toks.contains(&("c#4", Token::MiniWord)));
         assert!(toks.contains(&("-1.5", Token::Number)));
+    }
+
+    #[test]
+    fn jump_moves_between_dollar_markers() {
+        let text = "$: s(\"bd\")\n$: s(\"hh\")";
+        let second = text
+            .char_indices()
+            .filter(|(_, c)| *c == '$')
+            .nth(1)
+            .unwrap()
+            .0;
+        // forward from the first marker lands on the second
+        assert_eq!(jump_to_marker(text, 0, true), Some(second));
+        // backward from the end lands on the second, then the first
+        assert_eq!(
+            jump_to_marker(text, text.chars().count(), false),
+            Some(second)
+        );
+        assert_eq!(jump_to_marker(text, second, false), Some(0));
+        // nothing past the last/first marker
+        assert_eq!(jump_to_marker(text, second, true), None);
+        assert_eq!(jump_to_marker(text, 0, false), None);
+    }
+
+    #[test]
+    fn bracket_match_finds_the_pair_next_to_the_cursor() {
+        let text = "stack(a, [b])";
+        // cursor right after the closing `)` matches the opening `(` at 5
+        assert_eq!(bracket_match_spans(text, 13), Some([(12, 13), (5, 6)]));
+        // cursor on the inner `[` (index 9) matches its `]` at 11
+        assert_eq!(bracket_match_spans(text, 9), Some([(9, 10), (11, 12)]));
+        // nested `(` at 5 matches the outer `)` at 12, not the inner bracket
+        assert_eq!(bracket_match_spans(text, 5), Some([(5, 6), (12, 13)]));
+        // not next to a bracket -> nothing
+        assert_eq!(bracket_match_spans(text, 7), None);
     }
 
     #[test]

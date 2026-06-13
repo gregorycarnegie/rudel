@@ -23,12 +23,13 @@ Audited against Strudel's `packages/codemirror`. Supported subset:
 | `Ctrl+.` / `Alt+.` | Hush (stop playback, keep the pattern) |
 | `Ctrl+/` / `Ctrl+\` | Toggle `//` comments on the line or selection |
 | `Tab` / `Shift+Tab` | Indent / outdent the line or selection |
+| `Alt+w` / `Alt+q` | Jump the cursor to the next / previous `$` block marker |
 
-Auto-pairing of `()`, `[]`, `{}`, quotes, and backticks, plus auto-indent after
-a newline inside brackets, also matches the CodeMirror REPL.
+Auto-pairing of `()`, `[]`, `{}`, quotes, and backticks, auto-indent after a
+newline inside brackets, and live bracket-match highlighting around the cursor
+also match the CodeMirror REPL.
 
-Not yet supported (vs Strudel): `Alt+w`/`Alt+q` block jumps, per-block
-evaluation, and autocomplete.
+Not yet supported (vs Strudel): per-block evaluation and autocomplete.
 
 ## Features
 
