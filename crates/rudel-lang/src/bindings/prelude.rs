@@ -224,13 +224,41 @@ pub(crate) fn register(prelude: &KMap) {
     signal_val!(
         "sine" => rudel_core::sine, "cosine" => rudel_core::cosine,
         "saw" => rudel_core::saw, "isaw" => rudel_core::isaw,
-        "tri" => rudel_core::tri, "square" => rudel_core::square,
+        "tri" => rudel_core::tri, "itri" => rudel_core::itri,
+        "square" => rudel_core::square,
         "sine2" => rudel_core::sine2, "cosine2" => rudel_core::cosine2,
         "saw2" => rudel_core::saw2, "isaw2" => rudel_core::isaw2,
-        "tri2" => rudel_core::tri2, "square2" => rudel_core::square2,
+        "tri2" => rudel_core::tri2, "itri2" => rudel_core::itri2,
+        "square2" => rudel_core::square2,
         "rand" => rudel_core::rand, "rand2" => rudel_core::rand2,
-        "time" => rudel_core::time, "perlin" => rudel_core::perlin,
+        "brand" => rudel_core::brand,
+        "time" => rudel_core::time,
+        "perlin" => rudel_core::perlin, "berlin" => rudel_core::berlin,
+        // Event-duration signals (take structure from the pattern they meet).
+        "per" => rudel_core::per, "perCycle" => rudel_core::per,
+        "cyclesPer" => rudel_core::cycles_per, "perx" => rudel_core::perx,
     );
+    // brandBy(p): a 0/1 signal that is 1 with probability `p`.
+    prelude.add_fn("brandBy", |ctx| {
+        Ok(KPattern(rudel_core::brand_by(super::pattern::arg_to_f64(&arg0(ctx)))).into())
+    });
+    // steady(value): a continuous pattern of a single constant value.
+    prelude.add_fn("steady", |ctx| {
+        Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
+    });
+    // choose / chooseOut / chooseIn: continuously pick from the given values.
+    // `choose`/`chooseOut` take structure from the random chooser; `chooseIn`
+    // takes it from the chosen values.
+    let choose = |ctx: &mut CallContext| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::choose(&pats)).into())
+    };
+    prelude.add_fn("choose", choose);
+    prelude.add_fn("chooseOut", choose);
+    prelude.add_fn("chooseIn", |ctx| {
+        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+        Ok(KPattern(rudel_core::choose_in(&pats)).into())
+    });
     // Signals taking an integer count.
     prelude.add_fn("irand", |ctx| {
         Ok(KPattern(rudel_core::irand(

@@ -60,6 +60,23 @@ pub(super) fn kpattern_tour(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
     Ok(KPattern::wrap(pat.tour(&many)))
 }
 
+/// `pat.choose(a, b, ...)` / `pat.choose2(...)`: use this pattern as the 0..1
+/// (or, for `choose2`, -1..1) chooser to select continuously from the values.
+/// Accepts a single list/tuple or bare varargs.
+pub(super) fn kpattern_choose(ctx: MethodContext<KPattern>, bipolar: bool) -> KotoResult<KValue> {
+    let chooser = ctx.instance()?.0.clone();
+    let chooser = if bipolar {
+        chooser.from_bipolar()
+    } else {
+        chooser
+    };
+    let pats: Vec<Pattern> = collect_callables(&ctx.args)
+        .iter()
+        .map(arg_to_pattern)
+        .collect();
+    Ok(KPattern::wrap(rudel_core::choose_with(chooser, &pats)))
+}
+
 /// `pat.layer([f, g, ...])`: stack the results of applying each function in
 /// the list to the pattern. Accepts a list/tuple of callables, or bare callable
 /// args.

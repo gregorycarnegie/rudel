@@ -7,6 +7,7 @@ use crate::fraction::Frac;
 use crate::hap::{Context, Hap};
 use crate::pattern::{Pattern, fastcat, pure, silence, slowcat, stack, value_to_pattern};
 use crate::signal::rand;
+use crate::state::State;
 use crate::timespan::TimeSpan;
 use crate::transforms::IntoPattern;
 use crate::value::Value;
@@ -290,6 +291,19 @@ impl Pattern {
         F: Fn(&Pattern) -> Pattern,
     {
         self.some_cycles_by(0.5, f)
+    }
+
+    /// `seed(n)`: set the `randSeed` control for this pattern, changing the
+    /// output of `rand` (and everything built on it: `degrade`, `shuffle`,
+    /// `sometimes`, ...). Mirrors Strudel's `withSeed(() => n, pat)`.
+    pub fn seed(&self, n: Frac) -> Pattern {
+        let pat = self.clone();
+        Pattern::new(move |state| {
+            let mut controls = state.controls.clone();
+            controls.insert("randSeed".to_string(), Value::Frac(n));
+            pat.query(&State::with_controls(state.span, controls))
+        })
+        .set_steps(self.steps)
     }
 
     // -- Numeric value transforms ------------------------------------------
@@ -587,6 +601,42 @@ pub fn randcat(pats: &[Pattern]) -> Pattern {
             Value::Pat(Box::new(pats[idx].clone()))
         })
         .inner_join()
+}
+
+/// Shared core of `choose`/`chooseIn` (`__chooseWith`): scale the 0..1 chooser
+/// into `0..len`, then map each draw to the pattern at the clamped index. The
+/// result is a pattern-of-patterns, joined by the callers below.
+fn choose_pats(chooser: Pattern, pats: &[Pattern]) -> Pattern {
+    let pats = Arc::new(pats.to_vec());
+    let len = pats.len();
+    chooser.range(0.0, len as f64).fmap(move |v| {
+        let key = (v.as_f64().unwrap_or(0.0).floor().max(0.0) as usize).min(len - 1);
+        Value::Pat(Box::new(pats[key].clone()))
+    })
+}
+
+/// `chooseWith`: choose from the list using an arbitrary 0..1 `chooser` pattern,
+/// taking structure from the chooser (`outerJoin`). Used by `Pattern.choose`.
+pub fn choose_with(chooser: Pattern, pats: &[Pattern]) -> Pattern {
+    if pats.is_empty() {
+        return silence();
+    }
+    choose_pats(chooser, pats).outer_join()
+}
+
+/// `choose`/`chooseOut`: continuously choose from the list, with the structure
+/// coming from the random chooser (`outerJoin`).
+pub fn choose(pats: &[Pattern]) -> Pattern {
+    choose_with(rand(), pats)
+}
+
+/// `chooseIn`: like [`choose`], but the structure comes from the chosen values
+/// (`innerJoin`).
+pub fn choose_in(pats: &[Pattern]) -> Pattern {
+    if pats.is_empty() {
+        return silence();
+    }
+    choose_pats(rand(), pats).inner_join()
 }
 
 /// Shared core of the weighted choosers. `chooser` is a 0..1 signal; each pair

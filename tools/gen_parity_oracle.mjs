@@ -31,6 +31,16 @@ const perlinAt = (t) => {
   return ra + smootherStep(t - ta) * (rb - ra);
 };
 
+// --- berlin (signal.mjs _berlin, seed 0) ------------------------------------
+const berlinAt = (t) => {
+  const prev = Math.floor(t);
+  const next = prev + 1;
+  const bottom = timeToRand(prev);
+  const top = bottom + timeToRand(next);
+  const pct = (t - prev) / (next - prev);
+  return (bottom + pct * (top - bottom)) / 2;
+};
+
 // --- analytic signals (signal.mjs) ------------------------------------------
 const saw = (t) => t - Math.floor(t);
 const isaw = (t) => 1 - saw(t);
@@ -41,15 +51,27 @@ const square = (t) => Math.floor(t * 2) % 2;
 const N = 8;
 const times = Array.from({ length: N }, (_, k) => k / N);
 
+// tri = fastcat(saw, isaw): first half a sped-up saw, second half a sped-up
+// isaw. itri = fastcat(isaw, saw) is the inverse.
+const fastcat2 = (a, b) => (t) => {
+  const c = t - Math.floor(t); // cyclePos
+  return c < 0.5 ? a(c * 2) : b(c * 2 - 1);
+};
+const tri = fastcat2(saw, isaw);
+const itri = fastcat2(isaw, saw);
+
 const out = {
   times,
   rand: times.map(timeToRand),
   perlin: times.map(perlinAt),
+  berlin: times.map(berlinAt),
   saw: times.map(saw),
   isaw: times.map(isaw),
   sine: times.map(sine),
   cosine: times.map(cosine),
   square: times.map(square),
+  tri: times.map(tri),
+  itri: times.map(itri),
   // "0 1 .. 7".degradeBy(0.5): an event at onset k/8 survives when rand > 0.5.
   degrade_survivors: times.map((t, k) => (timeToRand(t) > 0.5 ? k : -1)).filter((k) => k >= 0),
 };

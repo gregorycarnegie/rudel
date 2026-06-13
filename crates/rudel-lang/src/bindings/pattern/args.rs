@@ -84,6 +84,14 @@ pub(super) fn with_frac_arg(
     with_instance(ctx, |pat| f(pat, n))
 }
 
+pub(super) fn with_f64_arg(
+    ctx: &MethodContext<KPattern>,
+    f: impl FnOnce(&Pattern, f64) -> Pattern,
+) -> KotoResult<KValue> {
+    let n = method_f64_arg(ctx, 0);
+    with_instance(ctx, |pat| f(pat, n))
+}
+
 pub(super) fn with_pattern_pattern_args(
     ctx: &MethodContext<KPattern>,
     f: impl FnOnce(&Pattern, Pattern, Pattern) -> Pattern,

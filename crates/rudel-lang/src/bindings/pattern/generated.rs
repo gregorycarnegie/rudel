@@ -14,6 +14,7 @@ macro_rules! kpattern_methods {
         pattern_arg: [$($pattern_arg_method:ident),* $(,)?],
         no_arg: [$($no_arg_method:ident),* $(,)?],
         i64_arg: [$($i64_arg_method:ident),* $(,)?],
+        f64_arg: [$($f64_arg_method:ident),* $(,)?],
         frac_arg: [$($frac_arg_method:ident),* $(,)?],
         pattern_pattern_arg: [$($pattern_pattern_arg_method:ident),* $(,)?],
         frac_frac_arg: [$($frac_frac_arg_method:ident),* $(,)?],
@@ -34,6 +35,7 @@ macro_rules! kpattern_methods {
         camel_no_arg: [$($camel_no_arg:ident => $snake_no_arg:ident),* $(,)?],
         camel_noarg_fn: [$($camel_noarg_fn:ident => $snake_noarg_fn:ident),* $(,)?],
         camel_i64: [$($camel_i64:ident => $snake_i64:ident),* $(,)?],
+        camel_f64: [$($camel_f64:ident => $snake_f64:ident),* $(,)?],
         camel_frac: [$($camel_frac:ident => $snake_frac:ident),* $(,)?],
         camel_frac_frac: [$($camel_frac_frac:ident => $snake_frac_frac:ident),* $(,)?],
         camel_i64_i64: [$($camel_i64_i64:ident => $snake_i64_i64:ident),* $(,)?],
@@ -61,6 +63,13 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 fn $i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                     with_i64_arg(&ctx, |pat, n| pat.$i64_arg_method(n))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                fn $f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    with_f64_arg(&ctx, |pat, n| pat.$f64_arg_method(n))
                 }
             )*
 
@@ -198,6 +207,17 @@ macro_rules! kpattern_methods {
                 kpattern_tour(ctx)
             }
 
+            // `pat.choose(a, b, ...)`: use this pattern (in 0..1) to choose from
+            // the given values. `choose2` expects a bipolar (-1..1) pattern.
+            #[koto_method]
+            fn choose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_choose(ctx, false)
+            }
+            #[koto_method]
+            fn choose2(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                kpattern_choose(ctx, true)
+            }
+
             // CamelCase aliases: generate small wrappers that call the
             // existing snake_case implementations to reduce duplication.
             // Each alias group maps CamelCase -> snake_case and uses the
@@ -239,6 +259,14 @@ macro_rules! kpattern_methods {
                 #[allow(non_snake_case)]
                 fn $camel_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                     with_i64_arg(&ctx, |pat, n| pat.$snake_i64(n))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                #[allow(non_snake_case)]
+                fn $camel_f64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    with_f64_arg(&ctx, |pat, n| pat.$snake_f64(n))
                 }
             )*
 
@@ -542,7 +570,8 @@ kpattern_methods! {
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
         chop, striate, take, drop, root_notes, shuffle, scramble,
     ],
-    frac_arg: [hurry, press_by, swing, loop_at, pace],
+    f64_arg: [degrade_by, undegrade_by],
+    frac_arg: [hurry, press_by, swing, loop_at, pace, seed],
     pattern_pattern_arg: [slice, splice],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
@@ -576,6 +605,7 @@ kpattern_methods! {
         s_taper => shrink, s_add => take, s_sub => drop,
         s_expand => expand, s_extend => extend, s_contract => contract,
     ],
+    camel_f64: [degradeBy => degrade_by, undegradeBy => undegrade_by],
     camel_frac: [pressBy => press_by, loopAt => loop_at, steps => pace],
     camel_frac_frac: [swingBy => swing_by],
     camel_i64_i64: [euclidLegato => euclid_legato],
