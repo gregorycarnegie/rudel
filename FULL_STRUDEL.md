@@ -4,6 +4,14 @@ This is the canonical parity checklist for making Rudel fully compatible with th
 
 Completing this file should mean that Rudel can run Strudel code, mini-notation, controls, transforms, editor workflows, outputs, examples, and tests with matching behavior unless a difference is explicitly documented as intentional.
 
+## Markers
+
+These apply to every checklist item in this document:
+
+- `[x]` **done** — implemented and matched, or resolved as intentionally different / not applicable (with the reason in the item's note).
+- `[~]` **partial or deferred** — some sub-parts are implemented and others are postponed/not yet ported; the note says what is done versus pending.
+- `[ ]` **not started**.
+
 ## Implementation Guidance
 
 - Prefer adding names through existing alias groups and generated binding lists before writing a new implementation from scratch.
@@ -60,7 +68,7 @@ Completing this file should mean that Rudel can run Strudel code, mini-notation,
 - [ ] Audit and implement every export and `Pattern.prototype` method in `core/pattern.mjs`.
 - [ ] Audit and implement every export in `core/euclid.mjs`, including aliases such as `euclidRot`, `euclidLegato`, `euclidLegatoRot`, `euclidish`, and `eish`.
 - [x] Audit and implement every export in `core/pick.mjs`, including `pick`, `pickmod`, `pickF`, `pickmodF`, `pickOut`, `pickmodOut`, `pickRestart`, `pickmodRestart`, `pickReset`, `pickmodReset`, `inhabit`, `pickSqueeze`, `inhabitmod`, `pickmodSqueeze`, and the standalone `squeeze`. All bound as methods and prelude factories, parity-tested against the oracle. Intentionally different: `pickF`/`pickmodF` apply their function lookups eagerly at construction (the Koto VM can't be driven from the query path), so functions of time-varying patterns are baked once — equivalent for the function lookups Strudel docs show.
-- [x] Audit and implement every export in `core/signal.mjs`, including continuous signals (`saw`/`isaw`/`sine`/`cosine`/`square`/`tri`/`itri` and the `2` bipolar variants, `time`, `steady`), random signals (`rand`/`rand2`/`irand`/`brand`/`brandBy`/`perlin`/`berlin`/`randrun`/`run`/`scan`), seed behavior (`seed`/`withSeed` via a `randSeed` control that `rand` now honors), `choose`/`chooseIn`/`chooseOut`/`choose`/`choose2`, weighted choice (`wchoose`/`wchooseCycles`/`wrandcat`), `shuffle`, `scramble`, conditional transforms (`degrade*`/`sometimes*`/`someCycles*`/`often`/`rarely`/...), and `per`/`perCycle`/`cyclesPer`/`perx`. All bound as prelude factories/methods and golden-tested against the oracle (`tools/gen_parity_oracle.mjs`). Fixed a latent parity bug: rudel's `tri` was `fastcat(isaw, saw)` (Strudel's `itri`); it is now `fastcat(saw, isaw)`. Intentionally deferred/different: `binary`/`binaryN`/`binaryL`/`binaryNL` and `randL` need patternified bitwise ops (not yet ported); the `precise` murmur RNG and `useRNG` are unimplemented (legacy RNG is Strudel's default and is bit-exact); `mousex`/`mousey` and the keyboard signals (`keyDown`/`whenKey`) are browser-only `external_io` and are unsupported.
+- [~] Audit and implement every export in `core/signal.mjs`, including continuous signals (`saw`/`isaw`/`sine`/`cosine`/`square`/`tri`/`itri` and the `2` bipolar variants, `time`, `steady`), random signals (`rand`/`rand2`/`irand`/`brand`/`brandBy`/`perlin`/`berlin`/`randrun`/`run`/`scan`), seed behavior (`seed`/`withSeed` via a `randSeed` control that `rand` now honors), `choose`/`chooseIn`/`chooseOut`/`choose`/`choose2`, weighted choice (`wchoose`/`wchooseCycles`/`wrandcat`), `shuffle`, `scramble`, conditional transforms (`degrade*`/`sometimes*`/`someCycles*`/`often`/`rarely`/...), and `per`/`perCycle`/`cyclesPer`/`perx`. All bound as prelude factories/methods and golden-tested against the oracle (`tools/gen_parity_oracle.mjs`). Fixed a latent parity bug: rudel's `tri` was `fastcat(isaw, saw)` (Strudel's `itri`); it is now `fastcat(saw, isaw)`. Intentionally deferred/different: `binary`/`binaryN`/`binaryL`/`binaryNL` and `randL` need patternified bitwise ops (not yet ported); the `precise` murmur RNG and `useRNG` are unimplemented (legacy RNG is Strudel's default and is bit-exact); `mousex`/`mousey` and the keyboard signals (`keyDown`/`whenKey`) are browser-only `external_io` and are unsupported.
 - [ ] Audit and implement every export in `core/value.mjs`.
 - [ ] Audit and implement every public utility from `core/util.mjs` that Strudel users can reach from the REPL.
 - [ ] Match Strudel's currying, registration, alias, and method-chaining behavior.
@@ -585,22 +593,22 @@ Ranges such as `fmh3`-`fmh8` mean every control name in that range shares the ro
 
 ## Editor, REPL, and Live Coding UX
 
-- [ ] Add inline UI controls as code inputs in the editor, matching Strudel-style live widgets such as sliders/knobs/toggles embedded in pattern code.
-- [ ] Support Strudel-style inline UI values as live pattern inputs, not just visual editor widgets.
-- [ ] Add inline animations/visuals in the editor so code can create or drive visual feedback directly.
-- [ ] Support Strudel-style inline animation/visual outputs as first-class runtime effects.
-- [ ] Add `Ctrl+\` comment/uncomment for the current line or current selection.
+- [~] Add inline UI controls as code inputs in the editor, matching Strudel-style live widgets such as sliders/knobs/toggles embedded in pattern code. — Deferred: inline live widgets are intentionally postponed until the rest of the editor/REPL surface lands.
+- [~] Support Strudel-style inline UI values as live pattern inputs, not just visual editor widgets. — Deferred with the widget work above.
+- [~] Add inline animations/visuals in the editor so code can create or drive visual feedback directly. — Deferred; depends on the inline-widget surface and the `draw` package port (see Visuals section).
+- [~] Support Strudel-style inline animation/visual outputs as first-class runtime effects. — Deferred with the inline-visual work above.
+- [x] Add `Ctrl+\` comment/uncomment for the current line or current selection. — `crates/rudel-app/src/editor.rs` toggles `//` line comments over the cursor line or selection on `Ctrl+\` and on `Ctrl+/` (Strudel/CodeMirror's actual binding); selection bounds are preserved. Covered by `editor_toggles_line_comments`.
 - [x] Add basic syntax highlighting for Rudel/Strudel-like code.
-- [ ] Upgrade syntax highlighting to Strudel/CodeMirror-grade highlighting, including richer token categories and mini-notation awareness.
-- [ ] Add active-event highlighting for mini-notation and code spans while playback runs.
-- [ ] Preserve source locations through preprocessing/evaluation so live playback can point back to the exact code that produced each hap.
-- [ ] Add editor conveniences expected from Strudel's CodeMirror-based REPL, such as bracket matching, selection-aware commands, and completion/reference help.
-- [ ] Add a reference/autocomplete surface generated from this parity data and Strudel's `reference` package.
-- [ ] Audit keyboard shortcuts against Strudel's REPL and document the supported subset.
-- [ ] Match `codemirror` package behavior: autocomplete, highlight, flash, widgets, sliders, labels, block utilities, tooltips, keybindings, themes, and HTML helpers.
-- [ ] Match `repl/repl-component.mjs`, `repl/prebake.mjs`, and `repl/index.mjs` user-visible behavior.
-- [ ] Match code evaluation semantics: update while playing, hush, multiple outputs, output routing, error reporting, user-defined state, and reset behavior.
-- [ ] Add tests or scripted UI checks for editor shortcuts, inline controls, inline visual feedback, active-event highlighting, and live update behavior.
+- [~] Upgrade syntax highlighting to Strudel/CodeMirror-grade highlighting, including richer token categories and mini-notation awareness. — `editor.rs::tokenize` now distinguishes keywords/factories/controls/signals, methods, numbers, strings, and comments, and tokenizes mini-notation inside string literals (words, numbers, rests `~`, and operators `*/!@<>[]{}(),.?:|%-` get distinct colors). Still missing vs CodeMirror: a real Lezer grammar, selectable themes, and bracket-depth coloring. Tests: `tokenizes_mini_notation_inside_strings`, `tokenizes_note_names_and_decimals_in_mini`, `highlights_keywords_methods_and_numbers_in_code`.
+- [ ] Add active-event highlighting for mini-notation and code spans while playback runs. — Not started in the editor; the visualizer shows a per-cycle playhead over haps, but active spans are not yet flashed back in the code (needs the source locations below threaded to editor offsets).
+- [~] Preserve source locations through preprocessing/evaluation so live playback can point back to the exact code that produced each hap. — Mini-notation source locations are preserved through patterns (see `Preserve mini-notation source locations through patterns`). Still missing: a full source map from the Koto preprocess/eval pass back to editor character offsets, which active-event highlighting depends on.
+- [~] Add editor conveniences expected from Strudel's CodeMirror-based REPL, such as bracket matching, selection-aware commands, and completion/reference help. — Done: auto-pairing/closing of `()[]{}\"'`` and `` ` ``, auto-indent after newline inside brackets, selection-aware indent/outdent (Tab/Shift+Tab) and comment toggle. Still missing: live bracket-match highlighting, jump-to-block (`Alt+w`/`Alt+q`), and autocomplete (the reference panel is read-only).
+- [~] Add a reference/autocomplete surface generated from this parity data and Strudel's `reference` package. — A reference panel (`panels.rs::reference_panel`) lists synths, drums, loaded samples, controls, signals, and factories, but the lists are hand-maintained in `reference.rs` rather than generated from the parity data, and there is no in-editor autocomplete yet.
+- [x] Audit keyboard shortcuts against Strudel's REPL and document the supported subset. — Audited against `strudel/packages/codemirror`: Ctrl/Alt+Enter (eval), Ctrl/Alt+. (hush), Ctrl+/ and Ctrl+\ (comment), Tab/Shift+Tab (indent). Documented in `crates/rudel-app/README.md`; `Alt+w`/`Alt+q` block-jump and per-block eval are noted as not yet supported.
+- [~] Match `codemirror` package behavior: autocomplete, highlight, flash, widgets, sliders, labels, block utilities, tooltips, keybindings, themes, and HTML helpers. — Highlight and the transport/edit keybindings are matched; autocomplete, flash, widgets, sliders, labels, block utilities, tooltips, themes, and HTML helpers are not (widgets/sliders deferred above).
+- [~] Match `repl/repl-component.mjs`, `repl/prebake.mjs`, and `repl/index.mjs` user-visible behavior. — The native app covers the core REPL loop (evaluate, hush, transport, output routing, sample prebake-style loading); web-specific component/embedding behavior is out of scope or not yet ported.
+- [~] Match code evaluation semantics: update while playing, hush, multiple outputs, output routing, error reporting, user-defined state, and reset behavior. — Done: update-while-playing (re-eval re-routes the live pattern), hush (Ctrl/Alt+.), multiple outputs and output routing (audio/MIDI/OSC defaults plus per-pattern `.midi()`/`.osc()` tags), and error reporting (errors panel). Still missing: persistent user-defined state across evals and an explicit reset/panic.
+- [~] Add tests or scripted UI checks for editor shortcuts, inline controls, inline visual feedback, active-event highlighting, and live update behavior. — Unit tests cover comment toggle, indent/outdent, auto-pair, auto-indent, and the highlighter tokenizer. Inline controls, inline visual feedback, active-event highlighting, and end-to-end live-update checks are not yet tested (several depend on deferred features).
 
 ## Visuals, Draw, Motion, and External Inputs
 

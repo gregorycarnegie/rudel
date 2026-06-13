@@ -13,13 +13,31 @@ cargo run --release -p rudel-app
 
 Release mode is recommended for smoother real-time audio.
 
+## Keyboard shortcuts
+
+Audited against Strudel's `packages/codemirror`. Supported subset:
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Enter` / `Alt+Enter` | Evaluate the editor contents |
+| `Ctrl+.` / `Alt+.` | Hush (stop playback, keep the pattern) |
+| `Ctrl+/` / `Ctrl+\` | Toggle `//` comments on the line or selection |
+| `Tab` / `Shift+Tab` | Indent / outdent the line or selection |
+
+Auto-pairing of `()`, `[]`, `{}`, quotes, and backticks, plus auto-indent after
+a newline inside brackets, also matches the CodeMirror REPL.
+
+Not yet supported (vs Strudel): `Alt+w`/`Alt+q` block jumps, per-block
+evaluation, and autocomplete.
+
 ## Features
 
-- Multiline Koto editor with Ctrl+Enter evaluation.
+- Multiline Koto editor with Ctrl+Enter evaluation and Ctrl+. hush.
 - Play/stop transport and cycles-per-second slider.
 - Audio, MIDI, and OSC output selector.
 - Lazy MIDI/OSC connection with graceful fallback to audio on connection errors.
 - Sample-folder loading into the audio engine.
+- Syntax highlighting with mini-notation awareness inside string literals.
 - Reference panel for built-in synths, drums, loaded samples, controls, signals,
   and factories.
 - One-cycle visualizer with a live playhead and per-orbit bands.

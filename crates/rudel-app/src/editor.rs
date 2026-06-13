@@ -44,6 +44,31 @@ fn is_highlighted_ident(ident: &str) -> bool {
             .any(|s| s.strip_suffix("(n)").unwrap_or(s) == ident)
 }
 
+/// Highlight category for a contiguous byte span of editor text. Mirrors the
+/// token categories Strudel's CodeMirror grammar distinguishes, including
+/// mini-notation tokens inside string literals.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Token {
+    /// Plain code (identifiers, whitespace, operators outside strings).
+    Normal,
+    /// Language keyword, factory, control, or signal name.
+    Keyword,
+    /// Identifier following a `.` (a method/control call).
+    Method,
+    /// String delimiters and inert string content (whitespace inside mini).
+    Str,
+    /// Numeric literal (in code or mini-notation).
+    Number,
+    /// `//` line comment.
+    Comment,
+    /// Mini-notation word: sample/synth/note name.
+    MiniWord,
+    /// Mini-notation operator or grouping: `* / ! @ < > [ ] ( ) { } , . ? : | % -`.
+    MiniOp,
+    /// Mini-notation rest (`~`).
+    MiniRest,
+}
+
 fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::text::LayoutJob {
     let font_id = egui::TextStyle::Monospace.resolve(ui.style());
     let normal = egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
@@ -51,11 +76,35 @@ fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::t
     let method = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(220, 220, 170));
     let string = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(206, 145, 120));
     let number = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(181, 206, 168));
-    let comment = egui::TextFormat::simple(font_id, egui::Color32::from_rgb(106, 153, 85));
+    let comment = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(106, 153, 85));
+    let mini_op = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(197, 134, 192));
+    let mini_word = egui::TextFormat::simple(font_id, egui::Color32::from_rgb(156, 220, 254));
 
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = wrap_width;
 
+    for (start, end, token) in tokenize(code) {
+        let format = match token {
+            Token::Normal => &normal,
+            Token::Keyword => &keyword,
+            Token::Method => &method,
+            Token::Str | Token::MiniRest => &string,
+            Token::Number => &number,
+            Token::Comment => &comment,
+            Token::MiniWord => &mini_word,
+            Token::MiniOp => &mini_op,
+        };
+        job.append(&code[start..end], 0.0, format.clone());
+    }
+
+    job
+}
+
+/// Split `code` into contiguous highlighted spans (byte ranges). String
+/// literals are further tokenized as mini-notation so words, numbers, rests,
+/// and operators get distinct colors.
+fn tokenize(code: &str) -> Vec<(usize, usize, Token)> {
+    let mut tokens = Vec::new();
     let bytes = code.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -67,23 +116,32 @@ fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::t
             while i < bytes.len() && bytes[i] != b'\n' {
                 i += 1;
             }
-            job.append(&code[start..i], 0.0, comment.clone());
+            tokens.push((start, i, Token::Comment));
         } else if c == '"' || c == '\'' {
             let quote = bytes[i];
             i += 1;
+            tokens.push((start, i, Token::Str)); // opening quote
+            let body_start = i;
             let mut escaped = false;
             while i < bytes.len() {
                 let b = bytes[i];
-                i += 1;
                 if escaped {
                     escaped = false;
+                    i += 1;
                 } else if b == b'\\' {
                     escaped = true;
+                    i += 1;
                 } else if b == quote {
                     break;
+                } else {
+                    i += 1;
                 }
             }
-            job.append(&code[start..i], 0.0, string.clone());
+            tokenize_mini(&code[body_start..i], body_start, &mut tokens);
+            if i < bytes.len() && bytes[i] == quote {
+                tokens.push((i, i + 1, Token::Str)); // closing quote
+                i += 1;
+            }
         } else if c.is_ascii_digit() {
             i += 1;
             while i < bytes.len() {
@@ -94,7 +152,7 @@ fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::t
                     break;
                 }
             }
-            job.append(&code[start..i], 0.0, number.clone());
+            tokens.push((start, i, Token::Number));
         } else if c.is_ascii_alphabetic() || matches!(c, '_' | '$') {
             i += 1;
             while i < bytes.len() {
@@ -106,21 +164,80 @@ fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::t
                 }
             }
             let ident = &code[start..i];
-            let format = if start > 0 && bytes[start - 1] == b'.' {
-                method.clone()
+            let token = if start > 0 && bytes[start - 1] == b'.' {
+                Token::Method
             } else if is_highlighted_ident(ident) {
-                keyword.clone()
+                Token::Keyword
             } else {
-                normal.clone()
+                Token::Normal
             };
-            job.append(ident, 0.0, format);
+            tokens.push((start, i, token));
         } else {
             i += 1;
-            job.append(&code[start..i], 0.0, normal.clone());
+            tokens.push((start, i, Token::Normal));
         }
     }
+    tokens
+}
 
-    job
+/// Tokenize the body of a string literal as mini-notation, pushing spans
+/// offset by `offset` (the byte position of the body within the full source).
+fn tokenize_mini(body: &str, offset: usize, tokens: &mut Vec<(usize, usize, Token)>) {
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        let c = bytes[i] as char;
+        let next_is_digit = bytes.get(i + 1).is_some_and(|b| b.is_ascii_digit());
+
+        if c == '~' {
+            i += 1;
+            tokens.push((offset + start, offset + i, Token::MiniRest));
+        } else if c.is_ascii_digit() || (c == '-' && next_is_digit) {
+            i += 1;
+            while i < bytes.len() && matches!(bytes[i], b'0'..=b'9' | b'.') {
+                i += 1;
+            }
+            tokens.push((offset + start, offset + i, Token::Number));
+        } else if c.is_ascii_alphabetic() || c == '_' || c == '#' {
+            i += 1;
+            while i < bytes.len() {
+                let b = bytes[i] as char;
+                if b.is_ascii_alphanumeric() || matches!(b, '#' | '_' | '\'') {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            tokens.push((offset + start, offset + i, Token::MiniWord));
+        } else if matches!(
+            c,
+            '*' | '/'
+                | '!'
+                | '@'
+                | '<'
+                | '>'
+                | '['
+                | ']'
+                | '('
+                | ')'
+                | '{'
+                | '}'
+                | ','
+                | '.'
+                | '?'
+                | ':'
+                | '|'
+                | '%'
+                | '-'
+        ) {
+            i += 1;
+            tokens.push((offset + start, offset + i, Token::MiniOp));
+        } else {
+            i += 1;
+            tokens.push((offset + start, offset + i, Token::Str));
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -135,7 +252,10 @@ fn capture_editor_shortcuts(ui: &mut egui::Ui, editor_id: egui::Id) -> EditorSho
         return EditorShortcuts::default();
     }
     ui.input_mut(|i| EditorShortcuts {
-        comment_toggle: i.consume_key(egui::Modifiers::CTRL, egui::Key::Slash),
+        // Ctrl+/ matches Strudel/CodeMirror's toggle-comment; Ctrl+\ is the
+        // alias requested in the parity checklist.
+        comment_toggle: i.consume_key(egui::Modifiers::CTRL, egui::Key::Slash)
+            | i.consume_key(egui::Modifiers::CTRL, egui::Key::Backslash),
         indent: i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
         outdent: i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab),
     })
@@ -543,6 +663,59 @@ mod tests {
             egui::text::CCursor::new(start),
             egui::text::CCursor::new(end),
         )
+    }
+
+    /// Collect `(text, token)` pairs so tests can assert on classification
+    /// without depending on egui colors.
+    fn classify(code: &str) -> Vec<(&str, Token)> {
+        tokenize(code)
+            .into_iter()
+            .map(|(start, end, token)| (&code[start..end], token))
+            .collect()
+    }
+
+    #[test]
+    fn highlights_keywords_methods_and_numbers_in_code() {
+        let toks = classify("stack(x).gain(0.9)");
+        assert!(toks.contains(&("stack", Token::Keyword)));
+        assert!(toks.contains(&("gain", Token::Method)));
+        assert!(toks.contains(&("0.9", Token::Number)));
+        assert!(toks.contains(&("x", Token::Normal)));
+    }
+
+    #[test]
+    fn tokenizes_mini_notation_inside_strings() {
+        let toks = classify(r#"s("bd*2 ~ [hh hh:3]")"#);
+        assert!(toks.contains(&("bd", Token::MiniWord)));
+        assert!(toks.contains(&("hh", Token::MiniWord)));
+        assert!(toks.contains(&("*", Token::MiniOp)));
+        assert!(toks.contains(&("[", Token::MiniOp)));
+        assert!(toks.contains(&(":", Token::MiniOp)));
+        assert!(toks.contains(&("2", Token::Number)));
+        assert!(toks.contains(&("3", Token::Number)));
+        assert!(toks.contains(&("~", Token::MiniRest)));
+        // Delimiters are still string-colored.
+        assert_eq!(toks.first(), Some(&("s", Token::Keyword)));
+        assert!(toks.contains(&("\"", Token::Str)));
+    }
+
+    #[test]
+    fn tokenizes_note_names_and_decimals_in_mini() {
+        let toks = classify(r#"note("c#4 -1.5")"#);
+        assert!(toks.contains(&("c#4", Token::MiniWord)));
+        assert!(toks.contains(&("-1.5", Token::Number)));
+    }
+
+    #[test]
+    fn tokens_cover_the_whole_source_contiguously() {
+        let code = r#"n("0 1").s("piano") // hi"#;
+        let mut next = 0;
+        for (start, end, _) in tokenize(code) {
+            assert_eq!(start, next, "gap before {start}");
+            assert!(end > start);
+            next = end;
+        }
+        assert_eq!(next, code.len());
     }
 
     #[test]

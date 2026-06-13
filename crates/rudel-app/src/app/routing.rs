@@ -26,6 +26,14 @@ impl RudelApp {
         self.route();
     }
 
+    /// Silence all outputs without discarding the evaluated pattern, matching
+    /// Strudel's `hush` (Ctrl/Alt+.). Playback resumes on the next evaluate
+    /// or Play.
+    pub(super) fn hush(&mut self) {
+        self.set_playing(false);
+        self.status = "hushed".to_string();
+    }
+
     pub(super) fn set_cps(&mut self, cps: f64) {
         self.cps = cps;
         if let Some(e) = &self.engine {

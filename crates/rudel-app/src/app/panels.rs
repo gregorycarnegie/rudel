@@ -9,11 +9,20 @@ impl eframe::App for RudelApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_sample_jobs(ui.ctx());
 
-        let eval_shortcut = ui
-            .ctx()
-            .input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter));
+        // Match Strudel's REPL transport keys: Ctrl/Alt+Enter evaluates,
+        // Ctrl/Alt+. hushes (stops playback).
+        let (eval_shortcut, hush_shortcut) = ui.ctx().input(|i| {
+            let trigger = i.modifiers.command || i.modifiers.alt;
+            (
+                trigger && i.key_pressed(egui::Key::Enter),
+                trigger && i.key_pressed(egui::Key::Period),
+            )
+        });
         if eval_shortcut {
             self.evaluate();
+        }
+        if hush_shortcut {
+            self.hush();
         }
 
         self.transport_panel(ui);
@@ -72,6 +81,9 @@ impl RudelApp {
                 }
                 if ui.button("Eval (Ctrl+Enter)").clicked() {
                     self.evaluate();
+                }
+                if ui.button("Hush (Ctrl+.)").clicked() {
+                    self.hush();
                 }
                 ui.separator();
                 ui.label("cps");
@@ -177,7 +189,9 @@ impl RudelApp {
             if let Some(e) = &self.eval_error {
                 ui.colored_label(egui::Color32::from_rgb(230, 90, 90), e);
             } else {
-                ui.label("Ctrl+Enter to evaluate");
+                ui.weak(
+                    "Ctrl+Enter eval · Ctrl+. hush · Ctrl+/ or Ctrl+\\ comment · Tab/Shift+Tab indent",
+                );
             }
         });
     }
