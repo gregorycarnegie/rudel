@@ -39,6 +39,123 @@ fn strip_line_comments(src: &str) -> String {
     out
 }
 
+/// Rewrite JavaScript arrow functions into Koto lambdas so users can paste
+/// Strudel-style callbacks (`x => x.fast(2)`) instead of Koto's `|x| x.fast(2)`.
+///
+/// Handles the parameter list to the left of `=>` (a bare identifier, a
+/// parenthesised list, or `()`), turning it into `|...|` and dropping the `=>`.
+/// Expression bodies map cleanly; block bodies (`x => { ... }`) are *not*
+/// converted — Koto would read `{ ... }` as a map literal — which mirrors the
+/// expression-bodied callbacks Strudel's docs use. String literals are skipped
+/// so an `=>` inside a pattern string is left intact.
+fn rewrite_arrow_functions(src: &str) -> String {
+    let chars: Vec<char> = src.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            quote = Some(c);
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        // An arrow is the two-char sequence `=>` (never `>=`, which has the
+        // opposite order, so comparison operators are untouched).
+        if c == '=' && i + 1 < chars.len() && chars[i + 1] == '>' {
+            // Boundary of the parameter list: everything already emitted, minus
+            // trailing whitespace between the params and the `=>`.
+            let mut end = out.len();
+            while end > 0 && out[end - 1].is_whitespace() {
+                end -= 1;
+            }
+            let converted = if end == 0 {
+                false
+            } else if out[end - 1] == ')' {
+                // Parenthesised list: walk back to the matching `(`.
+                let mut depth = 0i32;
+                let mut open = None;
+                let mut k = end - 1;
+                loop {
+                    match out[k] {
+                        ')' => depth += 1,
+                        '(' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                open = Some(k);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    if k == 0 {
+                        break;
+                    }
+                    k -= 1;
+                }
+                if let Some(open_idx) = open {
+                    out.truncate(end);
+                    let last = out.len() - 1;
+                    out[last] = '|';
+                    out[open_idx] = '|';
+                    true
+                } else {
+                    false
+                }
+            } else {
+                // Bare single identifier parameter.
+                let mut k = end;
+                while k > 0 {
+                    let ch = out[k - 1];
+                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                        k -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                if k == end {
+                    false
+                } else {
+                    out.truncate(end);
+                    out.push('|');
+                    out.insert(k, '|');
+                    true
+                }
+            };
+
+            if converted {
+                i += 2; // skip `=>`
+                // Collapse the whitespace after `=>` to a single space (or none,
+                // if the body starts on the next line) for predictable output.
+                while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
+                    i += 1;
+                }
+                if i < chars.len() && chars[i] != '\n' && chars[i] != '\r' {
+                    out.push(' ');
+                }
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out.iter().collect()
+}
+
 fn rewrite_const_declarations(src: &str) -> String {
     src.lines()
         .map(|line| {
@@ -234,7 +351,15 @@ fn rewrite_labels(src: &str) -> String {
 
 pub(crate) fn preprocess_strudel(script: &str) -> String {
     let script = strip_line_comments(script);
+    let script = rewrite_arrow_functions(&script);
     let script = rewrite_const_declarations(&script);
     let script = rewrite_string_method_chains(&script);
-    rewrite_labels(&script)
+    let script = rewrite_labels(&script);
+    // Mirror the transpiler's empty-body fallback: an empty (or fully
+    // commented-out) script evaluates to silence rather than erroring.
+    if script.trim().is_empty() {
+        "silence()".to_string()
+    } else {
+        script
+    }
 }
