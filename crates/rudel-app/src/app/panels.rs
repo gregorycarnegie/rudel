@@ -33,13 +33,9 @@ impl eframe::App for RudelApp {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.label("pattern (one cycle per orbit)");
-            let playhead = if self.playing {
-                self.engine
-                    .as_ref()
-                    .map(|e| e.position_cycles().rem_euclid(1.0) as f32)
-            } else {
-                None
-            };
+            let playhead = self
+                .playback_position_cycles()
+                .map(|p| p.rem_euclid(1.0) as f32);
             match &self.current {
                 Some(pat) => draw_visualizer(ui, pat, playhead),
                 None => {
@@ -261,30 +257,81 @@ impl RudelApp {
             });
     }
 
-    /// Source byte ranges of the haps active at the current playback position,
-    /// for active-event highlighting in the editor. Empty when stopped or when
-    /// no audio clock is running.
-    fn active_source_spans(&self) -> Vec<(usize, usize)> {
-        let (Some(engine), Some(pat)) = (&self.engine, &self.current) else {
-            return Vec::new();
-        };
+    /// Current playback position in (fractional) cycles, or `None` when
+    /// stopped. Uses the audio clock when an audio device is present, and
+    /// otherwise falls back to a wall clock from when Play was pressed so that
+    /// MIDI/OSC-only playback still drives the playhead and highlighting.
+    fn playback_position_cycles(&self) -> Option<f64> {
         if !self.playing {
-            return Vec::new();
+            return None;
         }
-        let pos = engine.position_cycles();
-        let pos_f = rudel_core::Frac::from_f64(pos);
-        let cycle = pos.floor();
-        let mut spans: Vec<(usize, usize)> = pat
-            .query_arc(
-                rudel_core::Frac::from_f64(cycle),
-                rudel_core::Frac::from_f64(cycle + 1.0),
-            )
-            .into_iter()
-            .filter(|h| h.part.begin <= pos_f && pos_f < h.part.end)
-            .flat_map(|h| h.context.locations.clone())
-            .collect();
-        spans.sort_unstable();
-        spans.dedup();
-        spans
+        if let Some(engine) = &self.engine {
+            return Some(engine.position_cycles());
+        }
+        self.play_start
+            .map(|start| start.elapsed().as_secs_f64() * self.cps)
+    }
+
+    /// Source byte ranges of the haps sounding at the current playback
+    /// position, for active-event highlighting in the editor. Like Strudel,
+    /// only discrete events (haps with a `whole`) flash — continuous signals
+    /// are skipped — and an event flashes for the span of its `whole`.
+    fn active_source_spans(&self) -> Vec<(usize, usize)> {
+        match (&self.current, self.playback_position_cycles()) {
+            (Some(pat), Some(pos)) => active_source_spans_at(pat, pos),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// The deduped source byte ranges of the discrete events sounding at cycle
+/// position `pos`. Factored out of [`RudelApp::active_source_spans`] so it can
+/// be tested without a running engine.
+fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<(usize, usize)> {
+    let pos_f = rudel_core::Frac::from_f64(pos);
+    let cycle = pos.floor();
+    let mut spans: Vec<(usize, usize)> = pat
+        .query_arc(
+            rudel_core::Frac::from_f64(cycle),
+            rudel_core::Frac::from_f64(cycle + 1.0),
+        )
+        .into_iter()
+        .filter(|h| {
+            h.whole
+                .as_ref()
+                .is_some_and(|w| w.begin <= pos_f && pos_f < w.end)
+        })
+        .flat_map(|h| h.context.locations.clone())
+        .collect();
+    spans.sort_unstable();
+    spans.dedup();
+    spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::active_source_spans_at;
+
+    #[test]
+    fn active_spans_flash_discrete_events_at_position() {
+        // s("bd sd"): `bd` (bytes 3..5) sounds in [0,0.5), `sd` (6..8) in [0.5,1).
+        let pat = rudel_lang::eval(r#"s("bd sd")"#).expect("eval");
+        assert_eq!(active_source_spans_at(&pat, 0.25), vec![(3, 5)]);
+        assert_eq!(active_source_spans_at(&pat, 0.75), vec![(6, 8)]);
+        // the same structure repeats every cycle, so cycle 2 maps identically
+        assert_eq!(active_source_spans_at(&pat, 2.25), vec![(3, 5)]);
+    }
+
+    #[test]
+    fn continuous_signals_do_not_flash() {
+        // a continuous signal produces haps with no `whole`, so the `whole`
+        // filter keeps them from flashing even though they are always "active".
+        let pat = rudel_lang::eval("note(sine)").expect("eval");
+        let haps = pat.query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one());
+        assert!(
+            haps.iter().all(|h| h.whole.is_none()),
+            "expected analog haps"
+        );
+        assert!(active_source_spans_at(&pat, 0.3).is_empty());
     }
 }

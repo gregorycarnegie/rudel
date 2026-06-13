@@ -41,6 +41,9 @@ pub(crate) struct RudelApp {
     cps: f64,
     volume_percent: f32,
     playing: bool,
+    /// When playback started, used as a wall-clock position source for
+    /// active-event highlighting when there is no audio device to clock from.
+    play_start: Option<std::time::Instant>,
     current: Option<Pattern>,
 
     // Sample loading.
@@ -84,6 +87,7 @@ impl RudelApp {
             cps: 0.5,
             volume_percent: DEFAULT_VOLUME_PERCENT,
             playing: false,
+            play_start: None,
             current: None,
             sample_dir: String::new(),
             sample_names: Vec::new(),
@@ -146,6 +150,7 @@ mod tests {
             cps: 0.5,
             volume_percent: DEFAULT_VOLUME_PERCENT,
             playing: false,
+            play_start: None,
             current: None,
             sample_dir: String::new(),
             sample_names: Vec::new(),

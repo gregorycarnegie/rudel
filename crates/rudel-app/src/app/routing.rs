@@ -22,6 +22,11 @@ impl RudelApp {
     }
 
     pub(super) fn set_playing(&mut self, playing: bool) {
+        if playing && !self.playing {
+            self.play_start = Some(std::time::Instant::now());
+        } else if !playing {
+            self.play_start = None;
+        }
         self.playing = playing;
         self.route();
     }
