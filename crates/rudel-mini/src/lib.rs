@@ -194,6 +194,11 @@ fn build_sequence(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
 }
 
 /// One element's pending operator, mirroring krill's `options_.ops`.
+///
+/// Variants intentionally hold `Pattern` by value: these are built once while
+/// parsing mini-notation (not on the query hot path), and boxing each one to
+/// equalize variant sizes would add allocations for no real benefit.
+#[allow(clippy::large_enum_variant)]
 enum Op {
     Fast(Pattern),
     Slow(Pattern),
@@ -347,10 +352,7 @@ fn build_polymeter(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
         .map(|ps| build_slice(ps.into_inner().next().expect("polymeter_steps slice"), ctx).pat);
     let aligned: Vec<Pattern> = match steps_pat {
         None => {
-            let spc = children
-                .first()
-                .map(|c| c.weight)
-                .unwrap_or_else(Frac::one);
+            let spc = children.first().map(|c| c.weight).unwrap_or_else(Frac::one);
             children
                 .iter()
                 .map(|c| {
@@ -369,7 +371,8 @@ fn build_polymeter(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
                     return c.pat.clone();
                 }
                 let w = c.weight;
-                c.pat.fast(sp.fmap(move |v| Value::Frac(value_frac(&v) / w)))
+                c.pat
+                    .fast(sp.fmap(move |v| Value::Frac(value_frac(&v) / w)))
             })
             .collect(),
     };
@@ -844,10 +847,7 @@ mod tests {
     #[test]
     fn steps_marker_scales_steps() {
         // mini('a [^b c]')._steps == 4 in Strudel
-        assert_eq!(
-            parse("a [^b c]").unwrap().steps,
-            Some(Frac::int(4)),
-        );
+        assert_eq!(parse("a [^b c]").unwrap().steps, Some(Frac::int(4)),);
         assert_eq!(parse("[^b c]!3").unwrap().steps, Some(Frac::int(6)));
         assert_eq!(
             parse("[^a b c] [d [^e f]]").unwrap().steps,

@@ -24,6 +24,12 @@ pub struct Pattern {
     /// (Strudel's `__pure_loc`). Lets the patternify fast-path keep the
     /// argument's location even though the argument pattern is bypassed.
     pub pure_loc: Option<(usize, usize)>,
+    /// The raw mini-notation source text this pattern was parsed from, when it
+    /// came directly from an `m("...", offset)` literal. Lets functions that
+    /// want the raw string (e.g. `samples`, `scale`, `chord`) recover it after
+    /// every string literal is wrapped for source-location tracking. Not
+    /// preserved across transforms. Boxed to keep `Pattern` small.
+    pub source: Option<Box<String>>,
 }
 
 impl Pattern {
@@ -36,7 +42,14 @@ impl Pattern {
             steps: None,
             pure_value: None,
             pure_loc: None,
+            source: None,
         }
+    }
+
+    /// Remember the raw mini-notation source text (see [`Pattern::source`]).
+    pub fn with_source(mut self, source: impl Into<String>) -> Pattern {
+        self.source = Some(Box::new(source.into()));
+        self
     }
 
     pub fn query(&self, state: &State) -> Vec<Hap> {

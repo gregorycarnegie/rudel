@@ -8,6 +8,40 @@ fn values(pat: &Pattern, b: i64, e: i64) -> Vec<Value> {
 }
 
 #[test]
+fn per_hap_locations_are_absolute_to_source() {
+    // Every string literal is wrapped as `m("...", offset)`, so per-hap source
+    // locations come back as absolute byte offsets into the original source.
+    // In `s("bd sd")`, `bd` is at 3..5 and `sd` at 6..8.
+    let pat = eval(r#"s("bd sd")"#).expect("eval");
+    let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+    haps.sort_by_key(|h| h.part.begin);
+    assert!(
+        haps[0].context.locations.contains(&(3, 5)),
+        "bd: {:?}",
+        haps[0].context.locations
+    );
+    assert!(
+        haps[1].context.locations.contains(&(6, 8)),
+        "sd: {:?}",
+        haps[1].context.locations
+    );
+}
+
+#[test]
+fn locations_distinguish_multiple_source_strings() {
+    // Two mini strings on one line must each map to their own source offset.
+    // `stack(s("bd"), note("e"))`: `bd` content at 9..11, `e` content at 21..22.
+    let pat = eval(r#"stack(s("bd"), note("e"))"#).expect("eval");
+    let locs: Vec<(usize, usize)> = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .iter()
+        .flat_map(|h| h.context.locations.clone())
+        .collect();
+    assert!(locs.contains(&(9, 11)), "bd loc missing: {locs:?}");
+    assert!(locs.contains(&(21, 22)), "e loc missing: {locs:?}");
+}
+
+#[test]
 fn eval_simple_pattern() {
     let pat = eval(r#"note("c4 e4 g4").fast(2)"#).expect("eval");
     let haps = pat.query_arc(Frac::zero(), Frac::one());
@@ -1437,9 +1471,13 @@ fn preprocess_rewrites_arrow_functions_to_koto_lambdas() {
     assert_eq!(preprocess_strudel("f((a, b) => a)"), "f(|a, b| a)");
     // zero parameters -> Koto's `||`
     assert_eq!(preprocess_strudel("f(() => 1)"), "f(|| 1)");
-    // an `=>` inside a string literal is left intact (and the string is not a
-    // method-chain target, so it is not wrapped in `pat(...)`)
-    assert_eq!(preprocess_strudel(r#"note("a => b")"#), r#"note("a => b")"#);
+    // an `=>` inside a string literal is left intact; the string is wrapped in
+    // `m(literal, offset)` for source-location tracking (offset 6 = the byte
+    // position of the content just after `note("`).
+    assert_eq!(
+        preprocess_strudel(r#"note("a => b")"#),
+        r#"note(m("a => b", 6))"#
+    );
     // a comparison operator is never mistaken for an arrow
     assert_eq!(preprocess_strudel("f(x >= 2)"), "f(x >= 2)");
 }

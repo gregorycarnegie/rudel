@@ -1,4 +1,4 @@
-use crate::bindings::{KPattern, arg_to_f64, arg0};
+use crate::bindings::{KPattern, arg_to_f64, arg_to_raw_str, arg0};
 use koto::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -21,8 +21,10 @@ pub struct SampleEffects {
 /// (note-keyed) maps with string keys.
 fn koto_to_json(value: &KValue) -> Option<serde_json::Value> {
     use serde_json::Value as Json;
+    if let Some(s) = arg_to_raw_str(value) {
+        return Some(Json::String(s));
+    }
     Some(match value {
-        KValue::Str(s) => Json::String(s.to_string()),
         KValue::Number(n) => {
             if n.is_i64() {
                 Json::Number(i64::from(n).into())
@@ -60,18 +62,15 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
             // Inline map form: samples({ bd: "...", ... }, base?)
             Some(KValue::Map(_)) => {
                 if let Some(json) = koto_to_json(&args[0]) {
-                    let base = match args.get(1) {
-                        Some(KValue::Str(s)) => s.to_string(),
-                        _ => String::new(),
-                    };
+                    let base = args.get(1).and_then(arg_to_raw_str).unwrap_or_default();
                     eff.maps.push((json.to_string(), base));
                 }
             }
             // String source form: samples("github:...", "https://...", ...)
             _ => {
                 for arg in args {
-                    if let KValue::Str(s) = arg {
-                        eff.sources.push(s.to_string());
+                    if let Some(s) = arg_to_raw_str(arg) {
+                        eff.sources.push(s);
                     }
                 }
             }
@@ -81,14 +80,7 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
 
     // aliasBank(canonical, alias, ...): each extra string is an alias.
     prelude.add_fn("aliasBank", move |ctx| {
-        let strs: Vec<String> = ctx
-            .args()
-            .iter()
-            .filter_map(|a| match a {
-                KValue::Str(s) => Some(s.to_string()),
-                _ => None,
-            })
-            .collect();
+        let strs: Vec<String> = ctx.args().iter().filter_map(arg_to_raw_str).collect();
         if let Some((canonical, aliases)) = strs.split_first() {
             let mut eff = effects.lock().unwrap();
             for alias in aliases {

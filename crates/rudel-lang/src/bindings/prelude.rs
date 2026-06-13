@@ -187,6 +187,27 @@ pub(crate) fn register(prelude: &KMap) {
     // pattern into the selecting event (strudel's standalone `squeeze`).
     prelude.add_fn("squeeze", inhabitmod);
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    // m(value, offset): mini-notation with a source offset. Emitted by the
+    // preprocessor for every string literal so per-hap locations are absolute
+    // to the editor source. Numbers/patterns pass through unchanged. The raw
+    // source text is remembered so raw-string consumers can recover it.
+    prelude.add_fn("m", |ctx| {
+        let value = arg0(ctx);
+        let offset = ctx
+            .args()
+            .get(1)
+            .map(super::pattern::arg_to_f64)
+            .unwrap_or(0.0) as usize;
+        match &value {
+            KValue::Str(s) => {
+                let pat = rudel_mini::parse_with_offset(s, offset)
+                    .unwrap_or_else(|_| rudel_core::silence())
+                    .with_source(s.as_str());
+                Ok(KPattern(pat).into())
+            }
+            _ => Ok(KPattern(arg_to_pattern(&value)).into()),
+        }
+    });
     prelude.add_fn("rev", |ctx| {
         Ok(KPattern(arg_to_pattern(&arg0(ctx)).rev()).into())
     });

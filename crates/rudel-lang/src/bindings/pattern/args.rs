@@ -1,5 +1,5 @@
 use super::KPattern;
-use super::convert::{arg_to_f64, arg_to_frac, arg_to_pattern, koto_to_value};
+use super::convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value};
 use koto::prelude::*;
 use koto::runtime::Result as KotoResult;
 use rudel_core::{Frac, Pattern, Value};
@@ -21,10 +21,16 @@ fn looks_like_mini_pattern(s: &str) -> bool {
 fn literal_or_pattern_arg(value: &KValue) -> Pattern {
     match value {
         KValue::List(_) | KValue::Tuple(_) => rudel_core::pure(koto_to_value(value)),
-        KValue::Str(s) if !looks_like_mini_pattern(s) => {
-            rudel_core::pure(Value::Str(s.to_string()))
+        _ => {
+            // A non-mini-looking literal (plain or `m(...)`-wrapped) is kept as a
+            // single string value rather than mini-parsed.
+            if let Some(s) = arg_to_raw_str(value)
+                && !looks_like_mini_pattern(&s)
+            {
+                return rudel_core::pure(Value::Str(s));
+            }
+            arg_to_pattern(value)
         }
-        _ => arg_to_pattern(value),
     }
 }
 

@@ -1,3 +1,70 @@
+/// Wrap every mini-notation string literal `"..."` / `'...'` in `m(literal,
+/// offset)`, where `offset` is the byte position of the string *content* in
+/// the original source. This is the analog of Strudel's `plugin-mini` rewrite
+/// (`m(value, location)`): it lets per-hap source locations be reported as
+/// absolute offsets into the editor text. Runs first, on the raw source, so
+/// the offsets match what the editor displays; later passes only move
+/// surrounding code, never the baked-in offset constants.
+///
+/// Map keys (`"x": ...`) are left alone — they are not patterns — and string
+/// interiors and `//` comments are skipped so an apostrophe or quote inside
+/// them does not desync the scanner.
+fn annotate_mini_offsets(src: &str) -> String {
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
+    let mut out = String::with_capacity(src.len() + 16);
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i].1;
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
+            while i < chars.len() && chars[i].1 != '\n' {
+                out.push(chars[i].1);
+                i += 1;
+            }
+            continue;
+        }
+        if c != '"' && c != '\'' {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+
+        let quote = c;
+        let lit_start = chars[i].0;
+        let content_byte = chars.get(i + 1).map(|x| x.0).unwrap_or(src.len());
+        i += 1;
+        let mut escaped = false;
+        while i < chars.len() {
+            let ch = chars[i].1;
+            i += 1;
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                break;
+            }
+        }
+        let lit_end = chars.get(i).map(|x| x.0).unwrap_or(src.len());
+        let literal = &src[lit_start..lit_end];
+
+        // A string immediately followed by `:` is a map key, not a pattern.
+        let mut j = i;
+        while j < chars.len() && chars[j].1.is_whitespace() {
+            j += 1;
+        }
+        if chars.get(j).map(|x| x.1) == Some(':') {
+            out.push_str(literal);
+        } else {
+            out.push_str("m(");
+            out.push_str(literal);
+            out.push_str(", ");
+            out.push_str(&content_byte.to_string());
+            out.push(')');
+        }
+    }
+    out
+}
+
 fn strip_line_comments(src: &str) -> String {
     let chars: Vec<char> = src.chars().collect();
     let mut out = String::with_capacity(src.len());
@@ -350,7 +417,8 @@ fn rewrite_labels(src: &str) -> String {
 }
 
 pub(crate) fn preprocess_strudel(script: &str) -> String {
-    let script = strip_line_comments(script);
+    let script = annotate_mini_offsets(script);
+    let script = strip_line_comments(&script);
     let script = rewrite_arrow_functions(&script);
     let script = rewrite_const_declarations(&script);
     let script = rewrite_string_method_chains(&script);

@@ -20,11 +20,32 @@ pub(in crate::bindings) fn arg_to_pattern(value: &KValue) -> Pattern {
     }
 }
 
-pub(crate) fn arg_to_f64(value: &KValue) -> f64 {
+/// Recover a raw string argument: a plain string, or the original source text
+/// of an `m("...", offset)`-wrapped mini literal. The preprocessor wraps every
+/// string literal for source-location tracking, so functions that want the
+/// literal text (sample names, scale/chord names, device hints, ratios) must
+/// read through the wrapper.
+pub(crate) fn arg_to_raw_str(value: &KValue) -> Option<String> {
     match value {
-        KValue::Number(n) => n.into(),
-        // Allow `"1/3"` style ratios in string arguments.
-        KValue::Str(s) => match s.split_once('/') {
+        KValue::Str(s) => Some(s.to_string()),
+        KValue::Object(o) if o.is_a::<KPattern>() => o
+            .cast::<KPattern>()
+            .unwrap()
+            .0
+            .source
+            .as_deref()
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+pub(crate) fn arg_to_f64(value: &KValue) -> f64 {
+    if let KValue::Number(n) = value {
+        return n.into();
+    }
+    // Allow `"1/3"` style ratios in string (or wrapped-string) arguments.
+    match arg_to_raw_str(value) {
+        Some(s) => match s.split_once('/') {
             Some((a, b)) => {
                 let (a, b) = (a.trim().parse::<f64>(), b.trim().parse::<f64>());
                 match (a, b) {
@@ -34,7 +55,7 @@ pub(crate) fn arg_to_f64(value: &KValue) -> f64 {
             }
             None => s.parse().unwrap_or(0.0),
         },
-        _ => 0.0,
+        None => 0.0,
     }
 }
 
@@ -102,6 +123,13 @@ pub(in crate::bindings) fn koto_to_value(value: &KValue) -> Value {
         }
         KValue::Bool(b) => Value::Bool(*b),
         KValue::Str(s) => Value::Str(s.to_string()),
+        KValue::Object(o) if o.is_a::<KPattern>() => {
+            // A wrapped string literal contributes its raw text as a literal.
+            match o.cast::<KPattern>().unwrap().0.source.as_deref() {
+                Some(s) => Value::Str(s.to_string()),
+                None => Value::Null,
+            }
+        }
         KValue::List(l) => Value::List(l.data().iter().map(koto_to_value).collect()),
         KValue::Tuple(t) => Value::List(t.data().iter().map(koto_to_value).collect()),
         KValue::Map(m) => {
@@ -154,8 +182,13 @@ pub(in crate::bindings) fn arg_to_value(value: &KValue) -> Value {
         KValue::Bool(b) => Value::Bool(*b),
         KValue::Str(s) => Value::Str(s.to_string()),
         KValue::Object(o) if o.is_a::<KPattern>() => {
-            // a pattern value (rare); wrap it
-            Value::Pat(Box::new(o.cast::<KPattern>().unwrap().0.clone()))
+            let pat = o.cast::<KPattern>().unwrap().0.clone();
+            // A wrapped string literal (`m("x", n)`) is a literal value here,
+            // not a pattern — `pure("x")` should hold the string, not its haps.
+            match pat.source.as_deref() {
+                Some(s) => Value::Str(s.to_string()),
+                None => Value::Pat(Box::new(pat)),
+            }
         }
         _ => Value::Null,
     }

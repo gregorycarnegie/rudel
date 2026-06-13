@@ -15,7 +15,7 @@ use koto::prelude::*;
 use koto::runtime::{KotoEntries, KotoObject};
 use rudel_core::Pattern;
 
-pub(crate) use convert::{arg_to_f64, arg0};
+pub(crate) use convert::{arg_to_f64, arg_to_raw_str, arg0};
 pub(super) use convert::{
     arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair,
     koto_to_value,

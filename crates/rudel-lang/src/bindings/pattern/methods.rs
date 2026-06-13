@@ -3,7 +3,7 @@ use super::args::{
     method_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg, with_pattern_arg,
 };
 use super::callback::{Callback, static_period_pattern};
-use super::convert::{arg_to_pattern, koto_to_value};
+use super::convert::{arg_to_pattern, arg_to_raw_str, koto_to_value};
 use super::pick::{is_lookup, lookup_from_koto, pick_from_lookup};
 use crate::bindings::routing::IO_KEY;
 use koto::prelude::*;
@@ -155,17 +155,15 @@ pub(super) fn kpattern_arp_with(ctx: MethodContext<KPattern>) -> KotoResult<KVal
 }
 
 pub(super) fn kpattern_voicings(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let dict = match method_arg(&ctx, 0) {
-        KValue::Str(s) => s.to_string(),
-        _ => "legacy".to_string(),
-    };
+    let dict = arg_to_raw_str(&method_arg(&ctx, 0)).unwrap_or_else(|| "legacy".to_string());
     with_instance(&ctx, |pat| pat.voicings(dict.clone()))
 }
 
 pub(super) fn kpattern_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let name = match method_arg(&ctx, 0) {
-        KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
-        other => arg_to_pattern(&other),
+    let arg = method_arg(&ctx, 0);
+    let name = match arg_to_raw_str(&arg) {
+        Some(s) => rudel_core::pure(Value::Str(s)),
+        None => arg_to_pattern(&arg),
     };
     with_instance(&ctx, |pat| pat.scale(name))
 }
@@ -219,9 +217,12 @@ pub(super) fn kpattern_phases(ctx: MethodContext<KPattern>) -> KotoResult<KValue
 }
 
 pub(super) fn kpattern_ctrl(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let name = match method_arg(&ctx, 0) {
-        KValue::Str(s) => s.to_string(),
-        other => return runtime_error!("ctrl: expected a control name string, got {other:?}"),
+    let name = match arg_to_raw_str(&method_arg(&ctx, 0)) {
+        Some(s) => s,
+        None => {
+            let other = method_arg(&ctx, 0);
+            return runtime_error!("ctrl: expected a control name string, got {other:?}");
+        }
     };
     let value = method_pattern_arg(&ctx, 1);
     with_instance(&ctx, |pat| pat.ctrl(name.clone(), value.clone()))
@@ -304,25 +305,16 @@ pub(super) fn kpattern_pick_f(ctx: MethodContext<KPattern>, modulo: bool) -> Kot
 /// `pat.as("note:clip")` / `pat.as(["note", "clip"])`: map bare positional
 /// values into named controls (Strudel's `as`).
 pub(super) fn kpattern_as_controls(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let names: Vec<String> = match method_arg(&ctx, 0) {
-        KValue::Str(s) => s.split(':').map(str::to_string).collect(),
-        KValue::List(items) => items
-            .data()
-            .iter()
-            .filter_map(|v| match v {
-                KValue::Str(s) => Some(s.to_string()),
-                _ => None,
-            })
-            .collect(),
-        KValue::Tuple(items) => items
-            .iter()
-            .filter_map(|v| match v {
-                KValue::Str(s) => Some(s.to_string()),
-                _ => None,
-            })
-            .collect(),
-        other => {
-            return runtime_error!("as: expected a control-name string or list, got {other:?}");
+    let arg = method_arg(&ctx, 0);
+    let names: Vec<String> = if let Some(s) = arg_to_raw_str(&arg) {
+        s.split(':').map(str::to_string).collect()
+    } else {
+        match &arg {
+            KValue::List(items) => items.data().iter().filter_map(arg_to_raw_str).collect(),
+            KValue::Tuple(items) => items.iter().filter_map(arg_to_raw_str).collect(),
+            other => {
+                return runtime_error!("as: expected a control-name string or list, got {other:?}");
+            }
         }
     };
     with_instance(&ctx, |pat| {
@@ -345,9 +337,8 @@ pub(super) fn kpattern_loop_end(ctx: MethodContext<KPattern>) -> KotoResult<KVal
 
 pub(super) fn kpattern_p(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let name = match method_arg(&ctx, 0) {
-        KValue::Str(s) => s.to_string(),
         KValue::Number(n) => n.to_string(),
-        _ => String::new(),
+        other => arg_to_raw_str(&other).unwrap_or_default(),
     };
     with_instance(&ctx, |pat| {
         pat.ctrl("id", rudel_core::pure(Value::Str(name.clone())))
@@ -355,10 +346,7 @@ pub(super) fn kpattern_p(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
 }
 
 pub(super) fn kpattern_midi(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let port = match method_arg(&ctx, 0) {
-        KValue::Str(s) => Some(s.to_string()),
-        _ => None,
-    };
+    let port = arg_to_raw_str(&method_arg(&ctx, 0));
     with_instance(&ctx, |pat| {
         let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("midi".into())));
         if let Some(port) = &port {
@@ -369,10 +357,7 @@ pub(super) fn kpattern_midi(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
 }
 
 pub(super) fn kpattern_osc(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let target = match method_arg(&ctx, 0) {
-        KValue::Str(s) => Some(s.to_string()),
-        _ => None,
-    };
+    let target = arg_to_raw_str(&method_arg(&ctx, 0));
     with_instance(&ctx, |pat| {
         let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("osc".into())));
         if let Some((host, port)) = target.as_deref().and_then(|t| t.rsplit_once(':'))
