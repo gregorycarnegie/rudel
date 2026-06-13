@@ -40,6 +40,9 @@ pub(crate) struct RudelApp {
     status: String,
     cps: f64,
     volume_percent: f32,
+    /// Identifiers the editor highlights as keywords, generated once from the
+    /// live runtime via `rudel_lang::reference()` so it can't drift.
+    highlight_idents: HashSet<String>,
     playing: bool,
     /// When playback started, used as a wall-clock position source for
     /// active-event highlighting when there is no audio device to clock from.
@@ -86,6 +89,7 @@ impl RudelApp {
             status: "ready".to_string(),
             cps: 0.5,
             volume_percent: DEFAULT_VOLUME_PERCENT,
+            highlight_idents: RudelApp::build_highlight_idents(),
             playing: false,
             play_start: None,
             current: None,
@@ -103,6 +107,23 @@ impl RudelApp {
             midi_in_port: String::new(),
             clock_sync: false,
         }
+    }
+
+    /// Build the editor's highlight identifier set from the live runtime
+    /// reference: top-level functions, pattern methods, control names, plus the
+    /// Koto language keywords.
+    fn build_highlight_idents() -> HashSet<String> {
+        let reference = rudel_lang::reference();
+        let mut idents: HashSet<String> = HashSet::new();
+        idents.extend(reference.functions);
+        idents.extend(reference.methods);
+        idents.extend(reference.controls);
+        idents.extend(
+            crate::reference::LANGUAGE_KEYWORDS
+                .iter()
+                .map(|s| s.to_string()),
+        );
+        idents
     }
 
     /// Evaluate the editor contents and route the result to the active output.
@@ -149,6 +170,7 @@ mod tests {
             status: String::new(),
             cps: 0.5,
             volume_percent: DEFAULT_VOLUME_PERCENT,
+            highlight_idents: RudelApp::build_highlight_idents(),
             playing: false,
             play_start: None,
             current: None,

@@ -1,10 +1,15 @@
-use crate::reference::{CONTROLS, FACTORIES, LANGUAGE_KEYWORDS, SIGNALS};
 use eframe::egui;
+use std::collections::HashSet;
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
 const CODE_INDENT: &str = "  ";
 
-pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String, active: &[(usize, usize)]) {
+pub(crate) fn code_editor(
+    ui: &mut egui::Ui,
+    code: &mut String,
+    active: &[(usize, usize)],
+    idents: &HashSet<String>,
+) {
     let editor_id = ui.make_persistent_id(egui::Id::new(CODE_EDITOR_ID));
     let bracket_id = editor_id.with("bracket_match");
     let shortcuts = capture_editor_shortcuts(ui, editor_id);
@@ -14,7 +19,7 @@ pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String, active: &[(usize
     // before this frame's cursor is known); recomputed and stored below.
     let brackets: Vec<(usize, usize)> = ui.data(|d| d.get_temp(bracket_id)).unwrap_or_default();
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-        let job = highlighted_editor_job(text.as_str(), ui, wrap_width, active, &brackets);
+        let job = highlighted_editor_job(text.as_str(), ui, wrap_width, active, &brackets, idents);
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
     let mut output = egui::TextEdit::multiline(code)
@@ -55,15 +60,6 @@ pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String, active: &[(usize
     }
 }
 
-fn is_highlighted_ident(ident: &str) -> bool {
-    LANGUAGE_KEYWORDS.contains(&ident)
-        || FACTORIES.contains(&ident)
-        || CONTROLS.contains(&ident)
-        || SIGNALS
-            .iter()
-            .any(|s| s.strip_suffix("(n)").unwrap_or(s) == ident)
-}
-
 /// Highlight category for a contiguous byte span of editor text. Mirrors the
 /// token categories Strudel's CodeMirror grammar distinguishes, including
 /// mini-notation tokens inside string literals.
@@ -100,6 +96,7 @@ fn highlighted_editor_job(
     wrap_width: f32,
     active: &[(usize, usize)],
     brackets: &[(usize, usize)],
+    idents: &HashSet<String>,
 ) -> egui::text::LayoutJob {
     let font_id = egui::TextStyle::Monospace.resolve(ui.style());
     let normal = egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
@@ -119,7 +116,7 @@ fn highlighted_editor_job(
     let flash = egui::Color32::from_rgb(74, 68, 38);
     let bracket_flash = egui::Color32::from_rgb(60, 84, 104);
 
-    for (start, end, token) in tokenize(code) {
+    for (start, end, token) in tokenize(code, idents) {
         let base = match token {
             Token::Normal => &normal,
             Token::Keyword => &keyword,
@@ -150,7 +147,7 @@ fn highlighted_editor_job(
 /// Split `code` into contiguous highlighted spans (byte ranges). String
 /// literals are further tokenized as mini-notation so words, numbers, rests,
 /// and operators get distinct colors.
-fn tokenize(code: &str) -> Vec<(usize, usize, Token)> {
+fn tokenize(code: &str, idents: &HashSet<String>) -> Vec<(usize, usize, Token)> {
     let mut tokens = Vec::new();
     let bytes = code.as_bytes();
     let mut i = 0;
@@ -213,7 +210,7 @@ fn tokenize(code: &str) -> Vec<(usize, usize, Token)> {
             let ident = &code[start..i];
             let token = if start > 0 && bytes[start - 1] == b'.' {
                 Token::Method
-            } else if is_highlighted_ident(ident) {
+            } else if idents.contains(ident) {
                 Token::Keyword
             } else {
                 Token::Normal
@@ -794,10 +791,18 @@ mod tests {
         )
     }
 
+    /// A small highlight-ident set standing in for the runtime-generated one.
+    fn test_idents() -> HashSet<String> {
+        ["stack", "note", "n", "s", "seq", "cat"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
     /// Collect `(text, token)` pairs so tests can assert on classification
     /// without depending on egui colors.
     fn classify(code: &str) -> Vec<(&str, Token)> {
-        tokenize(code)
+        tokenize(code, &test_idents())
             .into_iter()
             .map(|(start, end, token)| (&code[start..end], token))
             .collect()
@@ -883,7 +888,7 @@ mod tests {
     fn tokens_cover_the_whole_source_contiguously() {
         let code = r#"n("0 1").s("piano") // hi"#;
         let mut next = 0;
-        for (start, end, _) in tokenize(code) {
+        for (start, end, _) in tokenize(code, &test_idents()) {
             assert_eq!(start, next, "gap before {start}");
             assert!(end > start);
             next = end;

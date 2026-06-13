@@ -92,6 +92,27 @@ pub(crate) fn extend_control_entries() {
     }
 }
 
+/// The names of every method callable on a pattern (generated + bespoke +
+/// registry-driven control methods), sorted. Drives the generated reference
+/// surface so it can't drift from what is actually exposed.
+pub(crate) fn method_names() -> Vec<String> {
+    extend_control_entries();
+    let Some(entries) = KPattern(rudel_core::silence()).entries() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .data()
+        .iter()
+        .filter_map(|(key, _)| match key.value() {
+            KValue::Str(s) => Some(s.to_string()),
+            _ => None,
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// Call a control body as a `KPattern` method: extract the instance and the
 /// value argument the same way the generated `#[koto_method]` wrappers do.
 fn control_method_call(

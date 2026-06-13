@@ -8,6 +8,44 @@ fn values(pat: &Pattern, b: i64, e: i64) -> Vec<Value> {
 }
 
 #[test]
+fn reference_surface_is_generated_from_the_runtime() {
+    let r = crate::reference();
+    for f in [
+        "note", "n", "s", "stack", "cat", "sine", "silence", "m", "pat",
+    ] {
+        assert!(
+            r.functions.iter().any(|x| x == f),
+            "missing function {f}: {:?}",
+            r.functions
+        );
+    }
+    for m in ["fast", "slow", "gain", "lpf", "every", "scale"] {
+        assert!(
+            r.methods.iter().any(|x| x == m),
+            "missing method {m}: {:?}",
+            r.methods
+        );
+    }
+    for c in ["lpf", "room", "delay", "crush", "speed"] {
+        assert!(
+            r.controls.iter().any(|x| x == c),
+            "missing control {c}: {:?}",
+            r.controls
+        );
+    }
+    // generated, so it is sorted/deduped and substantial
+    assert!(
+        r.functions.windows(2).all(|w| w[0] < w[1]),
+        "functions not sorted/unique"
+    );
+    assert!(
+        r.methods.len() > 100,
+        "expected many methods, got {}",
+        r.methods.len()
+    );
+}
+
+#[test]
 fn per_hap_locations_are_absolute_to_source() {
     // Every string literal is wrapped as `m("...", offset)`, so per-hap source
     // locations come back as absolute byte offsets into the original source.

@@ -12,11 +12,51 @@ use rudel_core::Pattern;
 use std::sync::{Arc, Mutex};
 
 use bindings::register;
+use bindings::{function_names, method_names};
 use preprocess::preprocess_strudel;
 use samples::register_samples;
 
 pub use bindings::{KPattern, filter_output, output_targets};
 pub use samples::SampleEffects;
+
+/// The names a user can reach in Rudel scripts, generated from the live runtime
+/// (not a hand-maintained list) so it stays in sync with what is actually
+/// exposed. Drives the editor's reference panel, highlighting, and (later)
+/// autocomplete; mirrors the role of Strudel's `reference` package.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Reference {
+    /// Top-level functions and values (`note`, `stack`, `sine`, `Math`, ...).
+    pub functions: Vec<String>,
+    /// Methods callable on a pattern (`fast`, `gain`, `every`, ...).
+    pub methods: Vec<String>,
+    /// Control names from the core registry (`lpf`, `room`, `delay`, ...).
+    pub controls: Vec<String>,
+}
+
+/// Build the [`Reference`] surface by introspecting the registered runtime.
+pub fn reference() -> Reference {
+    let prelude = KMap::default();
+    register(&prelude);
+    let effects = Arc::new(Mutex::new(SampleEffects::default()));
+    register_samples(&prelude, effects);
+
+    let mut controls: Vec<String> = rudel_core::control_builders()
+        .map(|(name, _)| name.to_string())
+        .chain(
+            rudel_core::numbered_control_names()
+                .into_iter()
+                .map(|(name, _)| name),
+        )
+        .collect();
+    controls.sort();
+    controls.dedup();
+
+    Reference {
+        functions: function_names(&prelude),
+        methods: method_names(),
+        controls,
+    }
+}
 
 /// Evaluate a Koto script and extract the resulting pattern.
 pub fn eval(script: &str) -> Result<Pattern, String> {

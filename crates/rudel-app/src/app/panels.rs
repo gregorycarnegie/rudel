@@ -252,7 +252,7 @@ impl RudelApp {
             .show_inside(ui, |ui| {
                 ui.add_space(4.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    code_editor(ui, &mut self.code, active_spans);
+                    code_editor(ui, &mut self.code, active_spans, &self.highlight_idents);
                 });
             });
     }
