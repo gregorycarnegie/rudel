@@ -4,13 +4,13 @@ use eframe::egui;
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
 const CODE_INDENT: &str = "  ";
 
-pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String) {
+pub(crate) fn code_editor(ui: &mut egui::Ui, code: &mut String, active: &[(usize, usize)]) {
     let editor_id = ui.make_persistent_id(egui::Id::new(CODE_EDITOR_ID));
     let shortcuts = capture_editor_shortcuts(ui, editor_id);
     let typed_text = editor_typed_text(ui);
     let enter_pressed = editor_enter_pressed(ui);
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-        let job = highlighted_editor_job(text.as_str(), ui, wrap_width);
+        let job = highlighted_editor_job(text.as_str(), ui, wrap_width, active);
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
     let mut output = egui::TextEdit::multiline(code)
@@ -69,7 +69,17 @@ enum Token {
     MiniRest,
 }
 
-fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::text::LayoutJob {
+/// Two half-open byte ranges overlap.
+fn spans_overlap(a: (usize, usize), b: (usize, usize)) -> bool {
+    a.0 < b.1 && b.0 < a.1
+}
+
+fn highlighted_editor_job(
+    code: &str,
+    ui: &egui::Ui,
+    wrap_width: f32,
+    active: &[(usize, usize)],
+) -> egui::text::LayoutJob {
     let font_id = egui::TextStyle::Monospace.resolve(ui.style());
     let normal = egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
     let keyword = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(106, 153, 205));
@@ -83,8 +93,11 @@ fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::t
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = wrap_width;
 
+    // Background flashed under spans of code currently producing a hap.
+    let flash = egui::Color32::from_rgb(74, 68, 38);
+
     for (start, end, token) in tokenize(code) {
-        let format = match token {
+        let base = match token {
             Token::Normal => &normal,
             Token::Keyword => &keyword,
             Token::Method => &method,
@@ -94,7 +107,11 @@ fn highlighted_editor_job(code: &str, ui: &egui::Ui, wrap_width: f32) -> egui::t
             Token::MiniWord => &mini_word,
             Token::MiniOp => &mini_op,
         };
-        job.append(&code[start..end], 0.0, format.clone());
+        let mut format = base.clone();
+        if active.iter().any(|&span| spans_overlap((start, end), span)) {
+            format.background = flash;
+        }
+        job.append(&code[start..end], 0.0, format);
     }
 
     job
@@ -704,6 +721,15 @@ mod tests {
         let toks = classify(r#"note("c#4 -1.5")"#);
         assert!(toks.contains(&("c#4", Token::MiniWord)));
         assert!(toks.contains(&("-1.5", Token::Number)));
+    }
+
+    #[test]
+    fn active_spans_overlap_token_ranges() {
+        // A leaf location (3,5) should flash the token covering bytes 3..5.
+        assert!(spans_overlap((3, 5), (3, 5)));
+        assert!(spans_overlap((3, 5), (4, 9))); // partial overlap
+        assert!(!spans_overlap((3, 5), (5, 7))); // adjacent, half-open
+        assert!(!spans_overlap((3, 5), (0, 3)));
     }
 
     #[test]

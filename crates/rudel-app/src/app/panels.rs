@@ -25,10 +25,11 @@ impl eframe::App for RudelApp {
             self.hush();
         }
 
+        let active_spans = self.active_source_spans();
         self.transport_panel(ui);
         self.errors_panel(ui);
         self.reference_panel(ui);
-        self.editor_panel(ui);
+        self.editor_panel(ui, &active_spans);
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.label("pattern (one cycle per orbit)");
@@ -248,15 +249,42 @@ impl RudelApp {
             });
     }
 
-    fn editor_panel(&mut self, ui: &mut egui::Ui) {
+    fn editor_panel(&mut self, ui: &mut egui::Ui, active_spans: &[(usize, usize)]) {
         egui::Panel::left("editor")
             .resizable(true)
             .default_size(440.0)
             .show_inside(ui, |ui| {
                 ui.add_space(4.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    code_editor(ui, &mut self.code);
+                    code_editor(ui, &mut self.code, active_spans);
                 });
             });
+    }
+
+    /// Source byte ranges of the haps active at the current playback position,
+    /// for active-event highlighting in the editor. Empty when stopped or when
+    /// no audio clock is running.
+    fn active_source_spans(&self) -> Vec<(usize, usize)> {
+        let (Some(engine), Some(pat)) = (&self.engine, &self.current) else {
+            return Vec::new();
+        };
+        if !self.playing {
+            return Vec::new();
+        }
+        let pos = engine.position_cycles();
+        let pos_f = rudel_core::Frac::from_f64(pos);
+        let cycle = pos.floor();
+        let mut spans: Vec<(usize, usize)> = pat
+            .query_arc(
+                rudel_core::Frac::from_f64(cycle),
+                rudel_core::Frac::from_f64(cycle + 1.0),
+            )
+            .into_iter()
+            .filter(|h| h.part.begin <= pos_f && pos_f < h.part.end)
+            .flat_map(|h| h.context.locations.clone())
+            .collect();
+        spans.sort_unstable();
+        spans.dedup();
+        spans
     }
 }
