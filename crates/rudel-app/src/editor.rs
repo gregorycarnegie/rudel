@@ -3,6 +3,17 @@ use std::collections::HashSet;
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
 const CODE_INDENT: &str = "  ";
+const MAX_COMPLETIONS: usize = 12;
+
+/// The active autocomplete popup: the byte range of the prefix being replaced,
+/// the candidate names, and which one is selected. Stored in egui temp memory
+/// between frames.
+#[derive(Clone, Default)]
+struct Completion {
+    start: usize,
+    items: Vec<String>,
+    selected: usize,
+}
 
 pub(crate) fn code_editor(
     ui: &mut egui::Ui,
@@ -12,7 +23,13 @@ pub(crate) fn code_editor(
 ) {
     let editor_id = ui.make_persistent_id(egui::Id::new(CODE_EDITOR_ID));
     let bracket_id = editor_id.with("bracket_match");
-    let shortcuts = capture_editor_shortcuts(ui, editor_id);
+    let completion_id = editor_id.with("completion");
+
+    // Completion popup state carried from last frame (empty items == inactive).
+    let stored: Completion = ui.data(|d| d.get_temp(completion_id)).unwrap_or_default();
+    let mut completion = (!stored.items.is_empty()).then_some(stored);
+
+    let shortcuts = capture_editor_shortcuts(ui, editor_id, completion.is_some());
     let typed_text = editor_typed_text(ui);
     let enter_pressed = editor_enter_pressed(ui);
     // Bracket-match spans computed from last frame's cursor (the layouter runs
@@ -29,23 +46,76 @@ pub(crate) fn code_editor(
         .desired_rows(28)
         .desired_width(f32::INFINITY)
         .show(ui);
+
     if output.response.has_focus()
         && let Some(cursor_range) = output.cursor_range
     {
-        let edited = apply_editor_text_edits(
-            code,
-            cursor_range,
-            shortcuts,
-            typed_text.as_deref(),
-            enter_pressed,
-        );
-        let cursor = edited
-            .map(|r| r.primary.index)
-            .unwrap_or(cursor_range.primary.index);
-        if let Some(new_range) = edited {
-            output.state.cursor.set_char_range(Some(new_range));
-            output.state.store(ui.ctx(), output.response.id);
+        let mut cursor = cursor_range.primary.index;
+        let mut handled = false;
+
+        // Completion-popup interactions take priority over text editing.
+        if let Some(state) = completion.as_mut() {
+            if shortcuts.complete_dismiss {
+                completion = None;
+                handled = true;
+            } else if shortcuts.complete_accept {
+                let item = state.items[state.selected].clone();
+                let cursor_byte = byte_index_at_char(code, cursor);
+                cursor = apply_completion(code, state.start, cursor_byte, &item);
+                output
+                    .state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::one(
+                        egui::text::CCursor::new(cursor),
+                    )));
+                output.state.clone().store(ui.ctx(), output.response.id);
+                completion = None;
+                handled = true;
+            } else if shortcuts.complete_next {
+                state.selected = (state.selected + 1) % state.items.len();
+                handled = true;
+            } else if shortcuts.complete_prev {
+                state.selected = (state.selected + state.items.len() - 1) % state.items.len();
+                handled = true;
+            }
         }
+
+        if !handled {
+            let edited = apply_editor_text_edits(
+                code,
+                cursor_range,
+                shortcuts,
+                typed_text.as_deref(),
+                enter_pressed,
+            );
+            cursor = edited.map(|r| r.primary.index).unwrap_or(cursor);
+            if let Some(new_range) = edited {
+                output.state.cursor.set_char_range(Some(new_range));
+                output.state.clone().store(ui.ctx(), output.response.id);
+            }
+            // Open on typing, refresh while already open, otherwise close.
+            let prev = completion.take();
+            if typed_text.is_some() || prev.is_some() {
+                let cursor_byte = byte_index_at_char(code, cursor);
+                completion = completion_at(code, cursor_byte, idents).map(|(start, _, items)| {
+                    let selected = prev
+                        .as_ref()
+                        .filter(|c| c.start == start)
+                        .map(|c| c.selected.min(items.len() - 1))
+                        .unwrap_or(0);
+                    Completion {
+                        start,
+                        items,
+                        selected,
+                    }
+                });
+            }
+        }
+
+        if handled {
+            ui.ctx().request_repaint();
+        }
+
         // Refresh the bracket-match highlight for the (possibly moved) cursor.
         let new_brackets = bracket_match_spans(code, cursor)
             .map(|pair| pair.to_vec())
@@ -54,10 +124,38 @@ pub(crate) fn code_editor(
             ui.data_mut(|d| d.insert_temp(bracket_id, new_brackets));
             ui.ctx().request_repaint();
         }
-    } else if !brackets.is_empty() {
-        ui.data_mut(|d| d.insert_temp(bracket_id, Vec::<(usize, usize)>::new()));
-        ui.ctx().request_repaint();
+    } else {
+        completion = None;
+        if !brackets.is_empty() {
+            ui.data_mut(|d| d.insert_temp(bracket_id, Vec::<(usize, usize)>::new()));
+            ui.ctx().request_repaint();
+        }
     }
+
+    if let Some(state) = &completion {
+        completion_popup(ui, completion_id, &output.response, state);
+    }
+    ui.data_mut(|d| d.insert_temp(completion_id, completion.unwrap_or_default()));
+}
+
+/// Draw the autocomplete suggestions just below the editor, with the selected
+/// row highlighted. Keyboard-driven (Tab/Enter accept, arrows navigate, Esc
+/// dismiss); see `code_editor`.
+fn completion_popup(ui: &egui::Ui, id: egui::Id, response: &egui::Response, state: &Completion) {
+    egui::Area::new(id.with("popup"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(response.rect.left_bottom())
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_max_width(220.0);
+                for (i, item) in state.items.iter().enumerate() {
+                    let _ = ui.selectable_label(
+                        i == state.selected,
+                        egui::RichText::new(item).monospace(),
+                    );
+                }
+            });
+        });
 }
 
 /// Highlight category for a contiguous byte span of editor text. Mirrors the
@@ -291,22 +389,52 @@ struct EditorShortcuts {
     outdent: bool,
     jump_next: bool,
     jump_prev: bool,
+    complete_accept: bool,
+    complete_next: bool,
+    complete_prev: bool,
+    complete_dismiss: bool,
 }
 
-fn capture_editor_shortcuts(ui: &mut egui::Ui, editor_id: egui::Id) -> EditorShortcuts {
+fn capture_editor_shortcuts(
+    ui: &mut egui::Ui,
+    editor_id: egui::Id,
+    completion_active: bool,
+) -> EditorShortcuts {
+    use egui::{Key, Modifiers};
     if !ui.memory(|m| m.has_focus(editor_id)) {
         return EditorShortcuts::default();
     }
-    ui.input_mut(|i| EditorShortcuts {
-        // Ctrl+/ matches Strudel/CodeMirror's toggle-comment; Ctrl+\ is the
-        // alias requested in the parity checklist.
-        comment_toggle: i.consume_key(egui::Modifiers::CTRL, egui::Key::Slash)
-            | i.consume_key(egui::Modifiers::CTRL, egui::Key::Backslash),
-        indent: i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
-        outdent: i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab),
-        // Strudel's REPL jumps the cursor between `$` block markers.
-        jump_next: i.consume_key(egui::Modifiers::ALT, egui::Key::W),
-        jump_prev: i.consume_key(egui::Modifiers::ALT, egui::Key::Q),
+    ui.input_mut(|i| {
+        // When the completion popup is open, Tab/Enter accept it, the arrows
+        // navigate it, and Esc dismisses it — taking priority over the normal
+        // Tab-indent / Enter-newline behaviour.
+        let (complete_accept, complete_next, complete_prev, complete_dismiss) = if completion_active
+        {
+            (
+                i.consume_key(Modifiers::NONE, Key::Tab)
+                    | i.consume_key(Modifiers::NONE, Key::Enter),
+                i.consume_key(Modifiers::NONE, Key::ArrowDown),
+                i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                i.consume_key(Modifiers::NONE, Key::Escape),
+            )
+        } else {
+            (false, false, false, false)
+        };
+        EditorShortcuts {
+            // Ctrl+/ matches Strudel/CodeMirror's toggle-comment; Ctrl+\ is the
+            // alias requested in the parity checklist.
+            comment_toggle: i.consume_key(Modifiers::CTRL, Key::Slash)
+                | i.consume_key(Modifiers::CTRL, Key::Backslash),
+            indent: !completion_active && i.consume_key(Modifiers::NONE, Key::Tab),
+            outdent: i.consume_key(Modifiers::SHIFT, Key::Tab),
+            // Strudel's REPL jumps the cursor between `$` block markers.
+            jump_next: i.consume_key(Modifiers::ALT, Key::W),
+            jump_prev: i.consume_key(Modifiers::ALT, Key::Q),
+            complete_accept,
+            complete_next,
+            complete_prev,
+            complete_dismiss,
+        }
     })
 }
 
@@ -776,6 +904,77 @@ fn char_span_bytes(text: &str, char_idx: usize) -> (usize, usize) {
     )
 }
 
+fn char_index_at_byte(text: &str, byte: usize) -> usize {
+    text[..byte.min(text.len())].chars().count()
+}
+
+/// Replace the prefix bytes `start..cursor` with the accepted `item`, returning
+/// the new char cursor index just after the inserted word.
+fn apply_completion(code: &mut String, start: usize, cursor: usize, item: &str) -> usize {
+    code.replace_range(start..cursor, item);
+    char_index_at_byte(code, start + item.len())
+}
+
+/// True when byte `pos` falls inside a string literal or `//` comment, where
+/// identifier completion should not fire (those are mini-notation / prose).
+fn in_string_or_comment(code: &str, pos: usize, idents: &HashSet<String>) -> bool {
+    tokenize(code, idents)
+        .into_iter()
+        .any(|(start, end, token)| {
+            start <= pos
+                && pos < end
+                && matches!(
+                    token,
+                    Token::Str | Token::MiniWord | Token::MiniOp | Token::MiniRest | Token::Comment
+                )
+        })
+}
+
+/// Autocomplete at byte cursor `cursor`: the byte range of the identifier
+/// prefix being typed and the matching names from `idents`, or `None` when
+/// there is no code identifier to complete (empty prefix, inside a string or
+/// comment, or no longer/other match).
+fn completion_at(
+    code: &str,
+    cursor: usize,
+    idents: &HashSet<String>,
+) -> Option<(usize, usize, Vec<String>)> {
+    let bytes = code.as_bytes();
+    if cursor > bytes.len() {
+        return None;
+    }
+    let mut start = cursor;
+    while start > 0 {
+        let b = bytes[start - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' || b == b'$' {
+            start -= 1;
+        } else {
+            break;
+        }
+    }
+    // Must be a non-empty prefix that begins like an identifier (not a number).
+    if start == cursor
+        || !(bytes[start].is_ascii_alphabetic() || matches!(bytes[start], b'_' | b'$'))
+    {
+        return None;
+    }
+    if in_string_or_comment(code, start, idents) {
+        return None;
+    }
+    let prefix = &code[start..cursor];
+    let mut items: Vec<String> = idents
+        .iter()
+        .filter(|name| name.len() > prefix.len() && name.starts_with(prefix))
+        .cloned()
+        .collect();
+    if items.is_empty() {
+        return None;
+    }
+    items.sort();
+    items.truncate(MAX_COMPLETIONS);
+    Some((start, cursor, items))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -838,6 +1037,51 @@ mod tests {
         let toks = classify(r#"note("c#4 -1.5")"#);
         assert!(toks.contains(&("c#4", Token::MiniWord)));
         assert!(toks.contains(&("-1.5", Token::Number)));
+    }
+
+    #[test]
+    fn completion_matches_identifier_prefix() {
+        let idents: HashSet<String> = ["note", "n", "stack", "slow", "fast"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        // `s` + "to" -> stack/slow (sorted), replacing bytes 0..2
+        let (start, end, items) = completion_at("st", 2, &idents).unwrap();
+        assert_eq!((start, end), (0, 2));
+        assert_eq!(items, vec!["stack".to_string()]);
+        // `sl`/`st` distinguish; `s` matches several
+        let (_, _, items) = completion_at("s", 1, &idents).unwrap();
+        assert_eq!(items, vec!["slow", "stack"]);
+        // exact full word offers nothing more
+        assert_eq!(completion_at("note", 4, &idents), None);
+        // empty prefix / not on an identifier
+        assert_eq!(completion_at("note(", 5, &idents), None);
+        // cursor mid-expression completes the word under it
+        let (start, end, items) = completion_at("note(fa", 7, &idents).unwrap();
+        assert_eq!((start, end), (5, 7));
+        assert_eq!(items, vec!["fast".to_string()]);
+    }
+
+    #[test]
+    fn accepting_completion_replaces_the_prefix() {
+        let mut code = "note(fa".to_string();
+        let cursor = apply_completion(&mut code, 5, 7, "fast");
+        assert_eq!(code, "note(fast");
+        assert_eq!(cursor, 9);
+        // mid-buffer replacement keeps the tail
+        let mut code = "x st y".to_string();
+        let cursor = apply_completion(&mut code, 2, 4, "stack");
+        assert_eq!(code, "x stack y");
+        assert_eq!(cursor, 7);
+    }
+
+    #[test]
+    fn completion_skips_strings_and_comments() {
+        let idents: HashSet<String> = ["bd", "stack"].into_iter().map(str::to_string).collect();
+        // inside a mini-notation string: no code completion
+        assert_eq!(completion_at(r#"s("bd"#, 5, &idents), None);
+        // inside a comment
+        assert_eq!(completion_at("// st", 5, &idents), None);
     }
 
     #[test]
