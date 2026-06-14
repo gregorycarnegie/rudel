@@ -201,6 +201,17 @@ mod tests {
     }
 
     #[test]
+    fn panic_stops_playback_and_resets_backends() {
+        let mut app = app_without_engine();
+        app.playing = true;
+        app.panic();
+        assert!(!app.playing);
+        assert_eq!(app.status, "panic");
+        assert!(app.midi.is_none());
+        assert!(app.osc.is_none());
+    }
+
+    #[test]
     fn volume_percent_clamps_to_vlc_style_range() {
         let mut app = app_without_engine();
         app.set_volume_percent(250.0);

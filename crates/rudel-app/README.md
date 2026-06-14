@@ -21,6 +21,7 @@ Audited against Strudel's `packages/codemirror`. Supported subset:
 | --- | --- |
 | `Ctrl+Enter` / `Alt+Enter` | Evaluate the editor contents |
 | `Ctrl+.` / `Alt+.` | Hush (stop playback, keep the pattern) |
+| `Ctrl+Shift+.` | Panic / reset (stop and flush stuck MIDI notes) |
 | `Ctrl+/` / `Ctrl+\` | Toggle `//` comments on the line or selection |
 | `Tab` / `Shift+Tab` | Indent / outdent the line or selection |
 | `Alt+w` / `Alt+q` | Jump the cursor to the next / previous `$` block marker |

@@ -39,6 +39,19 @@ impl RudelApp {
         self.status = "hushed".to_string();
     }
 
+    /// Panic / reset (Ctrl+Shift+.): stop playback and tear down the MIDI/OSC
+    /// back-ends so any stuck notes get an all-notes-off reset. Stronger than
+    /// `hush`, which leaves the schedulers running on silence. They reconnect
+    /// lazily on the next play/evaluate.
+    pub(super) fn panic(&mut self) {
+        self.set_playing(false);
+        // Dropping the engines runs their teardown: the MIDI scheduler emits
+        // reset (all-notes-off / CC reset) messages as it stops.
+        self.midi = None;
+        self.osc = None;
+        self.status = "panic".to_string();
+    }
+
     pub(super) fn set_cps(&mut self, cps: f64) {
         self.cps = cps;
         if let Some(e) = &self.engine {

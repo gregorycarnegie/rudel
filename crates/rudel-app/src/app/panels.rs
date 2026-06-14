@@ -10,18 +10,21 @@ impl eframe::App for RudelApp {
         self.poll_sample_jobs(ui.ctx());
 
         // Match Strudel's REPL transport keys: Ctrl/Alt+Enter evaluates,
-        // Ctrl/Alt+. hushes (stops playback).
-        let (eval_shortcut, hush_shortcut) = ui.ctx().input(|i| {
+        // Ctrl/Alt+. hushes, and Ctrl+Shift+. panics (reset/all-notes-off).
+        let (eval_shortcut, hush_shortcut, panic_shortcut) = ui.ctx().input(|i| {
             let trigger = i.modifiers.command || i.modifiers.alt;
             (
                 trigger && i.key_pressed(egui::Key::Enter),
-                trigger && i.key_pressed(egui::Key::Period),
+                trigger && !i.modifiers.shift && i.key_pressed(egui::Key::Period),
+                i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Period),
             )
         });
         if eval_shortcut {
             self.evaluate();
         }
-        if hush_shortcut {
+        if panic_shortcut {
+            self.panic();
+        } else if hush_shortcut {
             self.hush();
         }
 
@@ -81,6 +84,9 @@ impl RudelApp {
                 }
                 if ui.button("Hush (Ctrl+.)").clicked() {
                     self.hush();
+                }
+                if ui.button("Panic (Ctrl+Shift+.)").clicked() {
+                    self.panic();
                 }
                 ui.separator();
                 ui.label("cps");
@@ -187,7 +193,7 @@ impl RudelApp {
                 ui.colored_label(egui::Color32::from_rgb(230, 90, 90), e);
             } else {
                 ui.weak(
-                    "Ctrl+Enter eval · Ctrl+. hush · Ctrl+/ or Ctrl+\\ comment · Tab/Shift+Tab indent",
+                    "Ctrl+Enter eval · Ctrl+. hush · Ctrl+Shift+. panic · Ctrl+/ comment · Tab/Shift+Tab indent",
                 );
             }
         });
