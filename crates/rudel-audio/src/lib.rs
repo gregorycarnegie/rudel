@@ -355,7 +355,7 @@ impl Engine {
     /// boost the mixed output up to the VLC-style maximum of `2.0` (200%).
     pub fn set_volume(&self, volume: f64) {
         let volume = if volume.is_finite() {
-            volume.max(0.0).min(MAX_MASTER_VOLUME)
+            volume.clamp(0.0, MAX_MASTER_VOLUME)
         } else {
             DEFAULT_MASTER_VOLUME
         };

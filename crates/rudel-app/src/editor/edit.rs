@@ -70,7 +70,7 @@ pub(super) fn editor_typed_text(ui: &egui::Ui) -> Option<String> {
                 egui::Event::Text(text) if text.chars().count() == 1 => Some(text.clone()),
                 _ => None,
             })
-            .last()
+            .next_back()
     })
 }
 
@@ -216,11 +216,9 @@ fn apply_auto_pair(
         return None;
     }
 
-    if is_pair_closer(typed) || is_quote_pair(typed) {
-        if char_at(text, idx) == Some(typed) {
-            replace_char_range(text, idx - 1..idx, "");
-            return Some(egui::text::CCursorRange::one(egui::text::CCursor::new(idx)));
-        }
+    if (is_pair_closer(typed) || is_quote_pair(typed)) && char_at(text, idx) == Some(typed) {
+        replace_char_range(text, idx - 1..idx, "");
+        return Some(egui::text::CCursorRange::one(egui::text::CCursor::new(idx)));
     }
 
     let close = match typed {

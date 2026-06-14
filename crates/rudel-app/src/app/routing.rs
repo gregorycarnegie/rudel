@@ -66,7 +66,7 @@ impl RudelApp {
     }
 
     pub(super) fn set_volume_percent(&mut self, volume_percent: f32) {
-        self.volume_percent = volume_percent.max(0.0).min(MAX_VOLUME_PERCENT);
+        self.volume_percent = volume_percent.clamp(0.0, MAX_VOLUME_PERCENT);
         if let Some(e) = &self.engine {
             e.set_volume((self.volume_percent / 100.0) as f64);
         }

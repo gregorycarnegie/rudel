@@ -123,7 +123,7 @@ fn control_method_call(
     use koto::runtime::{ErrorKind, MethodContext, runtime_error};
     match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
         (KValue::Object(o), extra_args) => {
-            let mctx = MethodContext::new(&o, extra_args, ctx.vm);
+            let mctx = MethodContext::new(o, extra_args, ctx.vm);
             args::with_pattern_arg(&mctx, body)
         }
         _ => runtime_error!(ErrorKind::UnexpectedError),

@@ -5,10 +5,13 @@ use super::special::{mode, s, sound};
 use crate::pattern::Pattern;
 use crate::value::Value;
 
+type ControlBuilder = fn(Pattern) -> Pattern;
+type ControlBuilderEntry = (&'static str, ControlBuilder);
+
 /// Control spellings without a same-named Rust builder fn: bespoke controls
 /// (`s` splits `name:index`, `mode` also sets `anchor`) and camelCase /
 /// keyword-safe aliases that otherwise only exist in the language bindings.
-static EXTRA_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
+static EXTRA_CONTROL_BUILDERS: &[ControlBuilderEntry] = &[
     ("s", |p| s(p)),
     ("sound", |p| sound(p)),
     ("mode", |p| mode(p)),
@@ -28,7 +31,7 @@ static EXTRA_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
 /// literal-key controls, and binding-layer spellings. Each builder wraps a
 /// value pattern into the control's map; the language bindings use this to
 /// expose every control as a pattern method without hand-listing names.
-pub fn control_builders() -> impl Iterator<Item = (&'static str, fn(Pattern) -> Pattern)> {
+pub fn control_builders() -> impl Iterator<Item = ControlBuilderEntry> {
     PLAIN_CONTROL_BUILDERS
         .iter()
         .chain(ALIAS_CONTROL_BUILDERS)
@@ -101,12 +104,10 @@ pub fn control_name(name: &str) -> String {
         if let Some(hap) = probe
             .query_arc(crate::Frac::zero(), crate::Frac::one())
             .first()
+            && let Value::Map(m) = &hap.value
+            && let Some(k) = m.keys().next()
         {
-            if let Value::Map(m) = &hap.value {
-                if let Some(k) = m.keys().next() {
-                    return k.clone();
-                }
-            }
+            return k.clone();
         }
     }
     if let Some((_, key)) = numbered_control_names()
