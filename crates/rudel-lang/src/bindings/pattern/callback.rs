@@ -1,10 +1,85 @@
 use super::KPattern;
 use super::args::method_arg;
-use super::convert::{koto_to_value, value_to_koto};
+use super::convert::{arg_to_f64, arg_to_pattern, koto_to_value, value_to_koto};
 use koto::prelude::*;
 use koto::runtime::{Error as KotoError, Result as KotoResult};
 use rudel_core::{Frac, Pattern, Value};
 use std::cell::RefCell;
+
+/// Register the standalone (curried-style) forms of the higher-order callback
+/// combinators, taking the pattern last (`jux(rev, pat)`, `every(4, f, pat)`).
+/// The transform argument must be a function value (`rev`, `|x| x.fast(2)`),
+/// since Koto can't partially apply `fast(2)` into a function.
+pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
+    // The pattern is the last arg and the callback the one before it; any
+    // leading args (count `n`, time `t`, bounds `a`/`b`) come first.
+    fn func_and_pat(ctx: &CallContext) -> (KValue, Pattern) {
+        let a = ctx.args();
+        let func = a
+            .len()
+            .checked_sub(2)
+            .and_then(|i| a.get(i))
+            .cloned()
+            .unwrap_or(KValue::Null);
+        (func, arg_to_pattern(a.last().unwrap_or(&KValue::Null)))
+    }
+    fn lead<'a>(ctx: &'a CallContext, i: usize, min_args: usize) -> &'a KValue {
+        let a = ctx.args();
+        a.get(i)
+            .filter(|_| a.len() >= min_args)
+            .unwrap_or(&KValue::Null)
+    }
+
+    macro_rules! cb_only {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let out = pat.$m(|p| cb.apply(p));
+                cb.finish()?;
+                Ok(KPattern(out).into())
+            });
+        )*};
+    }
+    cb_only! {
+        "superimpose" => superimpose,
+        "jux" => jux,
+        "sometimes" => sometimes,
+        "often" => often,
+        "rarely" => rarely,
+    }
+
+    // every(n, f, pat)
+    prelude.add_fn("every", |ctx| {
+        let n = arg_to_f64(lead(ctx, 0, 3)) as i64;
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = pat.every(n, |p| cb.apply(p));
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    });
+
+    // off(t, f, pat)
+    prelude.add_fn("off", |ctx| {
+        let t = arg_to_pattern(lead(ctx, 0, 3));
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = pat.off(t, |p| cb.apply(p));
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    });
+
+    // within(a, b, f, pat)
+    prelude.add_fn("within", |ctx| {
+        let a = Frac::from_f64(arg_to_f64(lead(ctx, 0, 4)));
+        let b = Frac::from_f64(arg_to_f64(lead(ctx, 1, 4)));
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = pat.within(a, b, |p| cb.apply(p));
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    });
+}
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the
 /// engine's higher-order combinators (`every`, `jux`, `sometimes`, ...) expect.
@@ -22,6 +97,16 @@ pub(super) struct Callback {
 
 impl Callback {
     pub(super) fn new(ctx: &MethodContext<KPattern>, func: KValue) -> Self {
+        Self {
+            vm: RefCell::new(ctx.vm.spawn_shared_vm()),
+            func,
+            err: RefCell::new(None),
+        }
+    }
+
+    /// Like [`Callback::new`] but built from a free-function call context, for
+    /// the standalone (curried-style) forms of the callback combinators.
+    pub(crate) fn from_call_ctx(ctx: &CallContext, func: KValue) -> Self {
         Self {
             vm: RefCell::new(ctx.vm.spawn_shared_vm()),
             func,

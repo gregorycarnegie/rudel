@@ -48,6 +48,40 @@ fn standalone_transforms_match_their_methods() {
 }
 
 #[test]
+fn standalone_callback_transforms_match_their_methods() {
+    // The higher-order combinators also have standalone forms taking a
+    // transform function and the pattern last (`jux(rev, pat)`).
+    let pairs = [
+        (r#"jux(rev, s("bd sd"))"#, r#"s("bd sd").jux(|x| x.rev())"#),
+        (
+            r#"superimpose(|x| x.fast(2), s("bd sd"))"#,
+            r#"s("bd sd").superimpose(|x| x.fast(2))"#,
+        ),
+        (
+            r#"every(2, |x| x.fast(2), s("bd sd"))"#,
+            r#"s("bd sd").every(2, |x| x.fast(2))"#,
+        ),
+        (
+            r#"off(0.25, |x| x.add(12), note("0 2"))"#,
+            r#"note("0 2").off(0.25, |x| x.add(12))"#,
+        ),
+        (
+            r#"within(0, 0.5, |x| x.fast(2), s("a b c d"))"#,
+            r#"s("a b c d").within(0, 0.5, |x| x.fast(2))"#,
+        ),
+        (
+            r#"sometimes(|x| x.fast(2), s("a b c d"))"#,
+            r#"s("a b c d").sometimes(|x| x.fast(2))"#,
+        ),
+    ];
+    for (standalone, method) in pairs {
+        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
+    }
+}
+
+#[test]
 fn reference_surface_is_generated_from_the_runtime() {
     let r = crate::reference();
     for f in [

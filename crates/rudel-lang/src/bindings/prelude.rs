@@ -395,7 +395,9 @@ pub(crate) fn register(prelude: &KMap) {
     // code written as `fast(2, pat)` works as well as `pat.fast(2)`. `rev` is
     // registered above. Function-callback transforms (`every`/`jux`/...) are
     // not yet exposed standalone (they would need partial application, which
-    // Koto lacks).
+    // Koto lacks). The function-callback combinators are registered separately
+    // since their `Callback` plumbing lives in the pattern module.
+    super::pattern::register_standalone_callbacks(prelude);
     register_pattern_fns!(prelude;
         pattern1: [fast, slow, ply, segment, seg, add, sub, mul, div, early, late];
         noarg:    [palindrome, degrade, press, brak];
