@@ -29,6 +29,30 @@ macro_rules! kpattern_methods {
         f64_fn_arg: [$($f64_fn_arg_method:ident),* $(,)?],
         pattern_fn_arg: [$($pattern_fn_arg_method:ident),* $(,)?],
         frac_frac_fn_arg: [$($frac_frac_fn_arg_method:ident),* $(,)?],
+        forward: [
+            $(
+                $(#[$forward_attr:meta])*
+                $forward_method:ident => $forward_handler:ident
+            ),* $(,)?
+        ],
+        choose: [
+            $(
+                $(#[$choose_attr:meta])*
+                $choose_method:ident => $choose_bipolar:expr
+            ),* $(,)?
+        ],
+        pick_join: [
+            $(
+                $(#[$pick_join_attr:meta])*
+                $pick_join_method:ident => ($pick_join_modulo:expr, $pick_join_mode:expr)
+            ),* $(,)?
+        ],
+        pick_f: [
+            $(
+                $(#[$pick_f_attr:meta])*
+                $pick_f_method:ident => $pick_f_modulo:expr
+            ),* $(,)?
+        ],
         // CamelCase alias groups: each maps Camel => snake
         camel_pattern: [$($camel_pattern:ident => $snake_pattern:ident),* $(,)?],
         camel_literal_or_pattern: [$($camel_literal_or_pattern:ident => $snake_literal_or_pattern:ident),* $(,)?],
@@ -179,44 +203,35 @@ macro_rules! kpattern_methods {
                 }
             )*
 
-            // `pat.layer([f, g, ...])`: stack the results of applying each
-            // function in the list to the pattern. Accepts a list/tuple of
-            // callables, or bare callable args.
-            #[koto_method]
-            fn layer(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_layer(ctx)
-            }
+            // Bespoke method families whose argument parsing lives in
+            // `methods.rs`.
+            $(
+                $(#[$forward_attr])*
+                fn $forward_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    $forward_handler(ctx)
+                }
+            )*
 
-            // `pat.fmap(f)`: Strudel's value-level mapper. The Koto VM isn't
-            // Send+Sync, so map one cycle eagerly and repeat that shape.
-            #[koto_method]
-            fn fmap(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_fmap(ctx)
-            }
+            $(
+                $(#[$choose_attr])*
+                fn $choose_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    kpattern_choose(ctx, $choose_bipolar)
+                }
+            )*
 
-            // `pat.tour(a, b, ...)`: insert the pattern into the list of
-            // patterns stepwise, moving backwards one slot per repetition.
-            #[koto_method]
-            fn tour(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_tour(ctx)
-            }
+            $(
+                $(#[$pick_join_attr])*
+                fn $pick_join_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    kpattern_pick_join(ctx, $pick_join_modulo, $pick_join_mode)
+                }
+            )*
 
-            // Deprecated Strudel alias for `tour`.
-            #[koto_method]
-            fn s_tour(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_tour(ctx)
-            }
-
-            // `pat.choose(a, b, ...)`: use this pattern (in 0..1) to choose from
-            // the given values. `choose2` expects a bipolar (-1..1) pattern.
-            #[koto_method]
-            fn choose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_choose(ctx, false)
-            }
-            #[koto_method]
-            fn choose2(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_choose(ctx, true)
-            }
+            $(
+                $(#[$pick_f_attr])*
+                fn $pick_f_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    kpattern_pick_f(ctx, $pick_f_modulo)
+                }
+            )*
 
             // CamelCase aliases: generate small wrappers that call the
             // existing snake_case implementations to reduce duplication.
@@ -319,223 +334,6 @@ macro_rules! kpattern_methods {
                     with_callback(&ctx, 1, |pat, cb| pat.$snake_f64_fn(n, |p| cb.apply(p)))
                 }
             )*
-
-            // (no camel_frac_fn group)
-
-            // `pat.arp_with(|chord| ...)`: arpeggiate chords, transforming each
-            // chord (presented as a sequence of its notes) with a callback.
-            //
-            // The callback can't run in the (Send+Sync) query path because the
-            // Koto VM isn't Send, so we evaluate it eagerly here: probe the
-            // distinct chords over the first `PROBE` cycles, run the callback on
-            // each, and bake the results into a lookup the query path consults.
-            // Chords first appearing after the probe window fall back to silence.
-            #[koto_method]
-            fn arp_with(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_arp_with(ctx)
-            }
-
-            // `pat.voicings("lefthand")`: voice chords with a named dictionary.
-            #[koto_method]
-            fn voicings(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_voicings(ctx)
-            }
-
-            #[koto_method]
-            fn scale(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_scale(ctx)
-            }
-
-            #[koto_method]
-            fn i(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_i(ctx)
-            }
-
-            #[koto_method]
-            fn freq(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_freq(ctx)
-            }
-
-            #[koto_method]
-            fn tune(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_tune(ctx)
-            }
-
-            #[koto_method]
-            fn xen(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_xen(ctx)
-            }
-
-            #[koto_method]
-            fn with_base(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_with_base(ctx)
-            }
-
-            #[koto_method]
-            fn ftrans(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_ftrans(ctx)
-            }
-
-            #[koto_method]
-            fn ftranspose(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_ftranspose(ctx)
-            }
-
-            // `bendRange` alias generated above.
-
-            // Sample looping. `loop` is a Koto keyword but is allowed after `.`,
-            // so these expose the Strudel names (`loop`/`loopBegin`/`loopEnd`)
-            // as aliases of the keyword-safe Rust method names.
-            // `pat.partials([1, 0.5, 0.3])` / `pat.partials(8)`: additive
-            // harmonic magnitudes (or a count). `pat.phases([...])`: per-harmonic
-            // phase offsets. The value is the whole list, applied to every event.
-            #[koto_method]
-            fn partials(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_partials(ctx)
-            }
-
-            #[koto_method]
-            fn phases(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_phases(ctx)
-            }
-
-            // `pat.ctrl("fmi20", 3)`: set an arbitrary named control. The escape
-            // hatch for controls without a dedicated method.
-            #[koto_method]
-            fn ctrl(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_ctrl(ctx)
-            }
-
-            // `pat.as("note:clip")`: map bare positional values into named
-            // controls (`as` is keyword-safe after `.`, like `loop`).
-            #[koto_method(alias = "as")]
-            fn as_controls(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_as_controls(ctx)
-            }
-
-            #[koto_method]
-            fn sound(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_sound(ctx)
-            }
-
-            #[koto_method(alias = "struct")]
-            fn struct_alias(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_struct_alias(ctx)
-            }
-
-            // The pick family (strudel core/pick.mjs): the instance is the
-            // selector pattern, the argument a list/map of patterns. Variants
-            // differ in index wrapping (`pickmod*`) and join: pick = inner,
-            // pickOut = outer, pickReset/pickRestart = retriggering,
-            // inhabit/pickSqueeze = squeeze.
-            #[koto_method]
-            fn pick(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, false, PickJoin::Inner)
-            }
-
-            #[koto_method]
-            fn pickmod(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, true, PickJoin::Inner)
-            }
-
-            #[koto_method(alias = "pickOut")]
-            fn pick_out(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, false, PickJoin::Outer)
-            }
-
-            #[koto_method(alias = "pickmodOut")]
-            fn pickmod_out(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, true, PickJoin::Outer)
-            }
-
-            #[koto_method(alias = "pickReset")]
-            fn pick_reset(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, false, PickJoin::Reset)
-            }
-
-            #[koto_method(alias = "pickmodReset")]
-            fn pickmod_reset(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, true, PickJoin::Reset)
-            }
-
-            #[koto_method(alias = "pickRestart")]
-            fn pick_restart(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, false, PickJoin::Restart)
-            }
-
-            #[koto_method(alias = "pickmodRestart")]
-            fn pickmod_restart(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, true, PickJoin::Restart)
-            }
-
-            #[koto_method(alias = "pickSqueeze", alias = "pick_squeeze")]
-            fn inhabit(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, false, PickJoin::Squeeze)
-            }
-
-            #[koto_method(alias = "pickmodSqueeze", alias = "pickmod_squeeze")]
-            fn inhabitmod(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_join(ctx, true, PickJoin::Squeeze)
-            }
-
-            // `pat.pickF(selector, funcs)`: pick which function to apply.
-            #[koto_method(alias = "pickF")]
-            fn pick_f(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_f(ctx, false)
-            }
-
-            #[koto_method(alias = "pickmodF")]
-            fn pickmod_f(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_pick_f(ctx, true)
-            }
-
-            #[koto_method(alias = "loop")]
-            fn loop_play(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_loop_play(ctx)
-            }
-
-            #[koto_method(alias = "loopBegin", alias = "loopb")]
-            fn loop_begin(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_loop_begin(ctx)
-            }
-
-            #[koto_method(alias = "loopEnd", alias = "loope")]
-            fn loop_end(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_loop_end(ctx)
-            }
-
-            // `.p(name)`: tag a pattern with an `id` (Strudel's per-pattern
-            // naming, e.g. `s("bd").p("drums")`). The name may be a string or a
-            // number (`$1`-style slots).
-            #[koto_method]
-            fn p(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_p(ctx)
-            }
-
-            // `.midi(device?)`: route this pattern to the MIDI output. The
-            // optional device-name hint is stored as `_midiport`. Sets the
-            // routing tag the app reads via `output_targets`/`filter_output`.
-            #[koto_method]
-            fn midi(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_midi(ctx)
-            }
-
-            // `.osc(target?)`: route this pattern to the OSC output. An optional
-            // `"host:port"` target sets `oschost`/`oscport` (per-event routing).
-            #[koto_method]
-            fn osc(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_osc(ctx)
-            }
-
-            // `.chord()` (zero-arg) expands chord names into note stacks;
-            // `.chord(value)` sets the Strudel-style chord control consumed by
-            // `.voicing()` / `.root_notes()`.
-            #[koto_method]
-            fn chord(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                kpattern_chord(ctx)
-            }
-
-            // CamelCase aliases are generated above from compact lists.
         }
     };
 }
@@ -588,6 +386,96 @@ kpattern_methods! {
     f64_fn_arg: [jux_by, sometimes_by, some_cycles_by],
     pattern_fn_arg: [off, when],
     frac_frac_fn_arg: [within],
+    forward: [
+        #[koto_method]
+        layer => kpattern_layer,
+        #[koto_method]
+        fmap => kpattern_fmap,
+        #[koto_method]
+        tour => kpattern_tour,
+        #[koto_method]
+        s_tour => kpattern_tour,
+        #[koto_method]
+        arp_with => kpattern_arp_with,
+        #[koto_method]
+        voicings => kpattern_voicings,
+        #[koto_method]
+        scale => kpattern_scale,
+        #[koto_method]
+        i => kpattern_i,
+        #[koto_method]
+        freq => kpattern_freq,
+        #[koto_method]
+        tune => kpattern_tune,
+        #[koto_method]
+        xen => kpattern_xen,
+        #[koto_method]
+        with_base => kpattern_with_base,
+        #[koto_method]
+        ftrans => kpattern_ftrans,
+        #[koto_method]
+        ftranspose => kpattern_ftranspose,
+        #[koto_method]
+        partials => kpattern_partials,
+        #[koto_method]
+        phases => kpattern_phases,
+        #[koto_method]
+        ctrl => kpattern_ctrl,
+        #[koto_method(alias = "as")]
+        as_controls => kpattern_as_controls,
+        #[koto_method]
+        sound => kpattern_sound,
+        #[koto_method(alias = "struct")]
+        struct_alias => kpattern_struct_alias,
+        #[koto_method(alias = "loop")]
+        loop_play => kpattern_loop_play,
+        #[koto_method(alias = "loopBegin", alias = "loopb")]
+        loop_begin => kpattern_loop_begin,
+        #[koto_method(alias = "loopEnd", alias = "loope")]
+        loop_end => kpattern_loop_end,
+        #[koto_method]
+        p => kpattern_p,
+        #[koto_method]
+        midi => kpattern_midi,
+        #[koto_method]
+        osc => kpattern_osc,
+        #[koto_method]
+        chord => kpattern_chord,
+    ],
+    choose: [
+        #[koto_method]
+        choose => false,
+        #[koto_method]
+        choose2 => true,
+    ],
+    pick_join: [
+        #[koto_method]
+        pick => (false, PickJoin::Inner),
+        #[koto_method]
+        pickmod => (true, PickJoin::Inner),
+        #[koto_method(alias = "pickOut")]
+        pick_out => (false, PickJoin::Outer),
+        #[koto_method(alias = "pickmodOut")]
+        pickmod_out => (true, PickJoin::Outer),
+        #[koto_method(alias = "pickReset")]
+        pick_reset => (false, PickJoin::Reset),
+        #[koto_method(alias = "pickmodReset")]
+        pickmod_reset => (true, PickJoin::Reset),
+        #[koto_method(alias = "pickRestart")]
+        pick_restart => (false, PickJoin::Restart),
+        #[koto_method(alias = "pickmodRestart")]
+        pickmod_restart => (true, PickJoin::Restart),
+        #[koto_method(alias = "pickSqueeze", alias = "pick_squeeze")]
+        inhabit => (false, PickJoin::Squeeze),
+        #[koto_method(alias = "pickmodSqueeze", alias = "pickmod_squeeze")]
+        inhabitmod => (true, PickJoin::Squeeze),
+    ],
+    pick_f: [
+        #[koto_method(alias = "pickF")]
+        pick_f => false,
+        #[koto_method(alias = "pickmodF")]
+        pickmod_f => true,
+    ],
     // CamelCase alias mappings (Camel => snake)
     camel_pattern: [
         // camelCase control names (wavetablePosition, compressorKnee, ...)
