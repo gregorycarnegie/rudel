@@ -449,6 +449,8 @@ pub(crate) fn register(prelude: &KMap) {
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "mask" => mask,
             "early" => early, "late" => late,
+            "lt" => lt, "gt" => gt, "lte" => lte, "gte" => gte,
+            "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,
             "fastGap" => fast_gap, "fast_gap" => fast_gap,
             "transpose" => transpose, "trans" => trans,
             "scaleTranspose" => scale_transpose, "scale_transpose" => scale_transpose,

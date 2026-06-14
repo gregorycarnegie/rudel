@@ -338,6 +338,8 @@ kpattern_methods! {
     pattern_arg: [
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
+        // comparison / logic composers (boolean results)
+        lt, gt, lte, gte, eq, eqt, ne, net, and, or,
         // Simple controls and their aliases (note, s, gain, lpf, the numbered
         // FM families, MIDI controls, ...) are NOT listed here: they are
         // registered dynamically from rudel-core's `control_builders`

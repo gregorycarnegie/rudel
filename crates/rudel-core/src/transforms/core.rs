@@ -127,6 +127,64 @@ fn num_div(a: &Value, b: &Value) -> Value {
     Value::F64(a.as_f64().unwrap_or(0.0) / b.as_f64().unwrap_or(1.0))
 }
 
+// Comparison / logic value ops (the `lt`/`gt`/.../`and`/`or` COMPOSERS). They
+// compare numerically when both sides are numbers (or numeric strings), else
+// lexically; results are booleans, handy as `struct`/`mask` gates.
+fn value_ordering(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(x), Some(y)) => x.partial_cmp(&y),
+        _ => match (a.as_str(), b.as_str()) {
+            (Some(x), Some(y)) => Some(x.cmp(y)),
+            _ => None,
+        },
+    }
+}
+fn cmp_lt(a: &Value, b: &Value) -> Value {
+    Value::Bool(value_ordering(a, b) == Some(std::cmp::Ordering::Less))
+}
+fn cmp_gt(a: &Value, b: &Value) -> Value {
+    Value::Bool(value_ordering(a, b) == Some(std::cmp::Ordering::Greater))
+}
+fn cmp_lte(a: &Value, b: &Value) -> Value {
+    Value::Bool(matches!(
+        value_ordering(a, b),
+        Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+    ))
+}
+fn cmp_gte(a: &Value, b: &Value) -> Value {
+    Value::Bool(matches!(
+        value_ordering(a, b),
+        Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+    ))
+}
+/// Loose equality (`==`): numeric coercion when both look like numbers.
+fn loose_eq(a: &Value, b: &Value) -> bool {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(x), Some(y)) => x == y,
+        _ => a == b,
+    }
+}
+fn cmp_eq(a: &Value, b: &Value) -> Value {
+    Value::Bool(loose_eq(a, b))
+}
+fn cmp_ne(a: &Value, b: &Value) -> Value {
+    Value::Bool(!loose_eq(a, b))
+}
+/// Strict equality (`===`): no string/number coercion (`Value` equality).
+fn cmp_eqt(a: &Value, b: &Value) -> Value {
+    Value::Bool(a == b)
+}
+fn cmp_net(a: &Value, b: &Value) -> Value {
+    Value::Bool(a != b)
+}
+/// JS `&&`/`||`: return one operand based on the left's truthiness.
+fn logic_and(a: &Value, b: &Value) -> Value {
+    if a.truthy() { b.clone() } else { a.clone() }
+}
+fn logic_or(a: &Value, b: &Value) -> Value {
+    if a.truthy() { a.clone() } else { b.clone() }
+}
+
 /// The eight pattern alignments Strudel exposes on each operator
 /// (`.add.out`, `.set.squeeze`, ...). `Poly` is not yet ported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -526,6 +584,47 @@ impl Pattern {
     /// keeping this pattern's structure.
     pub fn set(&self, other: impl IntoPattern) -> Pattern {
         self.op_in(other.into_pattern(), |_, b| b.clone())
+    }
+
+    /// Less-than (`lt`): boolean pattern, structure from this pattern.
+    pub fn lt(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_lt)
+    }
+    /// Greater-than (`gt`).
+    pub fn gt(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_gt)
+    }
+    /// Less-than-or-equal (`lte`).
+    pub fn lte(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_lte)
+    }
+    /// Greater-than-or-equal (`gte`).
+    pub fn gte(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_gte)
+    }
+    /// Loose equality (`eq`, numeric coercion).
+    pub fn eq(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_eq)
+    }
+    /// Strict equality (`eqt`, no coercion).
+    pub fn eqt(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_eqt)
+    }
+    /// Loose inequality (`ne`).
+    pub fn ne(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_ne)
+    }
+    /// Strict inequality (`net`).
+    pub fn net(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), cmp_net)
+    }
+    /// Logical and (`and`): JS `a && b` per event.
+    pub fn and(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), logic_and)
+    }
+    /// Logical or (`or`): JS `a || b` per event.
+    pub fn or(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), logic_or)
     }
 
     /// Scale a unipolar (0..1) signal into the `min..max` range.

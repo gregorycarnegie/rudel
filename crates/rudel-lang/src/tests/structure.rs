@@ -28,6 +28,32 @@ fn alignment_via_koto() {
 }
 
 #[test]
+fn comparison_and_logic_composers() {
+    // Boolean composers (pattern.mjs COMPOSERS). On plain values they compare;
+    // their main use is gating `struct`/`mask`. Verified against Strudel.
+    let b = |src: &str| -> Vec<bool> {
+        eval(src)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .iter()
+            .map(|h| h.value.truthy())
+            .collect()
+    };
+    assert_eq!(b(r#""0 1 2 3".lte(1)"#), vec![true, true, false, false]);
+    assert_eq!(b(r#""0 1 2 3".gt(1)"#), vec![false, false, true, true]);
+    assert_eq!(b(r#""a b a".eq("a")"#), vec![true, false, true]);
+    assert_eq!(b(r#""0 1 2".ne(1)"#), vec![true, false, true]);
+    assert_eq!(b(r#""0 1 2 3".gte(2)"#), vec![false, false, true, true]);
+    assert_eq!(b(r#""1 2 3".eqt(2)"#), vec![false, true, false]);
+    // and/or pick an operand by left-truthiness (method-only: Koto keywords).
+    assert_eq!(b(r#""1 0 1".and("1 1 0")"#), vec![true, false, false]);
+    assert_eq!(b(r#""1 0 0".or("0 1 0")"#), vec![true, true, false]);
+    // idiomatic use: gate a struct.
+    let pat = eval(r#"s("a*4").struct("0 1 2 3".gt(1))"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
+}
+
+#[test]
 fn chop_via_koto() {
     let pat = eval(r#"s("bd").chop(4)"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
