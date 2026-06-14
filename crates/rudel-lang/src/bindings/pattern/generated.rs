@@ -381,7 +381,7 @@ kpattern_methods! {
         superimpose, jux, sometimes, often, rarely, almost_always, almost_never, some_cycles,
         apply, always, never,
     ],
-    i64_fn_arg: [every, first_of, last_of, chunk, chunk_back],
+    i64_fn_arg: [chunk, chunk_back],
     frac_fn_arg: [inside, outside],
     f64_fn_arg: [jux_by, sometimes_by, some_cycles_by],
     pattern_fn_arg: [off, when],
@@ -447,6 +447,14 @@ kpattern_methods! {
         euclidish => kpattern_euclidish,
         #[koto_method]
         bjork => kpattern_bjork,
+        // `every`/`firstOf`/`lastOf` take a *patternified* cycle count
+        // (`every("<2 4>", f)`), so they bypass the scalar `i64_fn_arg` group.
+        #[koto_method]
+        every => kpattern_every,
+        #[koto_method(alias = "firstOf")]
+        first_of => kpattern_every,
+        #[koto_method(alias = "lastOf")]
+        last_of => kpattern_last_of,
     ],
     choose: [
         #[koto_method]
@@ -504,6 +512,6 @@ kpattern_methods! {
     camel_frac_frac: [swingBy => swing_by],
     camel_i64_i64: [euclidLegato => euclid_legato],
     camel_i64_i64_i64: [euclidRot => euclid_rot, euclidLegatoRot => euclid_legato_rot],
-    camel_i64_fn: [firstOf => first_of, lastOf => last_of, chunkBack => chunk_back],
+    camel_i64_fn: [chunkBack => chunk_back],
     camel_f64_fn: [juxBy => jux_by, sometimesBy => sometimes_by, someCyclesBy => some_cycles_by],
 }

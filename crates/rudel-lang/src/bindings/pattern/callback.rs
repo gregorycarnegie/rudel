@@ -91,6 +91,20 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
             });
         )*};
     }
+    // `every`/`firstOf`/`lastOf` patternify their cycle count (the callback is
+    // applied eagerly to the whole pattern, then placed by a patterned count).
+    macro_rules! cb_cycles {
+        ($($name:literal => $last:expr),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let n = arg_to_pattern(lead(ctx, 0));
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let transformed = cb.apply(&pat);
+                cb.finish()?;
+                Ok(KPattern(pat.every_pat(n, transformed, $last)).into())
+            });
+        )*};
+    }
     macro_rules! cb_frac2 {
         ($($name:literal => $m:ident),* $(,)?) => {$(
             prelude.add_fn($name, |ctx| {
@@ -114,11 +128,13 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
         "apply" => apply, "always" => always, "never" => never,
     }
     cb_i64! {
-        "every" => every,
-        "firstOf" => first_of, "first_of" => first_of,
-        "lastOf" => last_of, "last_of" => last_of,
         "chunk" => chunk,
         "chunkBack" => chunk_back, "chunk_back" => chunk_back,
+    }
+    cb_cycles! {
+        "every" => false,
+        "firstOf" => false, "first_of" => false,
+        "lastOf" => true, "last_of" => true,
     }
     cb_f64! {
         "juxBy" => jux_by, "jux_by" => jux_by,

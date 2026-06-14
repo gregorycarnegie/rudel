@@ -85,6 +85,78 @@ fn apply_always_never_via_koto() {
 }
 
 #[test]
+fn every_first_last_accept_a_patterned_cycle_count() {
+    // every("<2 1>", rev): cycle 0 uses n=2 (0 mod 2 == 0 -> applied), cycle 1
+    // uses n=1 (every cycle) -> both cycles reversed. Matches Strudel.
+    let pat = eval(r#"s("a b").every("<2 1>", rev)"#).expect("eval");
+    let names = |b, e| -> Vec<String> {
+        values(&pat, b, e)
+            .iter()
+            .filter_map(|v| match v {
+                Value::Map(m) => m.get("s").and_then(|x| x.as_str()).map(String::from),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(names(0, 1), vec!["b", "a"]);
+    assert_eq!(names(1, 2), vec!["b", "a"]);
+
+    // scalar still works: every(2) applies on cycle 0 only.
+    let pat = eval(r#"seq(0).every(2, |x| x.add(10))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1)[0], Value::Int(10));
+    assert_eq!(values(&pat, 1, 2)[0], Value::Int(0));
+
+    // lastOf places the transform on the last cycle of each group.
+    let pat = eval(r#"seq(0).lastOf(2, |x| x.add(10))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
+    assert_eq!(values(&pat, 1, 2)[0], Value::Int(10));
+
+    // standalone form (pattern last) honours the patterned count too.
+    let pat = eval(r#"every("<1 2>", |x| x.add(10), seq(0))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1)[0], Value::Int(10)); // n=1 -> applied
+    assert_eq!(values(&pat, 1, 2)[0], Value::Int(0)); // n=2 -> 1 mod 2 != 0
+}
+
+#[test]
+fn bool_literals_become_boolean_patterns() {
+    // A bare Koto `true`/`false` reifies to `pure(true/false)` (Strudel's
+    // `reify(true)`), so `when`/`struct` accept bool literals.
+    let pat = eval(r#"n("0 1").when(true, rev)"#).expect("eval");
+    let ns: Vec<f64> = values(&pat, 0, 1)
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("n").and_then(|x| x.as_f64()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ns, vec![1.0, 0.0]); // reversed
+    let pat = eval(r#"n("0 1").when(false, rev)"#).expect("eval");
+    let ns: Vec<f64> = values(&pat, 0, 1)
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("n").and_then(|x| x.as_f64()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ns, vec![0.0, 1.0]); // unchanged
+    // struct with a bool keeps (true) or drops (false) the event.
+    assert_eq!(
+        eval(r#"n("0").struct(true)"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .len(),
+        1
+    );
+    assert_eq!(
+        eval(r#"n("0").struct(false)"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .len(),
+        0
+    );
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);

@@ -69,6 +69,26 @@ pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<K
     Ok(KPattern::wrap(pat.loop_at_cps(factor, cps)))
 }
 
+/// `pat.every(n, f)` / `firstOf` (first cycle) and `lastOf` (last cycle), where
+/// `n` may be a pattern (`every("<2 4>", f)`). The callback is applied to the
+/// whole pattern once (eagerly), then placed by a patternified cycle count.
+fn kpattern_every_impl(ctx: MethodContext<KPattern>, last: bool) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let n = method_pattern_arg(&ctx, 0);
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let transformed = cb.apply(&pat);
+    cb.finish()?;
+    Ok(KPattern::wrap(pat.every_pat(n, transformed, last)))
+}
+
+pub(super) fn kpattern_every(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    kpattern_every_impl(ctx, false)
+}
+
+pub(super) fn kpattern_last_of(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    kpattern_every_impl(ctx, true)
+}
+
 /// `pat.euclidish(pulses, steps, perc)` / `pat.eish(...)`: euclid morphed from
 /// straight euclidean (`perc=0`) to even pulse (`perc=1`). `perc` may be a
 /// continuous pattern.

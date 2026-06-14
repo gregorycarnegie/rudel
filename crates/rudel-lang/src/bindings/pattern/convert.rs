@@ -14,6 +14,7 @@ pub(in crate::bindings) fn arg_to_pattern(value: &KValue) -> Pattern {
                 rudel_core::pure(Value::F64(n.into()))
             }
         }
+        KValue::Bool(b) => rudel_core::pure(Value::Bool(*b)),
         KValue::Str(s) => rudel_mini::parse(s).unwrap_or_else(|_| rudel_core::silence()),
         KValue::Object(o) if o.is_a::<KPattern>() => o.cast::<KPattern>().unwrap().0.clone(),
         _ => rudel_core::silence(),

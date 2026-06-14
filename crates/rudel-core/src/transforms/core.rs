@@ -601,6 +601,46 @@ impl Pattern {
         crate::pattern::slowcat_prime(&pats)
     }
 
+    /// Place an already-transformed pattern on the first (`last = false`,
+    /// `every`/`firstOf`) or last (`last = true`, `lastOf`) cycle of each group
+    /// of `n`. Shared by the patternified Koto bindings, which apply the Koto
+    /// callback eagerly (the VM can't run in the query path), so the transform
+    /// is supplied as a concrete pattern rather than a closure.
+    pub fn every_cycles(&self, transformed: &Pattern, n: i64, last: bool) -> Pattern {
+        if n <= 0 {
+            return self.clone();
+        }
+        let mut pats: Vec<Pattern> = Vec::with_capacity(n as usize);
+        if last {
+            for _ in 0..n - 1 {
+                pats.push(self.clone());
+            }
+            pats.push(transformed.clone());
+        } else {
+            pats.push(transformed.clone());
+            for _ in 1..n {
+                pats.push(self.clone());
+            }
+        }
+        crate::pattern::slowcat_prime(&pats)
+    }
+
+    /// [`every_cycles`](Self::every_cycles) with a patternified cycle count, so
+    /// `every("<2 4>", f)` samples `n` once per cycle (mirroring Strudel's
+    /// `register` patternification of the count argument).
+    pub fn every_pat(&self, n: impl IntoPattern, transformed: Pattern, last: bool) -> Pattern {
+        let n = n.into_pattern();
+        if let Some(v) = &n.pure_value {
+            return self.every_cycles(&transformed, v.to_frac().to_f64() as i64, last);
+        }
+        let pat = self.clone();
+        n.fmap(move |nv| {
+            let count = nv.as_f64().unwrap_or(0.0) as i64;
+            Value::Pat(Box::new(pat.every_cycles(&transformed, count, last)))
+        })
+        .inner_join()
+    }
+
     // -- Randomness --------------------------------------------------------
 
     /// `degradeByWith`: keep events where `with_pat` exceeds `x`.
