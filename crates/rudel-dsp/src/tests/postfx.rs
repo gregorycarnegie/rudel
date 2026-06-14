@@ -1,0 +1,187 @@
+use super::common::*;
+
+/// A test voice emitting a fixed stereo value, never done.
+struct ConstVoice(f32);
+impl VoiceLike for ConstVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        (self.0, self.0)
+    }
+    fn is_done(&self) -> bool {
+        false
+    }
+    fn room(&self) -> f32 {
+        0.0
+    }
+    fn delay_send(&self) -> f32 {
+        0.0
+    }
+}
+
+#[test]
+fn vowel_formant_shapes_noise() {
+    assert_eq!(Vowel::from_name("a"), Some(Vowel::A));
+    assert_eq!(Vowel::from_name("z"), None);
+    // white noise through the "a" formant should still produce output.
+    let p = VoiceParams {
+        noise: Some(NoiseKind::White),
+        duration: 1.0,
+        ..Default::default()
+    };
+    let voice = Box::new(Voice::new(p, 44100.0));
+    let fx = PostFx {
+        vowel: Some(Vowel::A),
+        ..Default::default()
+    };
+    assert!(fx.is_active());
+    let mut v = PostFxVoice::new(voice, fx, 44100.0);
+    let mut peak = 0.0f32;
+    for _ in 0..4000 {
+        peak = peak.max(v.tick().0.abs());
+    }
+    assert!(peak > 0.0, "vowel formant should pass some signal");
+}
+
+#[test]
+fn postfx_active_flag() {
+    assert!(!PostFx::default().is_active());
+    assert!(
+        PostFx {
+            crush: Some(4.0),
+            ..Default::default()
+        }
+        .is_active()
+    );
+}
+
+#[test]
+fn crush_quantizes_to_levels() {
+    // crush=2 bits -> step = 2^(2-1) = 2, so values snap to multiples of 0.5
+    let fx = PostFx {
+        crush: Some(2.0),
+        postgain: 1.0,
+        shapevol: 1.0,
+        distortvol: 1.0,
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(ConstVoice(0.3)), fx, 44100.0);
+    let (l, _) = v.tick();
+    assert_eq!(l, 0.5); // round(0.3*2)/2 = round(0.6)/2 = 1/2
+}
+
+#[test]
+fn coarse_holds_samples() {
+    // coarse=3: a ramping source is held for 3-sample windows
+    struct Ramp(f32);
+    impl VoiceLike for Ramp {
+        fn tick(&mut self) -> (f32, f32) {
+            self.0 += 1.0;
+            (self.0, self.0)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+        fn room(&self) -> f32 {
+            0.0
+        }
+        fn delay_send(&self) -> f32 {
+            0.0
+        }
+    }
+    let fx = PostFx {
+        coarse: Some(3.0),
+        postgain: 1.0,
+        shapevol: 1.0,
+        distortvol: 1.0,
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(Ramp(0.0)), fx, 44100.0);
+    let out: Vec<f32> = (0..6).map(|_| v.tick().0).collect();
+    // first sample of each window held across the window
+    assert_eq!(out, vec![1.0, 1.0, 1.0, 4.0, 4.0, 4.0]);
+}
+
+#[test]
+fn distort_boosts_small_signal() {
+    let fx = PostFx {
+        distort: Some(2.0),
+        postgain: 1.0,
+        shapevol: 1.0,
+        distortvol: 1.0,
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(ConstVoice(0.1)), fx, 44100.0);
+    let (l, _) = v.tick();
+    assert!(l > 0.1, "distortion should boost a small input, got {l}");
+}
+
+#[test]
+fn tremolo_modulates_amplitude() {
+    // depth=1, 100 Hz: gain swings across [0, 1] over one LFO period.
+    let fx = PostFx {
+        tremolo: Some(100.0),
+        tremolodepth: 1.0,
+        ..Default::default()
+    };
+    let sr = 44100.0;
+    let mut v = PostFxVoice::new(Box::new(ConstVoice(1.0)), fx, sr);
+    let period = (sr / 100.0) as usize; // 441 samples
+    let out: Vec<f32> = (0..period).map(|_| v.tick().0).collect();
+    let min = out.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = out.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    assert!(min < 0.05, "tremolo should dip near zero, got min {min}");
+    assert!(max > 0.95, "tremolo should peak near unity, got max {max}");
+    assert!(
+        out.iter().all(|&g| (-0.0001..=1.0001).contains(&g)),
+        "tremolo gain stays within [0, 1]"
+    );
+}
+
+#[test]
+fn phaser_attenuates_tone_at_notch() {
+    // A sine sitting at the phaser's notch center should lose energy versus
+    // the same sine with no phaser.
+    struct SineSource {
+        phase: f32,
+        inc: f32,
+    }
+    impl VoiceLike for SineSource {
+        fn tick(&mut self) -> (f32, f32) {
+            let s = (self.phase * std::f32::consts::TAU).sin();
+            self.phase = (self.phase + self.inc).fract();
+            (s, s)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+        fn room(&self) -> f32 {
+            0.0
+        }
+        fn delay_send(&self) -> f32 {
+            0.0
+        }
+    }
+    let sr = 44100.0;
+    // notch center = phasercenter + 282 = 1282 Hz; sit the tone there.
+    let mk = || SineSource {
+        phase: 0.0,
+        inc: 1282.0 / sr,
+    };
+    let fx = PostFx {
+        phaser: Some(1.0),
+        phaserdepth: 0.95, // low Q -> wide notch
+        phasercenter: 1000.0,
+        phasersweep: 200.0, // narrow sweep so the notch stays near the tone
+        ..Default::default()
+    };
+    let mut plain = mk();
+    let mut phased = PostFxVoice::new(Box::new(mk()), fx, sr);
+    let (mut e_plain, mut e_phased) = (0.0f32, 0.0f32);
+    for _ in 0..4410 {
+        e_plain += plain.tick().0.abs();
+        e_phased += phased.tick().0.abs();
+    }
+    assert!(
+        e_phased < e_plain * 0.7,
+        "phaser notch should attenuate the tone (phased {e_phased} vs plain {e_plain})"
+    );
+}
