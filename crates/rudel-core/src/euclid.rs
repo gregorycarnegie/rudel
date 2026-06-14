@@ -198,15 +198,30 @@ impl Pattern {
 
     /// `euclid` variant that morphs from straight euclidean (`perc = 0`) to an
     /// even pulse (`perc = 1`) (`euclidish`/`eish`). `perc` may be a continuous
-    /// pattern (e.g. `sine.slow(8)`), sampled at each onset.
+    /// pattern (e.g. `sine.slow(8)`), sampled once per cycle.
+    ///
+    /// Mirrors Strudel's `register` patternification: `pulses`/`steps` are pure
+    /// (one hap per cycle), so the morph factory is built per cycle and `perc`
+    /// is sampled by `appLeft` at each cycle's span, then `innerJoin`ed. (A
+    /// plain `perc.inner_bind` would instead sample `perc` once at the query
+    /// start, drifting on later cycles for a continuous signal.)
     pub fn euclidish(&self, pulses: i64, steps: i64, perc: impl IntoPattern) -> Pattern {
         let from = bjorklund(pulses, steps);
         let pat = self.clone();
-        perc.into_pattern().inner_bind(move |by| {
-            let by = by.as_f64().unwrap_or(0.0);
-            pat.struct_pat(morph_pattern(&from, by))
-                .set_steps(Some(Frac::int(steps)))
-        })
+        pure(Value::Bool(true))
+            .fmap(move |_| {
+                let from = from.clone();
+                let pat = pat.clone();
+                Value::func(move |by| {
+                    let by = by.as_f64().unwrap_or(0.0);
+                    let morphed = pat
+                        .struct_pat(morph_pattern(&from, by))
+                        .set_steps(Some(Frac::int(steps)));
+                    Value::Pat(Box::new(morphed))
+                })
+            })
+            .app_left(&perc.into_pattern())
+            .inner_join()
     }
 }
 

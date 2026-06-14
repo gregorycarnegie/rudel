@@ -90,6 +90,32 @@ fn euclidish_and_eish_via_koto() {
 }
 
 #[test]
+fn euclidish_samples_continuous_perc_per_cycle() {
+    // With a continuous `perc` (`sine.slow(8)`), Strudel samples `by` once per
+    // cycle via appLeft (not once at the query start). So a single [0,2) query
+    // must equal querying each cycle separately, and the two cycles must differ
+    // (proving per-cycle sampling rather than a shifted copy).
+    let pat = eval(r#"s("bd").euclidish(7, 12, sine.slow(8))"#).expect("eval");
+    let onset = |b: i64, e: i64| -> Vec<Frac> {
+        let mut hs = pat.query_arc(Frac::int(b), Frac::int(e));
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter().map(|h| h.part.begin).collect()
+    };
+    let single = onset(0, 2);
+    let mut split = onset(0, 1);
+    split.extend(onset(1, 2));
+    assert_eq!(
+        single, split,
+        "single multi-cycle query must match per-cycle"
+    );
+
+    // relative onsets within each cycle differ -> `by` was re-sampled per cycle.
+    let cyc0: Vec<Frac> = onset(0, 1);
+    let cyc1: Vec<Frac> = onset(1, 2).iter().map(|t| *t - Frac::one()).collect();
+    assert_ne!(cyc0, cyc1, "continuous perc should vary by cycle");
+}
+
+#[test]
 fn bjork_tuple_via_koto() {
     // bjork([3,8,2]) == euclidRot(3,8,2), as method and standalone.
     let bjork = eval(r#"s("bd").bjork([3, 8, 2])"#).expect("eval");
