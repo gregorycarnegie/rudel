@@ -7,6 +7,46 @@ fn values(pat: &Pattern, b: i64, e: i64) -> Vec<Value> {
     haps.into_iter().map(|h| h.value).collect()
 }
 
+/// Haps as `(begin, end, value)`, ordered, ignoring source-location context so
+/// two spellings of the same pattern can be compared.
+fn shape(pat: &Pattern, cycles: i64) -> Vec<(Frac, Frac, Value)> {
+    let mut haps: Vec<(Frac, Frac, Value)> = pat
+        .query_arc(Frac::zero(), Frac::int(cycles))
+        .into_iter()
+        .map(|h| (h.part.begin, h.part.end, h.value))
+        .collect();
+    haps.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    haps
+}
+
+#[test]
+fn standalone_transforms_match_their_methods() {
+    // Strudel registers transforms both as methods and as curried standalone
+    // functions; the standalone form takes the pattern last. Each pairing must
+    // produce identical haps.
+    let pairs = [
+        (r#"fast(2, s("bd sd"))"#, r#"s("bd sd").fast(2)"#),
+        (r#"slow(2, s("bd sd"))"#, r#"s("bd sd").slow(2)"#),
+        (r#"ply(2, s("bd sd"))"#, r#"s("bd sd").ply(2)"#),
+        (r#"iter(4, note("0 1 2 3"))"#, r#"note("0 1 2 3").iter(4)"#),
+        (r#"add(7, note("0 1"))"#, r#"note("0 1").add(7)"#),
+        (r#"euclid(3, 8, s("bd"))"#, r#"s("bd").euclid(3, 8)"#),
+        (r#"palindrome(s("bd sd"))"#, r#"s("bd sd").palindrome()"#),
+        (
+            r#"compress(0.25, 0.75, s("bd sd"))"#,
+            r#"s("bd sd").compress(0.25, 0.75)"#,
+        ),
+        (r#"hurry(2, s("bd sd"))"#, r#"s("bd sd").hurry(2)"#),
+        (r#"range(0, 7, n("0 1"))"#, r#"n("0 1").range(0, 7)"#),
+        (r#"chop(2, s("bd"))"#, r#"s("bd").chop(2)"#),
+    ];
+    for (standalone, method) in pairs {
+        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
+    }
+}
+
 #[test]
 fn reference_surface_is_generated_from_the_runtime() {
     let r = crate::reference();

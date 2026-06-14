@@ -1,9 +1,88 @@
 use super::pattern::{
-    KPattern, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value,
+    KPattern, arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value,
     arg_to_weighted_pair, arg0, koto_to_value, pick_args,
 };
 use koto::prelude::*;
 use rudel_core::{Frac, Pattern, PickJoin, Value};
+
+/// Register the standalone (curried-style) form of pattern transforms that are
+/// also methods, taking the pattern as the *last* argument to mirror Strudel's
+/// `register`ed functions (`fast(2, pat)` == `pat.fast(2)`). Each group matches
+/// the argument types in `generated.rs`'s `kpattern_methods!`. Koto has no
+/// partial application, so only the fully-applied form is provided.
+macro_rules! register_pattern_fns {
+    ($p:expr;
+     pattern1: [$($a1:ident),* $(,)?];
+     noarg:    [$($a0:ident),* $(,)?];
+     i64_1:    [$($b1:ident),* $(,)?];
+     frac1:    [$($c1:ident),* $(,)?];
+     f64_2:    [$($d2:ident),* $(,)?];
+     frac2:    [$($e2:ident),* $(,)?];
+     i64_2:    [$($f2:ident),* $(,)?];
+     pat2:     [$($g2:ident),* $(,)?];
+    ) => {{
+        // The pattern is the last argument; a leading arg only exists when
+        // there is something before it (otherwise it would be the pattern).
+        $($p.add_fn(stringify!($a1), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.$a1(x)).into())
+        });)*
+        $($p.add_fn(stringify!($a0), |ctx| {
+            let a = ctx.args();
+            let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.$a0()).into())
+        });)*
+        $($p.add_fn(stringify!($b1), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
+            Ok(KPattern(pat.$b1(n)).into())
+        });)*
+        $($p.add_fn(stringify!($c1), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let n = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
+            Ok(KPattern(pat.$c1(n)).into())
+        });)*
+        $($p.add_fn(stringify!($d2), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
+            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.$d2(x, y)).into())
+        });)*
+        $($p.add_fn(stringify!($e2), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
+            let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
+            Ok(KPattern(pat.$e2(x, y)).into())
+        });)*
+        $($p.add_fn(stringify!($f2), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
+            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)) as i64;
+            Ok(KPattern(pat.$f2(x, y)).into())
+        });)*
+        $($p.add_fn(stringify!($g2), |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
+            let y = arg_to_pattern(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.$g2(x, y)).into())
+        });)*
+    }};
+}
 
 /// Add the rudel top-level functions to a Koto prelude.
 pub(crate) fn register(prelude: &KMap) {
@@ -311,4 +390,20 @@ pub(crate) fn register(prelude: &KMap) {
             .filter(|c| *c >= 1);
         Ok(KPattern(rudel_core::cc_in(cc, chan)).into())
     });
+
+    // Standalone (curried-style) forms of the common transforms, so Strudel
+    // code written as `fast(2, pat)` works as well as `pat.fast(2)`. `rev` is
+    // registered above. Function-callback transforms (`every`/`jux`/...) are
+    // not yet exposed standalone (they would need partial application, which
+    // Koto lacks).
+    register_pattern_fns!(prelude;
+        pattern1: [fast, slow, ply, segment, seg, add, sub, mul, div, early, late];
+        noarg:    [palindrome, degrade, press, brak];
+        i64_1:    [iter, chop, striate, take, drop, shuffle, scramble];
+        frac1:    [hurry, swing];
+        f64_2:    [range];
+        frac2:    [compress, zoom];
+        i64_2:    [euclid];
+        pat2:     [slice, splice];
+    );
 }
