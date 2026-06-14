@@ -11,8 +11,8 @@ use std::cell::RefCell;
 /// The transform argument must be a function value (`rev`, `|x| x.fast(2)`),
 /// since Koto can't partially apply `fast(2)` into a function.
 pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
-    // The pattern is the last arg and the callback the one before it; any
-    // leading args (count `n`, time `t`, bounds `a`/`b`) come first.
+    // The pattern is the last arg and the transform function the one before it;
+    // any leading args (count `n`, time `t`, bounds `a`/`b`) come first.
     fn func_and_pat(ctx: &CallContext) -> (KValue, Pattern) {
         let a = ctx.args();
         let func = a
@@ -23,13 +23,15 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
             .unwrap_or(KValue::Null);
         (func, arg_to_pattern(a.last().unwrap_or(&KValue::Null)))
     }
-    fn lead<'a>(ctx: &'a CallContext, i: usize, min_args: usize) -> &'a KValue {
+    // Leading arg `i` (before the function and pattern), or Null if absent.
+    fn lead<'a>(ctx: &'a CallContext, i: usize) -> &'a KValue {
         let a = ctx.args();
-        a.get(i)
-            .filter(|_| a.len() >= min_args)
-            .unwrap_or(&KValue::Null)
+        let present = a.len().checked_sub(2).is_some_and(|leading| i < leading);
+        a.get(i).filter(|_| present).unwrap_or(&KValue::Null)
     }
 
+    // Each macro registers a callback combinator group; `$name` is the
+    // Strudel-facing name (snake or camelCase) and `$m` the core method.
     macro_rules! cb_only {
         ($($name:literal => $m:ident),* $(,)?) => {$(
             prelude.add_fn($name, |ctx| {
@@ -41,44 +43,91 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
             });
         )*};
     }
-    cb_only! {
-        "superimpose" => superimpose,
-        "jux" => jux,
-        "sometimes" => sometimes,
-        "often" => often,
-        "rarely" => rarely,
+    macro_rules! cb_i64 {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let n = arg_to_f64(lead(ctx, 0)) as i64;
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let out = pat.$m(n, |p| cb.apply(p));
+                cb.finish()?;
+                Ok(KPattern(out).into())
+            });
+        )*};
+    }
+    macro_rules! cb_f64 {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let n = arg_to_f64(lead(ctx, 0));
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let out = pat.$m(n, |p| cb.apply(p));
+                cb.finish()?;
+                Ok(KPattern(out).into())
+            });
+        )*};
+    }
+    macro_rules! cb_frac {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let n = Frac::from_f64(arg_to_f64(lead(ctx, 0)));
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let out = pat.$m(n, |p| cb.apply(p));
+                cb.finish()?;
+                Ok(KPattern(out).into())
+            });
+        )*};
+    }
+    macro_rules! cb_pat {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let x = arg_to_pattern(lead(ctx, 0));
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let out = pat.$m(x, |p| cb.apply(p));
+                cb.finish()?;
+                Ok(KPattern(out).into())
+            });
+        )*};
+    }
+    macro_rules! cb_frac2 {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.add_fn($name, |ctx| {
+                let a = Frac::from_f64(arg_to_f64(lead(ctx, 0)));
+                let b = Frac::from_f64(arg_to_f64(lead(ctx, 1)));
+                let (func, pat) = func_and_pat(ctx);
+                let cb = Callback::from_call_ctx(ctx, func);
+                let out = pat.$m(a, b, |p| cb.apply(p));
+                cb.finish()?;
+                Ok(KPattern(out).into())
+            });
+        )*};
     }
 
-    // every(n, f, pat)
-    prelude.add_fn("every", |ctx| {
-        let n = arg_to_f64(lead(ctx, 0, 3)) as i64;
-        let (func, pat) = func_and_pat(ctx);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = pat.every(n, |p| cb.apply(p));
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    });
-
-    // off(t, f, pat)
-    prelude.add_fn("off", |ctx| {
-        let t = arg_to_pattern(lead(ctx, 0, 3));
-        let (func, pat) = func_and_pat(ctx);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = pat.off(t, |p| cb.apply(p));
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    });
-
-    // within(a, b, f, pat)
-    prelude.add_fn("within", |ctx| {
-        let a = Frac::from_f64(arg_to_f64(lead(ctx, 0, 4)));
-        let b = Frac::from_f64(arg_to_f64(lead(ctx, 1, 4)));
-        let (func, pat) = func_and_pat(ctx);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = pat.within(a, b, |p| cb.apply(p));
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    });
+    cb_only! {
+        "superimpose" => superimpose, "jux" => jux,
+        "sometimes" => sometimes, "often" => often, "rarely" => rarely,
+        "almostAlways" => almost_always, "almost_always" => almost_always,
+        "almostNever" => almost_never, "almost_never" => almost_never,
+        "someCycles" => some_cycles, "some_cycles" => some_cycles,
+        "apply" => apply, "always" => always, "never" => never,
+    }
+    cb_i64! {
+        "every" => every,
+        "firstOf" => first_of, "first_of" => first_of,
+        "lastOf" => last_of, "last_of" => last_of,
+        "chunk" => chunk,
+        "chunkBack" => chunk_back, "chunk_back" => chunk_back,
+    }
+    cb_f64! {
+        "juxBy" => jux_by, "jux_by" => jux_by,
+        "sometimesBy" => sometimes_by, "sometimes_by" => sometimes_by,
+        "someCyclesBy" => some_cycles_by, "some_cycles_by" => some_cycles_by,
+    }
+    cb_frac! { "inside" => inside, "outside" => outside }
+    cb_pat! { "off" => off, "when" => when }
+    cb_frac2! { "within" => within }
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the

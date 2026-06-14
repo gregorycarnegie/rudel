@@ -43,44 +43,55 @@ macro_rules! register_pick_fns {
 /// partial application, so only the fully-applied form is provided.
 macro_rules! register_pattern_fns {
     ($p:expr;
-     pattern1: [$($a1:ident),* $(,)?];
-     noarg:    [$($a0:ident),* $(,)?];
-     i64_1:    [$($b1:ident),* $(,)?];
-     frac1:    [$($c1:ident),* $(,)?];
-     f64_2:    [$($d2:ident),* $(,)?];
-     frac2:    [$($e2:ident),* $(,)?];
-     i64_2:    [$($f2:ident),* $(,)?];
-     pat2:     [$($g2:ident),* $(,)?];
+     pattern1: [$($n_a1:literal => $a1:ident),* $(,)?];
+     noarg:    [$($n_a0:literal => $a0:ident),* $(,)?];
+     i64_1:    [$($n_b1:literal => $b1:ident),* $(,)?];
+     f64_1:    [$($n_h1:literal => $h1:ident),* $(,)?];
+     frac1:    [$($n_c1:literal => $c1:ident),* $(,)?];
+     f64_2:    [$($n_d2:literal => $d2:ident),* $(,)?];
+     frac2:    [$($n_e2:literal => $e2:ident),* $(,)?];
+     i64_2:    [$($n_f2:literal => $f2:ident),* $(,)?];
+     i64_3:    [$($n_i3:literal => $i3:ident),* $(,)?];
+     i64_frac_f64: [$($n_ja:literal => $ja:ident),* $(,)?];
+     i64_f64_frac: [$($n_jb:literal => $jb:ident),* $(,)?];
+     pat2:     [$($n_g2:literal => $g2:ident),* $(,)?];
     ) => {{
-        // The pattern is the last argument; a leading arg only exists when
-        // there is something before it (otherwise it would be the pattern).
-        $($p.add_fn(stringify!($a1), |ctx| {
+        // The pattern is the last argument; leading arg `i` exists only when
+        // `i < last` (otherwise it would be the pattern itself).
+        $($p.add_fn($n_a1, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$a1(x)).into())
         });)*
-        $($p.add_fn(stringify!($a0), |ctx| {
+        $($p.add_fn($n_a0, |ctx| {
             let a = ctx.args();
             let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$a0()).into())
         });)*
-        $($p.add_fn(stringify!($b1), |ctx| {
+        $($p.add_fn($n_b1, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
             Ok(KPattern(pat.$b1(n)).into())
         });)*
-        $($p.add_fn(stringify!($c1), |ctx| {
+        $($p.add_fn($n_h1, |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.$h1(n)).into())
+        });)*
+        $($p.add_fn($n_c1, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let n = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
             Ok(KPattern(pat.$c1(n)).into())
         });)*
-        $($p.add_fn(stringify!($d2), |ctx| {
+        $($p.add_fn($n_d2, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
@@ -88,7 +99,7 @@ macro_rules! register_pattern_fns {
             let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$d2(x, y)).into())
         });)*
-        $($p.add_fn(stringify!($e2), |ctx| {
+        $($p.add_fn($n_e2, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
@@ -96,7 +107,7 @@ macro_rules! register_pattern_fns {
             let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
             Ok(KPattern(pat.$e2(x, y)).into())
         });)*
-        $($p.add_fn(stringify!($f2), |ctx| {
+        $($p.add_fn($n_f2, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
@@ -104,7 +115,34 @@ macro_rules! register_pattern_fns {
             let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)) as i64;
             Ok(KPattern(pat.$f2(x, y)).into())
         });)*
-        $($p.add_fn(stringify!($g2), |ctx| {
+        $($p.add_fn($n_i3, |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
+            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)) as i64;
+            let z = arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null)) as i64;
+            Ok(KPattern(pat.$i3(x, y, z)).into())
+        });)*
+        $($p.add_fn($n_ja, |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
+            let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
+            let z = arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.$ja(x, y, z)).into())
+        });)*
+        $($p.add_fn($n_jb, |ctx| {
+            let a = ctx.args();
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
+            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
+            let z = Frac::from_f64(arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null)));
+            Ok(KPattern(pat.$jb(x, y, z)).into())
+        });)*
+        $($p.add_fn($n_g2, |ctx| {
             let a = ctx.args();
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
@@ -373,21 +411,63 @@ pub(crate) fn register(prelude: &KMap) {
         Ok(KPattern(rudel_core::cc_in(cc, chan)).into())
     });
 
-    // Standalone (curried-style) forms of the common transforms, so Strudel
-    // code written as `fast(2, pat)` works as well as `pat.fast(2)`. `rev` is
-    // registered above. Function-callback transforms (`every`/`jux`/...) are
-    // not yet exposed standalone (they would need partial application, which
-    // Koto lacks). The function-callback combinators are registered separately
-    // since their `Callback` plumbing lives in the pattern module.
+    // Standalone (curried-style) forms of the transforms, so Strudel code
+    // written as `fast(2, pat)` / `jux(rev, pat)` works as well as the method
+    // forms, under both snake_case and Strudel's camelCase names. `rev` is
+    // registered above. The function-callback combinators are registered
+    // separately since their `Callback` plumbing lives in the pattern module.
     super::pattern::register_standalone_callbacks(prelude);
     register_pattern_fns!(prelude;
-        pattern1: [fast, slow, ply, segment, seg, add, sub, mul, div, early, late];
-        noarg:    [palindrome, degrade, press, brak];
-        i64_1:    [iter, chop, striate, take, drop, shuffle, scramble];
-        frac1:    [hurry, swing];
-        f64_2:    [range];
-        frac2:    [compress, zoom];
-        i64_2:    [euclid];
-        pat2:     [slice, splice];
+        pattern1: [
+            "fast" => fast, "slow" => slow, "ply" => ply,
+            "segment" => segment, "seg" => seg,
+            "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
+            "set" => set, "keep" => keep, "mask" => mask,
+            "early" => early, "late" => late,
+            "fastGap" => fast_gap, "fast_gap" => fast_gap,
+            "transpose" => transpose, "trans" => trans,
+            "scaleTranspose" => scale_transpose, "scale_transpose" => scale_transpose,
+            "scaleTrans" => strans, "strans" => strans,
+        ];
+        noarg: [
+            "palindrome" => palindrome, "degrade" => degrade, "undegrade" => undegrade,
+            "press" => press, "brak" => brak, "ratio" => ratio, "fit" => fit,
+        ];
+        i64_1: [
+            "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back,
+            "repeatCycles" => repeat_cycles, "repeat_cycles" => repeat_cycles,
+            "expand" => expand, "extend" => extend, "contract" => contract,
+            "shrink" => shrink, "grow" => grow,
+            "chop" => chop, "striate" => striate, "take" => take, "drop" => drop,
+            "rootNotes" => root_notes, "root_notes" => root_notes,
+            "shuffle" => shuffle, "scramble" => scramble,
+        ];
+        f64_1: [
+            "degradeBy" => degrade_by, "degrade_by" => degrade_by,
+            "undegradeBy" => undegrade_by, "undegrade_by" => undegrade_by,
+        ];
+        frac1: [
+            "hurry" => hurry, "swing" => swing,
+            "pressBy" => press_by, "press_by" => press_by,
+            "loopAt" => loop_at, "loop_at" => loop_at,
+            "pace" => pace, "seed" => seed,
+        ];
+        f64_2: ["range" => range, "range2" => range2, "rangex" => rangex];
+        frac2: [
+            "focus" => focus, "compress" => compress, "zoom" => zoom,
+            "ribbon" => ribbon, "rib" => rib,
+            "swingBy" => swing_by, "swing_by" => swing_by,
+        ];
+        i64_2: [
+            "euclid" => euclid,
+            "euclidLegato" => euclid_legato, "euclid_legato" => euclid_legato,
+        ];
+        i64_3: [
+            "euclidRot" => euclid_rot, "euclid_rot" => euclid_rot,
+            "euclidLegatoRot" => euclid_legato_rot, "euclid_legato_rot" => euclid_legato_rot,
+        ];
+        i64_frac_f64: ["echo" => echo];
+        i64_f64_frac: ["stut" => stut];
+        pat2: ["slice" => slice, "splice" => splice];
     );
 }

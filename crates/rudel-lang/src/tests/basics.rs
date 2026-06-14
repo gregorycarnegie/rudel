@@ -63,6 +63,175 @@ fn standalone_callback_transforms_match_their_methods() {
 }
 
 #[test]
+fn standalone_long_tail_matches_methods_and_camelcase_aliases() {
+    // The long tail of standalone forms, exercising the extra arg groups and
+    // Strudel's camelCase names against the equivalent methods.
+    let pairs = [
+        (r#"fastGap(2, s("a b"))"#, r#"s("a b").fastGap(2)"#),
+        (
+            r#"iterBack(2, note("0 1 2 3"))"#,
+            r#"note("0 1 2 3").iterBack(2)"#,
+        ),
+        (r#"expand(2, s("a b"))"#, r#"s("a b").expand(2)"#),
+        (r#"range2(0, 7, n("0 1"))"#, r#"n("0 1").range2(0, 7)"#),
+        (r#"focus(0, 0.5, s("a b"))"#, r#"s("a b").focus(0, 0.5)"#),
+        (
+            r#"swingBy(0.25, 4, s("a b c d"))"#,
+            r#"s("a b c d").swingBy(0.25, 4)"#,
+        ),
+        (
+            r#"euclidLegato(3, 8, s("bd"))"#,
+            r#"s("bd").euclidLegato(3, 8)"#,
+        ),
+        (
+            r#"euclidRot(3, 8, 1, s("bd"))"#,
+            r#"s("bd").euclidRot(3, 8, 1)"#,
+        ),
+        (
+            r#"echo(3, 0.125, 0.5, s("bd"))"#,
+            r#"s("bd").echo(3, 0.125, 0.5)"#,
+        ),
+        (
+            r#"stut(3, 0.5, 0.125, s("bd"))"#,
+            r#"s("bd").stut(3, 0.5, 0.125)"#,
+        ),
+        (r#"degradeBy(0.4, s("a*8"))"#, r#"s("a*8").degradeBy(0.4)"#),
+        // callback long tail (i64/f64/frac/pattern + function)
+        (
+            r#"firstOf(2, |x| x.fast(2), s("a b"))"#,
+            r#"s("a b").firstOf(2, |x| x.fast(2))"#,
+        ),
+        (
+            r#"chunk(2, |x| x.fast(2), s("a b c d"))"#,
+            r#"s("a b c d").chunk(2, |x| x.fast(2))"#,
+        ),
+        (
+            r#"juxBy(0.5, rev, s("a b"))"#,
+            r#"s("a b").juxBy(0.5, |x| x.rev())"#,
+        ),
+        (
+            r#"inside(2, rev, s("a b c d"))"#,
+            r#"s("a b c d").inside(2, |x| x.rev())"#,
+        ),
+        (
+            r#"someCycles(|x| x.fast(2), s("a b"))"#,
+            r#"s("a b").someCycles(|x| x.fast(2))"#,
+        ),
+    ];
+    for (standalone, method) in pairs {
+        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
+    }
+}
+
+#[test]
+fn standalone_transform_names_are_all_registered() {
+    // Completeness guard: every transform that should have a standalone form is
+    // exposed as a top-level function (in both snake and camelCase where they
+    // differ).
+    let reference = crate::reference();
+    let funcs: std::collections::HashSet<&str> =
+        reference.functions.iter().map(String::as_str).collect();
+    let expected = [
+        "fast",
+        "slow",
+        "ply",
+        "segment",
+        "add",
+        "sub",
+        "mul",
+        "div",
+        "early",
+        "late",
+        "fastGap",
+        "fast_gap",
+        "transpose",
+        "scaleTranspose",
+        "scaleTrans",
+        "palindrome",
+        "degrade",
+        "undegrade",
+        "press",
+        "brak",
+        "iter",
+        "iterBack",
+        "repeatCycles",
+        "expand",
+        "extend",
+        "contract",
+        "shrink",
+        "grow",
+        "chop",
+        "striate",
+        "take",
+        "drop",
+        "rootNotes",
+        "shuffle",
+        "scramble",
+        "degradeBy",
+        "undegradeBy",
+        "hurry",
+        "swing",
+        "pressBy",
+        "loopAt",
+        "pace",
+        "seed",
+        "range",
+        "range2",
+        "rangex",
+        "focus",
+        "compress",
+        "zoom",
+        "ribbon",
+        "rib",
+        "swingBy",
+        "euclid",
+        "euclidLegato",
+        "euclidRot",
+        "euclidLegatoRot",
+        "echo",
+        "stut",
+        "slice",
+        "splice",
+        // callbacks
+        "superimpose",
+        "jux",
+        "sometimes",
+        "often",
+        "rarely",
+        "almostAlways",
+        "almostNever",
+        "someCycles",
+        "apply",
+        "always",
+        "never",
+        "every",
+        "firstOf",
+        "lastOf",
+        "chunk",
+        "chunkBack",
+        "juxBy",
+        "sometimesBy",
+        "someCyclesBy",
+        "inside",
+        "outside",
+        "off",
+        "when",
+        "within",
+    ];
+    let missing: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|n| !funcs.contains(n))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "standalone functions not registered: {missing:?}"
+    );
+}
+
+#[test]
 fn reference_surface_is_generated_from_the_runtime() {
     let r = crate::reference();
     for f in [
