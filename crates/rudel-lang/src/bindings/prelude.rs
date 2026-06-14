@@ -5,6 +5,37 @@ use super::pattern::{
 use koto::prelude::*;
 use rudel_core::{Frac, Pattern, PickJoin, Value};
 
+macro_rules! register_unary_pattern_fns {
+    ($p:expr; $($name:literal => $f:path),* $(,)?) => {
+        $(
+            $p.add_fn($name, |ctx| {
+                Ok(KPattern($f(arg_to_pattern(&arg0(ctx)))).into())
+            });
+        )*
+    };
+}
+
+macro_rules! register_pattern_list_fns {
+    ($p:expr; $($name:literal => $f:path),* $(,)?) => {
+        $(
+            $p.add_fn($name, |ctx| {
+                let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+                Ok(KPattern($f(&pats)).into())
+            });
+        )*
+    };
+}
+
+macro_rules! register_pick_fns {
+    ($p:expr; $($name:literal => ($modulo:expr, $join:expr)),* $(,)?) => {
+        $(
+            $p.add_fn($name, |ctx| {
+                Ok(KPattern(pick_args(ctx.args(), $modulo, $join)).into())
+            });
+        )*
+    };
+}
+
 /// Register the standalone (curried-style) form of pattern transforms that are
 /// also methods, taking the pattern as the *last* argument to mirror Strudel's
 /// `register`ed functions (`fast(2, pat)` == `pat.fast(2)`). Each group matches
@@ -101,33 +132,19 @@ pub(crate) fn register(prelude: &KMap) {
     });
     prelude.insert("Math", math);
 
-    prelude.add_fn("note", |ctx| {
-        Ok(KPattern(rudel_core::note(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("n", |ctx| {
-        Ok(KPattern(rudel_core::n(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("i", |ctx| {
-        Ok(KPattern(rudel_core::i(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("freq", |ctx| {
-        Ok(KPattern(rudel_core::freq(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("mpe", |ctx| {
-        Ok(KPattern(rudel_core::mpe(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("bendRange", |ctx| {
-        Ok(KPattern(rudel_core::bend_range(arg_to_pattern(&arg0(ctx)))).into())
-    });
+    register_unary_pattern_fns!(prelude;
+        "note" => rudel_core::note,
+        "n" => rudel_core::n,
+        "i" => rudel_core::i,
+        "freq" => rudel_core::freq,
+        "mpe" => rudel_core::mpe,
+        "bendRange" => rudel_core::bend_range,
+        "s" => rudel_core::s,
+        "sound" => rudel_core::sound,
+    );
     prelude.add_fn("getFreq", |ctx| {
         let value = koto_to_value(&arg0(ctx));
         Ok(rudel_core::get_freq(&value).unwrap_or(0.0).into())
-    });
-    prelude.add_fn("s", |ctx| {
-        Ok(KPattern(rudel_core::s(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("sound", |ctx| {
-        Ok(KPattern(rudel_core::sound(arg_to_pattern(&arg0(ctx)))).into())
     });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
     // Strudel-style chord control: `chord("<Am C>").voicing()`.
@@ -146,37 +163,21 @@ pub(crate) fn register(prelude: &KMap) {
             .unwrap_or_else(rudel_core::silence);
         Ok(KPattern(pat.ctrl("id", rudel_core::pure(Value::Str(name)))).into())
     });
-    prelude.add_fn("stack", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::stack(&pats)).into())
-    });
-    prelude.add_fn("cat", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::cat(&pats)).into())
-    });
-    prelude.add_fn("seq", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::fastcat(&pats)).into())
-    });
+    register_pattern_list_fns!(prelude;
+        "stack" => rudel_core::stack,
+        "cat" => rudel_core::cat,
+        "seq" => rudel_core::fastcat,
+    );
 
     // -- Factories ---------------------------------------------------------
-    prelude.add_fn("fastcat", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::fastcat(&pats)).into())
-    });
-    prelude.add_fn("slowcat", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::slowcat(&pats)).into())
-    });
-    prelude.add_fn("randcat", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::randcat(&pats)).into())
-    });
     // chooseCycles is randcat over reified args.
-    prelude.add_fn("chooseCycles", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::randcat(&pats)).into())
-    });
+    register_pattern_list_fns!(prelude;
+        "fastcat" => rudel_core::fastcat,
+        "slowcat" => rudel_core::slowcat,
+        "randcat" => rudel_core::randcat,
+        "chooseCycles" => rudel_core::randcat,
+    );
+
     prelude.add_fn("pure", |ctx| {
         Ok(KPattern(rudel_core::pure(arg_to_value(&arg0(ctx)))).into())
     });
@@ -229,42 +230,23 @@ pub(crate) fn register(prelude: &KMap) {
     // The pick family (strudel core/pick.mjs): select patterns from a list
     // (by index) or a map (by name) via a selector pattern. `pickmod*` wraps
     // out-of-range indices instead of clamping; the suffix picks the join.
-    prelude.add_fn("pick", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Inner)).into())
-    });
-    prelude.add_fn("pickmod", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Inner)).into())
-    });
-    prelude.add_fn("pickOut", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Outer)).into())
-    });
-    prelude.add_fn("pickmodOut", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Outer)).into())
-    });
-    prelude.add_fn("pickReset", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Reset)).into())
-    });
-    prelude.add_fn("pickmodReset", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Reset)).into())
-    });
-    prelude.add_fn("pickRestart", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Restart)).into())
-    });
-    prelude.add_fn("pickmodRestart", |ctx| {
-        Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Restart)).into())
-    });
-    let inhabit = |ctx: &mut CallContext| {
-        Ok(KPattern(pick_args(ctx.args(), false, PickJoin::Squeeze)).into())
-    };
-    prelude.add_fn("inhabit", inhabit);
-    prelude.add_fn("pickSqueeze", inhabit);
-    let inhabitmod =
-        |ctx: &mut CallContext| Ok(KPattern(pick_args(ctx.args(), true, PickJoin::Squeeze)).into());
-    prelude.add_fn("inhabitmod", inhabitmod);
-    prelude.add_fn("pickmodSqueeze", inhabitmod);
     // squeeze(pat, xs): pick from a list with wrapping, squeezing the picked
     // pattern into the selecting event (strudel's standalone `squeeze`).
-    prelude.add_fn("squeeze", inhabitmod);
+    register_pick_fns!(prelude;
+        "pick" => (false, PickJoin::Inner),
+        "pickmod" => (true, PickJoin::Inner),
+        "pickOut" => (false, PickJoin::Outer),
+        "pickmodOut" => (true, PickJoin::Outer),
+        "pickReset" => (false, PickJoin::Reset),
+        "pickmodReset" => (true, PickJoin::Reset),
+        "pickRestart" => (false, PickJoin::Restart),
+        "pickmodRestart" => (true, PickJoin::Restart),
+        "inhabit" => (false, PickJoin::Squeeze),
+        "pickSqueeze" => (false, PickJoin::Squeeze),
+        "inhabitmod" => (true, PickJoin::Squeeze),
+        "pickmodSqueeze" => (true, PickJoin::Squeeze),
+        "squeeze" => (true, PickJoin::Squeeze),
+    );
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
     // m(value, offset): mini-notation with a source offset. Emitted by the
     // preprocessor for every string literal so per-hap locations are absolute
