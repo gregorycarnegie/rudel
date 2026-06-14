@@ -360,14 +360,14 @@ kpattern_methods! {
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano,
+        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert,
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
-        chop, striate, take, drop, root_notes, shuffle, scramble,
+        chop, striate, take, drop, root_notes, shuffle, scramble, replicate,
     ],
     f64_arg: [degrade_by, undegrade_by],
-    frac_arg: [hurry, press_by, swing, loop_at, pace, seed],
+    frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
     pattern_pattern_arg: [slice, splice, bite],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
@@ -441,6 +441,8 @@ kpattern_methods! {
         chord => kpattern_chord,
         #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
         loop_at_cps => kpattern_loop_at_cps,
+        #[koto_method(alias = "applyN")]
+        apply_n => kpattern_apply_n,
         #[koto_method(alias = "eish")]
         euclidish => kpattern_euclidish,
         #[koto_method]
@@ -494,10 +496,10 @@ kpattern_methods! {
         // come from the dynamic registry; only non-control transforms and the
         // keyword-safe `bendRange` spelling are listed here.
         bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose,
-        scaleTrans => strans,
+        scaleTrans => strans, sparsity => slow,
     ],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
-    camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar],
+    camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert],
     camel_noarg_fn: [someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never],
     camel_i64: [
         iterBack => iter_back, repeatCycles => repeat_cycles, rootNotes => root_notes,

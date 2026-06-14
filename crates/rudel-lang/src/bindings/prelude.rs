@@ -203,9 +203,14 @@ pub(crate) fn register(prelude: &KMap) {
     });
     register_pattern_list_fns!(prelude;
         "stack" => rudel_core::stack,
+        "polyrhythm" => rudel_core::stack, // Strudel alias: polyrhythm = stack
+        "pr" => rudel_core::stack,
         "cat" => rudel_core::cat,
         "seq" => rudel_core::fastcat,
+        "sequence" => rudel_core::fastcat,
     );
+    // `nothing` is an alias for `silence`.
+    prelude.add_fn("nothing", |_| Ok(KPattern(rudel_core::silence()).into()));
 
     // -- Factories ---------------------------------------------------------
     // chooseCycles is randcat over reified args.
@@ -445,6 +450,7 @@ pub(crate) fn register(prelude: &KMap) {
     register_pattern_fns!(prelude;
         pattern1: [
             "fast" => fast, "slow" => slow, "ply" => ply,
+            "sparsity" => slow, // Strudel alias (`density` is a control, not fast)
             "segment" => segment, "seg" => seg,
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "mask" => mask,
@@ -459,6 +465,7 @@ pub(crate) fn register(prelude: &KMap) {
         noarg: [
             "palindrome" => palindrome, "degrade" => degrade, "undegrade" => undegrade,
             "press" => press, "brak" => brak, "ratio" => ratio, "fit" => fit,
+            "invert" => invert, "inv" => invert,
         ];
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back,
@@ -467,7 +474,7 @@ pub(crate) fn register(prelude: &KMap) {
             "shrink" => shrink, "grow" => grow,
             "chop" => chop, "striate" => striate, "take" => take, "drop" => drop,
             "rootNotes" => root_notes, "root_notes" => root_notes,
-            "shuffle" => shuffle, "scramble" => scramble,
+            "shuffle" => shuffle, "scramble" => scramble, "replicate" => replicate,
         ];
         f64_1: [
             "degradeBy" => degrade_by, "degrade_by" => degrade_by,
@@ -477,7 +484,7 @@ pub(crate) fn register(prelude: &KMap) {
             "hurry" => hurry, "swing" => swing,
             "pressBy" => press_by, "press_by" => press_by,
             "loopAt" => loop_at, "loop_at" => loop_at, "loopat" => loop_at,
-            "pace" => pace, "seed" => seed,
+            "pace" => pace, "seed" => seed, "linger" => linger,
         ];
         f64_2: ["range" => range, "range2" => range2, "rangex" => rangex];
         frac2: [

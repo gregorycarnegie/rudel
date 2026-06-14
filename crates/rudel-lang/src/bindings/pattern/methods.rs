@@ -69,6 +69,19 @@ pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<K
     Ok(KPattern::wrap(pat.loop_at_cps(factor, cps)))
 }
 
+/// `pat.applyN(n, f)`: apply the callback `f` to the pattern `n` times.
+pub(super) fn kpattern_apply_n(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let n = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let mut result = pat;
+    for _ in 0..n.max(0) {
+        result = cb.apply(&result);
+    }
+    cb.finish()?;
+    Ok(KPattern::wrap(result))
+}
+
 /// `pat.every(n, f)` / `firstOf` (first cycle) and `lastOf` (last cycle), where
 /// `n` may be a pattern (`every("<2 4>", f)`). The callback is applied to the
 /// whole pattern once (eagerly), then placed by a patternified cycle count.

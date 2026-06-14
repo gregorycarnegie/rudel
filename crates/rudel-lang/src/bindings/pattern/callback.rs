@@ -286,6 +286,19 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     cb_frac! { "inside" => inside, "outside" => outside }
     cb_pat! { "off" => off, "when" => when }
     cb_frac2! { "within" => within }
+
+    // applyN(n, f, pat): apply the callback `n` times.
+    prelude.add_fn("applyN", |ctx| {
+        let n = arg_to_f64(lead(ctx, 0)) as i64;
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let mut result = pat;
+        for _ in 0..n.max(0) {
+            result = cb.apply(&result);
+        }
+        cb.finish()?;
+        Ok(KPattern(result).into())
+    });
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the

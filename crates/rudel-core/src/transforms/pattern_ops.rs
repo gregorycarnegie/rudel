@@ -230,6 +230,32 @@ impl Pattern {
         self.jux_by(1.0, f)
     }
 
+    /// Swap true/false in a boolean pattern (`invert`/`inv`).
+    pub fn invert(&self) -> Pattern {
+        self.fmap(|x| Value::Bool(!x.truthy()))
+    }
+
+    /// Repeat the first `t` of the cycle to fill it (`linger`). Negative `t`
+    /// lingers on the *end* of the cycle.
+    pub fn linger(&self, t: Frac) -> Pattern {
+        if t == Frac::zero() {
+            return silence();
+        }
+        if t < Frac::zero() {
+            self.zoom(t + Frac::one(), Frac::one())._slow(t)
+        } else {
+            self.zoom(Frac::zero(), t)._slow(t)
+        }
+    }
+
+    /// Replicate the pattern `factor` times within the cycle, growing the step
+    /// count to match (`replicate`).
+    pub fn replicate(&self, factor: i64) -> Pattern {
+        self.repeat_cycles(factor)
+            ._fast(Frac::int(factor))
+            .expand(factor)
+    }
+
     // -- Echo / stut -------------------------------------------------------
 
     /// Superimpose `times` delayed copies, transformed by `f(copy, i)`

@@ -28,6 +28,56 @@ fn alignment_via_koto() {
 }
 
 #[test]
+fn linger_invert_replicate_applyn_and_aliases() {
+    // linger(0.25): repeat the first quarter (just "0") to fill the cycle.
+    assert_eq!(
+        values(&eval(r#""0 1 2 3".linger(0.25)"#).unwrap(), 0, 1),
+        vec![Value::Int(0); 4]
+    );
+    // invert/inv: flip a boolean pattern.
+    let inv: Vec<bool> = eval(r#""1 0 1".invert()"#)
+        .unwrap()
+        .query_arc(Frac::zero(), Frac::one())
+        .iter()
+        .map(|h| h.value.truthy())
+        .collect();
+    assert_eq!(inv, vec![false, true, false]);
+    // replicate(2) == fast(2) here (one cycle of "0 1" repeated).
+    assert_eq!(
+        values(&eval(r#""0 1".replicate(2)"#).unwrap(), 0, 1),
+        vec![Value::Int(0), Value::Int(1), Value::Int(0), Value::Int(1)]
+    );
+    // applyN(3, +1): apply the callback three times.
+    assert_eq!(
+        values(&eval(r#""0".applyN(3, |x| x.add(1))"#).unwrap(), 0, 1),
+        vec![Value::Int(3)]
+    );
+    // aliases: sparsity == slow (method + standalone), sequence == seq,
+    // polyrhythm == stack, nothing == silence.
+    assert_eq!(
+        values(&eval(r#""0 1".sparsity(2)"#).unwrap(), 0, 1),
+        vec![Value::Int(0)]
+    );
+    assert_eq!(
+        values(&eval(r#"sequence(0, 1, 2)"#).unwrap(), 0, 1).len(),
+        3
+    );
+    assert_eq!(
+        eval(r#"polyrhythm("0 1", "2 3 4")"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .len(),
+        5
+    );
+    assert!(
+        eval(r#"nothing()"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .is_empty()
+    );
+}
+
+#[test]
 fn comparison_and_logic_composers() {
     // Boolean composers (pattern.mjs COMPOSERS). On plain values they compare;
     // their main use is gating `struct`/`mask`. Verified against Strudel.
