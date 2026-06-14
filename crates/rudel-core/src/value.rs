@@ -100,9 +100,18 @@ impl Value {
 
     /// Structural merge of two map values (`value.mjs` `unionWithObj`): keys
     /// present in both are combined with `func`, others are unioned (b wins).
+    ///
+    /// Mirrors the issue #1026 guard: a single-key `{value: x}` right operand is
+    /// a bare scalar wrapped by the compose path, so arithmetic between a control
+    /// map and a scalar is refused — `self` is returned unchanged. (Strudel logs
+    /// `[warn]: Can't do arithmetic on control pattern.`; rudel-core has no
+    /// logger, so the no-op pass-through is the only observable effect.)
     pub fn union_with(&self, other: &Value, func: impl Fn(&Value, &Value) -> Value) -> Value {
         match (self, other) {
             (Value::Map(a), Value::Map(b)) => {
+                if b.len() == 1 && b.contains_key("value") {
+                    return Value::Map(a.clone());
+                }
                 let mut out = a.clone();
                 for (k, bv) in b {
                     out.entry(k.clone())

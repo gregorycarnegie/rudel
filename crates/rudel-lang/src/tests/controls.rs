@@ -278,3 +278,53 @@ fn ftype_control_sets_its_key() {
         other => panic!("expected control map, got {other:?}"),
     }
 }
+
+#[test]
+fn arithmetic_on_a_control_and_a_bare_scalar_is_a_no_op() {
+    // value.mjs `unionWithObj` issue #1026 guard: a control map combined with a
+    // bare scalar (wrapped to `{value: x}`) is refused — the control is returned
+    // unchanged. Verified against current Strudel: `n("0 2 4").add(7)` keeps
+    // `{n:0},{n:2},{n:4}` (Strudel also logs a warning we have no logger for).
+    for src in [
+        r#"n("0 2 4").add(7)"#,
+        r#"n("0 2 4").add("7")"#,
+        r#"n("0 2 4").mul(2)"#,
+    ] {
+        let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        for v in values(&pat, 0, 1) {
+            match v {
+                Value::Map(m) => {
+                    assert_eq!(m.len(), 1, "{src}: scalar leaked into control: {m:?}");
+                    assert!(m.contains_key("n"), "{src}: expected only `n`: {m:?}");
+                }
+                other => panic!("{src}: expected control map, got {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn arithmetic_between_two_controls_combines_on_shared_keys() {
+    // Control-to-control arithmetic still applies the op on shared keys (the
+    // guard only fires for a `{value: x}` scalar right operand).
+    let pat = eval(r#"n("0 2 4").add(n("7"))"#).expect("eval");
+    let ns: Vec<f64> = values(&pat, 0, 1)
+        .iter()
+        .map(|v| match v {
+            Value::Map(m) => m.get("n").and_then(|x| x.as_f64()).expect("n key"),
+            other => panic!("expected control map, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(ns, vec![7.0, 9.0, 11.0]);
+
+    // A scalar on the *left* keeps its wrapped `value` and unions the control
+    // (the guard checks the right operand only).
+    let pat = eval(r#"add(n("10"), "0 2")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("value").and_then(|v| v.as_f64()), Some(0.0));
+            assert_eq!(m.get("n").and_then(|v| v.as_f64()), Some(10.0));
+        }
+        other => panic!("expected merged map, got {other:?}"),
+    }
+}
