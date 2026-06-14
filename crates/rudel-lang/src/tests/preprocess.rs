@@ -1,4 +1,5 @@
 use super::common::*;
+use proptest::prelude::*;
 
 // --- Transpilation / preprocessing parity -------------------------------------
 
@@ -62,5 +63,33 @@ fn arrow_and_pipe_callbacks_are_equivalent() {
         let a = eval(arrow).unwrap_or_else(|e| panic!("arrow eval {arrow}: {e}"));
         let b = eval(pipe).unwrap_or_else(|e| panic!("pipe eval {pipe}: {e}"));
         assert_eq!(values(&a, 0, 2), values(&b, 0, 2), "mismatch for {arrow}");
+    }
+}
+
+proptest! {
+    #[test]
+    fn bare_arrow_rewrites_generated_identifiers(param in "[a-z][a-z0-9_]{0,8}") {
+        let src = format!("f({param} => {param}.fast(2))");
+        let expected = format!("f(|{param}| {param}.fast(2))");
+
+        prop_assert_eq!(preprocess_strudel(&src), expected);
+    }
+
+    #[test]
+    fn parenthesized_arrow_rewrites_generated_identifiers(param in "[a-z][a-z0-9_]{0,8}") {
+        let src = format!("f(({param}) => {param}.rev())");
+        let expected = format!("f(|{param}| {param}.rev())");
+
+        prop_assert_eq!(preprocess_strudel(&src), expected);
+    }
+
+    #[test]
+    fn generated_comparison_is_not_rewritten_as_arrow(
+        lhs in "[a-z][a-z0-9_]{0,8}",
+        rhs in 0i32..128,
+    ) {
+        let src = format!("f({lhs} >= {rhs})");
+
+        prop_assert_eq!(preprocess_strudel(&src), src);
     }
 }

@@ -12,3 +12,6 @@ rudel-core = { path = "../rudel-core" }
 rudel-mini = { path = "../rudel-mini" }
 koto = "0.16.1"
 serde_json = "1.0.150"
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,4 +1,5 @@
 use super::common::*;
+use proptest::prelude::*;
 
 #[test]
 fn voice_produces_sound_then_finishes() {
@@ -262,6 +263,24 @@ fn pulse_width_sets_the_duty_cycle() {
     // pw 0.5 matches the square wave.
     for &p in &[0.1, 0.4, 0.6, 0.9] {
         assert_eq!(Waveform::pulse(p, 0.5), Waveform::Square.sample(p));
+    }
+}
+
+proptest! {
+    #[test]
+    fn pulse_matches_its_threshold_rule(phase in -4.0f32..4.0f32, pw in -1.0f32..2.0f32) {
+        let expected = if phase.rem_euclid(1.0) < pw.clamp(0.0, 1.0) {
+            1.0
+        } else {
+            -1.0
+        };
+
+        prop_assert_eq!(Waveform::pulse(phase, pw), expected);
+    }
+
+    #[test]
+    fn half_width_pulse_matches_square_wave(phase in -4.0f32..4.0f32) {
+        prop_assert_eq!(Waveform::pulse(phase, 0.5), Waveform::Square.sample(phase));
     }
 }
 

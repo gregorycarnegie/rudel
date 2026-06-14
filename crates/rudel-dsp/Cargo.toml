@@ -9,3 +9,6 @@ rust-version.workspace = true
 
 [dependencies]
 rudel-core = { path = "../rudel-core" }
+
+[dev-dependencies]
+proptest.workspace = true

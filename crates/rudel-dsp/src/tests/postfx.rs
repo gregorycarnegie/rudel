@@ -1,4 +1,5 @@
 use super::common::*;
+use proptest::prelude::*;
 
 /// A test voice emitting a fixed stereo value, never done.
 struct ConstVoice(f32);
@@ -68,6 +69,26 @@ fn crush_quantizes_to_levels() {
     assert_eq!(l, 0.5); // round(0.3*2)/2 = round(0.6)/2 = 1/2
 }
 
+proptest! {
+    #[test]
+    fn crush_quantizes_to_the_expected_grid(input in -1.0f32..1.0f32, bits in 1.0f32..8.0f32) {
+        let fx = PostFx {
+            crush: Some(bits),
+            postgain: 1.0,
+            shapevol: 1.0,
+            distortvol: 1.0,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(input)), fx, 44100.0);
+        let (l, r) = v.tick();
+        let grid = 2f32.powf(bits.max(1.0) - 1.0);
+        let expected = (input * grid).round() / grid;
+
+        prop_assert_eq!(l, expected);
+        prop_assert_eq!(r, expected);
+    }
+}
+
 #[test]
 fn coarse_holds_samples() {
     // coarse=3: a ramping source is held for 3-sample windows
@@ -98,6 +119,44 @@ fn coarse_holds_samples() {
     let out: Vec<f32> = (0..6).map(|_| v.tick().0).collect();
     // first sample of each window held across the window
     assert_eq!(out, vec![1.0, 1.0, 1.0, 4.0, 4.0, 4.0]);
+}
+
+proptest! {
+    #[test]
+    fn coarse_holds_the_first_sample_of_each_window(hold in 1u32..16) {
+        struct Ramp(f32);
+        impl VoiceLike for Ramp {
+            fn tick(&mut self) -> (f32, f32) {
+                self.0 += 1.0;
+                (self.0, self.0)
+            }
+            fn is_done(&self) -> bool {
+                false
+            }
+            fn room(&self) -> f32 {
+                0.0
+            }
+            fn delay_send(&self) -> f32 {
+                0.0
+            }
+        }
+
+        let fx = PostFx {
+            coarse: Some(hold as f32),
+            postgain: 1.0,
+            shapevol: 1.0,
+            distortvol: 1.0,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(Ramp(0.0)), fx, 44100.0);
+        let hold = hold as usize;
+        let out: Vec<f32> = (0..(hold * 3)).map(|_| v.tick().0).collect();
+
+        for (idx, sample) in out.into_iter().enumerate() {
+            let expected = ((idx / hold) * hold + 1) as f32;
+            prop_assert_eq!(sample, expected);
+        }
+    }
 }
 
 #[test]

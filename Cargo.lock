@@ -3585,6 +3585,7 @@ dependencies = [
 name = "rudel-dsp"
 version = "0.3.2"
 dependencies = [
+ "proptest",
  "rudel-core",
 ]
 
@@ -3593,6 +3594,7 @@ name = "rudel-lang"
 version = "0.3.2"
 dependencies = [
  "koto",
+ "proptest",
  "rudel-core",
  "rudel-mini",
  "serde_json",
