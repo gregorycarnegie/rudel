@@ -417,6 +417,31 @@ pub(crate) fn register(prelude: &KMap) {
     // registered above. The function-callback combinators are registered
     // separately since their `Callback` plumbing lives in the pattern module.
     super::pattern::register_standalone_callbacks(prelude);
+
+    // euclid morph / tuple-euclid standalone forms (pattern last); their
+    // signatures don't fit the `register_pattern_fns!` arg groups.
+    let euclidish_fn = |ctx: &mut CallContext| {
+        let a = ctx.args();
+        let pulses = arg_to_f64(a.first().unwrap_or(&KValue::Null)) as i64;
+        let steps = arg_to_f64(a.get(1).unwrap_or(&KValue::Null)) as i64;
+        let perc = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
+        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
+        Ok(KPattern(pat.euclidish(pulses, steps, perc)).into())
+    };
+    prelude.add_fn("euclidish", euclidish_fn);
+    prelude.add_fn("eish", euclidish_fn);
+    prelude.add_fn("bjork", |ctx| {
+        let a = ctx.args();
+        let euc: Vec<i64> = match a.first() {
+            Some(KValue::List(l)) => l.data().iter().map(|v| arg_to_f64(v) as i64).collect(),
+            Some(KValue::Tuple(t)) => t.data().iter().map(|v| arg_to_f64(v) as i64).collect(),
+            Some(other) => vec![arg_to_f64(other) as i64],
+            None => vec![],
+        };
+        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
+        Ok(KPattern(pat.bjork(&euc)).into())
+    });
+
     register_pattern_fns!(prelude;
         pattern1: [
             "fast" => fast, "slow" => slow, "ply" => ply,

@@ -443,6 +443,10 @@ kpattern_methods! {
         chord => kpattern_chord,
         #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
         loop_at_cps => kpattern_loop_at_cps,
+        #[koto_method(alias = "eish")]
+        euclidish => kpattern_euclidish,
+        #[koto_method]
+        bjork => kpattern_bjork,
     ],
     choose: [
         #[koto_method]

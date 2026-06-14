@@ -77,6 +77,29 @@ fn loop_at_cps_via_koto() {
 }
 
 #[test]
+fn euclidish_and_eish_via_koto() {
+    // perc=0 == euclid(3,8); the eish alias resolves to the same.
+    let morphed = eval(r#"s("bd").euclidish(3, 8, 0)"#).expect("eval");
+    let plain = eval(r#"s("bd").euclid(3, 8)"#).expect("eval");
+    assert_eq!(shape(&morphed, 1), shape(&plain, 1));
+    let eish = eval(r#"s("bd").eish(3, 8, 0)"#).expect("eval");
+    assert_eq!(shape(&eish, 1), shape(&plain, 1));
+    // standalone form takes the pattern last.
+    let standalone = eval(r#"euclidish(3, 8, 0, s("bd"))"#).expect("eval");
+    assert_eq!(shape(&standalone, 1), shape(&plain, 1));
+}
+
+#[test]
+fn bjork_tuple_via_koto() {
+    // bjork([3,8,2]) == euclidRot(3,8,2), as method and standalone.
+    let bjork = eval(r#"s("bd").bjork([3, 8, 2])"#).expect("eval");
+    let rot = eval(r#"s("bd").euclidRot(3, 8, 2)"#).expect("eval");
+    assert_eq!(shape(&bjork, 1), shape(&rot, 1));
+    let standalone = eval(r#"bjork([3, 8, 2], s("bd"))"#).expect("eval");
+    assert_eq!(shape(&standalone, 1), shape(&rot, 1));
+}
+
+#[test]
 fn factories_stepcat_arrange_polymeter() {
     // stepcat("0 1 2", "3 4") -> 5 evenly-weighted steps
     let pat = eval(r#"stepcat("0 1 2", "3 4")"#).expect("eval");

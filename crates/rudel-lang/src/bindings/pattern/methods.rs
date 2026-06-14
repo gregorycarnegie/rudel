@@ -53,7 +53,7 @@ fn collect_callables(args: &[KValue]) -> Vec<KValue> {
 /// list/tuple of patterns).
 pub(super) fn kpattern_tour(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let pat = ctx.instance()?.0.clone();
-    let many: Vec<Pattern> = collect_callables(&ctx.args)
+    let many: Vec<Pattern> = collect_callables(ctx.args)
         .iter()
         .map(arg_to_pattern)
         .collect();
@@ -69,6 +69,29 @@ pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<K
     Ok(KPattern::wrap(pat.loop_at_cps(factor, cps)))
 }
 
+/// `pat.euclidish(pulses, steps, perc)` / `pat.eish(...)`: euclid morphed from
+/// straight euclidean (`perc=0`) to even pulse (`perc=1`). `perc` may be a
+/// continuous pattern.
+pub(super) fn kpattern_euclidish(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let pulses = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let steps = arg_to_f64(&method_arg(&ctx, 1)) as i64;
+    let perc = arg_to_pattern(&method_arg(&ctx, 2));
+    Ok(KPattern::wrap(pat.euclidish(pulses, steps, perc)))
+}
+
+/// `pat.bjork([pulses, steps, rotation])`: Tidal-style euclid taking a tuple
+/// (a lone number means `steps = pulses`, `rotation = 0`).
+pub(super) fn kpattern_bjork(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let euc: Vec<i64> = match &method_arg(&ctx, 0) {
+        KValue::List(l) => l.data().iter().map(|v| arg_to_f64(v) as i64).collect(),
+        KValue::Tuple(t) => t.data().iter().map(|v| arg_to_f64(v) as i64).collect(),
+        other => vec![arg_to_f64(other) as i64],
+    };
+    Ok(KPattern::wrap(pat.bjork(&euc)))
+}
+
 /// `pat.choose(a, b, ...)` / `pat.choose2(...)`: use this pattern as the 0..1
 /// (or, for `choose2`, -1..1) chooser to select continuously from the values.
 /// Accepts a single list/tuple or bare varargs.
@@ -79,7 +102,7 @@ pub(super) fn kpattern_choose(ctx: MethodContext<KPattern>, bipolar: bool) -> Ko
     } else {
         chooser
     };
-    let pats: Vec<Pattern> = collect_callables(&ctx.args)
+    let pats: Vec<Pattern> = collect_callables(ctx.args)
         .iter()
         .map(arg_to_pattern)
         .collect();
@@ -91,7 +114,7 @@ pub(super) fn kpattern_choose(ctx: MethodContext<KPattern>, bipolar: bool) -> Ko
 /// args.
 pub(super) fn kpattern_layer(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let pat = ctx.instance()?.0.clone();
-    let funcs = collect_callables(&ctx.args);
+    let funcs = collect_callables(ctx.args);
     let mut results = Vec::with_capacity(funcs.len());
     let mut first_err = None;
     for func in funcs {
@@ -143,11 +166,11 @@ pub(super) fn kpattern_arp_with(ctx: MethodContext<KPattern>) -> KotoResult<KVal
         for hap in collected.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
             if let Value::List(notes) = &hap.value {
                 let sig = value_sig(&hap.value);
-                if !table.contains_key(&sig) {
+                table.entry(sig).or_insert_with(|| {
                     let pats: Vec<Pattern> = notes.iter().cloned().map(rudel_core::pure).collect();
                     let chord = rudel_core::fastcat(&pats);
-                    table.insert(sig, cb.apply(&chord));
-                }
+                    cb.apply(&chord)
+                });
             }
         }
     }

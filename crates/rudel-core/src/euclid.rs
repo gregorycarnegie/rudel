@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::fraction::Frac;
+use crate::hap::Hap;
 use crate::pattern::{Pattern, fastcat, pure, silence, timecat};
+use crate::timespan::TimeSpan;
 use crate::transforms::IntoPattern;
 use crate::value::Value;
 
@@ -89,6 +91,55 @@ fn bools_pattern(bools: &[bool]) -> Pattern {
     fastcat(&pats)
 }
 
+/// Strudel's `_morph(from, to, by)` specialised for `euclidish`: morph the
+/// onsets of the euclidean rhythm `from` towards evenly-spaced pulses, by
+/// factor `by` (0 = straight euclidean, 1 = straight pulse). Each onset becomes
+/// a `true` hap of width `1/steps` whose position is interpolated between its
+/// euclidean position (`i/steps`) and its even position (`k/pulses`).
+fn morph_pattern(from: &[bool], by: f64) -> Pattern {
+    let steps = from.len();
+    if steps == 0 {
+        return silence();
+    }
+    let dur = Frac::new(1, steps as i64);
+    let from_pos: Vec<Frac> = from
+        .iter()
+        .enumerate()
+        .filter(|&(_, &on)| on)
+        .map(|(i, _)| Frac::new(i as i64, steps as i64))
+        .collect();
+    let pulses = from_pos.len();
+    if pulses == 0 {
+        return silence();
+    }
+    let by = Frac::from_f64(by);
+    let arcs: Vec<TimeSpan> = from_pos
+        .iter()
+        .enumerate()
+        .map(|(k, &pos_a)| {
+            let pos_b = Frac::new(k as i64, pulses as i64);
+            let b = by * (pos_b - pos_a) + pos_a;
+            TimeSpan::new(b, b + dur)
+        })
+        .collect();
+    Pattern::new(move |state| {
+        let cycle = state.span.begin.sam();
+        let cycle_arc = state.span.cycle_arc();
+        let mut out = Vec::new();
+        for whole in &arcs {
+            if let Some(part) = whole.intersection(&cycle_arc) {
+                out.push(Hap::new(
+                    Some(whole.with_time(|x| x + cycle)),
+                    part.with_time(|x| x + cycle),
+                    Value::Bool(true),
+                ));
+            }
+        }
+        out
+    })
+    .split_queries()
+}
+
 impl Pattern {
     /// Restructure into a Euclidean rhythm (`euclid`).
     pub fn euclid(&self, pulses: i64, steps: i64) -> Pattern {
@@ -134,6 +185,28 @@ impl Pattern {
             .collect();
         self.struct_pat(timecat(&pairs))
             ._late(Frac::new(rotation, steps))
+    }
+
+    /// Tidal-style euclid taking a `[pulses, steps, rotation]` tuple (`bjork`).
+    /// A single element means `steps = pulses` and `rotation = 0`.
+    pub fn bjork(&self, euc: &[i64]) -> Pattern {
+        let pulses = euc.first().copied().unwrap_or(0);
+        let steps = euc.get(1).copied().unwrap_or(pulses);
+        let rotation = euc.get(2).copied().unwrap_or(0);
+        self.struct_pat(bools_pattern(&euclid_rot(pulses, steps, rotation)))
+    }
+
+    /// `euclid` variant that morphs from straight euclidean (`perc = 0`) to an
+    /// even pulse (`perc = 1`) (`euclidish`/`eish`). `perc` may be a continuous
+    /// pattern (e.g. `sine.slow(8)`), sampled at each onset.
+    pub fn euclidish(&self, pulses: i64, steps: i64, perc: impl IntoPattern) -> Pattern {
+        let from = bjorklund(pulses, steps);
+        let pat = self.clone();
+        perc.into_pattern().inner_bind(move |by| {
+            let by = by.as_f64().unwrap_or(0.0);
+            pat.struct_pat(morph_pattern(&from, by))
+                .set_steps(Some(Frac::int(steps)))
+        })
     }
 }
 
@@ -203,6 +276,51 @@ mod tests {
         let shifted = rotated.query_arc(Frac::new(2, 8), Frac::new(3, 8));
         assert_eq!(first_base, Frac::zero());
         assert!(!shifted.is_empty());
+    }
+
+    fn onsets(pat: &Pattern) -> Vec<(Frac, Frac)> {
+        let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+        haps.sort_by_key(|h| h.part.begin);
+        haps.iter()
+            .filter(|h| h.has_onset())
+            .map(|h| {
+                let w = h.whole.unwrap();
+                (w.begin, w.end)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn euclidish_zero_matches_euclid() {
+        // perc=0 is straight euclidean: onsets of euclid(3,8) with width 1/8.
+        let pat = pure(Value::Str("x".into())).euclidish(3, 8, 0.0);
+        assert_eq!(
+            onsets(&pat),
+            vec![
+                (Frac::zero(), Frac::new(1, 8)),
+                (Frac::new(3, 8), Frac::new(4, 8)),
+                (Frac::new(6, 8), Frac::new(7, 8)),
+            ]
+        );
+    }
+
+    #[test]
+    fn euclidish_one_is_even_pulse() {
+        // perc=1 spaces the 3 pulses evenly at 0, 1/3, 2/3 (each width 1/8).
+        let pat = pure(Value::Str("x".into())).euclidish(3, 8, 1.0);
+        let begins: Vec<Frac> = onsets(&pat).into_iter().map(|(b, _)| b).collect();
+        assert_eq!(begins, vec![Frac::zero(), Frac::new(1, 3), Frac::new(2, 3)]);
+    }
+
+    #[test]
+    fn bjork_tuple_matches_euclid_rot() {
+        // bjork([3,8,2]) == euclidRot(3,8,2); a lone number defaults steps=pulses.
+        let a = pure(Value::Str("x".into())).bjork(&[3, 8, 2]);
+        let b = pure(Value::Str("x".into())).euclid_rot(3, 8, 2);
+        assert_eq!(onsets(&a), onsets(&b));
+        let solo = pure(Value::Str("x".into())).bjork(&[3]);
+        let euc = pure(Value::Str("x".into())).euclid(3, 3);
+        assert_eq!(onsets(&solo), onsets(&euc));
     }
 
     proptest! {
