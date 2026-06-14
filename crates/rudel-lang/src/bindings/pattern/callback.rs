@@ -1,10 +1,116 @@
 use super::KPattern;
 use super::args::method_arg;
-use super::convert::{arg_to_f64, arg_to_pattern, koto_to_value, value_to_koto};
+use super::convert::{arg_to_f64, arg_to_pattern, arg_to_value, koto_to_value, value_to_koto};
+use super::methods::value_sig;
 use koto::prelude::*;
 use koto::runtime::{Error as KotoError, Result as KotoResult};
 use rudel_core::{Frac, Pattern, Value};
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Patternify a callback combinator's leading argument when it is a pattern
+/// rather than a scalar (`chunk("<2 4>", f)`, `inside("<2 3>", f)`). The Koto
+/// VM can't run in the query path, so the combinator result is built eagerly
+/// for each distinct argument value seen over a probe window, then selected per
+/// cycle with `innerJoin` — matching Strudel's `register` patternification
+/// (`arg.fmap(v => combinator(v, f, pat)).innerJoin()`). Values first appearing
+/// after the probe window fall back to silence (same limit as `fmap`/`arpWith`).
+fn probe_patternify<F>(arg: Pattern, build: F) -> Pattern
+where
+    F: Fn(&Value) -> Pattern,
+{
+    const PROBE: i64 = 16;
+    let mut table: HashMap<String, Pattern> = HashMap::new();
+    for cycle in 0..PROBE {
+        for hap in arg.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
+            table
+                .entry(value_sig(&hap.value))
+                .or_insert_with(|| build(&hap.value));
+        }
+    }
+    let table = Arc::new(table);
+    arg.fmap(move |v| {
+        let pat = table
+            .get(&value_sig(&v))
+            .cloned()
+            .unwrap_or_else(rudel_core::silence);
+        Value::Pat(Box::new(pat))
+    })
+    .inner_join()
+}
+
+/// Method-side helper for `pat.combinator(n, f)` where the leading numeric arg
+/// may be a scalar (fast path) or a pattern (probed). `conv` maps a value to the
+/// scalar type the core combinator expects; `build` applies the combinator.
+fn with_cb_scalar<T, C, F>(ctx: &MethodContext<KPattern>, conv: C, build: F) -> KotoResult<KValue>
+where
+    C: Fn(&Value) -> T,
+    F: Fn(&Pattern, T, &Callback) -> Pattern,
+{
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(ctx, method_arg(ctx, 1));
+    let arg = method_arg(ctx, 0);
+    let result = if let KValue::Number(_) = &arg {
+        build(&pat, conv(&arg_to_value(&arg)), &cb)
+    } else {
+        probe_patternify(arg_to_pattern(&arg), |v| build(&pat, conv(v), &cb))
+    };
+    cb.finish()?;
+    Ok(KPattern::wrap(result))
+}
+
+pub(super) fn with_cb_i64<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+where
+    F: Fn(&Pattern, i64, &Callback) -> Pattern,
+{
+    with_cb_scalar(ctx, |v| v.as_f64().unwrap_or(0.0) as i64, build)
+}
+
+pub(super) fn with_cb_frac<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+where
+    F: Fn(&Pattern, Frac, &Callback) -> Pattern,
+{
+    with_cb_scalar(ctx, |v| v.to_frac(), build)
+}
+
+pub(super) fn with_cb_f64<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+where
+    F: Fn(&Pattern, f64, &Callback) -> Pattern,
+{
+    with_cb_scalar(ctx, |v| v.as_f64().unwrap_or(0.0), build)
+}
+
+/// Like [`with_cb_scalar`] but for the two-bound `within(a, b, f)`. When either
+/// bound is a pattern, `a` provides the structure and `b` is `appLeft`-sampled
+/// (Strudel's order), and the windowed result is probed per distinct `(a, b)`.
+pub(super) fn with_cb_frac2<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+where
+    F: Fn(&Pattern, Frac, Frac, &Callback) -> Pattern,
+{
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(ctx, method_arg(ctx, 2));
+    let a = method_arg(ctx, 0);
+    let b = method_arg(ctx, 1);
+    let result = if matches!(&a, KValue::Number(_)) && matches!(&b, KValue::Number(_)) {
+        build(
+            &pat,
+            arg_to_value(&a).to_frac(),
+            arg_to_value(&b).to_frac(),
+            &cb,
+        )
+    } else {
+        let paired = arg_to_pattern(&a)
+            .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
+            .app_left(&arg_to_pattern(&b));
+        probe_patternify(paired, |pair| match pair {
+            Value::List(xy) if xy.len() == 2 => build(&pat, xy[0].to_frac(), xy[1].to_frac(), &cb),
+            _ => pat.clone(),
+        })
+    };
+    cb.finish()?;
+    Ok(KPattern::wrap(result))
+}
 
 /// Register the standalone (curried-style) forms of the higher-order callback
 /// combinators, taking the pattern last (`jux(rev, pat)`, `every(4, f, pat)`).
@@ -43,13 +149,21 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
             });
         )*};
     }
+    // Standalone leading numeric arg: scalar fast path, else probe-patternify
+    // (`chunk("<2 4>", f, pat)`), mirroring the method-side `with_cb_*`.
     macro_rules! cb_i64 {
         ($($name:literal => $m:ident),* $(,)?) => {$(
             prelude.add_fn($name, |ctx| {
-                let n = arg_to_f64(lead(ctx, 0)) as i64;
+                let arg = lead(ctx, 0).clone();
                 let (func, pat) = func_and_pat(ctx);
                 let cb = Callback::from_call_ctx(ctx, func);
-                let out = pat.$m(n, |p| cb.apply(p));
+                let out = if let KValue::Number(_) = &arg {
+                    pat.$m(arg_to_f64(&arg) as i64, |p| cb.apply(p))
+                } else {
+                    probe_patternify(arg_to_pattern(&arg), |v| {
+                        pat.$m(v.as_f64().unwrap_or(0.0) as i64, |p| cb.apply(p))
+                    })
+                };
                 cb.finish()?;
                 Ok(KPattern(out).into())
             });
@@ -58,10 +172,16 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     macro_rules! cb_f64 {
         ($($name:literal => $m:ident),* $(,)?) => {$(
             prelude.add_fn($name, |ctx| {
-                let n = arg_to_f64(lead(ctx, 0));
+                let arg = lead(ctx, 0).clone();
                 let (func, pat) = func_and_pat(ctx);
                 let cb = Callback::from_call_ctx(ctx, func);
-                let out = pat.$m(n, |p| cb.apply(p));
+                let out = if let KValue::Number(_) = &arg {
+                    pat.$m(arg_to_f64(&arg), |p| cb.apply(p))
+                } else {
+                    probe_patternify(arg_to_pattern(&arg), |v| {
+                        pat.$m(v.as_f64().unwrap_or(0.0), |p| cb.apply(p))
+                    })
+                };
                 cb.finish()?;
                 Ok(KPattern(out).into())
             });
@@ -70,10 +190,16 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     macro_rules! cb_frac {
         ($($name:literal => $m:ident),* $(,)?) => {$(
             prelude.add_fn($name, |ctx| {
-                let n = Frac::from_f64(arg_to_f64(lead(ctx, 0)));
+                let arg = lead(ctx, 0).clone();
                 let (func, pat) = func_and_pat(ctx);
                 let cb = Callback::from_call_ctx(ctx, func);
-                let out = pat.$m(n, |p| cb.apply(p));
+                let out = if let KValue::Number(_) = &arg {
+                    pat.$m(Frac::from_f64(arg_to_f64(&arg)), |p| cb.apply(p))
+                } else {
+                    probe_patternify(arg_to_pattern(&arg), |v| {
+                        pat.$m(v.to_frac(), |p| cb.apply(p))
+                    })
+                };
                 cb.finish()?;
                 Ok(KPattern(out).into())
             });
@@ -108,11 +234,27 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     macro_rules! cb_frac2 {
         ($($name:literal => $m:ident),* $(,)?) => {$(
             prelude.add_fn($name, |ctx| {
-                let a = Frac::from_f64(arg_to_f64(lead(ctx, 0)));
-                let b = Frac::from_f64(arg_to_f64(lead(ctx, 1)));
+                let a = lead(ctx, 0).clone();
+                let b = lead(ctx, 1).clone();
                 let (func, pat) = func_and_pat(ctx);
                 let cb = Callback::from_call_ctx(ctx, func);
-                let out = pat.$m(a, b, |p| cb.apply(p));
+                let out = if matches!(&a, KValue::Number(_)) && matches!(&b, KValue::Number(_)) {
+                    pat.$m(
+                        Frac::from_f64(arg_to_f64(&a)),
+                        Frac::from_f64(arg_to_f64(&b)),
+                        |p| cb.apply(p),
+                    )
+                } else {
+                    let paired = arg_to_pattern(&a)
+                        .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
+                        .app_left(&arg_to_pattern(&b));
+                    probe_patternify(paired, |pair| match pair {
+                        Value::List(xy) if xy.len() == 2 => {
+                            pat.$m(xy[0].to_frac(), xy[1].to_frac(), |p| cb.apply(p))
+                        }
+                        _ => pat.clone(),
+                    })
+                };
                 cb.finish()?;
                 Ok(KPattern(out).into())
             });

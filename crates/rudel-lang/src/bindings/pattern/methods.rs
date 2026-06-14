@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 /// A stable string key for a chord value, used to memoise `arp_with` callback
 /// results so the (non-`Send`) Koto VM is only touched at construction time.
-fn value_sig(v: &Value) -> String {
+pub(super) fn value_sig(v: &Value) -> String {
     match v {
         Value::Null => "_".into(),
         Value::Bool(b) => format!("b{b}"),

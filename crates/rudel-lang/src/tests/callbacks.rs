@@ -53,6 +53,59 @@ fn chunk_with_koto_callback() {
 }
 
 #[test]
+fn callback_combinators_accept_patterned_args() {
+    // The Koto VM can't run in the query path, so a patterned leading arg is
+    // resolved by probing distinct values and baking the combinator result per
+    // value, then selecting per cycle. Verified hap-for-hap against Strudel.
+    let n_of = |pat: &rudel_core::Pattern, b, e| -> Vec<i64> {
+        let mut hs = pat.query_arc(Frac::int(b), Frac::int(e));
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("n").and_then(|x| x.as_f64()).map(|f| f as i64),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // chunk("<2 4>"): cycle 0 bumps the 1st half (n=2), cycle 1 the 2nd
+    // quarter (n=4).
+    let pat = eval(r#"n("0 1 2 3").chunk("<2 4>", |x| x.add(n(10)))"#).expect("eval");
+    assert_eq!(n_of(&pat, 0, 1), vec![10, 11, 2, 3]);
+    assert_eq!(n_of(&pat, 1, 2), vec![0, 11, 2, 3]);
+
+    // inside("<2 4>", rev): the fast/slow factor varies per cycle.
+    let inside = eval(r#"s("a b c d").inside("<2 4>", rev)"#).expect("eval");
+    let names = |b, e| -> Vec<String> {
+        let mut hs = inside.query_arc(Frac::int(b), Frac::int(e));
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("s").and_then(|x| x.as_str()).map(String::from),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(names(0, 1), vec!["b", "a", "d", "c"]);
+    assert_eq!(names(1, 2), vec!["a", "b", "c", "d"]);
+
+    // sometimesBy("<0 1>") — the randomized probability varies per cycle
+    // (camelCase routes through the patternified path too).
+    let sby = eval(r#"n("0*4").sometimesBy("<0 1>", |x| x.add(n(10)))"#).expect("eval");
+    assert!(n_of(&sby, 0, 1).iter().all(|&v| v == 0)); // prob 0
+    assert_eq!(n_of(&sby, 1, 2), vec![10, 10, 10, 10]); // prob 1
+
+    // within with a patterned bound.
+    let within = eval(r#"n("0 1 2 3").within("<0 0.5>", 0.5, |x| x.add(n(10)))"#).expect("eval");
+    assert_eq!(n_of(&within, 0, 1), vec![10, 11, 12, 3]);
+    assert_eq!(n_of(&within, 1, 2), vec![0, 1, 12, 3]);
+
+    // a scalar leading arg still uses the direct fast path.
+    let scalar = eval(r#"n("0 1 2 3").chunk(4, |x| x.add(n(10)))"#).expect("eval");
+    assert_eq!(n_of(&scalar, 0, 1), vec![10, 1, 2, 3]);
+}
+
+#[test]
 fn off_with_koto_callback() {
     // off(0.25, +12) stacks a shifted, transposed copy: two onsets per cycle
     let pat = eval(r#"note(0).off(0.25, |x| x.add(12))"#).expect("eval");

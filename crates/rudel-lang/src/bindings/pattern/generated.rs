@@ -2,7 +2,7 @@
 
 use super::KPattern;
 use super::args::*;
-use super::callback::with_callback;
+use super::callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64};
 use super::methods::*;
 use koto::derive::*;
 use koto::prelude::*;
@@ -161,28 +161,26 @@ macro_rules! kpattern_methods {
                 }
             )*
 
-            // `pat.method(n, f)` where `n` is an integer and `f` a function.
+            // `pat.method(n, f)` where `n` is an integer (or a pattern of
+            // integers, `chunk("<2 4>", f)`) and `f` a function.
             $(
                 #[koto_method]
                 fn $i64_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_i64_arg(&ctx, 0);
-                    with_callback(&ctx, 1, |pat, cb| pat.$i64_fn_arg_method(n, |p| cb.apply(p)))
+                    with_cb_i64(&ctx, |pat, n, cb| pat.$i64_fn_arg_method(n, |p| cb.apply(p)))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $frac_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_frac_arg(&ctx, 0);
-                    with_callback(&ctx, 1, |pat, cb| pat.$frac_fn_arg_method(n, |p| cb.apply(p)))
+                    with_cb_frac(&ctx, |pat, n, cb| pat.$frac_fn_arg_method(n, |p| cb.apply(p)))
                 }
             )*
 
             $(
                 #[koto_method]
                 fn $f64_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_f64_arg(&ctx, 0);
-                    with_callback(&ctx, 1, |pat, cb| pat.$f64_fn_arg_method(n, |p| cb.apply(p)))
+                    with_cb_f64(&ctx, |pat, n, cb| pat.$f64_fn_arg_method(n, |p| cb.apply(p)))
                 }
             )*
 
@@ -197,9 +195,9 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 fn $frac_frac_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let a = method_frac_arg(&ctx, 0);
-                    let b = method_frac_arg(&ctx, 1);
-                    with_callback(&ctx, 2, |pat, cb| pat.$frac_frac_fn_arg_method(a, b, |p| cb.apply(p)))
+                    with_cb_frac2(&ctx, |pat, a, b, cb| {
+                        pat.$frac_frac_fn_arg_method(a, b, |p| cb.apply(p))
+                    })
                 }
             )*
 
@@ -321,8 +319,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_i64_fn(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_i64_arg(&ctx, 0);
-                    with_callback(&ctx, 1, |pat, cb| pat.$snake_i64_fn(n, |p| cb.apply(p)))
+                    with_cb_i64(&ctx, |pat, n, cb| pat.$snake_i64_fn(n, |p| cb.apply(p)))
                 }
             )*
 
@@ -330,8 +327,7 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 #[allow(non_snake_case)]
                 fn $camel_f64_fn(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let n = method_f64_arg(&ctx, 0);
-                    with_callback(&ctx, 1, |pat, cb| pat.$snake_f64_fn(n, |p| cb.apply(p)))
+                    with_cb_f64(&ctx, |pat, n, cb| pat.$snake_f64_fn(n, |p| cb.apply(p)))
                 }
             )*
         }
