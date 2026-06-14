@@ -3,7 +3,7 @@ use super::args::{
     method_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg, with_pattern_arg,
 };
 use super::callback::{Callback, static_period_pattern};
-use super::convert::{arg_to_pattern, arg_to_raw_str, koto_to_value};
+use super::convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value};
 use super::pick::{is_lookup, lookup_from_koto, pick_from_lookup};
 use crate::bindings::routing::IO_KEY;
 use koto::prelude::*;
@@ -58,6 +58,15 @@ pub(super) fn kpattern_tour(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
         .map(arg_to_pattern)
         .collect();
     Ok(KPattern::wrap(pat.tour(&many)))
+}
+
+/// `pat.loopAtCps(factor, cps)`: like `loopAt` but with an explicit cps
+/// (deprecated in Strudel; kept for parity).
+pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let factor = arg_to_frac(&method_arg(&ctx, 0));
+    let cps = arg_to_f64(&method_arg(&ctx, 1));
+    Ok(KPattern::wrap(pat.loop_at_cps(factor, cps)))
 }
 
 /// `pat.choose(a, b, ...)` / `pat.choose2(...)`: use this pattern as the 0..1

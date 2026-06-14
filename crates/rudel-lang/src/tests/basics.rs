@@ -194,6 +194,7 @@ fn standalone_transform_names_are_all_registered() {
         "stut",
         "slice",
         "splice",
+        "bite",
         // callbacks
         "superimpose",
         "jux",

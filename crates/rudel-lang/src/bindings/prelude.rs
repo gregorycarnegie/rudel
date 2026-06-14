@@ -449,7 +449,7 @@ pub(crate) fn register(prelude: &KMap) {
         frac1: [
             "hurry" => hurry, "swing" => swing,
             "pressBy" => press_by, "press_by" => press_by,
-            "loopAt" => loop_at, "loop_at" => loop_at,
+            "loopAt" => loop_at, "loop_at" => loop_at, "loopat" => loop_at,
             "pace" => pace, "seed" => seed,
         ];
         f64_2: ["range" => range, "range2" => range2, "rangex" => rangex];
@@ -468,6 +468,6 @@ pub(crate) fn register(prelude: &KMap) {
         ];
         i64_frac_f64: ["echo" => echo];
         i64_f64_frac: ["stut" => stut];
-        pat2: ["slice" => slice, "splice" => splice];
+        pat2: ["slice" => slice, "splice" => splice, "bite" => bite];
     );
 }

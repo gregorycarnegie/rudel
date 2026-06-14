@@ -45,6 +45,38 @@ fn slice_via_koto() {
 }
 
 #[test]
+fn bite_via_koto() {
+    // bite(4, "0 2") picks pattern slices 0 and 2, squeezed into each step.
+    let pat = eval(r#"s("a b c d").bite(4, "0 2")"#).expect("eval");
+    let vals = values(&pat, 0, 1);
+    assert_eq!(vals.len(), 2);
+    let names: Vec<Option<&str>> = vals
+        .iter()
+        .map(|v| match v {
+            Value::Map(m) => m.get("s").and_then(|x| x.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, vec![Some("a"), Some("c")]);
+    // standalone form takes the pattern last
+    let standalone = eval(r#"bite(4, "0 2", s("a b c d"))"#).expect("eval");
+    assert_eq!(shape(&standalone, 1), shape(&pat, 1));
+}
+
+#[test]
+fn loop_at_cps_via_koto() {
+    // loopAtCps(2, 1.0): speed = (1/2)*1 = 0.5, unit 'c'.
+    let pat = eval(r#"s("bd").loopAtCps(2, 1.0)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("speed").and_then(|v| v.as_f64()), Some(0.5));
+            assert_eq!(m.get("unit").and_then(|v| v.as_str()), Some("c"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
 fn factories_stepcat_arrange_polymeter() {
     // stepcat("0 1 2", "3 4") -> 5 evenly-weighted steps
     let pat = eval(r#"stepcat("0 1 2", "3 4")"#).expect("eval");

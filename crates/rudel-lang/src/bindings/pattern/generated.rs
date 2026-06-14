@@ -370,7 +370,7 @@ kpattern_methods! {
     ],
     f64_arg: [degrade_by, undegrade_by],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed],
-    pattern_pattern_arg: [slice, splice],
+    pattern_pattern_arg: [slice, splice, bite],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
     i64_i64_arg: [euclid, euclid_legato],
@@ -441,6 +441,8 @@ kpattern_methods! {
         osc => kpattern_osc,
         #[koto_method]
         chord => kpattern_chord,
+        #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
+        loop_at_cps => kpattern_loop_at_cps,
     ],
     choose: [
         #[koto_method]

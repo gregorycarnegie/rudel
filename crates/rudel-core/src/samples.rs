@@ -165,6 +165,43 @@ impl Pattern {
         .set_steps(steps)
     }
 
+    /// Slice this pattern into `n` equal zoomed pieces and trigger them with a
+    /// pattern of indices (`bite`). Like [`slice`](Self::slice), but it slices
+    /// the *pattern* rather than the sample (it zooms instead of setting
+    /// `begin`/`end`), squeezing each selected slice into its step.
+    pub fn bite(&self, npat: impl IntoPattern, ipat: impl IntoPattern) -> Pattern {
+        let pat = self.clone();
+        let npat = npat.into_pattern();
+        ipat.into_pattern()
+            .fmap(move |ival| {
+                let pat = pat.clone();
+                let i = ival.to_frac();
+                Value::func(move |nval| {
+                    let n = nval.to_frac();
+                    if n == Frac::zero() {
+                        return Value::Pat(Box::new(pat.clone()));
+                    }
+                    let q = i / n;
+                    let a = q - q.floor(); // `Fraction.mod(1)`: fractional part
+                    let b = a + Frac::one() / n;
+                    Value::Pat(Box::new(pat.zoom(a, b)))
+                })
+            })
+            .app_left(&npat)
+            .squeeze_join()
+    }
+
+    /// Like [`loop_at`](Self::loop_at) but with an explicit cps (`loopAtCps`,
+    /// deprecated in Strudel in favour of `loopAt`/`fit` with `setCps`).
+    pub fn loop_at_cps(&self, factor: impl Into<Frac>, cps: f64) -> Pattern {
+        let factor = factor.into();
+        let f = factor.to_f64();
+        let speed = if f != 0.0 { (1.0 / f) * cps } else { 0.0 };
+        self.speed(Value::F64(speed))
+            .unit(Value::Str("c".to_string()))
+            .slow(factor)
+    }
+
     /// Stretch each sample to fill its own event duration (`fit`).
     pub fn fit(&self) -> Pattern {
         self.with_haps(|haps, state| {
@@ -333,6 +370,44 @@ mod tests {
         let ms = query_cps(&pat, 1.0);
         assert_eq!(ms.len(), 2);
         assert_eq!(ms[0].get("speed"), Some(&Value::F64(1.0)));
+        assert_eq!(ms[0].get("unit"), Some(&Value::Str("c".to_string())));
+    }
+
+    #[test]
+    fn bite_zooms_pattern_slices_by_index() {
+        // bite(4, "0 2") over `a b c d`: slice 0 is `a`, slice 2 is `c`, each
+        // squeezed into its half-cycle step (matches Strudel hap-for-hap).
+        let pat = sequence(&[s("a"), s("b"), s("c"), s("d")])
+            .bite(4, sequence(&[pure(Value::Int(0)), pure(Value::Int(2))]));
+        let ms = maps(&pat, 0, 1);
+        assert_eq!(ms.len(), 2);
+        assert_eq!(ms[0].get("s"), Some(&Value::Str("a".to_string())));
+        assert_eq!(ms[1].get("s"), Some(&Value::Str("c".to_string())));
+    }
+
+    #[test]
+    fn bite_into_two_replays_index_ranges() {
+        // bite(2, "1 0") over `0 1 2 3`: slice 1 = [2 3], slice 0 = [0 1].
+        let pat = sequence(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+            pure(Value::Int(3)),
+        ])
+        .bite(2, sequence(&[pure(Value::Int(1)), pure(Value::Int(0))]));
+        let vals: Vec<i64> = maps(&pat, 0, 1)
+            .iter()
+            .filter_map(|m| m.get("v").and_then(|v| v.as_f64()).map(|f| f as i64))
+            .collect();
+        assert_eq!(vals, vec![2, 3, 0, 1]);
+    }
+
+    #[test]
+    fn loop_at_cps_uses_explicit_cps() {
+        // loopAtCps(2, 1.0): speed = (1/2)*1 = 0.5, unit 'c', slowed by 2.
+        let pat = s("bd").loop_at_cps(2, 1.0);
+        let ms = query_cps(&pat, 0.5);
+        assert_eq!(ms[0].get("speed"), Some(&Value::F64(0.5)));
         assert_eq!(ms[0].get("unit"), Some(&Value::Str("c".to_string())));
     }
 
