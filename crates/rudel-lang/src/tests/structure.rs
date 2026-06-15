@@ -28,6 +28,54 @@ fn alignment_via_koto() {
 }
 
 #[test]
+fn full_alignment_matrix() {
+    // The out/mix/squeeze/squeezeout/reset/restart/poly variants for every
+    // arithmetic + structural composer (add/sub/mul/div/modulo/pow/set/keep).
+    // Verified hap-for-hap against Strudel.
+    let vals = |src: &str| -> Vec<f64> {
+        eval(src)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .iter()
+            .filter_map(|h| h.value.as_f64())
+            .collect()
+    };
+    assert_eq!(
+        vals(r#""0 10".sub_squeeze("1 2")"#),
+        vec![-1.0, -2.0, 9.0, 8.0]
+    );
+    assert_eq!(
+        vals(r#""2 3 4".mul_poly("10 100")"#),
+        vec![20.0, 300.0, 40.0]
+    );
+    assert_eq!(vals(r#""10 20".div_out("2 5")"#), vec![5.0, 4.0]);
+    assert_eq!(
+        vals(r#""5 7".modulo_out("3 4 5")"#),
+        vec![2.0, 1.0, 3.0, 2.0]
+    );
+    assert_eq!(
+        vals(r#""2 3".pow_squeeze("2 3")"#),
+        vec![4.0, 8.0, 9.0, 27.0]
+    );
+    // squeezein aliases squeeze.
+    assert_eq!(
+        vals(r#""0 10".add_squeezein("1 2")"#),
+        vals(r#""0 10".add_squeeze("1 2")"#)
+    );
+    // bare alignment methods default to the `set` op.
+    assert_eq!(
+        eval(r#"n("0").poly("2 3")"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .len(),
+        eval(r#"n("0").set_poly("2 3")"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .len()
+    );
+}
+
+#[test]
 fn linger_invert_replicate_applyn_and_aliases() {
     // linger(0.25): repeat the first quarter (just "0") to fill the cycle.
     assert_eq!(

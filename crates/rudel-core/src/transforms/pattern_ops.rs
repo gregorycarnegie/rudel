@@ -463,20 +463,11 @@ impl Pattern {
 
     /// Modulo each value by `other` (`mod`).
     pub fn modulo(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), |a, b| match (a, b) {
-            (Value::Int(x), Value::Int(y)) if *y != 0 => Value::Int(x.rem_euclid(*y)),
-            _ => Value::F64(
-                a.as_f64()
-                    .unwrap_or(0.0)
-                    .rem_euclid(b.as_f64().unwrap_or(1.0)),
-            ),
-        })
+        self.op_in(other.into_pattern(), super::core::num_mod)
     }
     /// Raise each value to the power `other` (`pow`).
     pub fn pow(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), |a, b| {
-            Value::F64(a.as_f64().unwrap_or(0.0).powf(b.as_f64().unwrap_or(0.0)))
-        })
+        self.op_in(other.into_pattern(), super::core::num_pow)
     }
 
     /// Reduce `":"`-list values to a single divided number (`ratio`).

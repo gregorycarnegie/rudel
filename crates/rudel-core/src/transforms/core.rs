@@ -126,6 +126,19 @@ fn num_mul(a: &Value, b: &Value) -> Value {
 fn num_div(a: &Value, b: &Value) -> Value {
     Value::F64(a.as_f64().unwrap_or(0.0) / b.as_f64().unwrap_or(1.0))
 }
+pub(crate) fn num_mod(a: &Value, b: &Value) -> Value {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) if *y != 0 => Value::Int(x.rem_euclid(*y)),
+        _ => Value::F64(
+            a.as_f64()
+                .unwrap_or(0.0)
+                .rem_euclid(b.as_f64().unwrap_or(1.0)),
+        ),
+    }
+}
+pub(crate) fn num_pow(a: &Value, b: &Value) -> Value {
+    Value::F64(a.as_f64().unwrap_or(0.0).powf(b.as_f64().unwrap_or(0.0)))
+}
 
 // Comparison / logic value ops (the `lt`/`gt`/.../`and`/`or` COMPOSERS). They
 // compare numerically when both sides are numbers (or numeric strings), else
@@ -186,7 +199,7 @@ fn logic_or(a: &Value, b: &Value) -> Value {
 }
 
 /// The eight pattern alignments Strudel exposes on each operator
-/// (`.add.out`, `.set.squeeze`, ...). `Poly` is not yet ported.
+/// (`.add.out`, `.set.squeeze`, ...), bound in Koto as `add_out`/`set_squeeze`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
     /// Structure from the left (this) pattern. The default.
@@ -512,6 +525,8 @@ impl Pattern {
         set_out set_mix set_squeeze set_squeezeout set_reset set_restart set_poly);
     aligned_variants!(|a: &Value, _b: &Value| a.clone();
         keep_out keep_mix keep_squeeze keep_squeezeout keep_reset keep_restart keep_poly);
+    aligned_variants!(num_mod; modulo_out modulo_mix modulo_squeeze modulo_squeezeout modulo_reset modulo_restart modulo_poly);
+    aligned_variants!(num_pow; pow_out pow_mix pow_squeeze pow_squeezeout pow_reset pow_restart pow_poly);
 
     // -- Time transforms (patternified) ------------------------------------
 

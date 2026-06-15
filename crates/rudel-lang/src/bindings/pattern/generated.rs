@@ -345,12 +345,16 @@ kpattern_methods! {
         // registered dynamically from rudel-core's `control_builders`
         // registry by `extend_control_entries`, so adding a control to the
         // macros in rudel-core/src/controls.rs is all that's needed.
-        // alignment matrix (`in` is the default plain op; these are the rest)
-        add_out, add_mix, add_squeeze, add_squeezeout, add_reset, add_restart,
-        sub_out, mul_out, mul_squeeze, div_out,
-        set_out, set_mix, set_squeeze, set_squeezeout,
-        keep_out, keep_squeeze,
-        add_poly, mul_poly, set_poly, keep_poly,
+        // alignment matrix (`in` is the default plain op; these are the full
+        // out/mix/squeeze/squeezeout/reset/restart/poly set for each composer)
+        add_out, add_mix, add_squeeze, add_squeezeout, add_reset, add_restart, add_poly,
+        sub_out, sub_mix, sub_squeeze, sub_squeezeout, sub_reset, sub_restart, sub_poly,
+        mul_out, mul_mix, mul_squeeze, mul_squeezeout, mul_reset, mul_restart, mul_poly,
+        div_out, div_mix, div_squeeze, div_squeezeout, div_reset, div_restart, div_poly,
+        set_out, set_mix, set_squeeze, set_squeezeout, set_reset, set_restart, set_poly,
+        keep_out, keep_mix, keep_squeeze, keep_squeezeout, keep_reset, keep_restart, keep_poly,
+        modulo_out, modulo_mix, modulo_squeeze, modulo_squeezeout, modulo_reset, modulo_restart, modulo_poly,
+        pow_out, pow_mix, pow_squeeze, pow_squeezeout, pow_reset, pow_restart, pow_poly,
         transpose, scale_transpose, bend_range,
         overlay, arp, trans, strans,
         // multi-control helpers (`adsr` expands into attack/decay/sustain/
@@ -509,6 +513,16 @@ kpattern_methods! {
         // keyword-safe `bendRange` spelling are listed here.
         bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose,
         scaleTrans => strans, sparsity => slow,
+        // Bare alignment methods default to the `set` op (Strudel's
+        // `pat.out(x) == pat.set.out(x)`); `squeezein` aliases `squeeze`.
+        out => set_out, mix => set_mix, squeeze => set_squeeze,
+        squeezeout => set_squeezeout, squeezeOut => set_squeezeout,
+        squeezein => set_squeeze, squeezeIn => set_squeeze,
+        reset => set_reset, restart => set_restart, poly => set_poly,
+        // per-operator squeezein aliases for the arithmetic composers
+        add_squeezein => add_squeeze, sub_squeezein => sub_squeeze,
+        mul_squeezein => mul_squeeze, div_squeezein => div_squeeze,
+        set_squeezein => set_squeeze, keep_squeezein => keep_squeeze,
     ],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
     camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert],
