@@ -2,6 +2,7 @@
 // This is the pure, testable core of the scheduler (no audio device needed).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::clock::Clock;
 use crate::samples::SampleBank;
 use rudel_core::{Pattern, Value, query_controls};
 use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec};
@@ -81,6 +82,9 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
 /// Query `pattern` over the cycle window `[begin_cycle, end_cycle)` and return
 /// note events for every onset, with times converted to seconds via `cps`
 /// (cycles per second). Sample-backed sounds are resolved against `bank`.
+///
+/// Convenience wrapper over [`collect_events_at`] for a clock anchored at the
+/// origin (the common constant-cps case, `onset_seconds = onset_cycle / cps`).
 pub fn collect_events(
     pattern: &Pattern,
     cps: f64,
@@ -88,10 +92,23 @@ pub fn collect_events(
     end_cycle: f64,
     bank: &SampleBank,
 ) -> Vec<NoteEvent> {
-    query_controls(pattern, cps, begin_cycle, end_cycle)
+    collect_events_at(pattern, &Clock::new(cps), begin_cycle, end_cycle, bank)
+}
+
+/// Like [`collect_events`], but maps each onset cycle to a trigger time through
+/// `clock`, so an event's seconds honor the clock's current cps anchor. The
+/// scheduler uses this so onsets stay correct after a live cps change.
+pub fn collect_events_at(
+    pattern: &Pattern,
+    clock: &Clock,
+    begin_cycle: f64,
+    end_cycle: f64,
+    bank: &SampleBank,
+) -> Vec<NoteEvent> {
+    query_controls(pattern, clock.cps(), begin_cycle, end_cycle)
         .into_iter()
         .map(|ev| NoteEvent {
-            onset_seconds: ev.onset_seconds,
+            onset_seconds: clock.seconds_at(ev.onset_cycle),
             spec: spec_for(&ev.controls, ev.duration_seconds as f32, bank),
             fx: PostFx::from_controls(&ev.controls),
             cut: ev

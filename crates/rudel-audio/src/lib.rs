@@ -6,13 +6,16 @@
 
 #![warn(missing_docs)]
 
+/// Cycle/seconds clock with cyclist-style cps re-anchoring.
+pub mod clock;
 /// Note event creation and scheduling logic.
 pub mod events;
 mod sample_map;
 /// In-memory audio sample bank and decoding utilities.
 pub mod samples;
 
-pub use events::{NoteEvent, collect_events, to_control_map};
+pub use clock::Clock;
+pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
 pub use samples::SampleBank;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -21,7 +24,7 @@ use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
 use rudel_dsp::VoiceLike;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -191,7 +194,9 @@ impl Mixer {
 pub struct Engine {
     _stream: cpal::Stream,
     pattern: Arc<RwLock<Pattern>>,
-    cps: Arc<AtomicU64>,
+    /// Cycle/seconds mapping, re-anchored on every live cps change so the
+    /// playhead is continuous across tempo changes (cyclist semantics).
+    clock: Arc<Mutex<Clock>>,
     running: Arc<AtomicBool>,
     bank: Arc<RwLock<SampleBank>>,
     played: Arc<AtomicU64>,
@@ -217,8 +222,7 @@ impl Engine {
         let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
         let played = Arc::new(AtomicU64::new(0));
         let pattern = Arc::new(RwLock::new(rudel_core::silence()));
-        let cps = Arc::new(AtomicU64::new(0));
-        store_f64(&cps, 0.5); // Strudel default cps
+        let clock = Arc::new(Mutex::new(Clock::new(0.5))); // Strudel default cps
         let running = Arc::new(AtomicBool::new(true));
         let bank = Arc::new(RwLock::new(SampleBank::new()));
         let volume = Arc::new(AtomicU64::new(0));
@@ -265,19 +269,19 @@ impl Engine {
         // Scheduler thread.
         {
             let pattern = pattern.clone();
-            let cps = cps.clone();
+            let clock = clock.clone();
             let running = running.clone();
             let played = played.clone();
             let bank = bank.clone();
             std::thread::spawn(move || {
-                scheduler_loop(pattern, cps, running, played, bank, tx, sample_rate)
+                scheduler_loop(pattern, clock, running, played, bank, tx, sample_rate)
             });
         }
 
         Ok(Engine {
             _stream: stream,
             pattern,
-            cps,
+            clock,
             running,
             bank,
             played,
@@ -347,8 +351,12 @@ impl Engine {
     }
 
     /// Set cycles per second (cps). `cpm`/`bpm` can be converted by the caller.
+    /// Re-anchors the clock at the current playhead so the cycle position stays
+    /// continuous across the change (cyclist's `setCps`); a no-op when the rate
+    /// is unchanged.
     pub fn set_cps(&self, cps: f64) {
-        store_f64(&self.cps, cps);
+        let now = self.played.load(Ordering::Relaxed) as f64 / self.sample_rate as f64;
+        self.clock.lock().unwrap().set_cps(now, cps);
     }
 
     /// Set the master audio output volume. `1.0` is unity; values above `1.0`
@@ -376,7 +384,7 @@ impl Engine {
     /// uses `position_cycles().fract()` as the within-cycle playhead.
     pub fn position_cycles(&self) -> f64 {
         let seconds = self.played.load(Ordering::Relaxed) as f64 / self.sample_rate as f64;
-        seconds * load_f64(&self.cps)
+        self.clock.lock().unwrap().cycle_at(seconds)
     }
 
     /// The sound names currently registered in the sample bank, sorted.
@@ -424,7 +432,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn scheduler_loop(
     pattern: Arc<RwLock<Pattern>>,
-    cps: Arc<AtomicU64>,
+    clock: Arc<Mutex<Clock>>,
     running: Arc<AtomicBool>,
     played: Arc<AtomicU64>,
     bank: Arc<RwLock<SampleBank>>,
@@ -434,14 +442,18 @@ fn scheduler_loop(
     let lookahead = 0.1_f64; // seconds scheduled ahead of the audio clock
     let mut scheduled_cycle = 0.0_f64;
     while running.load(Ordering::Relaxed) {
-        let cps_now = load_f64(&cps);
+        // Snapshot the clock so the cycle window and the onset-seconds
+        // conversion below use one consistent mapping even if cps changes.
+        let clock_now = *clock.lock().unwrap();
         let now = played.load(Ordering::Relaxed) as f64 / sample_rate as f64;
+        let current_cycle = clock_now.cycle_at(now);
+        let target_cycle = clock_now.cycle_at(now + lookahead);
         if let Some((begin_cycle, target_cycle)) =
-            next_schedule_window(scheduled_cycle, now, cps_now, lookahead)
+            next_schedule_window(scheduled_cycle, current_cycle, target_cycle)
         {
             let pat = pattern.read().unwrap().clone();
             let bank = bank.read().unwrap();
-            for ev in collect_events(&pat, cps_now, begin_cycle, target_cycle, &bank) {
+            for ev in collect_events_at(&pat, &clock_now, begin_cycle, target_cycle, &bank) {
                 let _ = tx.send(ev);
             }
             scheduled_cycle = target_cycle;
@@ -450,32 +462,29 @@ fn scheduler_loop(
     }
 }
 
+/// Pick the cycle window `[begin, target)` to query next, given where we last
+/// scheduled to (`scheduled_cycle`) and the current/lookahead cycle positions.
+///
+/// - cursor already past the window (e.g. a cps drop shrank the cycle
+///   lookahead): schedule nothing and wait, so nothing is double-triggered;
+/// - cursor behind the live window (the scheduler stalled): snap forward to
+///   `current_cycle`, dropping the backlog rather than firing a burst of
+///   late events;
+/// - cursor inside the window: continue seamlessly from it.
 fn next_schedule_window(
     scheduled_cycle: f64,
-    now_seconds: f64,
-    cps: f64,
-    lookahead_seconds: f64,
+    current_cycle: f64,
+    target_cycle: f64,
 ) -> Option<(f64, f64)> {
-    if cps <= 0.0
-        || lookahead_seconds <= 0.0
-        || !cps.is_finite()
-        || !now_seconds.is_finite()
-        || !lookahead_seconds.is_finite()
-    {
-        return None;
-    }
-
-    let current_cycle = now_seconds * cps;
-    let target_cycle = (now_seconds + lookahead_seconds) * cps;
     if !current_cycle.is_finite() || !target_cycle.is_finite() || target_cycle <= current_cycle {
         return None;
     }
 
-    let cursor_in_window = scheduled_cycle.is_finite()
-        && scheduled_cycle >= current_cycle
-        && scheduled_cycle <= target_cycle;
-    let begin_cycle = if cursor_in_window {
-        scheduled_cycle
+    let begin_cycle = if scheduled_cycle.is_finite() {
+        if scheduled_cycle > target_cycle {
+            return None; // already scheduled past this window — wait for time to catch up
+        }
+        scheduled_cycle.max(current_cycle)
     } else {
         current_cycle
     };
@@ -647,23 +656,52 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_window_continues_with_stable_tempo() {
-        let (begin, end) = next_schedule_window(10.08, 10.0, 1.0, 0.1).unwrap();
+    fn scheduler_window_continues_from_the_cursor() {
+        // cps=1, now=10s, lookahead 0.1 -> current 10.0, target 10.1.
+        let clock = Clock::new(1.0);
+        let (begin, end) =
+            next_schedule_window(10.08, clock.cycle_at(10.0), clock.cycle_at(10.1)).unwrap();
         assert!((begin - 10.08).abs() < 1e-9);
         assert!((end - 10.1).abs() < 1e-9);
     }
 
     #[test]
-    fn scheduler_window_recovers_when_cps_drops() {
-        let (begin, end) = next_schedule_window(20.2, 10.0, 0.5, 0.1).unwrap();
+    fn scheduler_window_snaps_to_current_when_cursor_is_stale() {
+        // A cursor left behind the live window (e.g. after a gap) snaps forward
+        // to current_cycle so no time is double-scheduled.
+        let (begin, end) = next_schedule_window(2.0, 5.0, 5.05).unwrap();
         assert!((begin - 5.0).abs() < 1e-9);
         assert!((end - 5.05).abs() < 1e-9);
     }
 
     #[test]
-    fn scheduler_window_recovers_when_cps_jumps() {
-        let (begin, end) = next_schedule_window(5.05, 10.0, 2.0, 0.1).unwrap();
-        assert!((begin - 20.0).abs() < 1e-9);
-        assert!((end - 20.2).abs() < 1e-9);
+    fn scheduler_window_waits_when_cursor_is_ahead_of_the_window() {
+        // A cursor past the window (e.g. a cps drop shrank the lookahead) must
+        // not re-schedule already-covered cycles — the window is empty.
+        assert!(next_schedule_window(20.0, 5.0, 5.05).is_none());
+    }
+
+    #[test]
+    fn live_cps_change_does_not_double_schedule_or_jump() {
+        // Stable at cps=1; the scheduler has reached cycle ~10.1 by t=10s.
+        let mut clock = Clock::new(1.0);
+        let scheduled = 10.1;
+        // Halving cps at t=10 re-anchors: the cycle position is unchanged (no
+        // jump), and the cycle lookahead shrinks to 0.05.
+        clock.set_cps(10.0, 0.5);
+        assert!(
+            (clock.cycle_at(10.0) - 10.0).abs() < 1e-9,
+            "cps change must not jump cycles"
+        );
+        // Right after the change the cursor (10.1) is past the new target
+        // (10.05), so nothing is scheduled — no double-trigger.
+        assert!(
+            next_schedule_window(scheduled, clock.cycle_at(10.0), clock.cycle_at(10.1)).is_none()
+        );
+        // Once time advances so the cursor enters the window, scheduling
+        // continues seamlessly from it (cycle 10.1 falls at t=10.2s).
+        let (begin, _end) =
+            next_schedule_window(scheduled, clock.cycle_at(10.2), clock.cycle_at(10.3)).unwrap();
+        assert!((begin - scheduled).abs() < 1e-9);
     }
 }
