@@ -10,3 +10,4 @@ mod samples;
 mod signals;
 mod structure;
 mod tonal;
+mod util;

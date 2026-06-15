@@ -184,6 +184,35 @@ pub(crate) fn register(prelude: &KMap) {
         let value = koto_to_value(&arg0(ctx));
         Ok(rudel_core::get_freq(&value).unwrap_or(0.0).into())
     });
+    // Scalar conversion/util helpers from core/util.mjs that a user can reach
+    // from the REPL (the rest of util.mjs is registration/curry/hashing/keyboard
+    // plumbing). These operate on numbers, not patterns.
+    prelude.add_fn("midiToFreq", |ctx| {
+        Ok(rudel_core::midi_to_freq(arg_to_f64(&arg0(ctx))).into())
+    });
+    prelude.add_fn("freqToMidi", |ctx| {
+        Ok(rudel_core::freq_to_midi(arg_to_f64(&arg0(ctx))).into())
+    });
+    prelude.add_fn("noteToMidi", |ctx| {
+        // noteToMidi(note, defaultOctave = 3); throws on a non-note, like Strudel.
+        let value = koto_to_value(&arg0(ctx));
+        let default_octave = ctx.args().get(1).map(arg_to_f64).unwrap_or(3.0) as i32;
+        match value.as_str() {
+            Some(s) => match rudel_core::note_to_midi_with_octave(s, default_octave) {
+                Some(m) => Ok((m as f64).into()),
+                None => runtime_error!("noteToMidi: not a note: \"{s}\""),
+            },
+            None => runtime_error!("noteToMidi: expected a note string"),
+        }
+    });
+    prelude.add_fn("clamp", |ctx| {
+        // clamp(num, min, max) = min(max(num, min), max).
+        let a = ctx.args();
+        let num = arg_to_f64(a.first().unwrap_or(&KValue::Null));
+        let lo = a.get(1).map(arg_to_f64).unwrap_or(0.0);
+        let hi = a.get(2).map(arg_to_f64).unwrap_or(1.0);
+        Ok(num.max(lo).min(hi).into())
+    });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
     // Strudel-style chord control: `chord("<Am C>").voicing()`.
     prelude.add_fn("chord", |ctx| {
