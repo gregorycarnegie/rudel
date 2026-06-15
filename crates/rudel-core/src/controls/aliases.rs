@@ -80,6 +80,9 @@ control_aliases!(
     // sound / amplitude / sample-window aliases
     src => source,
     dur => duration,
+    // `legato` is a Strudel alias of `clip` (`registerControl('clip', 'legato')`),
+    // so `.legato(x)` writes the `clip` key and drives event clipping.
+    legato => clip,
     gat => gate,
     // synth aliases
     det => detune,

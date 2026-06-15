@@ -67,6 +67,21 @@ impl Hap {
         }
     }
 
+    /// The event's *sounding* duration, mirroring Strudel's `Hap.duration`
+    /// getter ("event clipping"): a numeric `duration` control overrides the
+    /// whole's length, and a numeric `clip` control (the canonical key behind
+    /// `clip`/`legato`) multiplies it. This is what feeds the scheduler/synth
+    /// to decide how long an event holds, as opposed to [`duration`](Self::duration),
+    /// which is the structural whole length used by `splice`/`fit`.
+    pub fn clipped_duration(&self) -> Frac {
+        let mut duration =
+            numeric_field(&self.value, "duration").unwrap_or_else(|| self.duration());
+        if let Some(clip) = numeric_field(&self.value, "clip") {
+            duration = duration * clip;
+        }
+        duration
+    }
+
     pub fn whole_or_part(&self) -> TimeSpan {
         self.whole.unwrap_or(self.part)
     }
@@ -123,5 +138,72 @@ impl Hap {
 impl PartialEq for Hap {
     fn eq(&self, other: &Self) -> bool {
         self.span_equals(other) && self.part == other.part && self.value == other.value
+    }
+}
+
+/// Read a control out of a hap value as a [`Frac`], but only when it is a
+/// genuine number (`Int`/`F64`/`Frac`) — matching Strudel's
+/// `typeof value?.key === 'number'` guard, so a string or boolean control is
+/// ignored rather than coerced.
+fn numeric_field(value: &Value, key: &str) -> Option<Frac> {
+    match value {
+        Value::Map(m) => match m.get(key) {
+            Some(v @ (Value::Int(_) | Value::F64(_) | Value::Frac(_))) => Some(v.to_frac()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn span(b: i64, e: i64) -> TimeSpan {
+        TimeSpan::new(Frac::int(b), Frac::int(e))
+    }
+
+    fn map_hap(pairs: &[(&str, Value)]) -> Hap {
+        let m: BTreeMap<String, Value> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        Hap::new(Some(span(0, 1)), span(0, 1), Value::Map(m))
+    }
+
+    #[test]
+    fn clipped_duration_defaults_to_whole() {
+        let hap = Hap::new(Some(span(0, 2)), span(0, 2), Value::Int(0));
+        assert_eq!(hap.clipped_duration(), Frac::int(2));
+    }
+
+    #[test]
+    fn clip_multiplies_whole_duration() {
+        // whole = 1 cycle, clip 0.5 -> 1/2 (Strudel: duration.mul(value.clip)).
+        let hap = map_hap(&[("clip", Value::F64(0.5))]);
+        assert_eq!(hap.clipped_duration(), Frac::new(1, 2));
+    }
+
+    #[test]
+    fn duration_control_overrides_whole_then_clip_multiplies() {
+        // `duration` overrides the whole length; `clip` then multiplies it,
+        // matching the order in Strudel's getter.
+        let hap = map_hap(&[("duration", Value::F64(0.25)), ("clip", Value::Int(2))]);
+        assert_eq!(hap.clipped_duration(), Frac::new(1, 2));
+    }
+
+    #[test]
+    fn non_numeric_clip_is_ignored() {
+        // typeof !== 'number' -> the control is not applied.
+        let hap = map_hap(&[("clip", Value::Str("x".into()))]);
+        assert_eq!(hap.clipped_duration(), Frac::int(1));
+    }
+
+    #[test]
+    fn structural_duration_ignores_clip() {
+        // `duration()` stays the structural whole length (used by splice/fit).
+        let hap = map_hap(&[("clip", Value::F64(0.5))]);
+        assert_eq!(hap.duration(), Frac::int(1));
     }
 }

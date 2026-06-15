@@ -87,7 +87,6 @@ controls!(
     velocity,
     begin,
     end,
-    legato,
     clip,
     unit,
     // synth: supersaw + FM + ADSR shortcuts

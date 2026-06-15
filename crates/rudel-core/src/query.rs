@@ -77,7 +77,7 @@ pub fn query_controls(
         crate::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());
         out.push(ControlEvent {
             onset_seconds: onset_cycle / cps,
-            duration_seconds: hap.duration().to_f64() / cps,
+            duration_seconds: hap.clipped_duration().to_f64() / cps,
             onset_cycle,
             controls,
         });
@@ -153,6 +153,39 @@ mod tests {
         assert_eq!(evs[0].controls.get("note"), Some(&Value::Int(60)));
         // duration in seconds = 1 cycle / cps
         assert!((evs[0].duration_seconds - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn clip_shortens_event_duration_seconds() {
+        // note(60).clip(0.5) at cps=1: the sounding duration is halved even
+        // though the structural whole still spans a full cycle.
+        let pat = note(pure(Value::Int(60))).clip(0.5);
+        let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+        assert!((evs[0].duration_seconds - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn legato_aliases_clip_for_event_duration() {
+        // `.legato(x)` is an alias of `.clip(x)`: it writes the canonical `clip`
+        // key and clips the event, matching Strudel's registerControl aliasing.
+        let pat = note(pure(Value::Int(60))).legato(0.25);
+        let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+        assert!((evs[0].duration_seconds - 0.25).abs() < 1e-9);
+        assert!(evs[0].controls.contains_key("clip"));
+        assert!(!evs[0].controls.contains_key("legato"));
+    }
+
+    #[test]
+    fn duration_control_sets_event_length() {
+        // A 2-step seq has a 1/2-cycle whole, but `.duration(1)` overrides it so
+        // the first event sounds for a full cycle.
+        let pat =
+            note(sequence(&[pure(Value::Int(60)), pure(Value::Int(62))])).duration(1.0);
+        let evs = query_controls(&pat, 1.0, 0.0, 1.0);
+        assert!((evs[0].duration_seconds - 1.0).abs() < 1e-9);
+        // Structural onsets are unchanged: still two events, at 0 and 1/2.
+        assert_eq!(evs.len(), 2);
+        assert!((evs[1].onset_seconds - 0.5).abs() < 1e-9);
     }
 
     #[test]
