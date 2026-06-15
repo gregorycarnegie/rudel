@@ -38,6 +38,21 @@ fn map_f64(m: &BTreeMap<String, Value>, key: &str) -> Option<f64> {
 }
 
 impl Pattern {
+    /// Play this pattern at `cpm` cycles per minute regardless of the global
+    /// tempo (`cpm`): fast-es by `cpm / 60 / cps`, reading the live `_cps` from
+    /// the query state (Strudel reads `scheduler.cps`). A non-positive cps
+    /// leaves the pattern unchanged.
+    pub fn cpm(&self, cpm: f64) -> Pattern {
+        let pat = self.clone();
+        Pattern::new(move |state| {
+            let cps = cps_of(state);
+            if cps <= 0.0 {
+                return pat.query(state);
+            }
+            pat._fast(Frac::from_f64(cpm / 60.0 / cps)).query(state)
+        })
+    }
+
     /// Mul-or-keep helper for step counts (`Fraction.mulmaybe`).
     fn steps_times(&self, n: i64) -> Option<Frac> {
         self.steps.map(|s| s * Frac::int(n))

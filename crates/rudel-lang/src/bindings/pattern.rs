@@ -9,6 +9,7 @@ mod convert;
 mod generated;
 mod methods;
 mod pick;
+mod repl;
 
 use koto::derive::*;
 use koto::prelude::*;
@@ -17,6 +18,7 @@ use rudel_core::Pattern;
 
 pub(crate) use callback::register_standalone_callbacks;
 pub(crate) use convert::{arg_to_f64, arg_to_raw_str, arg0};
+pub(crate) use repl::{collected_stack, reset_slots};
 pub(super) use convert::{
     arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair,
     koto_to_value,
@@ -74,6 +76,9 @@ pub(crate) fn extend_control_entries() {
                 })),
             );
         }
+        // REPL pattern slots (`p`/`q`/`d1`/`p1`/`q1`) registered onto the same
+        // shared entries map.
+        repl::insert_slot_methods(&entries);
         // Numbered FM controls have no Rust builder fns; their names and
         // canonical keys are generated at runtime.
         for (name, key) in rudel_core::numbered_control_names() {

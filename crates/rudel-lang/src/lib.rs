@@ -12,7 +12,7 @@ use rudel_core::Pattern;
 use std::sync::{Arc, Mutex};
 
 use bindings::register;
-use bindings::{function_names, method_names};
+use bindings::{collected_stack, function_names, method_names, reset_slots};
 use preprocess::preprocess_strudel;
 use samples::register_samples;
 
@@ -73,9 +73,18 @@ pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), Strin
     register(koto.prelude());
     register_samples(koto.prelude(), effects.clone());
     let script = preprocess_strudel(script);
+    // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
+    // they don't leak into this one (Strudel calls `hush()` at eval start).
+    reset_slots();
     let chunk = koto.compile(&script).map_err(|e| e.to_string())?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
     let effects = std::mem::take(&mut *effects.lock().unwrap());
+    // When the script registered pattern slots (`note("c").d1()` etc.), the
+    // result is their stack, mirroring Strudel's `applyPatternTransforms`;
+    // otherwise the script's own return value is used.
+    if let Some(stacked) = collected_stack() {
+        return Ok((stacked, effects));
+    }
     match result {
         KValue::Object(o) if o.is_a::<KPattern>() => {
             Ok((o.cast::<KPattern>().unwrap().0.clone(), effects))

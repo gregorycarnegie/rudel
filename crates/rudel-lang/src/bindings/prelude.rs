@@ -214,6 +214,11 @@ pub(crate) fn register(prelude: &KMap) {
         Ok(num.max(lo).min(hi).into())
     });
     prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // hush(): clear the REPL pattern slots and return silence (core/repl.mjs).
+    prelude.add_fn("hush", |_| {
+        super::pattern::reset_slots();
+        Ok(KPattern(rudel_core::silence()).into())
+    });
     // Strudel-style chord control: `chord("<Am C>").voicing()`.
     prelude.add_fn("chord", |ctx| {
         Ok(KPattern(rudel_core::control_dyn("chord", arg_to_pattern(&arg0(ctx)))).into())
@@ -536,6 +541,7 @@ pub(crate) fn register(prelude: &KMap) {
         f64_1: [
             "degradeBy" => degrade_by, "degrade_by" => degrade_by,
             "undegradeBy" => undegrade_by, "undegrade_by" => undegrade_by,
+            "cpm" => cpm,
         ];
         frac1: [
             "hurry" => hurry, "swing" => swing,

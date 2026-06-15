@@ -374,7 +374,7 @@ kpattern_methods! {
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
         chop, striate, take, drop, root_notes, shuffle, scramble, replicate,
     ],
-    f64_arg: [degrade_by, undegrade_by],
+    f64_arg: [degrade_by, undegrade_by, cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
     pattern_pattern_arg: [slice, splice, bite],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
