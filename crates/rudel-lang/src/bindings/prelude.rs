@@ -215,6 +215,26 @@ pub(crate) fn register(prelude: &KMap) {
     );
     // `nothing` is an alias for `silence`.
     prelude.add_fn("nothing", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // stackBy(mode, ...pats): dispatch to a step-alignment by mode name.
+    // (Strudel patternifies `mode`; here it is taken as a constant string.)
+    prelude.add_fn("stackBy", |ctx| {
+        let a = ctx.args();
+        let mode = koto_to_value(a.first().unwrap_or(&KValue::Null));
+        let pats: Vec<Pattern> = a
+            .get(1..)
+            .unwrap_or(&[])
+            .iter()
+            .map(arg_to_pattern)
+            .collect();
+        let out = match mode.as_str().unwrap_or("expand") {
+            "left" => rudel_core::stack_left(&pats),
+            "right" => rudel_core::stack_right(&pats),
+            "centre" | "center" => rudel_core::stack_centre(&pats),
+            "repeat" => rudel_core::polymeter(&pats),
+            _ => rudel_core::stack(&pats), // "expand"
+        };
+        Ok(KPattern(out).into())
+    });
 
     // -- Factories ---------------------------------------------------------
     // chooseCycles is randcat over reified args.

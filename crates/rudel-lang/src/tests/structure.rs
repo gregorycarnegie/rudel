@@ -282,6 +282,15 @@ fn stack_alignment_variants() {
     // centred over 4 steps -> a@0.25, b@0.5.
     let centre = begins(r#"stackCentre("0 1 2 3", "a b")"#);
     assert!(centre.contains(&(0.25, "a".into())) && centre.contains(&(0.5, "b".into())));
+    // stackBy dispatches by mode name.
+    assert_eq!(
+        begins(r#"stackBy("left", "0 1 2", "a b")"#),
+        begins(r#"stackLeft("0 1 2", "a b")"#)
+    );
+    assert_eq!(
+        begins(r#"stackBy("right", "0 1 2", "a b")"#),
+        begins(r#"stackRight("0 1 2", "a b")"#)
+    );
 }
 
 #[test]
