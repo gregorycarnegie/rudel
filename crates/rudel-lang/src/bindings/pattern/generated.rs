@@ -357,6 +357,8 @@ kpattern_methods! {
         pow_out, pow_mix, pow_squeeze, pow_squeezeout, pow_reset, pow_restart, pow_poly,
         transpose, scale_transpose, bend_range,
         overlay, arp, trans, strans,
+        // impure: live-coding timeline cue alignment (core/impure.mjs)
+        timeline,
         // multi-control helpers (`adsr` expands into attack/decay/sustain/
         // release, `control` sets ccn/ccv, `sysex` sets sysexid/sysexdata)
         // and sample scrubbing

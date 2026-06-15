@@ -56,7 +56,13 @@ pub fn query_controls(
     }
     let begin = Frac::from_f64(begin_cycle);
     let end = Frac::from_f64(end_cycle);
-    let controls = BTreeMap::from([("_cps".to_string(), Value::F64(cps))]);
+    // `cyclist` marks this as a scheduler/trigger query (Strudel's cyclist sets
+    // it too), so impure transforms like `timeline` know to advance their
+    // persistent state here rather than on visualiser queries.
+    let controls = BTreeMap::from([
+        ("_cps".to_string(), Value::F64(cps)),
+        ("cyclist".to_string(), Value::Str("cyclist".to_string())),
+    ]);
     let state = State::with_controls(TimeSpan::new(begin, end), controls);
 
     let mut out = Vec::new();

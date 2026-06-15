@@ -507,6 +507,7 @@ pub(crate) fn register(prelude: &KMap) {
             "segment" => segment, "seg" => seg,
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask, "bypass" => bypass,
+            "timeline" => timeline,
             "early" => early, "late" => late,
             "lt" => lt, "gt" => gt, "lte" => lte, "gte" => gte,
             "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,

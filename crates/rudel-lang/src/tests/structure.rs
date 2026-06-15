@@ -544,3 +544,15 @@ fn step_count_transforms_via_koto() {
     assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 10);
 }
+
+#[test]
+fn timeline_method_and_standalone_via_koto() {
+    // timeline(0) is an unshifted no-op, so it must match the bare pattern in
+    // both the method and standalone (pattern-last) spellings. This confirms
+    // the impure `timeline` binding is wired.
+    let base = shape(&eval(r#"note("0 1 2")"#).expect("eval"), 1);
+    let method = shape(&eval(r#"note("0 1 2").timeline(0)"#).expect("eval"), 1);
+    let standalone = shape(&eval(r#"timeline(0, note("0 1 2"))"#).expect("eval"), 1);
+    assert_eq!(method, base);
+    assert_eq!(standalone, base);
+}

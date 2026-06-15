@@ -9,6 +9,7 @@ pub mod controls;
 pub mod euclid;
 pub mod fraction;
 pub mod hap;
+pub mod impure;
 pub mod input;
 pub mod pattern;
 pub mod query;
@@ -25,6 +26,7 @@ pub mod xen;
 
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
+pub use impure::{reset_state, reset_timelines};
 pub use pattern::{
     Pattern, arrange, cat, fastcat, gap, nothing, parse_string, polymeter, pure, reify, sequence,
     set_string_parser, silence, slowcat, slowcat_prime, stack, stack_centre, stack_left,
