@@ -770,6 +770,48 @@ pub fn stepcat(pats: &[Pattern]) -> Pattern {
     timecat(&pairs)
 }
 
+/// Stack patterns of differing step counts, padding the shorter ones with gaps
+/// to the longest's step count (`_stackWith`). `pad(missing_steps, pat)` builds
+/// the padded pattern.
+fn stack_with(pats: &[Pattern], pad: impl Fn(Frac, Pattern) -> Pattern) -> Pattern {
+    match pats {
+        [] => return silence(),
+        [only] => return only.clone(),
+        _ => {}
+    }
+    let Some(steps) = pats
+        .iter()
+        .filter_map(|p| p.steps)
+        .reduce(|a, b| if a >= b { a } else { b })
+    else {
+        return stack(pats);
+    };
+    let padded: Vec<Pattern> = pats
+        .iter()
+        .map(|p| match p.steps {
+            Some(s) if s != steps => pad(steps - s, p.clone()),
+            _ => p.clone(),
+        })
+        .collect();
+    stack(&padded).set_steps(Some(steps))
+}
+
+/// Stack patterns aligned to the left, padding with trailing gaps (`stackLeft`).
+pub fn stack_left(pats: &[Pattern]) -> Pattern {
+    stack_with(pats, |g, p| stepcat(&[p, gap(g)]))
+}
+/// Stack patterns aligned to the right, padding with leading gaps (`stackRight`).
+pub fn stack_right(pats: &[Pattern]) -> Pattern {
+    stack_with(pats, |g, p| stepcat(&[gap(g), p]))
+}
+/// Stack patterns centred, padding equally on both sides (`stackCentre`).
+pub fn stack_centre(pats: &[Pattern]) -> Pattern {
+    stack_with(pats, |g, p| {
+        let h = gap(g / Frac::int(2));
+        stepcat(&[h.clone(), p, h])
+    })
+}
+
 /// Arrange `(cycles, pattern)` sections over a timeline (`arrange`). Each
 /// section is sped up to fill its own cycle, then the whole thing is slowed so
 /// every section spans the requested number of cycles.

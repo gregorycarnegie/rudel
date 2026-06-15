@@ -242,6 +242,34 @@ fn euclidish_samples_continuous_perc_per_cycle() {
 }
 
 #[test]
+fn stack_alignment_variants() {
+    // Pad shorter patterns to the longest's step count. Verified against
+    // Strudel: stackLeft pads "a b" on the right, stackRight on the left.
+    let begins = |src: &str| -> Vec<(f64, String)> {
+        let mut hs = eval(src).unwrap().query_arc(Frac::zero(), Frac::one());
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter()
+            .map(|h| {
+                let v = match &h.value {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{other:?}"),
+                };
+                ((h.part.begin.to_f64() * 100.0).round() / 100.0, v)
+            })
+            .collect()
+    };
+    // "a b" (2 steps) padded to 3 with a trailing gap -> a@0, b@0.33.
+    let left = begins(r#"stackLeft("0 1 2", "a b")"#);
+    assert!(left.contains(&(0.0, "a".into())) && left.contains(&(0.33, "b".into())));
+    // padded on the left instead -> a@0.33, b@0.67.
+    let right = begins(r#"stackRight("0 1 2", "a b")"#);
+    assert!(right.contains(&(0.33, "a".into())) && right.contains(&(0.67, "b".into())));
+    // centred over 4 steps -> a@0.25, b@0.5.
+    let centre = begins(r#"stackCentre("0 1 2 3", "a b")"#);
+    assert!(centre.contains(&(0.25, "a".into())) && centre.contains(&(0.5, "b".into())));
+}
+
+#[test]
 fn bjork_tuple_via_koto() {
     // bjork([3,8,2]) == euclidRot(3,8,2), as method and standalone.
     let bjork = eval(r#"s("bd").bjork([3, 8, 2])"#).expect("eval");

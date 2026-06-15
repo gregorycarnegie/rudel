@@ -27,7 +27,8 @@ pub use fraction::Frac;
 pub use hap::{Context, Hap};
 pub use pattern::{
     Pattern, arrange, cat, fastcat, gap, nothing, parse_string, polymeter, pure, reify, sequence,
-    set_string_parser, silence, slowcat, slowcat_prime, stack, stepcat, timecat, value_to_pattern,
+    set_string_parser, silence, slowcat, slowcat_prime, stack, stack_centre, stack_left,
+    stack_right, stepcat, timecat, value_to_pattern,
 };
 pub use state::State;
 pub use timespan::TimeSpan;

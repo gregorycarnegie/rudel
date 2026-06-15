@@ -205,6 +205,10 @@ pub(crate) fn register(prelude: &KMap) {
         "stack" => rudel_core::stack,
         "polyrhythm" => rudel_core::stack, // Strudel alias: polyrhythm = stack
         "pr" => rudel_core::stack,
+        "stackLeft" => rudel_core::stack_left,
+        "stackRight" => rudel_core::stack_right,
+        "stackCentre" => rudel_core::stack_centre,
+        "stackCenter" => rudel_core::stack_centre, // US spelling
         "cat" => rudel_core::cat,
         "seq" => rudel_core::fastcat,
         "sequence" => rudel_core::fastcat,
