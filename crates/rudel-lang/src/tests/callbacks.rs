@@ -240,6 +240,32 @@ fn echo_with_passes_the_index_to_the_callback() {
 }
 
 #[test]
+fn ply_with_and_ply_for_each() {
+    // plyWith(3, +10): each event becomes [x, x+10, x+20] within its step.
+    let vals = |src: &str| -> Vec<i64> {
+        let mut hs = eval(src).unwrap().query_arc(Frac::zero(), Frac::one());
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter()
+            .filter_map(|h| h.value.as_f64().map(|f| f as i64))
+            .collect()
+    };
+    assert_eq!(
+        vals(r#""0 1".plyWith(3, |x| x.add(10))"#),
+        vec![0, 10, 20, 1, 11, 21]
+    );
+    // plyForEach(3, (p,n) => p+n*2): first copy untransformed, then index-scaled.
+    assert_eq!(
+        vals(r#""0 1".plyForEach(3, |p, n| p.add(n * 2))"#),
+        vec![0, 2, 4, 1, 3, 5]
+    );
+    // standalone form takes the pattern last.
+    assert_eq!(
+        vals(r#"plyWith(3, |x| x.add(10), "0 1")"#),
+        vec![0, 10, 20, 1, 11, 21]
+    );
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);

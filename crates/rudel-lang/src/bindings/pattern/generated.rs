@@ -445,6 +445,10 @@ kpattern_methods! {
         apply_n => kpattern_apply_n,
         #[koto_method(alias = "echoWith", alias = "echowith", alias = "stutWith", alias = "stutwith")]
         echo_with => kpattern_echo_with,
+        #[koto_method(alias = "plyWith", alias = "plywith")]
+        ply_with => kpattern_ply_with,
+        #[koto_method(alias = "plyForEach", alias = "plyforeach")]
+        ply_for_each => kpattern_ply_for_each,
         #[koto_method(alias = "eish")]
         euclidish => kpattern_euclidish,
         #[koto_method]

@@ -318,6 +318,30 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     prelude.add_fn("echowith", echo_with_fn);
     prelude.add_fn("stutWith", echo_with_fn);
     prelude.add_fn("stutwith", echo_with_fn);
+
+    // plyWith/plyForEach(factor, func, pat): repeat each event `factor` times,
+    // transforming the copies (probed and baked, like `arp_with`).
+    use super::methods::{ply_build, ply_for_each_parts, ply_with_parts};
+    let ply_with_fn = |ctx: &mut CallContext| {
+        let factor = arg_to_f64(lead(ctx, 0)) as i64;
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = ply_build(&pat, factor, &cb, ply_with_parts);
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    };
+    prelude.add_fn("plyWith", ply_with_fn);
+    prelude.add_fn("plywith", ply_with_fn);
+    let ply_for_each_fn = |ctx: &mut CallContext| {
+        let factor = arg_to_f64(lead(ctx, 0)) as i64;
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = ply_build(&pat, factor, &cb, ply_for_each_parts);
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    };
+    prelude.add_fn("plyForEach", ply_for_each_fn);
+    prelude.add_fn("plyforeach", ply_for_each_fn);
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the

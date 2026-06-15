@@ -69,6 +69,85 @@ pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<K
     Ok(KPattern::wrap(pat.loop_at_cps(factor, cps)))
 }
 
+/// `plyWith`'s per-value copies: `f` applied cumulatively (0×, 1×, 2×, …).
+pub(super) fn ply_with_parts(x: &Value, cb: &Callback, factor: i64) -> Vec<Pattern> {
+    (0..factor)
+        .map(|i| {
+            let mut p = rudel_core::pure(x.clone());
+            for _ in 0..i {
+                p = cb.apply(&p);
+            }
+            p
+        })
+        .collect()
+}
+
+/// `plyForEach`'s per-value copies: the first is untransformed, the rest are
+/// `f(copy, i)`.
+pub(super) fn ply_for_each_parts(x: &Value, cb: &Callback, factor: i64) -> Vec<Pattern> {
+    let mut parts = vec![rudel_core::pure(x.clone())];
+    for i in 1..factor {
+        parts.push(cb.apply2(&rudel_core::pure(x.clone()), i));
+    }
+    parts
+}
+
+/// Shared core of `plyWith`/`plyForEach`: per value, build a `cat` of `factor`
+/// transformed copies, speed it up to one cycle, and squeeze it into the
+/// value's span. The Koto VM can't run in the query path, so the per-value
+/// copies are probed and baked (as in `arp_with`).
+pub(super) fn ply_build(
+    pat: &Pattern,
+    factor: i64,
+    cb: &Callback,
+    parts: impl Fn(&Value, &Callback, i64) -> Vec<Pattern>,
+) -> Pattern {
+    const PROBE: i64 = 16;
+    let mut table: HashMap<String, Pattern> = HashMap::new();
+    if factor > 0 {
+        for cycle in 0..PROBE {
+            for hap in pat.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
+                table.entry(value_sig(&hap.value)).or_insert_with(|| {
+                    rudel_core::cat(&parts(&hap.value, cb, factor))._fast(Frac::int(factor))
+                });
+            }
+        }
+    }
+    let table = Arc::new(table);
+    let steps = pat.steps.map(|s| s * Frac::int(factor.max(1)));
+    pat.fmap(move |v| {
+        let inner = table
+            .get(&value_sig(&v))
+            .cloned()
+            .unwrap_or_else(rudel_core::silence);
+        Value::Pat(Box::new(inner))
+    })
+    .squeeze_join()
+    .set_steps(steps)
+}
+
+/// `pat.plyWith(factor, f)`: repeat each event `factor` times, applying `f`
+/// cumulatively (`f` 0×, 1×, 2×, … like `applyN`).
+pub(super) fn kpattern_ply_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let factor = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let out = ply_build(&pat, factor, &cb, ply_with_parts);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
+/// `pat.plyForEach(factor, f)`: repeat each event `factor` times, applying
+/// `f(copy, i)` to each repeat (the first is left untransformed).
+pub(super) fn kpattern_ply_for_each(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let factor = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let out = ply_build(&pat, factor, &cb, ply_for_each_parts);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
 /// `pat.echoWith(times, time, f)` / `stutWith`: stack `times` copies, each
 /// delayed by `time*i` and transformed by `f(copy, i)`.
 pub(super) fn kpattern_echo_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
