@@ -78,6 +78,56 @@ fn linger_invert_replicate_applyn_and_aliases() {
 }
 
 #[test]
+fn chunk_jux_flip_and_keepif_variants() {
+    let ns = |src: &str, b, e| -> Vec<i64> {
+        eval(src)
+            .unwrap()
+            .query_arc(Frac::int(b), Frac::int(e))
+            .iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("n").and_then(|x| x.as_f64()).map(|f| f as i64),
+                _ => None,
+            })
+            .collect()
+    };
+    // fastChunk(2): cycle 0 bumps the 1st half, cycle 1 the 2nd (looped
+    // subcycle, no slow-down). Matches Strudel.
+    assert_eq!(
+        ns(r#"n("0 1 2 3").fastChunk(2, |x| x.add(n(10)))"#, 0, 1),
+        vec![10, 11, 2, 3]
+    );
+    assert_eq!(
+        ns(r#"n("0 1 2 3").fastChunk(2, |x| x.add(n(10)))"#, 1, 2),
+        vec![0, 1, 12, 13]
+    );
+    // slowChunk is an alias for chunk.
+    assert_eq!(
+        ns(r#"n("0 1 2 3").slowChunk(2, |x| x.add(n(10)))"#, 0, 1),
+        vec![10, 11, 2, 3]
+    );
+    // keepif keeps the control value where the bool is truthy (drops the rest),
+    // even on a control pattern (unlike the merging composers).
+    assert_eq!(ns(r#"n("0 1 2 3").keepif("1 0 1 0")"#, 0, 1), vec![0, 2]);
+    assert_eq!(ns(r#"keepif("1 0", n("5 6"))"#, 0, 1), vec![5]);
+    // juxFlip/flux pans copies left/right, swapping ears each cycle.
+    let pans = |b, e| -> Vec<f64> {
+        let mut ps: Vec<f64> = eval(r#"n("0").juxFlip(rev)"#)
+            .unwrap()
+            .query_arc(Frac::int(b), Frac::int(e))
+            .iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("pan").and_then(|x| x.as_f64()),
+                _ => None,
+            })
+            .collect();
+        ps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        ps
+    };
+    assert_eq!(pans(0, 1), vec![0.0, 1.0]);
+    assert_eq!(pans(1, 2), vec![0.0, 1.0]);
+}
+
+#[test]
 fn comparison_and_logic_composers() {
     // Boolean composers (pattern.mjs COMPOSERS). On plain values they compare;
     // their main use is gating `struct`/`mask`. Verified against Strudel.

@@ -263,6 +263,7 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
 
     cb_only! {
         "superimpose" => superimpose, "jux" => jux,
+        "juxFlip" => jux_flip, "juxflip" => jux_flip, "flux" => jux_flip,
         "sometimes" => sometimes, "often" => often, "rarely" => rarely,
         "almostAlways" => almost_always, "almost_always" => almost_always,
         "almostNever" => almost_never, "almost_never" => almost_never,
@@ -270,8 +271,9 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
         "apply" => apply, "always" => always, "never" => never,
     }
     cb_i64! {
-        "chunk" => chunk,
+        "chunk" => chunk, "slowChunk" => chunk, "slowchunk" => chunk,
         "chunkBack" => chunk_back, "chunk_back" => chunk_back,
+        "fastChunk" => fast_chunk, "fastchunk" => fast_chunk, "fast_chunk" => fast_chunk,
     }
     cb_cycles! {
         "every" => false,
@@ -280,6 +282,8 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     }
     cb_f64! {
         "juxBy" => jux_by, "jux_by" => jux_by,
+        "juxFlipBy" => jux_flip_by, "juxflipby" => jux_flip_by,
+        "fluxBy" => jux_flip_by, "fluxby" => jux_flip_by,
         "sometimesBy" => sometimes_by, "sometimes_by" => sometimes_by,
         "someCyclesBy" => some_cycles_by, "some_cycles_by" => some_cycles_by,
     }

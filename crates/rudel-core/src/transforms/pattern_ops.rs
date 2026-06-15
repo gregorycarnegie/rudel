@@ -134,7 +134,7 @@ impl Pattern {
         )
     }
 
-    fn chunk_impl<F>(&self, n: i64, f: F, back: bool) -> Pattern
+    fn chunk_impl<F>(&self, n: i64, f: F, back: bool, fast: bool) -> Pattern
     where
         F: Fn(&Pattern) -> Pattern,
     {
@@ -146,22 +146,37 @@ impl Pattern {
             bins.push(pure(Value::Bool(false)));
         }
         let binary_pat = fastcat(&bins).iter_impl(n, !back);
-        self.repeat_cycles(n).when(binary_pat, f)
+        // `fast` chunks loop a subcycle without slowing the source down.
+        let base = if fast {
+            self.clone()
+        } else {
+            self.repeat_cycles(n)
+        };
+        base.when(binary_pat, f)
     }
 
-    /// Cycle through `n` chunks, applying `f` to one chunk per cycle (`chunk`).
+    /// Cycle through `n` chunks, applying `f` to one chunk per cycle (`chunk`,
+    /// a.k.a. `slowChunk`).
     pub fn chunk<F>(&self, n: i64, f: F) -> Pattern
     where
         F: Fn(&Pattern) -> Pattern,
     {
-        self.chunk_impl(n, f, false)
+        self.chunk_impl(n, f, false, false)
     }
     /// Like `chunk`, but moves backwards through the chunks (`chunkBack`).
     pub fn chunk_back<F>(&self, n: i64, f: F) -> Pattern
     where
         F: Fn(&Pattern) -> Pattern,
     {
-        self.chunk_impl(n, f, true)
+        self.chunk_impl(n, f, true, false)
+    }
+    /// Like `chunk`, but applied to a looped subcycle rather than slowing the
+    /// source down (`fastChunk`).
+    pub fn fast_chunk<F>(&self, n: i64, f: F) -> Pattern
+    where
+        F: Fn(&Pattern) -> Pattern,
+    {
+        self.chunk_impl(n, f, false, true)
     }
 
     // -- Inside / outside / within -----------------------------------------
@@ -228,6 +243,31 @@ impl Pattern {
         F: Fn(&Pattern) -> Pattern,
     {
         self.jux_by(1.0, f)
+    }
+
+    /// Like [`jux_by`](Self::jux_by), but swaps the ears each cycle
+    /// (`juxFlipBy`/`fluxBy`): Strudel's `juxBy(slowcat(by, -by), f)`.
+    pub fn jux_flip_by<F>(&self, by: f64, f: F) -> Pattern
+    where
+        F: Fn(&Pattern) -> Pattern,
+    {
+        crate::pattern::slowcat_prime(&[self.jux_by(by, &f), self.jux_by(-by, &f)])
+    }
+    /// `juxFlipBy(1, f)` (`juxFlip`/`flux`).
+    pub fn jux_flip<F>(&self, f: F) -> Pattern
+    where
+        F: Fn(&Pattern) -> Pattern,
+    {
+        self.jux_flip_by(1.0, f)
+    }
+
+    /// Keep this pattern's whole value where `other` is truthy, else drop the
+    /// event (`keepif`). Structure comes from this pattern, so unlike the other
+    /// composers it keeps the control value intact rather than merging maps.
+    pub fn keepif(&self, other: impl IntoPattern) -> Pattern {
+        self.fmap(|a| Value::func(move |b| if b.truthy() { a.clone() } else { Value::Null }))
+            .app_left(&other.into_pattern())
+            .filter_values(|v| !matches!(v, Value::Null))
     }
 
     /// Swap true/false in a boolean pattern (`invert`/`inv`).

@@ -453,7 +453,7 @@ pub(crate) fn register(prelude: &KMap) {
             "sparsity" => slow, // Strudel alias (`density` is a control, not fast)
             "segment" => segment, "seg" => seg,
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
-            "set" => set, "keep" => keep, "mask" => mask,
+            "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask,
             "early" => early, "late" => late,
             "lt" => lt, "gt" => gt, "lte" => lte, "gte" => gte,
             "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,

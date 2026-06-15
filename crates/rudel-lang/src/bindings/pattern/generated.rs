@@ -339,7 +339,7 @@ kpattern_methods! {
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         // comparison / logic composers (boolean results)
-        lt, gt, lte, gte, eq, eqt, ne, net, and, or,
+        lt, gt, lte, gte, eq, eqt, ne, net, and, or, keepif,
         // Simple controls and their aliases (note, s, gain, lpf, the numbered
         // FM families, MIDI controls, ...) are NOT listed here: they are
         // registered dynamically from rudel-core's `control_builders`
@@ -376,12 +376,12 @@ kpattern_methods! {
     i64_frac_f64_arg: [echo],
     i64_f64_frac_arg: [stut],
     fn_arg: [
-        superimpose, jux, sometimes, often, rarely, almost_always, almost_never, some_cycles,
-        apply, always, never,
+        superimpose, jux, jux_flip, sometimes, often, rarely, almost_always, almost_never,
+        some_cycles, apply, always, never,
     ],
-    i64_fn_arg: [chunk, chunk_back],
+    i64_fn_arg: [chunk, chunk_back, fast_chunk],
     frac_fn_arg: [inside, outside],
-    f64_fn_arg: [jux_by, sometimes_by, some_cycles_by],
+    f64_fn_arg: [jux_by, jux_flip_by, sometimes_by, some_cycles_by],
     pattern_fn_arg: [off, when],
     frac_frac_fn_arg: [within],
     forward: [
@@ -500,7 +500,10 @@ kpattern_methods! {
     ],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
     camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert],
-    camel_noarg_fn: [someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never],
+    camel_noarg_fn: [
+        someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never,
+        juxFlip => jux_flip, flux => jux_flip,
+    ],
     camel_i64: [
         iterBack => iter_back, repeatCycles => repeat_cycles, rootNotes => root_notes,
         // deprecated Strudel stepwise aliases
@@ -512,6 +515,9 @@ kpattern_methods! {
     camel_frac_frac: [swingBy => swing_by],
     camel_i64_i64: [euclidLegato => euclid_legato],
     camel_i64_i64_i64: [euclidRot => euclid_rot, euclidLegatoRot => euclid_legato_rot],
-    camel_i64_fn: [chunkBack => chunk_back],
-    camel_f64_fn: [juxBy => jux_by, sometimesBy => sometimes_by, someCyclesBy => some_cycles_by],
+    camel_i64_fn: [chunkBack => chunk_back, fastChunk => fast_chunk, slowChunk => chunk],
+    camel_f64_fn: [
+        juxBy => jux_by, juxFlipBy => jux_flip_by, fluxBy => jux_flip_by,
+        sometimesBy => sometimes_by, someCyclesBy => some_cycles_by,
+    ],
 }
