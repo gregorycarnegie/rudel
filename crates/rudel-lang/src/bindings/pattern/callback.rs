@@ -342,6 +342,37 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     };
     prelude.add_fn("plyForEach", ply_for_each_fn);
     prelude.add_fn("plyforeach", ply_for_each_fn);
+
+    // into(pieces, func, pat) and chunkInto/chunkBackInto(n, func, pat).
+    use super::methods::{chunk_pieces, into_build};
+    prelude.add_fn("into", |ctx| {
+        let pieces = arg_to_pattern(lead(ctx, 0));
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = into_build(&pat, pieces, &cb);
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    });
+    let chunk_into_fn = |ctx: &mut CallContext| {
+        let n = arg_to_f64(lead(ctx, 0)) as i64;
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = into_build(&pat, chunk_pieces(n).iter_back(n), &cb);
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    };
+    prelude.add_fn("chunkInto", chunk_into_fn);
+    prelude.add_fn("chunkinto", chunk_into_fn);
+    let chunk_back_into_fn = |ctx: &mut CallContext| {
+        let n = arg_to_f64(lead(ctx, 0)) as i64;
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = into_build(&pat, chunk_pieces(n).iter(n)._early(Frac::one()), &cb);
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    };
+    prelude.add_fn("chunkBackInto", chunk_back_into_fn);
+    prelude.add_fn("chunkbackinto", chunk_back_into_fn);
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the

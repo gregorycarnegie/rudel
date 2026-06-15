@@ -148,6 +148,91 @@ pub(super) fn kpattern_ply_for_each(ctx: MethodContext<KPattern>) -> KotoResult<
     Ok(KPattern::wrap(out))
 }
 
+/// A stable key for a ribbon window (`begin`, `duration`).
+fn ribbon_key(begin: Frac, dur: Frac) -> String {
+    format!(
+        "{}/{}:{}/{}",
+        begin.numer(),
+        begin.denom(),
+        dur.numer(),
+        dur.denom()
+    )
+}
+
+/// Core of `into`/`chunkInto`: where `pieces` is truthy, replace the source
+/// with `f` applied to a looped subcycle (`ribbon`) covering that piece; where
+/// falsy, play the source unchanged. The callback runs per distinct piece
+/// window, so the transformed ribbons are probed and baked.
+pub(super) fn into_build(pat: &Pattern, pieces: Pattern, cb: &Callback) -> Pattern {
+    const PROBE: i64 = 16;
+    let mut table: HashMap<String, Pattern> = HashMap::new();
+    for cycle in 0..PROBE {
+        for hap in pieces.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
+            if let (true, Some(w)) = (hap.value.truthy(), hap.whole) {
+                table
+                    .entry(ribbon_key(w.begin, w.duration()))
+                    .or_insert_with(|| cb.apply(&pat.ribbon(w.begin, w.duration())));
+            }
+        }
+    }
+    let table = Arc::new(table);
+    let base = pat.clone();
+    pieces
+        .with_hap(move |mut hap| {
+            let chosen = match (hap.value.truthy(), hap.whole) {
+                (true, Some(w)) => table
+                    .get(&ribbon_key(w.begin, w.duration()))
+                    .cloned()
+                    .unwrap_or_else(|| base.clone()),
+                _ => base.clone(),
+            };
+            hap.value = Value::Pat(Box::new(chosen));
+            hap
+        })
+        .inner_join()
+}
+
+pub(super) fn chunk_pieces(n: i64) -> Pattern {
+    let mut bins = vec![rudel_core::pure(Value::Bool(true))];
+    for _ in 1..n {
+        bins.push(rudel_core::pure(Value::Bool(false)));
+    }
+    rudel_core::fastcat(&bins)
+}
+
+/// `pat.into(pieces, f)`: break the pattern into looped subcycles per the truthy
+/// parts of `pieces`, applying `f` to each.
+pub(super) fn kpattern_into(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let pieces = method_pattern_arg(&ctx, 0);
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let out = into_build(&pat, pieces, &cb);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
+/// `pat.chunkInto(n, f)`: like `chunk`, but `f` is applied to a looped subcycle.
+pub(super) fn kpattern_chunk_into(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let n = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let pieces = chunk_pieces(n).iter_back(n);
+    let out = into_build(&pat, pieces, &cb);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
+/// `pat.chunkBackInto(n, f)`: like `chunkInto`, but moves backwards.
+pub(super) fn kpattern_chunk_back_into(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let n = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let cb = Callback::new(&ctx, method_arg(&ctx, 1));
+    let pieces = chunk_pieces(n).iter(n)._early(Frac::one());
+    let out = into_build(&pat, pieces, &cb);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
 /// `pat.echoWith(times, time, f)` / `stutWith`: stack `times` copies, each
 /// delayed by `time*i` and transformed by `f(copy, i)`.
 pub(super) fn kpattern_echo_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

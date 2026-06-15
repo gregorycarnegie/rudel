@@ -266,6 +266,37 @@ fn ply_with_and_ply_for_each() {
 }
 
 #[test]
+fn into_and_chunk_into() {
+    // into("1 0", f): the first half (piece "1") is looped and transformed by f,
+    // the second half ("0") plays unchanged. Verified hap-for-hap vs Strudel.
+    let names = |src: &str| -> Vec<String> {
+        let mut hs = eval(src).unwrap().query_arc(Frac::zero(), Frac::one());
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("s").and_then(|x| x.as_str()).map(String::from),
+                _ => None,
+            })
+            .collect()
+    };
+    // hurry(2) on the looped first half -> "bd sd" played twice in [0,0.5).
+    assert_eq!(
+        names(r#"s("bd sd ht lt").into("1 0", |x| x.hurry(2))"#),
+        vec!["bd", "sd", "bd", "sd", "ht", "lt"]
+    );
+    // chunkInto(4): cycle 0 hurries the first quarter (looped) -> bd, bd, ...
+    assert_eq!(
+        names(r#"s("bd sd ht lt").chunkInto(4, |x| x.hurry(2))"#),
+        vec!["bd", "bd", "sd", "ht", "lt"]
+    );
+    // standalone form takes the pattern last.
+    assert_eq!(
+        names(r#"into("1 0", |x| x.hurry(2), s("bd sd ht lt"))"#),
+        vec!["bd", "sd", "bd", "sd", "ht", "lt"]
+    );
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);

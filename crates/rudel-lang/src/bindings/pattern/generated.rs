@@ -449,6 +449,12 @@ kpattern_methods! {
         ply_with => kpattern_ply_with,
         #[koto_method(alias = "plyForEach", alias = "plyforeach")]
         ply_for_each => kpattern_ply_for_each,
+        #[koto_method]
+        into => kpattern_into,
+        #[koto_method(alias = "chunkInto", alias = "chunkinto")]
+        chunk_into => kpattern_chunk_into,
+        #[koto_method(alias = "chunkBackInto", alias = "chunkbackinto")]
+        chunk_back_into => kpattern_chunk_back_into,
         #[koto_method(alias = "eish")]
         euclidish => kpattern_euclidish,
         #[koto_method]
