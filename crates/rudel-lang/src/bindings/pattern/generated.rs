@@ -393,7 +393,7 @@ kpattern_methods! {
         tour => kpattern_tour,
         #[koto_method]
         s_tour => kpattern_tour,
-        #[koto_method]
+        #[koto_method(alias = "arpWith")]
         arp_with => kpattern_arp_with,
         #[koto_method]
         voicings => kpattern_voicings,

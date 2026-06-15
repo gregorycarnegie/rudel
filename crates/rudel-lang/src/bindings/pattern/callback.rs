@@ -373,6 +373,16 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     };
     prelude.add_fn("chunkBackInto", chunk_back_into_fn);
     prelude.add_fn("chunkbackinto", chunk_back_into_fn);
+
+    // arpWith(func, pat): arpeggiate chords, transforming each chord pattern.
+    use super::methods::arp_with_build;
+    prelude.add_fn("arpWith", |ctx| {
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = arp_with_build(&pat, &cb);
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    });
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the

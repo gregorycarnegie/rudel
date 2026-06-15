@@ -366,33 +366,36 @@ pub(super) fn kpattern_fmap(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
 /// the first `PROBE` cycles, run the callback on each, and bake the results
 /// into a lookup the query path consults. Chords first appearing after the
 /// probe window fall back to silence.
-pub(super) fn kpattern_arp_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+pub(super) fn arp_with_build(pat: &Pattern, cb: &Callback) -> Pattern {
     const PROBE: i64 = 16;
-    let collected = ctx.instance()?.0.collect();
-    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let collected = pat.collect();
     let mut table: HashMap<String, Pattern> = HashMap::new();
     for cycle in 0..PROBE {
         for hap in collected.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
             if let Value::List(notes) = &hap.value {
-                let sig = value_sig(&hap.value);
-                table.entry(sig).or_insert_with(|| {
+                table.entry(value_sig(&hap.value)).or_insert_with(|| {
                     let pats: Vec<Pattern> = notes.iter().cloned().map(rudel_core::pure).collect();
-                    let chord = rudel_core::fastcat(&pats);
-                    cb.apply(&chord)
+                    cb.apply(&rudel_core::fastcat(&pats))
                 });
             }
         }
     }
-    cb.finish()?;
     let table = Arc::new(table);
-    let result = collected.inner_bind(move |value| match &value {
+    collected.inner_bind(move |value| match &value {
         Value::List(_) => table
             .get(&value_sig(&value))
             .cloned()
             .unwrap_or_else(rudel_core::silence),
         _ => rudel_core::silence(),
-    });
-    Ok(KPattern::wrap(result))
+    })
+}
+
+pub(super) fn kpattern_arp_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let out = arp_with_build(&pat, &cb);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
 }
 
 pub(super) fn kpattern_voicings(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

@@ -51,12 +51,16 @@ fn arp_with_via_koto() {
         values(&pat, 0, 1),
         vec![Value::Int(5), Value::Int(7), Value::Int(9)]
     );
-    // reversing the chord sequence per chord
+    // reversing the chord sequence per chord (snake, camelCase, and standalone)
     let pat = eval(r#"stack(0, 1, 2).arp_with(|c| c.rev())"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Int(2), Value::Int(1), Value::Int(0)]
     );
+    let camel = eval(r#"stack(0, 1, 2).arpWith(|c| c.rev())"#).expect("eval");
+    assert_eq!(values(&camel, 0, 1), values(&pat, 0, 1));
+    let standalone = eval(r#"arpWith(|c| c.rev(), stack(0, 1, 2))"#).expect("eval");
+    assert_eq!(values(&standalone, 0, 1), values(&pat, 0, 1));
     // works per-cycle across an alternation of different chords (probe
     // window discovers both chords)
     let pat = eval(r#"seq("<[0,1] [2,3]>").arp_with(|c| c.rev())"#).expect("eval");
