@@ -82,6 +82,18 @@ impl Hap {
         duration
     }
 
+    /// The end of the event after clipping, `whole.begin + clipped_duration`
+    /// (Strudel's `endClipped` getter). Continuous haps have no `whole`, so
+    /// this falls back to the part end. The `isActive`/`isInPast`/`isInFuture`
+    /// scheduler-timing predicates built on this in Strudel belong to the
+    /// scheduler item, not the data model.
+    pub fn end_clipped(&self) -> Frac {
+        match &self.whole {
+            Some(w) => w.begin + self.clipped_duration(),
+            None => self.part.end,
+        }
+    }
+
     pub fn whole_or_part(&self) -> TimeSpan {
         self.whole.unwrap_or(self.part)
     }
@@ -205,5 +217,53 @@ mod tests {
         // `duration()` stays the structural whole length (used by splice/fit).
         let hap = map_hap(&[("clip", Value::F64(0.5))]);
         assert_eq!(hap.duration(), Frac::int(1));
+    }
+
+    #[test]
+    fn end_clipped_uses_clipped_duration() {
+        // whole [0,1) with clip 0.5 -> sounding event ends at 1/2.
+        let m: BTreeMap<String, Value> = [("clip".to_string(), Value::F64(0.5))].into();
+        let hap = Hap::new(Some(span(0, 1)), span(0, 1), Value::Map(m));
+        assert_eq!(hap.end_clipped(), Frac::new(1, 2));
+    }
+
+    #[test]
+    fn has_onset_only_when_whole_begins_with_part() {
+        // A fragment whose part starts after the whole has no onset.
+        let onset = Hap::new(Some(span(0, 1)), span(0, 1), Value::Int(0));
+        assert!(onset.has_onset());
+        let fragment = Hap::new(
+            Some(span(0, 1)),
+            TimeSpan::new(Frac::new(1, 2), Frac::int(1)),
+            Value::Int(0),
+        );
+        assert!(!fragment.has_onset());
+        // Continuous haps (no whole) never have an onset.
+        let continuous = Hap::new(None, span(0, 1), Value::Int(0));
+        assert!(!continuous.has_onset());
+    }
+
+    #[test]
+    fn span_equals_treats_two_continuous_haps_as_equal() {
+        let a = Hap::new(None, span(0, 1), Value::Int(0));
+        let b = Hap::new(None, span(2, 3), Value::Int(9));
+        assert!(a.span_equals(&b));
+        let discrete = Hap::new(Some(span(0, 1)), span(0, 1), Value::Int(0));
+        assert!(!a.span_equals(&discrete));
+    }
+
+    #[test]
+    fn with_span_maps_whole_and_part_but_keeps_continuous_whole_none() {
+        let hap = Hap::new(Some(span(0, 1)), span(0, 1), Value::Int(0));
+        let shifted = hap.with_span(|s| s.with_time(|t| t + Frac::int(1)));
+        assert_eq!(shifted.whole, Some(span(1, 2)));
+        assert_eq!(shifted.part, span(1, 2));
+        // whole_or_part falls back to part for continuous haps.
+        let continuous = Hap::new(None, span(0, 1), Value::Int(0));
+        assert_eq!(continuous.whole_or_part(), span(0, 1));
+        assert_eq!(
+            continuous.with_span(|s| s.with_time(|t| t + Frac::int(1))).whole,
+            None
+        );
     }
 }
