@@ -339,7 +339,7 @@ kpattern_methods! {
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         // comparison / logic composers (boolean results)
-        lt, gt, lte, gte, eq, eqt, ne, net, and, or, keepif,
+        lt, gt, lte, gte, eq, eqt, ne, net, and, or, keepif, bypass,
         // Simple controls and their aliases (note, s, gain, lpf, the numbered
         // FM families, MIDI controls, ...) are NOT listed here: they are
         // registered dynamically from rudel-core's `control_builders`
@@ -443,6 +443,8 @@ kpattern_methods! {
         loop_at_cps => kpattern_loop_at_cps,
         #[koto_method(alias = "applyN")]
         apply_n => kpattern_apply_n,
+        #[koto_method(alias = "echoWith", alias = "echowith", alias = "stutWith", alias = "stutwith")]
+        echo_with => kpattern_echo_with,
         #[koto_method(alias = "eish")]
         euclidish => kpattern_euclidish,
         #[koto_method]

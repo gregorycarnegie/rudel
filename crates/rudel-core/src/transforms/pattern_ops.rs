@@ -275,6 +275,18 @@ impl Pattern {
         self.fmap(|x| Value::Bool(!x.truthy()))
     }
 
+    /// Silence this pattern when `on` is truthy, else play it unchanged
+    /// (`bypass`). `on` may be a pattern, sampled per cycle.
+    pub fn bypass(&self, on: impl IntoPattern) -> Pattern {
+        let pat = self.clone();
+        on.into_pattern()
+            .fmap(move |v| {
+                let muted = v.as_f64().unwrap_or(0.0) != 0.0;
+                Value::Pat(Box::new(if muted { silence() } else { pat.clone() }))
+            })
+            .inner_join()
+    }
+
     /// Repeat the first `t` of the cycle to fill it (`linger`). Negative `t`
     /// lingers on the *end* of the cycle.
     pub fn linger(&self, t: Frac) -> Pattern {

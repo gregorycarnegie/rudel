@@ -128,6 +128,21 @@ fn chunk_jux_flip_and_keepif_variants() {
 }
 
 #[test]
+fn bypass_mutes_per_cycle() {
+    // bypass(on): silence when `on` is truthy, else play. `on` may be patterned.
+    let pat = eval(r#"n("0 1").bypass("<0 1>")"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2); // on=0 -> plays
+    assert_eq!(values(&pat, 1, 2).len(), 0); // on=1 -> muted
+    assert_eq!(
+        eval(r#"n("0 1").bypass(1)"#)
+            .unwrap()
+            .query_arc(Frac::zero(), Frac::one())
+            .len(),
+        0
+    );
+}
+
+#[test]
 fn comparison_and_logic_composers() {
     // Boolean composers (pattern.mjs COMPOSERS). On plain values they compare;
     // their main use is gating `struct`/`mask`. Verified against Strudel.

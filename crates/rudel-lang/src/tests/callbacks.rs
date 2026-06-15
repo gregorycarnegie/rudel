@@ -210,6 +210,36 @@ fn bool_literals_become_boolean_patterns() {
 }
 
 #[test]
+fn echo_with_passes_the_index_to_the_callback() {
+    // echoWith(3, 0.25, f): three copies, each f(copy, i). A two-arg callback
+    // gets the index; a one-arg callback ignores it (Koto arity fallback).
+    let ns = |src: &str| -> Vec<i64> {
+        let mut hs = eval(src).unwrap().query_arc(Frac::zero(), Frac::one());
+        hs.sort_by_key(|h| h.part.begin);
+        hs.iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("n").and_then(|x| x.as_f64()).map(|f| f as i64),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        ns(r#"n("0").echoWith(3, 0.25, |x, i| x.add(n(i)))"#),
+        vec![0, 1, 2, 1, 2]
+    );
+    // one-arg callback still works (index ignored).
+    assert_eq!(
+        ns(r#"n("0").echoWith(3, 0.25, |x| x.add(n(10)))"#),
+        vec![10, 10, 10, 10, 10]
+    );
+    // stutWith is an alias; standalone takes the pattern last.
+    assert_eq!(
+        ns(r#"stutWith(3, 0.25, |x, i| x.add(n(i)), n("0"))"#),
+        vec![0, 1, 2, 1, 2]
+    );
+}
+
+#[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
     let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);

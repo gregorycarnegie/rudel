@@ -303,6 +303,21 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
         cb.finish()?;
         Ok(KPattern(result).into())
     });
+
+    // echoWith/stutWith(times, time, func, pat): indexed delayed copies.
+    let echo_with_fn = |ctx: &mut CallContext| {
+        let times = arg_to_f64(lead(ctx, 0)) as i64;
+        let time = Frac::from_f64(arg_to_f64(lead(ctx, 1)));
+        let (func, pat) = func_and_pat(ctx);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = pat.echo_with(times, time, |p, i| cb.apply2(p, i));
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    };
+    prelude.add_fn("echoWith", echo_with_fn);
+    prelude.add_fn("echowith", echo_with_fn);
+    prelude.add_fn("stutWith", echo_with_fn);
+    prelude.add_fn("stutwith", echo_with_fn);
 }
 
 /// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the
@@ -356,6 +371,26 @@ impl Callback {
                 }
                 p.clone()
             }
+        }
+    }
+
+    /// Invoke the Koto function with `(p, i)` for the indexed combinators
+    /// (`echoWith`/`stutWith`/`plyForEach`). Koto is strict about arity, so a
+    /// one-parameter callback (which ignores the index) is retried with a single
+    /// argument rather than erroring.
+    pub(super) fn apply2(&self, p: &Pattern, i: i64) -> Pattern {
+        let args = [KPattern(p.clone()).into(), KValue::Number(KNumber::from(i))];
+        let call = self
+            .vm
+            .borrow_mut()
+            .call_function(self.func.clone(), CallArgs::Separate(&args));
+        match call {
+            Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
+                o.cast::<KPattern>().unwrap().0.clone()
+            }
+            Ok(_) => p.clone(),
+            // The callback may take only the pattern; retry without the index.
+            Err(_) => self.apply(p),
         }
     }
 

@@ -69,6 +69,18 @@ pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<K
     Ok(KPattern::wrap(pat.loop_at_cps(factor, cps)))
 }
 
+/// `pat.echoWith(times, time, f)` / `stutWith`: stack `times` copies, each
+/// delayed by `time*i` and transformed by `f(copy, i)`.
+pub(super) fn kpattern_echo_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let times = arg_to_f64(&method_arg(&ctx, 0)) as i64;
+    let time = arg_to_frac(&method_arg(&ctx, 1));
+    let cb = Callback::new(&ctx, method_arg(&ctx, 2));
+    let out = pat.echo_with(times, time, |p, i| cb.apply2(p, i));
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
 /// `pat.applyN(n, f)`: apply the callback `f` to the pattern `n` times.
 pub(super) fn kpattern_apply_n(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let pat = ctx.instance()?.0.clone();
