@@ -1,4 +1,5 @@
 use super::aliases::ALIAS_CONTROL_BUILDERS;
+use super::multi::distort;
 use super::named::{NAMED_CONTROL_BUILDERS, fade_time, fx_release, loop_begin, loop_end};
 use super::plain::{PLAIN_CONTROL_BUILDERS, bend_range, warp, warpmode, wt, wtphaserand};
 use super::special::{mode, s, sound};
@@ -15,6 +16,7 @@ static EXTRA_CONTROL_BUILDERS: &[ControlBuilderEntry] = &[
     ("s", |p| s(p)),
     ("sound", |p| sound(p)),
     ("mode", |p| mode(p)),
+    ("distort", |p| distort(p)),
     ("bendRange", |p| bend_range(p)),
     ("wavetablePosition", |p| wt(p)),
     ("wavetableWarp", |p| warp(p)),

@@ -508,6 +508,9 @@ pub(crate) fn register(prelude: &KMap) {
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask, "bypass" => bypass,
             "timeline" => timeline,
+            // waveshaping-distortion shortcuts (pattern-last standalone form)
+            "soft" => soft, "hard" => hard, "cubic" => cubic, "diode" => diode,
+            "asym" => asym, "fold" => fold, "sinefold" => sinefold, "chebyshev" => chebyshev,
             "early" => early, "late" => late,
             "lt" => lt, "gt" => gt, "lte" => lte, "gte" => gte,
             "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,

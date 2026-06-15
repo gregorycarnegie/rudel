@@ -24,7 +24,7 @@ pub use fm::{FmOp, FmSpec};
 pub use oscillator::{NoiseKind, Waveform};
 pub use params::VoiceParams;
 pub use pitch::{mtof, note_name_to_midi, note_to_freq};
-pub use postfx::{PostFx, PostFxVoice, Vowel};
+pub use postfx::{DistortAlgo, PostFx, PostFxVoice, Vowel};
 pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::VoiceSpec;
 pub use synth::Voice;

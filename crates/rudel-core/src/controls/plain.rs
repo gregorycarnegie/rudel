@@ -232,7 +232,8 @@ controls!(
     ir,
     irspeed,
     irbegin,
-    distort,
+    // `distort` is a multi-control (`distort:distortvol:distorttype`) defined in
+    // `multi.rs`; `distortvol`/`distorttype` remain plain controls.
     distortvol,
     distorttype,
     compressor,

@@ -27,6 +27,58 @@ fn loop_controls_set_their_keys() {
 }
 
 #[test]
+fn distortion_shortcuts_set_distort_amount_vol_and_type() {
+    // soft(2) -> distort=2, distortvol=1 (default), distorttype="soft".
+    let pat = eval(r#"s("bd").soft(2)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("distort").and_then(|v| v.as_f64()), Some(2.0));
+            assert_eq!(m.get("distortvol").and_then(|v| v.as_f64()), Some(1.0));
+            assert_eq!(m.get("distorttype").and_then(|v| v.as_str()), Some("soft"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+    // A `amount:volume` list arg sets the postgain too; here via `hard`.
+    let pat = eval(r#"s("bd").hard("3:0.5")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("distort").and_then(|v| v.as_f64()), Some(3.0));
+            assert_eq!(m.get("distortvol").and_then(|v| v.as_f64()), Some(0.5));
+            assert_eq!(m.get("distorttype").and_then(|v| v.as_str()), Some("hard"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn distort_multicontrol_splits_amount_vol_and_type() {
+    // `.distort("3:0.5:diode")` spreads into the three keys (Strudel multi-control).
+    let pat = eval(r#"s("bd").distort("3:0.5:diode")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("distort").and_then(|v| v.as_f64()), Some(3.0));
+            assert_eq!(m.get("distortvol").and_then(|v| v.as_f64()), Some(0.5));
+            assert_eq!(m.get("distorttype").and_then(|v| v.as_str()), Some("diode"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+    // A bare amount sets only `distort`.
+    let pat = eval(r#"s("bd").distort(2)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("distort").and_then(|v| v.as_f64()), Some(2.0)),
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn distortion_shortcut_standalone_matches_method() {
+    // Standalone (pattern-last) form equals the method form.
+    let method = shape(&eval(r#"s("bd").cubic(4)"#).expect("eval"), 1);
+    let standalone = shape(&eval(r#"cubic(4, s("bd"))"#).expect("eval"), 1);
+    assert_eq!(method, standalone);
+}
+
+#[test]
 fn partials_sets_a_list_control() {
     let pat = eval(r#"note("c3").s("sawtooth").partials([1, 0.5, 0.25]).phases([0, 0.25])"#)
         .expect("eval");

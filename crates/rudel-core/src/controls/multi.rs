@@ -5,6 +5,62 @@ use crate::transforms::IntoPattern;
 use crate::value::Value;
 use std::collections::BTreeMap;
 
+/// Strudel's `distort` multi-control: a `:`-list (`"3:0.5:diode"`) spreads into
+/// `distort`/`distortvol`/`distorttype` (waveshape amount, postgain, algorithm).
+/// A bare number sets only the amount.
+pub fn distort(pat: impl IntoPattern) -> Pattern {
+    spread_control(
+        &["distort", "distortvol", "distorttype"],
+        pat.into_pattern(),
+    )
+}
+
+/// Build a distortion-algorithm shortcut value: each arg becomes
+/// `[amount, volume, algName]` (Strudel's `_distortWithAlg`), spread into the
+/// `distort`/`distortvol`/`distorttype` controls. A list arg has the algorithm
+/// name appended; a bare amount defaults `volume = 1`.
+fn distort_alg(name: &'static str, pat: Pattern) -> Pattern {
+    let mapped = pat.fmap(move |v| match v {
+        Value::List(mut items) => {
+            items.push(Value::Str(name.to_string()));
+            Value::List(items)
+        }
+        other => Value::List(vec![other, Value::Int(1), Value::Str(name.to_string())]),
+    });
+    spread_control(&["distort", "distortvol", "distorttype"], mapped)
+}
+
+/// Generate the waveshaping-distortion shortcuts (`soft`/`hard`/…). Each sets
+/// `distorttype` to its own algorithm and the `distort`/`distortvol` amount and
+/// postgain from the argument, matching superdough's distortion family.
+macro_rules! distort_shortcuts {
+    ($($name:ident),* $(,)?) => {
+        $(
+            #[doc = concat!("The `", stringify!($name), "` waveshaping-distortion shortcut.")]
+            pub fn $name(pat: impl IntoPattern) -> Pattern {
+                distort_alg(stringify!($name), pat.into_pattern())
+            }
+        )*
+        impl Pattern {
+            $(
+                #[doc = concat!("Apply `", stringify!($name), "` waveshaping distortion (sets `distorttype`).")]
+                pub fn $name(&self, x: impl IntoPattern) -> Pattern {
+                    self.set($name(x))
+                }
+            )*
+        }
+    };
+}
+
+distort_shortcuts!(soft, hard, cubic, diode, asym, fold, sinefold, chebyshev);
+
+impl Pattern {
+    /// Set the `distort` multi-control (see [`distort`]).
+    pub fn distort(&self, x: impl IntoPattern) -> Pattern {
+        self.set(distort(x))
+    }
+}
+
 /// Strudel's `adsr` helper: a `:`-list (`".1:.2:.5:.3"`) expands into
 /// `attack`/`decay`/`sustain`/`release`. Missing entries are left unset.
 pub fn adsr(pat: impl IntoPattern) -> Pattern {

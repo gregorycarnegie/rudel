@@ -91,6 +91,156 @@ impl Formant {
     }
 }
 
+/// Waveshaping algorithm selected by the `distorttype` control. The order
+/// matches superdough's `distortionAlgorithms` key order, so a numeric
+/// `distorttype` indexes the same algorithm (wrapping).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DistortAlgo {
+    /// `scurve` — superdough's default `distort` curve (index 0).
+    #[default]
+    Scurve,
+    Soft,
+    Hard,
+    Cubic,
+    Diode,
+    Asym,
+    Fold,
+    Sinefold,
+    Chebyshev,
+}
+
+impl DistortAlgo {
+    /// All algorithms in superdough's order; a numeric `distorttype` indexes
+    /// this list (wrapping), a string names it.
+    const ORDER: [DistortAlgo; 9] = [
+        DistortAlgo::Scurve,
+        DistortAlgo::Soft,
+        DistortAlgo::Hard,
+        DistortAlgo::Cubic,
+        DistortAlgo::Diode,
+        DistortAlgo::Asym,
+        DistortAlgo::Fold,
+        DistortAlgo::Sinefold,
+        DistortAlgo::Chebyshev,
+    ];
+
+    fn from_name(name: &str) -> Option<DistortAlgo> {
+        Some(match name {
+            "scurve" => DistortAlgo::Scurve,
+            "soft" => DistortAlgo::Soft,
+            "hard" => DistortAlgo::Hard,
+            "cubic" => DistortAlgo::Cubic,
+            "diode" => DistortAlgo::Diode,
+            "asym" => DistortAlgo::Asym,
+            "fold" => DistortAlgo::Fold,
+            "sinefold" => DistortAlgo::Sinefold,
+            "chebyshev" => DistortAlgo::Chebyshev,
+            _ => return None,
+        })
+    }
+
+    /// Resolve from a control value: a string names the algorithm; a number
+    /// indexes [`ORDER`](Self::ORDER) (wrapping, matching superdough's
+    /// `getDistortionAlgorithm`). Unknown names fall back to the default.
+    pub fn from_value(value: &Value) -> DistortAlgo {
+        match value {
+            Value::Str(s) => DistortAlgo::from_name(s).unwrap_or_default(),
+            other => match other.as_f64() {
+                Some(n) => {
+                    let len = DistortAlgo::ORDER.len() as i64;
+                    let idx = (n as i64).rem_euclid(len) as usize;
+                    DistortAlgo::ORDER[idx]
+                }
+                None => DistortAlgo::default(),
+            },
+        }
+    }
+
+    /// Apply this waveshaper to a sample. `k = e^distort - 1` is the drive
+    /// (`shape` in superdough's worklet). Ported sample-for-sample from
+    /// `superdough/helpers.mjs`.
+    pub fn shape(self, x: f32, k: f32) -> f32 {
+        match self {
+            DistortAlgo::Scurve => d_scurve(x, k),
+            DistortAlgo::Soft => d_soft(x, k),
+            DistortAlgo::Hard => d_hard(x, k),
+            DistortAlgo::Cubic => d_cubic(x, k),
+            DistortAlgo::Diode => d_diode(x, k, false),
+            DistortAlgo::Asym => d_diode(x, k, true),
+            DistortAlgo::Fold => d_fold(x, k),
+            DistortAlgo::Sinefold => d_sinefold(x, k),
+            DistortAlgo::Chebyshev => d_chebyshev(x, k),
+        }
+    }
+}
+
+/// `[0, inf) -> [0, 1)` squash used by the drive-dependent algorithms.
+fn d_squash(x: f32) -> f32 {
+    x / (1.0 + x)
+}
+
+fn d_scurve(x: f32, k: f32) -> f32 {
+    ((1.0 + k) * x) / (1.0 + k * x.abs())
+}
+
+fn d_soft(x: f32, k: f32) -> f32 {
+    (x * (1.0 + k)).tanh()
+}
+
+fn d_hard(x: f32, k: f32) -> f32 {
+    ((1.0 + k) * x).clamp(-1.0, 1.0)
+}
+
+fn d_fold(x: f32, k: f32) -> f32 {
+    let y = (1.0 + 0.5 * k) * x;
+    // floored modulo, matching superdough's `_mod`.
+    let window = (y + 1.0).rem_euclid(4.0);
+    1.0 - (window - 2.0).abs()
+}
+
+fn d_sinefold(x: f32, k: f32) -> f32 {
+    (std::f32::consts::FRAC_PI_2 * d_fold(x, k)).sin()
+}
+
+fn d_cubic(x: f32, k: f32) -> f32 {
+    let t = d_squash(k.ln_1p());
+    let cubic = (x - (t / 3.0) * x * x * x) / (1.0 - t / 3.0);
+    d_soft(cubic, k)
+}
+
+fn d_diode(x: f32, k: f32, asym: bool) -> f32 {
+    let g = 1.0 + 2.0 * k;
+    let t = d_squash(k.ln_1p());
+    let bias = 0.07 * t;
+    let pos = d_soft(x + bias, 2.0 * k);
+    let neg = d_soft(if asym { bias } else { -x + bias }, 2.0 * k);
+    let y = pos - neg;
+    let sech = 1.0 / (g * bias).cosh();
+    let sech2 = sech * sech;
+    let denom = (if asym { 1.0 } else { 2.0 } * g * sech2).max(1e-8);
+    d_soft(y / denom, k)
+}
+
+fn d_chebyshev(x: f32, k: f32) -> f32 {
+    let kl = 10.0 * k.ln_1p();
+    let mut tnm1 = 1.0f32;
+    let mut tnm2 = x;
+    let mut y = 0.0f32;
+    for i in 1..64 {
+        if i < 2 {
+            y += tnm2; // i == 1 (i == 0 is never reached)
+            continue;
+        }
+        let tn = 2.0 * x * tnm1 - tnm2;
+        tnm2 = tnm1;
+        tnm1 = tn;
+        if i % 2 == 0 {
+            y += (1.3 * kl / i as f32).min(2.0) * tn;
+        }
+    }
+    d_soft(y, kl / 20.0)
+}
+
 /// Per-voice post-effects (`crush`, `shape`, `distort`, `coarse`, `postgain`,
 /// `vowel`).
 #[derive(Clone, Copy, Debug)]
@@ -105,6 +255,8 @@ pub struct PostFx {
     pub distort: Option<f32>,
     /// Post-gain for `distort` (`distortvol`), 0.001..1.
     pub distortvol: f32,
+    /// Waveshaping algorithm (`distorttype`); set by `soft`/`hard`/`cubic`/…
+    pub distort_alg: DistortAlgo,
     /// Sample-rate reduction factor (`coarse`, >= 1). `None` = off.
     pub coarse: Option<f32>,
     /// Overall post-gain (`postgain`).
@@ -133,6 +285,7 @@ impl Default for PostFx {
             shapevol: 1.0,
             distort: None,
             distortvol: 1.0,
+            distort_alg: DistortAlgo::Scurve,
             coarse: None,
             postgain: 1.0,
             vowel: None,
@@ -155,6 +308,10 @@ impl PostFx {
             shapevol: get("shapevol").unwrap_or(1.0),
             distort: get("distort"),
             distortvol: get("distortvol").unwrap_or(1.0),
+            distort_alg: map
+                .get("distorttype")
+                .map(DistortAlgo::from_value)
+                .unwrap_or_default(),
             coarse: get("coarse"),
             postgain: get("postgain").unwrap_or(1.0),
             vowel: map
@@ -229,10 +386,6 @@ impl PostFxVoice {
         ((1.0 + shape) * x) / (1.0 + shape * x.abs()) * postgain
     }
 
-    // s-curve waveshaper (superdough's default `distort` algorithm).
-    fn distort_sample(x: f32, k: f32, postgain: f32) -> f32 {
-        postgain * ((1.0 + k) * x) / (1.0 + k * x.abs())
-    }
 }
 
 impl VoiceLike for PostFxVoice {
@@ -278,12 +431,14 @@ impl VoiceLike for PostFxVoice {
             l = Self::shape_sample(l, s, pg);
             r = Self::shape_sample(r, s, pg);
         }
-        // distort: s-curve with exponential drive.
+        // distort: waveshaper (selected by `distorttype`) with exponential
+        // drive `k = e^distort - 1`, then postgain (superdough's DistortProcessor).
         if let Some(d) = self.fx.distort {
             let k = d.exp_m1();
             let pg = self.fx.distortvol.clamp(0.001, 1.0);
-            l = Self::distort_sample(l, k, pg);
-            r = Self::distort_sample(r, k, pg);
+            let alg = self.fx.distort_alg;
+            l = pg * alg.shape(l, k);
+            r = pg * alg.shape(r, k);
         }
         // tremolo: amplitude LFO. gain = (1-depth) + depth * unipolar-sine.
         if let Some(rate) = self.fx.tremolo {

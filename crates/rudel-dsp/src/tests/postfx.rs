@@ -174,6 +174,63 @@ fn distort_boosts_small_signal() {
 }
 
 #[test]
+fn distort_algo_resolves_from_name_and_index() {
+    // String names map to the algorithm; numbers index superdough's order,
+    // wrapping; unknown names fall back to the default (scurve).
+    assert_eq!(DistortAlgo::from_value(&Value::Str("soft".into())), DistortAlgo::Soft);
+    assert_eq!(DistortAlgo::from_value(&Value::Str("diode".into())), DistortAlgo::Diode);
+    assert_eq!(DistortAlgo::from_value(&Value::Int(0)), DistortAlgo::Scurve);
+    assert_eq!(DistortAlgo::from_value(&Value::Int(2)), DistortAlgo::Hard);
+    assert_eq!(DistortAlgo::from_value(&Value::Int(9)), DistortAlgo::Scurve); // wraps
+    assert_eq!(DistortAlgo::from_value(&Value::Str("nope".into())), DistortAlgo::Scurve);
+}
+
+#[test]
+fn distort_algorithms_match_reference_formulas() {
+    // At drive k=0 each algorithm reduces to its documented base curve
+    // (ported sample-for-sample from superdough/helpers.mjs).
+    let x = 0.4f32;
+    // scurve(x, 0) = x (identity at zero drive).
+    assert!((DistortAlgo::Scurve.shape(x, 0.0) - x).abs() < 1e-6);
+    // soft(x, 0) = tanh(x).
+    assert!((DistortAlgo::Soft.shape(x, 0.0) - x.tanh()).abs() < 1e-6);
+    // hard clamps the boosted signal to [-1, 1].
+    assert_eq!(DistortAlgo::Hard.shape(2.0, 1.0), 1.0);
+    assert_eq!(DistortAlgo::Hard.shape(-2.0, 1.0), -1.0);
+    // fold(x, 0) is the identity on [0, 1] and stays within [-1, 1] everywhere.
+    assert!((DistortAlgo::Fold.shape(x, 0.0) - x).abs() < 1e-6);
+    for xi in [-5.0, -1.7, 0.0, 0.9, 3.3, 7.5] {
+        let y = DistortAlgo::Fold.shape(xi, 3.0);
+        assert!((-1.0..=1.0).contains(&y), "fold out of range: {y}");
+    }
+    // Every algorithm maps silence to silence and stays finite.
+    for alg in [
+        DistortAlgo::Scurve, DistortAlgo::Soft, DistortAlgo::Hard, DistortAlgo::Cubic,
+        DistortAlgo::Diode, DistortAlgo::Asym, DistortAlgo::Fold, DistortAlgo::Sinefold,
+        DistortAlgo::Chebyshev,
+    ] {
+        assert!(alg.shape(0.0, 2.0).abs() < 1e-6, "{alg:?} should map 0 -> 0");
+        assert!(alg.shape(0.6, 5.0).is_finite(), "{alg:?} produced a non-finite sample");
+    }
+}
+
+#[test]
+fn distorttype_selects_the_algorithm_in_the_voice() {
+    // The PostFx voice applies the algorithm chosen by `distorttype`: a hard
+    // clipper on a boosted const input saturates to exactly 1.0, while the
+    // default s-curve does not reach 1.0.
+    let mk = |alg| PostFx {
+        distort: Some(2.0),
+        distort_alg: alg,
+        ..Default::default()
+    };
+    let mut hard = PostFxVoice::new(Box::new(ConstVoice(0.9)), mk(DistortAlgo::Hard), 44100.0);
+    assert_eq!(hard.tick().0, 1.0);
+    let mut scurve = PostFxVoice::new(Box::new(ConstVoice(0.9)), mk(DistortAlgo::Scurve), 44100.0);
+    assert!(scurve.tick().0 < 1.0);
+}
+
+#[test]
 fn tremolo_modulates_amplitude() {
     // depth=1, 100 Hz: gain swings across [0, 1] over one LFO period.
     let fx = PostFx {

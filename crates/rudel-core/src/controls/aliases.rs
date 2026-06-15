@@ -1,3 +1,4 @@
+use super::multi::distort;
 use super::named::*;
 use super::plain::*;
 use crate::pattern::Pattern;

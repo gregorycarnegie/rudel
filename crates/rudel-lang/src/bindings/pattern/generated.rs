@@ -359,6 +359,8 @@ kpattern_methods! {
         overlay, arp, trans, strans,
         // impure: live-coding timeline cue alignment (core/impure.mjs)
         timeline,
+        // waveshaping-distortion shortcuts (superdough distortion family)
+        soft, hard, cubic, diode, asym, fold, sinefold, chebyshev,
         // multi-control helpers (`adsr` expands into attack/decay/sustain/
         // release, `control` sets ccn/ccv, `sysex` sets sysexid/sysexdata)
         // and sample scrubbing
