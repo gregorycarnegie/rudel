@@ -140,6 +140,37 @@ pub(crate) fn num_pow(a: &Value, b: &Value) -> Value {
     Value::F64(a.as_f64().unwrap_or(0.0).powf(b.as_f64().unwrap_or(0.0)))
 }
 
+// Bitwise value ops (`band`/`bor`/`bxor`/`blshift`/`brshift`). Strudel wraps
+// these in `numeralArgs`, so operands are parsed as numerals (note names ->
+// midi) and JS bitwise acts on int32; we mirror that with `i32` arithmetic.
+pub(crate) fn numeral_i32(v: &Value) -> i32 {
+    let n = v
+        .as_f64()
+        .or_else(|| {
+            v.as_str()
+                .and_then(|s| crate::tonal::note_to_midi(s).map(|m| m as f64))
+        })
+        .unwrap_or(0.0);
+    n as i64 as i32
+}
+fn bit_and(a: &Value, b: &Value) -> Value {
+    Value::Int((numeral_i32(a) & numeral_i32(b)) as i64)
+}
+fn bit_or(a: &Value, b: &Value) -> Value {
+    Value::Int((numeral_i32(a) | numeral_i32(b)) as i64)
+}
+fn bit_xor(a: &Value, b: &Value) -> Value {
+    Value::Int((numeral_i32(a) ^ numeral_i32(b)) as i64)
+}
+fn bit_lshift(a: &Value, b: &Value) -> Value {
+    // JS shifts mask the count to 5 bits (`b & 31`).
+    Value::Int(numeral_i32(a).wrapping_shl(numeral_i32(b) as u32 & 31) as i64)
+}
+fn bit_rshift(a: &Value, b: &Value) -> Value {
+    // `>>` is an arithmetic (sign-propagating) shift, like JS.
+    Value::Int((numeral_i32(a) >> (numeral_i32(b) as u32 & 31)) as i64)
+}
+
 // Comparison / logic value ops (the `lt`/`gt`/.../`and`/`or` COMPOSERS). They
 // compare numerically when both sides are numbers (or numeric strings), else
 // lexically; results are booleans, handy as `struct`/`mask` gates.
@@ -640,6 +671,27 @@ impl Pattern {
     /// Logical or (`or`): JS `a || b` per event.
     pub fn or(&self, other: impl IntoPattern) -> Pattern {
         self.op_in(other.into_pattern(), logic_or)
+    }
+
+    /// Bitwise AND (`band`): int32 `a & b` per event, structure from the left.
+    pub fn band(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), bit_and)
+    }
+    /// Bitwise OR (`bor`).
+    pub fn bor(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), bit_or)
+    }
+    /// Bitwise XOR (`bxor`).
+    pub fn bxor(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), bit_xor)
+    }
+    /// Bitwise left shift (`blshift`).
+    pub fn blshift(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), bit_lshift)
+    }
+    /// Bitwise right shift (`brshift`).
+    pub fn brshift(&self, other: impl IntoPattern) -> Pattern {
+        self.op_in(other.into_pattern(), bit_rshift)
     }
 
     /// Scale a unipolar (0..1) signal into the `min..max` range.

@@ -462,6 +462,29 @@ pub(crate) fn register(prelude: &KMap) {
         ))
         .into())
     });
+    // binary(n) / binaryN(n, nBits): bit patterns of a number (struct fodder).
+    // binaryL(n) / binaryNL(n, nBits): the bits packed into a list value.
+    // randL(n): a list of n random numbers. nBits defaults to 16, as in Strudel.
+    fn nbits_arg(ctx: &CallContext) -> i64 {
+        ctx.args().get(1).map(arg_to_f64).unwrap_or(16.0) as i64
+    }
+    prelude.add_fn("binary", |ctx| {
+        Ok(KPattern(rudel_core::binary(super::pattern::arg_to_f64(&arg0(ctx)) as i64)).into())
+    });
+    prelude.add_fn("binaryN", |ctx| {
+        let nbits = nbits_arg(ctx);
+        Ok(KPattern(rudel_core::binary_n(arg_to_pattern(&arg0(ctx)), nbits)).into())
+    });
+    prelude.add_fn("binaryL", |ctx| {
+        Ok(KPattern(rudel_core::binary_l(arg_to_pattern(&arg0(ctx)))).into())
+    });
+    prelude.add_fn("binaryNL", |ctx| {
+        let nbits = nbits_arg(ctx);
+        Ok(KPattern(rudel_core::binary_nl(arg_to_pattern(&arg0(ctx)), nbits)).into())
+    });
+    prelude.add_fn("randL", |ctx| {
+        Ok(KPattern(rudel_core::rand_l(super::pattern::arg_to_f64(&arg0(ctx)) as i64)).into())
+    });
     // MIDI input: `ccin(cc)` / `ccin(cc, chan)` is a 0..1 signal of the latest
     // value of an incoming control-change (the input counterpart to `ccn`).
     prelude.add_fn("ccin", |ctx| {
@@ -519,6 +542,8 @@ pub(crate) fn register(prelude: &KMap) {
             "early" => early, "late" => late,
             "lt" => lt, "gt" => gt, "lte" => lte, "gte" => gte,
             "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,
+            "band" => band, "bor" => bor, "bxor" => bxor,
+            "blshift" => blshift, "brshift" => brshift,
             "fastGap" => fast_gap, "fast_gap" => fast_gap,
             "transpose" => transpose, "trans" => trans,
             "scaleTranspose" => scale_transpose, "scale_transpose" => scale_transpose,

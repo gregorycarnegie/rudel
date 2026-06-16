@@ -340,6 +340,8 @@ kpattern_methods! {
         early, late, fast_gap,
         // comparison / logic composers (boolean results)
         lt, gt, lte, gte, eq, eqt, ne, net, and, or, keepif, bypass,
+        // bitwise composers (int32 results)
+        band, bor, bxor, blshift, brshift,
         // Simple controls and their aliases (note, s, gain, lpf, the numbered
         // FM families, MIDI controls, ...) are NOT listed here: they are
         // registered dynamically from rudel-core's `control_builders`

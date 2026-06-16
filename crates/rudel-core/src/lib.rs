@@ -39,9 +39,9 @@ pub use value::Value;
 
 // Signals and randomness.
 pub use signal::{
-    berlin, brand, brand_by, cosine, cosine2, cycles_per, irand, isaw, isaw2, itri, itri2, per,
-    perlin, perx, rand, rand2, randrun, run, saw, saw2, scan, sine, sine2, square, square2, steady,
-    time, tri, tri2,
+    berlin, binary, binary_l, binary_n, binary_nl, brand, brand_by, cosine, cosine2, cycles_per,
+    irand, isaw, isaw2, itri, itri2, per, perlin, perx, rand, rand2, rand_l, randrun, run, saw,
+    saw2, scan, sine, sine2, square, square2, steady, time, tri, tri2,
 };
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
