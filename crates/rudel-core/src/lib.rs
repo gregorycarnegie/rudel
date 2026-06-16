@@ -47,8 +47,8 @@ pub use signal::{
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
 pub use transforms::{
-    choose, choose_cycles, choose_in, choose_with, randcat, ratio_value, stepalt, wchoose,
-    wrandcat, zip,
+    choose, choose_cycles, choose_in, choose_with, morph, randcat, ratio_value, stepalt, wchoose,
+    wrandcat, xfade, zip,
 };
 // Pick combinators (select patterns from a list/table via a selector pattern).
 pub use transforms::{PickJoin, pick_list, pick_map};

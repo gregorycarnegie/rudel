@@ -501,6 +501,25 @@ impl Pattern {
         self._focus(frac(b), frac(e))
     }
 
+    /// Build a structure pattern from cycle divisions (`beat`): place this
+    /// pattern's value at division `t` of `div` slices per cycle. `t` and `div`
+    /// are patternified, so `s("bd").beat("0,7,10", 16)` stacks three beats.
+    pub fn beat(&self, t: impl IntoPattern, div: impl IntoPattern) -> Pattern {
+        let pat = self.clone();
+        let div_pat = div.into_pattern();
+        t.into_pattern().inner_bind(move |tv| {
+            let pat = pat.clone();
+            let t = tv.to_frac();
+            div_pat.inner_bind(move |dv| beat_once(pat.clone(), t, dv.to_frac()))
+        })
+    }
+
+    /// Cross-fade from this pattern to `b` as `pos` goes 0→1, via an
+    /// equal-plateau `gain` curve (`xfade`).
+    pub fn xfade(&self, pos: impl IntoPattern, b: impl IntoPattern) -> Pattern {
+        xfade(self.clone(), pos.into_pattern(), b.into_pattern())
+    }
+
     /// `ribbon`/`rib`: cut a `cycles`-long window starting at cycle `offset` out
     /// of the (infinite) timeline and loop it forever. Like `note("<c d e f>")
     /// .ribbon(1, 2)` playing `d e` on repeat.
@@ -806,6 +825,108 @@ where
     randcat(&pats)
 }
 
+/// One beat: place `pat`'s value into the `[t/div, (t+1)/div]` slice of the
+/// cycle (Strudel's `__beat` with `innerJoin`). `t` is taken modulo `div`.
+fn beat_once(pat: Pattern, t: Frac, div: Frac) -> Pattern {
+    if div <= Frac::zero() {
+        return silence();
+    }
+    // Floored modulo (Fraction.mod), so a position beyond `div` wraps.
+    let t = t - (t / div).floor() * div;
+    let b = t / div;
+    let e = (t + Frac::one()) / div;
+    pat.fmap(move |x| Value::Pat(Box::new(pure(x)._compress(b, e))))
+        .inner_join()
+}
+
+/// Strudel's plateau cross-fade gain curve: full until the midpoint, then
+/// ramps to zero (`fadeGain`).
+fn fade_gain(p: f64) -> f64 {
+    if p < 0.5 { 1.0 } else { 1.0 - (p - 0.5) / 0.5 }
+}
+
+/// Cross-fade between `a` and `b` as `pos` goes 0→1 by scaling each side's
+/// `gain` (`xfade`). Pure pattern combinator — no DSP.
+pub fn xfade(a: Pattern, pos: Pattern, b: Pattern) -> Pattern {
+    let gain_map = |g: f64| Value::Map(BTreeMap::from([("gain".to_string(), Value::F64(g))]));
+    let gain_a = pos.fmap(move |v| gain_map(fade_gain(v.as_f64().unwrap_or(0.0))));
+    let gain_b = pos.fmap(move |v| gain_map(fade_gain(1.0 - v.as_f64().unwrap_or(0.0))));
+    stack(&[a.mul(gain_a), b.mul(gain_b)])
+}
+
+/// Truthy entries of a binary rhythm list as `(position, value)`, where the
+/// position is the index normalized to `[0, 1)`.
+fn morph_positions(list: &[Value]) -> Vec<(Frac, Value)> {
+    let len = list.len().max(1) as i64;
+    list.iter()
+        .enumerate()
+        .filter(|(_, v)| v.truthy())
+        .map(|(i, v)| (Frac::int(i as i64) / Frac::int(len), v.clone()))
+        .collect()
+}
+
+/// Morph between two binary rhythms (`from`/`to`, lists of 1s and 0s with the
+/// same number of true values) by `by` in 0→1 (`_morph`). Produces a boolean
+/// structure pattern with each onset interpolated between its `from` and `to`
+/// position.
+fn morph_inner(from: &[Value], to: &[Value], by: Frac) -> Pattern {
+    if from.is_empty() {
+        return silence();
+    }
+    let dur = Frac::one() / Frac::int(from.len() as i64);
+    let from_pos = morph_positions(from);
+    let to_pos = morph_positions(to);
+    let arcs: Vec<TimeSpan> = from_pos
+        .iter()
+        .zip(to_pos.iter())
+        .map(|((pa, _), (pb, _))| {
+            let b = by * (*pb - *pa) + *pa;
+            TimeSpan::new(b, b + dur)
+        })
+        .collect();
+    Pattern::new(move |state| {
+        let cycle = state.span.begin.sam();
+        let cyc_arc = state.span.cycle_arc();
+        let mut out = Vec::new();
+        for whole in &arcs {
+            if let Some(part) = whole.intersection(&cyc_arc) {
+                out.push(Hap::new(
+                    Some(whole.with_time(|x| x + cycle)),
+                    part.with_time(|x| x + cycle),
+                    Value::Bool(true),
+                ));
+            }
+        }
+        out
+    })
+    .split_queries()
+}
+
+/// `morph(from, to, by)`: morph between two binary rhythms by a 0→1 pattern.
+/// `from`/`to` are list-valued patterns; `by` is sampled per cycle.
+pub fn morph(from: impl IntoPattern, to: impl IntoPattern, by: impl IntoPattern) -> Pattern {
+    let to_pat = to.into_pattern();
+    let by_pat = by.into_pattern();
+    from.into_pattern().inner_bind(move |fv| {
+        let by_pat = by_pat.clone();
+        let from_list = as_list(&fv);
+        to_pat.inner_bind(move |tv| {
+            let from_list = from_list.clone();
+            let to_list = as_list(&tv);
+            by_pat.inner_bind(move |bv| morph_inner(&from_list, &to_list, bv.to_frac()))
+        })
+    })
+}
+
+/// View a value as a list of positional items (a list yields its items, a
+/// scalar is a one-item list).
+fn as_list(v: &Value) -> Vec<Value> {
+    match v {
+        Value::List(items) => items.clone(),
+        other => vec![other.clone()],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1006,6 +1127,52 @@ mod tests {
             haps[0].value,
             Value::List(vec![Value::Int(0), Value::Int(1), Value::Int(2)])
         );
+    }
+
+    #[test]
+    fn beat_places_value_in_its_division() {
+        // beat(2, 4): the value is compressed into the [2/4, 3/4] slice.
+        let pat = pure(Value::Int(1)).beat(2, 4);
+        let haps = pat.query_arc(Frac::zero(), Frac::one());
+        assert_eq!(haps.len(), 1);
+        let whole = haps[0].whole.unwrap();
+        assert_eq!(whole.begin, Frac::new(1, 2));
+        assert_eq!(whole.end, Frac::new(3, 4));
+    }
+
+    #[test]
+    fn morph_interpolates_onset_between_rhythms() {
+        // from has its single onset at position 0, to at position 2/4. The
+        // morphed onset slides linearly between them as `by` goes 0 -> 1.
+        let from = Value::List(vec![1, 0, 0, 0].into_iter().map(Value::Int).collect());
+        let to = Value::List(vec![0, 0, 1, 0].into_iter().map(Value::Int).collect());
+        let onset = |by: Frac| {
+            let p = morph(from.clone(), to.clone(), Value::Frac(by));
+            let haps = p.query_arc(Frac::zero(), Frac::one());
+            assert_eq!(haps.len(), 1, "expected one onset");
+            assert_eq!(haps[0].value, Value::Bool(true));
+            haps[0].whole.unwrap().begin
+        };
+        assert_eq!(onset(Frac::zero()), Frac::zero()); // fully `from`
+        assert_eq!(onset(Frac::one()), Frac::new(1, 2)); // fully `to`
+        assert_eq!(onset(Frac::new(1, 2)), Frac::new(1, 4)); // halfway
+    }
+
+    #[test]
+    fn xfade_sets_complementary_gains() {
+        // pos=0: left full (gain 1), right silent (gain 0).
+        let pat = crate::s(Value::Str("a".into())).xfade(0, crate::s(Value::Str("b".into())));
+        let haps = pat.query_arc(Frac::zero(), Frac::one());
+        let gain_of = |name: &str| {
+            haps.iter().find_map(|h| match &h.value {
+                Value::Map(m) if m.get("s") == Some(&Value::Str(name.into())) => {
+                    m.get("gain").and_then(Value::as_f64)
+                }
+                _ => None,
+            })
+        };
+        assert_eq!(gain_of("a"), Some(1.0));
+        assert_eq!(gain_of("b"), Some(0.0));
     }
 
     #[test]

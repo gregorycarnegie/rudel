@@ -485,6 +485,20 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("randL", |ctx| {
         Ok(KPattern(rudel_core::rand_l(super::pattern::arg_to_f64(&arg0(ctx)) as i64)).into())
     });
+    // morph(from, to, by): morph between two binary rhythms. `from`/`to` are
+    // list-valued (a `[1,0,1,...]` array or a `"1:0:1:..."` mini list); `by` is
+    // a 0→1 number or signal.
+    prelude.add_fn("morph", |ctx| {
+        let a = ctx.args();
+        let list_or_pat = |v: &KValue| match v {
+            KValue::List(_) | KValue::Tuple(_) => rudel_core::pure(arg_to_value(v)),
+            _ => arg_to_pattern(v),
+        };
+        let from = list_or_pat(a.first().unwrap_or(&KValue::Null));
+        let to = list_or_pat(a.get(1).unwrap_or(&KValue::Null));
+        let by = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
+        Ok(KPattern(rudel_core::morph(from, to, by)).into())
+    });
     // MIDI input: `ccin(cc)` / `ccin(cc, chan)` is a 0..1 signal of the latest
     // value of an incoming control-change (the input counterpart to `ccn`).
     prelude.add_fn("ccin", |ctx| {
@@ -552,7 +566,7 @@ pub(crate) fn register(prelude: &KMap) {
         noarg: [
             "palindrome" => palindrome, "degrade" => degrade, "undegrade" => undegrade,
             "press" => press, "brak" => brak, "ratio" => ratio, "fit" => fit,
-            "invert" => invert, "inv" => invert,
+            "invert" => invert, "inv" => invert, "collect" => collect,
         ];
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back,
@@ -590,6 +604,9 @@ pub(crate) fn register(prelude: &KMap) {
         ];
         i64_frac_f64: ["echo" => echo];
         i64_f64_frac: ["stut" => stut];
-        pat2: ["slice" => slice, "splice" => splice, "bite" => bite];
+        pat2: [
+            "slice" => slice, "splice" => splice, "bite" => bite,
+            "beat" => beat, "xfade" => xfade,
+        ];
     );
 }

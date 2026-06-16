@@ -370,7 +370,7 @@ kpattern_methods! {
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert,
+        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
@@ -378,7 +378,7 @@ kpattern_methods! {
     ],
     f64_arg: [degrade_by, undegrade_by, cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
-    pattern_pattern_arg: [slice, splice, bite],
+    pattern_pattern_arg: [slice, splice, bite, beat, xfade],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
     i64_i64_arg: [euclid, euclid_legato],
