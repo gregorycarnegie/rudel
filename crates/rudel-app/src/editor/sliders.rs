@@ -39,6 +39,9 @@ pub(crate) fn draw_slider_hosts(
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
             .show(ui.ctx(), |ui| {
+                // Clip to the editor's visible area so the foreground slider never
+                // paints over the surrounding panels.
+                ui.set_clip_rect(clip);
                 ui.set_min_size(rect.size());
                 ui.spacing_mut().slider_width = SLIDER_WIDTH;
                 ui.visuals_mut().widgets.inactive.bg_fill = draw_theme.line_background;

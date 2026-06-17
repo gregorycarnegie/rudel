@@ -130,6 +130,9 @@ pub(crate) fn draw_widget_hosts(
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
         .show(ui.ctx(), |ui| {
+            // Clip to the editor's visible area so the (foreground) overlay never
+            // paints over the transport / errors / reference panels around it.
+            ui.set_clip_rect(clip);
             ui.set_min_size(rect.size());
             let (rect, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             paint_widget_surface(ui, rect, widget, surface, paint);
