@@ -118,12 +118,18 @@ pub(crate) fn code_editor(
         );
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
+    // Pin the editor background to its own theme so the syntax palette (whose
+    // `Normal` tokens — punctuation like `().,` — use the theme foreground) sits
+    // on the matching background regardless of the host/system egui theme.
+    // Otherwise white punctuation lands on a light system background and vanishes.
+    let editor_bg = settings.draw_theme().background;
     let mut output = if settings.line_numbers {
         ui.horizontal_top(|ui| {
             draw_line_number_gutter(ui, code, active_line, settings);
             egui::TextEdit::multiline(code)
                 .id_salt(CODE_EDITOR_ID)
                 .code_editor()
+                .background_color(editor_bg)
                 .layouter(&mut layouter)
                 .desired_rows(28)
                 .desired_width(f32::INFINITY)
@@ -134,6 +140,7 @@ pub(crate) fn code_editor(
         egui::TextEdit::multiline(code)
             .id_salt(CODE_EDITOR_ID)
             .code_editor()
+            .background_color(editor_bg)
             .layouter(&mut layouter)
             .desired_rows(28)
             .desired_width(f32::INFINITY)

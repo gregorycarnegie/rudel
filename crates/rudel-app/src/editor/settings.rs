@@ -193,10 +193,18 @@ pub(crate) struct EditorPalette {
 }
 
 pub(crate) fn apply_editor_style(ui: &mut egui::Ui, settings: &EditorSettings) {
+    let draw = settings.draw_theme();
     let mut style = (**ui.style()).clone();
     style
         .text_styles
         .insert(egui::TextStyle::Monospace, settings.font_id());
+    // Wire the theme's selection and caret colors into egui's visuals. egui's
+    // built-in TextEdit recolors every selected glyph to `selection.stroke.color`
+    // (it cannot preserve per-token syntax colors under a selection), so we pair
+    // Strudel's translucent selection fill with the readable foreground color.
+    style.visuals.selection.bg_fill = draw.selection;
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, draw.foreground);
+    style.visuals.text_cursor.stroke.color = draw.caret;
     ui.set_style(style);
 }
 
