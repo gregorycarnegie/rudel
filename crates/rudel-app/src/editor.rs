@@ -123,6 +123,11 @@ pub(crate) fn code_editor(
     // on the matching background regardless of the host/system egui theme.
     // Otherwise white punctuation lands on a light system background and vanishes.
     let editor_bg = settings.draw_theme().background;
+    // Grow the editor to fill the remaining height of its panel so it resizes
+    // with the window instead of staying a fixed 28-row box. Content longer than
+    // this still scrolls inside the surrounding ScrollArea.
+    let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+    let desired_rows = ((ui.available_height() / row_height).floor() as usize).max(4);
     let mut output = if settings.line_numbers {
         ui.horizontal_top(|ui| {
             draw_line_number_gutter(ui, code, active_line, settings);
@@ -131,7 +136,7 @@ pub(crate) fn code_editor(
                 .code_editor()
                 .background_color(editor_bg)
                 .layouter(&mut layouter)
-                .desired_rows(28)
+                .desired_rows(desired_rows)
                 .desired_width(f32::INFINITY)
                 .show(ui)
         })
@@ -142,7 +147,7 @@ pub(crate) fn code_editor(
             .code_editor()
             .background_color(editor_bg)
             .layouter(&mut layouter)
-            .desired_rows(28)
+            .desired_rows(desired_rows)
             .desired_width(f32::INFINITY)
             .show(ui)
     };

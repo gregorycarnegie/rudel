@@ -252,38 +252,40 @@ impl RudelApp {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.add_space(4.0);
             self.editor_settings_panel(ui);
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                let sliders = self.editor_decorations.sliders().to_vec();
-                let widgets = self.editor_decorations.widgets().to_vec();
-                let current_pattern = self.current.clone();
-                let playback_position_cycles = self.playback_position_cycles();
-                let editor_output = code_editor(
-                    ui,
-                    &mut self.code,
-                    CodeEditorInput {
-                        active: active_spans,
-                        idents: &self.highlight_idents,
-                        reference: &self.reference,
-                        sample_names: &self.sample_names,
-                        current_pattern: current_pattern.as_ref(),
-                        playback_position_cycles,
-                        sliders: &sliders,
-                        widgets: &widgets,
-                        widget_host: &mut self.widget_host,
-                        settings: &self.editor_settings,
-                    },
-                );
-                if let Some(change) = editor_output.text_change {
-                    self.editor_decorations.map_change(change);
-                }
-                if let Some(update) = editor_output.slider_update {
-                    self.editor_decorations
-                        .set_slider_literal(&update.id, update.insert);
-                }
-                if let Some(cursor) = editor_output.cursor_byte {
-                    self.editor_cursor_byte = cursor;
-                }
-            });
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let sliders = self.editor_decorations.sliders().to_vec();
+                    let widgets = self.editor_decorations.widgets().to_vec();
+                    let current_pattern = self.current.clone();
+                    let playback_position_cycles = self.playback_position_cycles();
+                    let editor_output = code_editor(
+                        ui,
+                        &mut self.code,
+                        CodeEditorInput {
+                            active: active_spans,
+                            idents: &self.highlight_idents,
+                            reference: &self.reference,
+                            sample_names: &self.sample_names,
+                            current_pattern: current_pattern.as_ref(),
+                            playback_position_cycles,
+                            sliders: &sliders,
+                            widgets: &widgets,
+                            widget_host: &mut self.widget_host,
+                            settings: &self.editor_settings,
+                        },
+                    );
+                    if let Some(change) = editor_output.text_change {
+                        self.editor_decorations.map_change(change);
+                    }
+                    if let Some(update) = editor_output.slider_update {
+                        self.editor_decorations
+                            .set_slider_literal(&update.id, update.insert);
+                    }
+                    if let Some(cursor) = editor_output.cursor_byte {
+                        self.editor_cursor_byte = cursor;
+                    }
+                });
         });
     }
 
