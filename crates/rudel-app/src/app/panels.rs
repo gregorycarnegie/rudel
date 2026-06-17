@@ -249,44 +249,57 @@ impl RudelApp {
     }
 
     fn editor_panel(&mut self, ui: &mut egui::Ui, active_spans: &[(usize, usize)]) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.add_space(4.0);
-            self.editor_settings_panel(ui);
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let sliders = self.editor_decorations.sliders().to_vec();
-                    let widgets = self.editor_decorations.widgets().to_vec();
-                    let current_pattern = self.current.clone();
-                    let playback_position_cycles = self.playback_position_cycles();
-                    let editor_output = code_editor(
-                        ui,
-                        &mut self.code,
-                        CodeEditorInput {
-                            active: active_spans,
-                            idents: &self.highlight_idents,
-                            reference: &self.reference,
-                            sample_names: &self.sample_names,
-                            current_pattern: current_pattern.as_ref(),
-                            playback_position_cycles,
-                            sliders: &sliders,
-                            widgets: &widgets,
-                            widget_host: &mut self.widget_host,
-                            settings: &self.editor_settings,
-                        },
-                    );
-                    if let Some(change) = editor_output.text_change {
-                        self.editor_decorations.map_change(change);
-                    }
-                    if let Some(update) = editor_output.slider_update {
-                        self.editor_decorations
-                            .set_slider_literal(&update.id, update.insert);
-                    }
-                    if let Some(cursor) = editor_output.cursor_byte {
-                        self.editor_cursor_byte = cursor;
-                    }
-                });
-        });
+        // Theme the whole editor region to its own theme (not the host/system
+        // theme) so the background, text and TextEdit all share one color and the
+        // editor fills its panel seamlessly — no contrasting box with light
+        // margins around it.
+        let draw = self.editor_settings.draw_theme();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(draw.background))
+            .show_inside(ui, |ui| {
+                *ui.visuals_mut() = if draw.light {
+                    egui::Visuals::light()
+                } else {
+                    egui::Visuals::dark()
+                };
+                ui.visuals_mut().override_text_color = Some(draw.foreground);
+                ui.add_space(4.0);
+                self.editor_settings_panel(ui);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let sliders = self.editor_decorations.sliders().to_vec();
+                        let widgets = self.editor_decorations.widgets().to_vec();
+                        let current_pattern = self.current.clone();
+                        let playback_position_cycles = self.playback_position_cycles();
+                        let editor_output = code_editor(
+                            ui,
+                            &mut self.code,
+                            CodeEditorInput {
+                                active: active_spans,
+                                idents: &self.highlight_idents,
+                                reference: &self.reference,
+                                sample_names: &self.sample_names,
+                                current_pattern: current_pattern.as_ref(),
+                                playback_position_cycles,
+                                sliders: &sliders,
+                                widgets: &widgets,
+                                widget_host: &mut self.widget_host,
+                                settings: &self.editor_settings,
+                            },
+                        );
+                        if let Some(change) = editor_output.text_change {
+                            self.editor_decorations.map_change(change);
+                        }
+                        if let Some(update) = editor_output.slider_update {
+                            self.editor_decorations
+                                .set_slider_literal(&update.id, update.insert);
+                        }
+                        if let Some(cursor) = editor_output.cursor_byte {
+                            self.editor_cursor_byte = cursor;
+                        }
+                    });
+            });
     }
 
     fn editor_settings_panel(&mut self, ui: &mut egui::Ui) {
