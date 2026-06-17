@@ -623,3 +623,15 @@ pub(super) fn kpattern_chord(ctx: MethodContext<KPattern>) -> KotoResult<KValue>
         })
     }
 }
+
+/// Inline visual widget methods (`._pianoroll(...)`, `._spiral(...)`, ...).
+/// Strudel's CodeMirror host tags the source pattern with the generated widget
+/// id before registering a canvas. Rudel keeps the same branch identity in hap
+/// context so the native editor can draw only the events for that widget.
+pub(super) fn kpattern_visual_widget(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let Some(id) = arg_to_raw_str(&method_arg(&ctx, 0)) else {
+        return Ok(KPattern::wrap(pat));
+    };
+    Ok(KPattern::wrap(pat.tag(id)))
+}

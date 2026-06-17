@@ -1,10 +1,16 @@
+use crate::editor::settings::DrawTheme;
 use eframe::egui;
 use rudel_core::{Frac, Hap, Pattern, Value};
 use std::collections::BTreeMap;
 
 /// Draw one cycle per orbit as colored blocks, with an optional playhead at
 /// `playhead` (0..1 within the cycle).
-pub(crate) fn draw_visualizer(ui: &mut egui::Ui, pat: &Pattern, playhead: Option<f32>) {
+pub(crate) fn draw_visualizer(
+    ui: &mut egui::Ui,
+    pat: &Pattern,
+    playhead: Option<f32>,
+    draw_theme: DrawTheme,
+) {
     let mut haps = pat.query_arc(Frac::zero(), Frac::one());
     haps.retain(|h| h.whole.is_some());
     haps.sort_by_key(|h| h.part.begin);
@@ -18,7 +24,7 @@ pub(crate) fn draw_visualizer(ui: &mut egui::Ui, pat: &Pattern, playhead: Option
 
     let (resp, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, egui::Color32::from_gray(20));
+    painter.rect_filled(rect, 4.0, draw_theme.background);
 
     let pad = 4.0;
     let w = (rect.width() - 2.0 * pad).max(1.0);
@@ -26,13 +32,21 @@ pub(crate) fn draw_visualizer(ui: &mut egui::Ui, pat: &Pattern, playhead: Option
 
     for (band_i, (orbit, band_haps)) in orbits.iter().enumerate() {
         let band_top = rect.top() + pad + band_i as f32 * band_h;
-        draw_band(&painter, rect.left() + pad, band_top, w, band_h, band_haps);
+        draw_band(
+            &painter,
+            rect.left() + pad,
+            band_top,
+            w,
+            band_h,
+            band_haps,
+            draw_theme,
+        );
         painter.text(
             egui::pos2(rect.left() + pad + 2.0, band_top + 2.0),
             egui::Align2::LEFT_TOP,
             format!("orbit {orbit}"),
             egui::FontId::monospace(10.0),
-            egui::Color32::from_gray(120),
+            draw_theme.gutter_foreground,
         );
     }
 
@@ -43,7 +57,7 @@ pub(crate) fn draw_visualizer(ui: &mut egui::Ui, pat: &Pattern, playhead: Option
                 egui::pos2(px, rect.top() + pad),
                 egui::pos2(px, rect.bottom() - pad),
             ],
-            egui::Stroke::new(1.5, egui::Color32::from_rgb(240, 240, 120)),
+            egui::Stroke::new(1.5, draw_theme.foreground),
         );
     }
 }
@@ -57,7 +71,15 @@ fn orbit_of(value: &Value) -> i64 {
 }
 
 /// Lane-pack and draw one orbit's haps within a horizontal band.
-fn draw_band(painter: &egui::Painter, left: f32, top: f32, w: f32, band_h: f32, haps: &[&Hap]) {
+fn draw_band(
+    painter: &egui::Painter,
+    left: f32,
+    top: f32,
+    w: f32,
+    band_h: f32,
+    haps: &[&Hap],
+    draw_theme: DrawTheme,
+) {
     let mut lane_ends: Vec<f64> = Vec::new();
     let mut lanes: Vec<usize> = Vec::with_capacity(haps.len());
     for h in haps {
@@ -96,9 +118,17 @@ fn draw_band(painter: &egui::Painter, left: f32, top: f32, w: f32, band_h: f32, 
                 egui::Align2::LEFT_CENTER,
                 truncate(&label, 16),
                 egui::FontId::monospace(11.0),
-                egui::Color32::from_gray(10),
+                event_text_color(draw_theme),
             );
         }
+    }
+}
+
+fn event_text_color(draw_theme: DrawTheme) -> egui::Color32 {
+    if draw_theme.light {
+        egui::Color32::BLACK
+    } else {
+        draw_theme.background
     }
 }
 
@@ -169,6 +199,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::settings::EditorTheme;
 
     #[test]
     fn value_short_formats_common_values() {
@@ -221,5 +252,17 @@ mod tests {
         assert_eq!(hsv_to_rgb(0.0, 1.0, 1.0), (255, 0, 0));
         assert_eq!(color_for("bd"), color_for("bd"));
         assert_ne!(color_for("bd"), color_for("sd"));
+    }
+
+    #[test]
+    fn event_text_color_uses_draw_theme_contrast() {
+        assert_eq!(
+            event_text_color(EditorTheme::StrudelDark.draw_theme()),
+            egui::Color32::from_rgb(0x22, 0x22, 0x22)
+        );
+        assert_eq!(
+            event_text_color(EditorTheme::Light.draw_theme()),
+            egui::Color32::BLACK
+        );
     }
 }

@@ -141,6 +141,45 @@ fn value_to_midi(v: &Value) -> Option<f64> {
     }
 }
 
+pub const SCALE_NAMES: &[&str] = &[
+    "major",
+    "ionian",
+    "minor",
+    "aeolian",
+    "dorian",
+    "phrygian",
+    "lydian",
+    "mixolydian",
+    "locrian",
+    "harmonic minor",
+    "melodic minor",
+    "major pentatonic",
+    "pentatonic",
+    "minor pentatonic",
+    "ritusen",
+    "egyptian",
+    "whole tone",
+    "whole",
+    "chromatic",
+    "blues",
+    "minor blues",
+    "major blues",
+    "bebop major",
+    "bebop",
+    "bebop dominant",
+    "diminished",
+    "whole half diminished",
+    "half whole diminished",
+    "augmented",
+    "hirajoshi",
+    "in",
+    "iwato",
+];
+
+pub fn scale_names() -> &'static [&'static str] {
+    SCALE_NAMES
+}
+
 /// Scale-type name (lowercased, spaces normalised) → semitone intervals.
 fn scale_intervals(name: &str) -> Option<&'static [i32]> {
     let n = name.trim().to_lowercase();
@@ -306,6 +345,16 @@ pub fn apply_transpose_controls(controls: &mut BTreeMap<String, Value>, scale: O
     controls.remove("ctranspose");
 }
 
+pub const CHORD_SYMBOLS: &[&str] = &[
+    "", "M", "maj", "major", "m", "min", "minor", "-", "dim", "o", "aug", "+", "6", "maj6", "m6",
+    "min6", "7", "dom7", "maj7", "M7", "^7", "m7", "min7", "-7", "m7b5", "halfdim", "ø", "dim7",
+    "o7", "sus2", "sus4", "sus", "add9", "9", "maj9", "M9", "m9", "min9",
+];
+
+pub fn chord_symbols() -> &'static [&'static str] {
+    CHORD_SYMBOLS
+}
+
 /// Chord-symbol suffix → semitone intervals from the root.
 fn chord_intervals(symbol: &str) -> Option<&'static [i32]> {
     Some(match symbol {
@@ -364,6 +413,9 @@ pub fn chord_notes(name: &str) -> Option<Vec<i32>> {
         return None;
     }
     while split < bytes.len() && matches!(bytes[split], '#' | 'b' | 's') {
+        if bytes[split] == 's' && bytes.get(split + 1) == Some(&'u') {
+            break;
+        }
         split += 1;
     }
     while split < bytes.len() && (bytes[split].is_ascii_digit() || bytes[split] == '-') {
@@ -740,6 +792,23 @@ mod tests {
         assert_eq!(chord_notes("Am"), Some(vec![57, 60, 64]));
         assert_eq!(chord_notes("C7"), Some(vec![48, 52, 55, 58]));
         assert_eq!(chord_notes("F#maj7"), Some(vec![54, 58, 61, 65]));
+        assert_eq!(chord_notes("Csus2"), Some(vec![48, 50, 55]));
+    }
+
+    #[test]
+    fn exported_completion_names_are_accepted_by_the_tonal_parser() {
+        for scale in scale_names() {
+            assert!(
+                scale_step(0, &format!("C:{scale}")).is_some(),
+                "scale {scale}"
+            );
+        }
+        for symbol in chord_symbols() {
+            assert!(
+                chord_notes(&format!("C{symbol}")).is_some(),
+                "chord {symbol}"
+            );
+        }
     }
 
     #[test]

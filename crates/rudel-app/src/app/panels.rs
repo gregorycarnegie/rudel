@@ -1,5 +1,6 @@
 use super::{Output, RudelApp};
-use crate::editor::code_editor;
+use crate::editor::settings::{EditorFontFamily, EditorTheme};
+use crate::editor::{CodeEditorInput, code_editor};
 use crate::reference::{CONTROLS, DRUMS, FACTORIES, SIGNALS, WAVEFORMS};
 use crate::visualizer::draw_visualizer;
 use crate::volume::vlc_volume_slider;
@@ -11,16 +12,21 @@ impl eframe::App for RudelApp {
 
         // Match Strudel's REPL transport keys: Ctrl/Alt+Enter evaluates,
         // Ctrl/Alt+. hushes, and Ctrl+Shift+. panics (reset/all-notes-off).
-        let (eval_shortcut, hush_shortcut, panic_shortcut) = ui.ctx().input(|i| {
-            let trigger = i.modifiers.command || i.modifiers.alt;
-            (
-                trigger && i.key_pressed(egui::Key::Enter),
-                trigger && !i.modifiers.shift && i.key_pressed(egui::Key::Period),
-                i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Period),
-            )
-        });
+        let (eval_shortcut, secondary_eval_shortcut, hush_shortcut, panic_shortcut) =
+            ui.ctx().input(|i| {
+                let trigger = i.modifiers.command || i.modifiers.alt;
+                (
+                    trigger && !i.modifiers.shift && i.key_pressed(egui::Key::Enter),
+                    i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Enter),
+                    trigger && !i.modifiers.shift && i.key_pressed(egui::Key::Period),
+                    i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Period),
+                )
+            });
         if eval_shortcut {
-            self.evaluate();
+            self.primary_eval();
+        }
+        if secondary_eval_shortcut {
+            self.secondary_eval();
         }
         if panic_shortcut {
             self.panic();
@@ -28,7 +34,7 @@ impl eframe::App for RudelApp {
             self.hush();
         }
 
-        let active_spans = self.active_source_spans();
+        let active_spans = self.active_editor_spans();
         self.transport_panel(ui);
         self.errors_panel(ui);
         self.reference_panel(ui);
@@ -40,7 +46,7 @@ impl eframe::App for RudelApp {
                 .playback_position_cycles()
                 .map(|p| p.rem_euclid(1.0) as f32);
             match &self.current {
-                Some(pat) => draw_visualizer(ui, pat, playhead),
+                Some(pat) => draw_visualizer(ui, pat, playhead, self.editor_settings.draw_theme()),
                 None => {
                     ui.weak("evaluate a pattern to see it here");
                 }
@@ -79,8 +85,13 @@ impl RudelApp {
                     }
                     self.set_playing(now);
                 }
-                if ui.button("Eval (Ctrl+Enter)").clicked() {
-                    self.evaluate();
+                let (primary_eval_label, secondary_eval_label) =
+                    eval_button_labels(self.editor_settings.block_based_eval);
+                if ui.button(primary_eval_label).clicked() {
+                    self.primary_eval();
+                }
+                if ui.button(secondary_eval_label).clicked() {
+                    self.secondary_eval();
                 }
                 if ui.button("Hush (Ctrl+.)").clicked() {
                     self.hush();
@@ -193,7 +204,7 @@ impl RudelApp {
                 ui.colored_label(egui::Color32::from_rgb(230, 90, 90), e);
             } else {
                 ui.weak(
-                    "Ctrl+Enter eval · Ctrl+. hush · Ctrl+Shift+. panic · Ctrl+/ comment · Tab/Shift+Tab indent",
+                    "Ctrl+Enter eval · Ctrl+Shift+Enter block · Ctrl+. hush · Ctrl+Shift+. panic · Ctrl+/ comment",
                 );
             }
         });
@@ -257,8 +268,98 @@ impl RudelApp {
             .default_size(440.0)
             .show_inside(ui, |ui| {
                 ui.add_space(4.0);
+                self.editor_settings_panel(ui);
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    code_editor(ui, &mut self.code, active_spans, &self.highlight_idents);
+                    let sliders = self.editor_decorations.sliders().to_vec();
+                    let widgets = self.editor_decorations.widgets().to_vec();
+                    let current_pattern = self.current.clone();
+                    let playback_position_cycles = self.playback_position_cycles();
+                    let editor_output = code_editor(
+                        ui,
+                        &mut self.code,
+                        CodeEditorInput {
+                            active: active_spans,
+                            idents: &self.highlight_idents,
+                            reference: &self.reference,
+                            sample_names: &self.sample_names,
+                            current_pattern: current_pattern.as_ref(),
+                            playback_position_cycles,
+                            sliders: &sliders,
+                            widgets: &widgets,
+                            widget_host: &mut self.widget_host,
+                            settings: &self.editor_settings,
+                        },
+                    );
+                    if let Some(change) = editor_output.text_change {
+                        self.editor_decorations.map_change(change);
+                    }
+                    if let Some(update) = editor_output.slider_update {
+                        self.editor_decorations
+                            .set_slider_literal(&update.id, update.insert);
+                    }
+                    if let Some(cursor) = editor_output.cursor_byte {
+                        self.editor_cursor_byte = cursor;
+                    }
+                });
+            });
+    }
+
+    fn editor_settings_panel(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("editor settings")
+            .id_salt("editor_settings")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(&mut self.editor_settings.line_wrapping, "wrap");
+                    ui.checkbox(&mut self.editor_settings.bracket_matching, "match");
+                    ui.checkbox(&mut self.editor_settings.bracket_closing, "close");
+                    ui.checkbox(&mut self.editor_settings.line_numbers, "lines");
+                    ui.checkbox(&mut self.editor_settings.active_line, "active line");
+                    ui.checkbox(&mut self.editor_settings.autocomplete, "complete");
+                    ui.checkbox(&mut self.editor_settings.pattern_highlighting, "highlight");
+                    ui.checkbox(&mut self.editor_settings.flash, "flash");
+                    ui.checkbox(&mut self.editor_settings.tooltips, "tooltips");
+                    ui.checkbox(&mut self.editor_settings.tab_indentation, "tab indent");
+                    ui.checkbox(&mut self.editor_settings.block_based_eval, "block eval");
+                    ui.add_enabled(
+                        false,
+                        egui::Checkbox::new(&mut self.editor_settings.multi_cursor, "multi-cursor"),
+                    )
+                    .on_hover_text("pending: egui TextEdit has one native selection");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("theme");
+                    egui::ComboBox::from_id_salt("editor_theme")
+                        .selected_text(self.editor_settings.theme.label())
+                        .show_ui(ui, |ui| {
+                            for theme in EditorTheme::ALL {
+                                ui.selectable_value(
+                                    &mut self.editor_settings.theme,
+                                    theme,
+                                    theme.label(),
+                                );
+                            }
+                        });
+
+                    ui.label("font");
+                    egui::ComboBox::from_id_salt("editor_font_family")
+                        .selected_text(self.editor_settings.font_family.label())
+                        .show_ui(ui, |ui| {
+                            for family in EditorFontFamily::ALL {
+                                ui.selectable_value(
+                                    &mut self.editor_settings.font_family,
+                                    family,
+                                    family.label(),
+                                );
+                            }
+                        });
+
+                    ui.add(
+                        egui::Slider::new(&mut self.editor_settings.font_size, 11.0..=32.0)
+                            .text("size")
+                            .step_by(1.0),
+                    );
                 });
             });
     }
@@ -288,6 +389,51 @@ impl RudelApp {
             _ => Vec::new(),
         }
     }
+
+    fn active_editor_spans(&mut self) -> Vec<(usize, usize)> {
+        if !self.editor_settings.flash {
+            self.editor_decorations.set_flash_ranges_from_eval(&[]);
+            self.block_flash = None;
+            return Vec::new();
+        }
+
+        let eval_spans = self.active_source_spans();
+        self.editor_decorations
+            .set_flash_ranges_from_eval(&eval_spans);
+        let mut spans = self.editor_decorations.flash_ranges();
+        if let Some((range, started)) = self.block_flash {
+            if started.elapsed() <= std::time::Duration::from_millis(200) {
+                spans.push((range.from, range.to));
+            } else {
+                self.block_flash = None;
+            }
+        }
+        spans
+    }
+
+    fn primary_eval(&mut self) {
+        if self.editor_settings.block_based_eval {
+            self.evaluate_current_block();
+        } else {
+            self.evaluate();
+        }
+    }
+
+    fn secondary_eval(&mut self) {
+        if self.editor_settings.block_based_eval {
+            self.evaluate();
+        } else {
+            self.evaluate_current_block();
+        }
+    }
+}
+
+fn eval_button_labels(block_based_eval: bool) -> (&'static str, &'static str) {
+    if block_based_eval {
+        ("Block (Ctrl+Enter)", "Eval (Ctrl+Shift+Enter)")
+    } else {
+        ("Eval (Ctrl+Enter)", "Block (Ctrl+Shift+Enter)")
+    }
 }
 
 /// The deduped source byte ranges of the discrete events sounding at cycle
@@ -316,7 +462,7 @@ fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<(usize, us
 
 #[cfg(test)]
 mod tests {
-    use super::active_source_spans_at;
+    use super::{active_source_spans_at, eval_button_labels};
 
     #[test]
     fn active_spans_flash_discrete_events_at_position() {
@@ -339,5 +485,17 @@ mod tests {
             "expected analog haps"
         );
         assert!(active_source_spans_at(&pat, 0.3).is_empty());
+    }
+
+    #[test]
+    fn eval_button_labels_follow_block_based_setting() {
+        assert_eq!(
+            eval_button_labels(false),
+            ("Eval (Ctrl+Enter)", "Block (Ctrl+Shift+Enter)")
+        );
+        assert_eq!(
+            eval_button_labels(true),
+            ("Block (Ctrl+Enter)", "Eval (Ctrl+Shift+Enter)")
+        );
     }
 }

@@ -1,6 +1,6 @@
 use super::pattern::{
-    KPattern, arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value,
-    arg_to_weighted_pair, arg0, koto_to_value, pick_args,
+    KPattern, arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_raw_str,
+    arg_to_value, arg_to_weighted_pair, arg0, koto_to_value, pick_args,
 };
 use koto::prelude::*;
 use rudel_core::{Frac, Pattern, PickJoin, Value};
@@ -429,6 +429,22 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("steady", |ctx| {
         Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
     });
+    // slider(value, min?, max?, step?): Strudel's transpiler rewrites this to
+    // sliderWithID(id, value, ...). The untranspiled fallback is steady(value).
+    prelude.add_fn("slider", |ctx| {
+        Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
+    });
+    let slider_with_id = |ctx: &mut CallContext| {
+        let id = ctx
+            .args()
+            .first()
+            .and_then(arg_to_raw_str)
+            .unwrap_or_default();
+        let value = ctx.args().get(1).unwrap_or(&KValue::Null);
+        Ok(KPattern(crate::sliders::slider_with_id(id, arg_to_value(value))).into())
+    };
+    prelude.add_fn("slider_with_id", slider_with_id);
+    prelude.add_fn("sliderWithID", slider_with_id);
     // choose / chooseOut / chooseIn: continuously pick from the given values.
     // `choose`/`chooseOut` take structure from the random chooser; `chooseIn`
     // takes it from the chosen values.
@@ -469,7 +485,10 @@ pub(crate) fn register(prelude: &KMap) {
         ctx.args().get(1).map(arg_to_f64).unwrap_or(16.0) as i64
     }
     prelude.add_fn("binary", |ctx| {
-        Ok(KPattern(rudel_core::binary(super::pattern::arg_to_f64(&arg0(ctx)) as i64)).into())
+        Ok(KPattern(rudel_core::binary(
+            super::pattern::arg_to_f64(&arg0(ctx)) as i64
+        ))
+        .into())
     });
     prelude.add_fn("binaryN", |ctx| {
         let nbits = nbits_arg(ctx);
@@ -483,7 +502,10 @@ pub(crate) fn register(prelude: &KMap) {
         Ok(KPattern(rudel_core::binary_nl(arg_to_pattern(&arg0(ctx)), nbits)).into())
     });
     prelude.add_fn("randL", |ctx| {
-        Ok(KPattern(rudel_core::rand_l(super::pattern::arg_to_f64(&arg0(ctx)) as i64)).into())
+        Ok(KPattern(rudel_core::rand_l(
+            super::pattern::arg_to_f64(&arg0(ctx)) as i64
+        ))
+        .into())
     });
     // morph(from, to, by): morph between two binary rhythms. `from`/`to` are
     // list-valued (a `[1,0,1,...]` array or a `"1:0:1:..."` mini list); `by` is

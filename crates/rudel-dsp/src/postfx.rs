@@ -385,7 +385,6 @@ impl PostFxVoice {
         let shape = (2.0 * shape) / (1.0 - shape);
         ((1.0 + shape) * x) / (1.0 + shape * x.abs()) * postgain
     }
-
 }
 
 impl VoiceLike for PostFxVoice {

@@ -40,7 +40,7 @@ pub use value::Value;
 // Signals and randomness.
 pub use signal::{
     berlin, binary, binary_l, binary_n, binary_nl, brand, brand_by, cosine, cosine2, cycles_per,
-    irand, isaw, isaw2, itri, itri2, per, perlin, perx, rand, rand2, rand_l, randrun, run, saw,
+    irand, isaw, isaw2, itri, itri2, per, perlin, perx, rand, rand_l, rand2, randrun, run, saw,
     saw2, scan, sine, sine2, square, square2, steady, time, tri, tri2,
 };
 // Euclidean rhythms.
@@ -60,7 +60,10 @@ pub use controls::{
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
 pub use input::{cc_in, clear_cc, get_cc, set_cc};
 // Tonal: note names, scales, chords.
-pub use tonal::{chord_notes, note_to_midi, note_to_midi_with_octave, scale_offset, scale_step};
+pub use tonal::{
+    chord_notes, chord_symbols, note_to_midi, note_to_midi_with_octave, scale_names, scale_offset,
+    scale_step,
+};
 // Xenharmonic helpers.
 pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).

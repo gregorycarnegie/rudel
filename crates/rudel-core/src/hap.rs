@@ -11,6 +11,10 @@ use crate::value::Value;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Context {
     pub locations: Vec<(usize, usize)>,
+    /// Runtime tags used by Strudel features such as inline visual widgets.
+    /// These are intentionally separate from source locations: locations point
+    /// back to code, tags identify a pattern branch at draw/query time.
+    pub tags: Vec<String>,
     /// The scale tagged by `.scale(...)`, used by scale-aware transforms such as
     /// `scaleTranspose`.
     pub scale: Option<String>,
@@ -23,11 +27,18 @@ impl Context {
     pub fn combine(&self, other: &Context) -> Context {
         let mut locations = self.locations.clone();
         locations.extend(other.locations.iter().copied());
+        let mut tags = self.tags.clone();
+        for tag in &other.tags {
+            if !tags.contains(tag) {
+                tags.push(tag.clone());
+            }
+        }
         // Keep whichever side carries a scale tag (the later/other one wins).
         let scale = other.scale.clone().or_else(|| self.scale.clone());
         let edo_size = other.edo_size.or(self.edo_size);
         Context {
             locations,
+            tags,
             scale,
             edo_size,
         }
@@ -122,6 +133,10 @@ impl Hap {
             Some(w) => w.begin == self.part.begin,
             None => false,
         }
+    }
+
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.context.tags.iter().any(|t| t == tag)
     }
 
     pub fn combine_context(&self, other: &Hap) -> Context {
@@ -262,7 +277,9 @@ mod tests {
         let continuous = Hap::new(None, span(0, 1), Value::Int(0));
         assert_eq!(continuous.whole_or_part(), span(0, 1));
         assert_eq!(
-            continuous.with_span(|s| s.with_time(|t| t + Frac::int(1))).whole,
+            continuous
+                .with_span(|s| s.with_time(|t| t + Frac::int(1)))
+                .whole,
             None
         );
     }

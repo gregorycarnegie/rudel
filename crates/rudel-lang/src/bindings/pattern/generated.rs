@@ -449,6 +449,34 @@ kpattern_methods! {
         osc => kpattern_osc,
         #[koto_method]
         chord => kpattern_chord,
+        #[koto_method]
+        _pianoroll => kpattern_visual_widget,
+        #[koto_method]
+        _punchcard => kpattern_visual_widget,
+        #[koto_method]
+        _spiral => kpattern_visual_widget,
+        #[koto_method]
+        _scope => kpattern_visual_widget,
+        #[koto_method]
+        _pitchwheel => kpattern_visual_widget,
+        #[koto_method]
+        _spectrum => kpattern_visual_widget,
+        #[koto_method]
+        _wordfall => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_pianoroll => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_punchcard => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_spiral => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_scope => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_pitchwheel => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_spectrum => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_wordfall => kpattern_visual_widget,
         #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
         loop_at_cps => kpattern_loop_at_cps,
         #[koto_method(alias = "applyN")]

@@ -1,6 +1,8 @@
 use eframe::egui;
 use std::collections::HashSet;
 
+use super::settings::EditorSettings;
+
 /// Highlight category for a contiguous byte span of editor text. Mirrors the
 /// token categories Strudel's CodeMirror grammar distinguishes, including
 /// mini-notation tokens inside string literals.
@@ -28,31 +30,43 @@ pub(super) enum Token {
 
 pub(super) fn highlighted_editor_job(
     code: &str,
-    ui: &egui::Ui,
     wrap_width: f32,
     active: &[(usize, usize)],
     brackets: &[(usize, usize)],
+    active_line: Option<(usize, usize)>,
     idents: &HashSet<String>,
+    settings: &EditorSettings,
 ) -> egui::text::LayoutJob {
-    let font_id = egui::TextStyle::Monospace.resolve(ui.style());
-    let normal = egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
-    let keyword = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(106, 153, 205));
-    let method = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(220, 220, 170));
-    let string = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(206, 145, 120));
-    let number = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(181, 206, 168));
-    let comment = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(106, 153, 85));
-    let mini_op = egui::TextFormat::simple(font_id.clone(), egui::Color32::from_rgb(197, 134, 192));
-    let mini_word = egui::TextFormat::simple(font_id, egui::Color32::from_rgb(156, 220, 254));
+    let font_id = settings.font_id();
+    let palette = settings.theme.palette();
+    let normal = egui::TextFormat::simple(font_id.clone(), palette.foreground);
+    let keyword = egui::TextFormat::simple(font_id.clone(), palette.keyword);
+    let method = egui::TextFormat::simple(font_id.clone(), palette.method);
+    let string = egui::TextFormat::simple(font_id.clone(), palette.string);
+    let number = egui::TextFormat::simple(font_id.clone(), palette.number);
+    let comment = egui::TextFormat::simple(font_id.clone(), palette.comment);
+    let mini_op = egui::TextFormat::simple(font_id.clone(), palette.mini_op);
+    let mini_word = egui::TextFormat::simple(font_id, palette.mini_word);
 
     let mut job = egui::text::LayoutJob::default();
-    job.wrap.max_width = wrap_width;
+    job.wrap.max_width = if settings.line_wrapping {
+        wrap_width
+    } else {
+        f32::INFINITY
+    };
 
     // Background flashed under spans of code currently producing a hap, and a
     // distinct one under the bracket pair around the cursor.
-    let flash = egui::Color32::from_rgb(74, 68, 38);
-    let bracket_flash = egui::Color32::from_rgb(60, 84, 104);
+    let flash = palette.flash;
+    let bracket_flash = palette.bracket_flash;
+    let active_line_flash = palette.active_line;
 
     for (start, end, token) in tokenize(code, idents) {
+        let token = if settings.pattern_highlighting {
+            token
+        } else {
+            Token::Normal
+        };
         let base = match token {
             Token::Normal => &normal,
             Token::Keyword => &keyword,
@@ -64,6 +78,9 @@ pub(super) fn highlighted_editor_job(
             Token::MiniOp => &mini_op,
         };
         let mut format = base.clone();
+        if active_line.is_some_and(|span| spans_overlap((start, end), span)) {
+            format.background = active_line_flash;
+        }
         // Active-event flash wins over bracket matching when they coincide.
         if brackets
             .iter()

@@ -1,3 +1,4 @@
+use super::settings::EditorSettings;
 use super::text::{
     char_at, char_slice, insert_text_at_char, line_end_at, line_start_at, next_line_start_after,
     replace_char_range,
@@ -23,6 +24,7 @@ pub(super) fn capture_editor_shortcuts(
     ui: &mut egui::Ui,
     editor_id: egui::Id,
     completion_active: bool,
+    settings: &EditorSettings,
 ) -> EditorShortcuts {
     use egui::{Key, Modifiers};
     if !ui.memory(|m| m.has_focus(editor_id)) {
@@ -49,7 +51,9 @@ pub(super) fn capture_editor_shortcuts(
             // alias requested in the parity checklist.
             comment_toggle: i.consume_key(Modifiers::CTRL, Key::Slash)
                 | i.consume_key(Modifiers::CTRL, Key::Backslash),
-            indent: !completion_active && i.consume_key(Modifiers::NONE, Key::Tab),
+            indent: settings.tab_indentation
+                && !completion_active
+                && i.consume_key(Modifiers::NONE, Key::Tab),
             outdent: i.consume_key(Modifiers::SHIFT, Key::Tab),
             // Strudel's REPL jumps the cursor between `$` block markers.
             jump_next: i.consume_key(Modifiers::ALT, Key::W),
@@ -96,6 +100,7 @@ pub(super) fn apply_editor_text_edits(
     shortcuts: EditorShortcuts,
     typed_text: Option<&str>,
     enter_pressed: bool,
+    settings: &EditorSettings,
 ) -> Option<egui::text::CCursorRange> {
     if shortcuts.jump_next || shortcuts.jump_prev {
         if let Some(idx) = jump_to_marker(text, cursor_range.primary.index, shortcuts.jump_next) {
@@ -115,7 +120,10 @@ pub(super) fn apply_editor_text_edits(
     if enter_pressed && let Some(range) = auto_indent_after_enter(text, cursor_range) {
         return Some(range);
     }
-    typed_text.and_then(|typed| apply_auto_pair(text, cursor_range, typed))
+    settings
+        .bracket_closing
+        .then(|| typed_text.and_then(|typed| apply_auto_pair(text, cursor_range, typed)))
+        .flatten()
 }
 
 #[derive(Clone, Debug)]
@@ -421,6 +429,10 @@ mod tests {
         egui::text::CCursorRange::one(egui::text::CCursor::new(index))
     }
 
+    fn settings() -> EditorSettings {
+        EditorSettings::default()
+    }
+
     fn selection(start: usize, end: usize) -> egui::text::CCursorRange {
         egui::text::CCursorRange::two(
             egui::text::CCursor::new(start),
@@ -503,5 +515,24 @@ mod tests {
         let range = toggle_line_comments(&mut text, range);
         assert_eq!(text, "  a\n  b");
         assert_eq!(range.as_sorted_char_range(), 0..7);
+    }
+
+    #[test]
+    fn editor_respects_disabled_bracket_closing_setting() {
+        let mut text = "(".to_string();
+        let mut settings = settings();
+        settings.bracket_closing = false;
+
+        let range = apply_editor_text_edits(
+            &mut text,
+            cursor(1),
+            EditorShortcuts::default(),
+            Some("("),
+            false,
+            &settings,
+        );
+
+        assert_eq!(text, "(");
+        assert!(range.is_none());
     }
 }

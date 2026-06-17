@@ -481,7 +481,9 @@ mod tests {
     fn ints(pat: &Pattern) -> Vec<i64> {
         let mut haps = pat.query_arc(Frac::zero(), Frac::one());
         haps.sort_by_key(|h| h.part.begin);
-        haps.into_iter().map(|h| h.value.as_f64().unwrap() as i64).collect()
+        haps.into_iter()
+            .map(|h| h.value.as_f64().unwrap() as i64)
+            .collect()
     }
 
     #[test]
@@ -534,7 +536,9 @@ mod tests {
             Value::List(items) => {
                 assert_eq!(items.len(), 4);
                 assert!(
-                    items.iter().all(|v| (0.0..1.0).contains(&v.as_f64().unwrap())),
+                    items
+                        .iter()
+                        .all(|v| (0.0..1.0).contains(&v.as_f64().unwrap())),
                     "all randL values are in [0, 1)"
                 );
             }

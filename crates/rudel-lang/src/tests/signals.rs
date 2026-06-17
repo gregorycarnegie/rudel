@@ -125,9 +125,18 @@ fn binary_and_bitwise_via_koto() {
     // binaryN with explicit width matches Strudel's documented example length.
     assert_eq!(values(&eval("binaryN(55532, 16)").unwrap(), 0, 1).len(), 16);
     // bitwise composer methods and a pattern-last standalone.
-    assert_eq!(values(&eval("pure(6).band(3)").unwrap(), 0, 1), vec![Value::Int(2)]);
-    assert_eq!(values(&eval("pure(1).blshift(3)").unwrap(), 0, 1), vec![Value::Int(8)]);
-    assert_eq!(values(&eval("brshift(2, pure(16))").unwrap(), 0, 1), vec![Value::Int(4)]);
+    assert_eq!(
+        values(&eval("pure(6).band(3)").unwrap(), 0, 1),
+        vec![Value::Int(2)]
+    );
+    assert_eq!(
+        values(&eval("pure(1).blshift(3)").unwrap(), 0, 1),
+        vec![Value::Int(8)]
+    );
+    assert_eq!(
+        values(&eval("brshift(2, pure(16))").unwrap(), 0, 1),
+        vec![Value::Int(4)]
+    );
 }
 
 #[test]

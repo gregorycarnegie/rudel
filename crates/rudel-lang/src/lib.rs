@@ -6,18 +6,105 @@
 mod bindings;
 mod preprocess;
 mod samples;
+mod sliders;
 
 use koto::prelude::*;
 use rudel_core::Pattern;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use bindings::register;
 use bindings::{collected_stack, function_names, method_names, reset_slots};
-use preprocess::preprocess_strudel;
+use preprocess::{preprocess_strudel_with_meta, preprocess_strudel_with_meta_in_range};
 use samples::register_samples;
 
 pub use bindings::{KPattern, filter_output, output_targets};
 pub use samples::SampleEffects;
+pub use sliders::{set_slider_value, slider_value};
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct EvalMeta {
+    /// Source byte ranges for mini-notation leaves discovered during
+    /// preprocessing, matching Strudel's `meta.miniLocations` role.
+    pub mini_locations: Vec<(usize, usize)>,
+    /// Inline editor widgets discovered during preprocessing/evaluation.
+    pub widgets: Vec<WidgetConfig>,
+    /// Block/label metadata for range-aware evaluation.
+    pub labels: Vec<LabelMeta>,
+    /// Cleanup requested after eval, e.g. when a visual widget was removed.
+    pub cleanup: CleanupHints,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct WidgetConfig {
+    pub widget_type: String,
+    pub id: String,
+    pub from: usize,
+    pub to: usize,
+    pub index: usize,
+    pub options: BTreeMap<String, WidgetOption>,
+    pub value: Option<String>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub step: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WidgetOption {
+    Bool(bool),
+    Number(f64),
+    String(String),
+}
+
+impl WidgetOption {
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            WidgetOption::Bool(value) => Some(*value),
+            WidgetOption::Number(value) => Some(*value != 0.0),
+            WidgetOption::String(value) => match value.as_str() {
+                "true" | "1" => Some(true),
+                "false" | "0" => Some(false),
+                _ => None,
+            },
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            WidgetOption::Bool(value) => Some(if *value { 1.0 } else { 0.0 }),
+            WidgetOption::Number(value) => Some(*value),
+            WidgetOption::String(value) => value.parse().ok(),
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            WidgetOption::String(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LabelMeta {
+    pub name: String,
+    pub index: usize,
+    pub end: usize,
+    pub full_match: String,
+    pub active_visualizer: Option<String>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CleanupHints {
+    pub widget_removed: bool,
+    pub cleanup_draw_context: bool,
+}
+
+pub struct EvalResult {
+    pub pattern: Pattern,
+    pub sample_effects: SampleEffects,
+    pub meta: EvalMeta,
+}
 
 /// The names a user can reach in Rudel scripts, generated from the live runtime
 /// (not a hand-maintained list) so it stays in sync with what is actually
@@ -60,7 +147,7 @@ pub fn reference() -> Reference {
 
 /// Evaluate a Koto script and extract the resulting pattern.
 pub fn eval(script: &str) -> Result<Pattern, String> {
-    eval_with_samples(script).map(|(pat, _)| pat)
+    eval_result(script).map(|result| result.pattern)
 }
 
 /// Evaluate a Koto script, returning the resulting pattern plus the sample
@@ -68,11 +155,57 @@ pub fn eval(script: &str) -> Result<Pattern, String> {
 /// host applies those effects (e.g. `Engine::samples` / `Engine::alias_bank`)
 /// against its own sample bank.
 pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), String> {
+    eval_result(script).map(|result| (result.pattern, result.sample_effects))
+}
+
+/// Evaluate a Koto script, returning the pattern plus all host-facing side
+/// effects and editor metadata gathered during preprocessing/evaluation.
+pub fn eval_result(script: &str) -> Result<EvalResult, String> {
+    eval_result_with_preprocessor(|| preprocess_strudel_with_meta(script))
+}
+
+/// Evaluate a source slice while preserving absolute source ranges from the
+/// surrounding editor buffer. This is the native counterpart to Strudel's
+/// block-based transpiler `range` / `nodeOffset` option.
+pub fn eval_result_with_source_range(
+    script: &str,
+    range: (usize, usize),
+) -> Result<EvalResult, String> {
+    eval_result_with_preprocessor(|| preprocess_strudel_with_meta_in_range(script, range.0))
+}
+
+fn eval_result_with_preprocessor(
+    preprocess: impl FnOnce() -> preprocess::PreprocessResult,
+) -> Result<EvalResult, String> {
     let effects = Arc::new(Mutex::new(SampleEffects::default()));
     let mut koto = Koto::default();
     register(koto.prelude());
     register_samples(koto.prelude(), effects.clone());
-    let script = preprocess_strudel(script);
+    let preprocessed = preprocess();
+    let script = preprocessed.source;
+    let preprocess::PreprocessMeta {
+        mini_locations,
+        widgets,
+    } = preprocessed.meta;
+    let meta = EvalMeta {
+        mini_locations,
+        widgets: widgets
+            .into_iter()
+            .map(|widget| WidgetConfig {
+                widget_type: widget.widget_type,
+                id: widget.id,
+                from: widget.from,
+                to: widget.to,
+                index: widget.index,
+                options: widget.options,
+                value: widget.value,
+                min: widget.min,
+                max: widget.max,
+                step: widget.step,
+            })
+            .collect(),
+        ..Default::default()
+    };
     // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
     // they don't leak into this one (Strudel calls `hush()` at eval start).
     reset_slots();
@@ -82,15 +215,18 @@ pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), Strin
     // When the script registered pattern slots (`note("c").d1()` etc.), the
     // result is their stack, mirroring Strudel's `applyPatternTransforms`;
     // otherwise the script's own return value is used.
-    if let Some(stacked) = collected_stack() {
-        return Ok((stacked, effects));
-    }
-    match result {
-        KValue::Object(o) if o.is_a::<KPattern>() => {
-            Ok((o.cast::<KPattern>().unwrap().0.clone(), effects))
-        }
-        other => Err(format!("script did not return a pattern (got {other:?})")),
-    }
+    let pattern = match collected_stack() {
+        Some(stacked) => stacked,
+        None => match result {
+            KValue::Object(o) if o.is_a::<KPattern>() => o.cast::<KPattern>().unwrap().0.clone(),
+            other => return Err(format!("script did not return a pattern (got {other:?})")),
+        },
+    };
+    Ok(EvalResult {
+        pattern,
+        sample_effects: effects,
+        meta,
+    })
 }
 
 #[cfg(test)]

@@ -177,12 +177,21 @@ fn distort_boosts_small_signal() {
 fn distort_algo_resolves_from_name_and_index() {
     // String names map to the algorithm; numbers index superdough's order,
     // wrapping; unknown names fall back to the default (scurve).
-    assert_eq!(DistortAlgo::from_value(&Value::Str("soft".into())), DistortAlgo::Soft);
-    assert_eq!(DistortAlgo::from_value(&Value::Str("diode".into())), DistortAlgo::Diode);
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("soft".into())),
+        DistortAlgo::Soft
+    );
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("diode".into())),
+        DistortAlgo::Diode
+    );
     assert_eq!(DistortAlgo::from_value(&Value::Int(0)), DistortAlgo::Scurve);
     assert_eq!(DistortAlgo::from_value(&Value::Int(2)), DistortAlgo::Hard);
     assert_eq!(DistortAlgo::from_value(&Value::Int(9)), DistortAlgo::Scurve); // wraps
-    assert_eq!(DistortAlgo::from_value(&Value::Str("nope".into())), DistortAlgo::Scurve);
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("nope".into())),
+        DistortAlgo::Scurve
+    );
 }
 
 #[test]
@@ -205,12 +214,24 @@ fn distort_algorithms_match_reference_formulas() {
     }
     // Every algorithm maps silence to silence and stays finite.
     for alg in [
-        DistortAlgo::Scurve, DistortAlgo::Soft, DistortAlgo::Hard, DistortAlgo::Cubic,
-        DistortAlgo::Diode, DistortAlgo::Asym, DistortAlgo::Fold, DistortAlgo::Sinefold,
+        DistortAlgo::Scurve,
+        DistortAlgo::Soft,
+        DistortAlgo::Hard,
+        DistortAlgo::Cubic,
+        DistortAlgo::Diode,
+        DistortAlgo::Asym,
+        DistortAlgo::Fold,
+        DistortAlgo::Sinefold,
         DistortAlgo::Chebyshev,
     ] {
-        assert!(alg.shape(0.0, 2.0).abs() < 1e-6, "{alg:?} should map 0 -> 0");
-        assert!(alg.shape(0.6, 5.0).is_finite(), "{alg:?} produced a non-finite sample");
+        assert!(
+            alg.shape(0.0, 2.0).abs() < 1e-6,
+            "{alg:?} should map 0 -> 0"
+        );
+        assert!(
+            alg.shape(0.6, 5.0).is_finite(),
+            "{alg:?} produced a non-finite sample"
+        );
     }
 }
 
