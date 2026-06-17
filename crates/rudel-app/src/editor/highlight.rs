@@ -1,7 +1,23 @@
 use eframe::egui;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::settings::EditorSettings;
+
+/// Layout space reserved for inline decorations, so block widgets push the
+/// following code down and inline sliders push the rest of their line right
+/// (instead of the decorations painting on top of the code).
+#[derive(Clone, Copy)]
+pub(super) struct LayoutReservations<'a> {
+    /// Source-line index -> full row height for that line (base row height plus
+    /// the vertical gap reserved below it for block widgets).
+    pub(super) line_heights: &'a HashMap<usize, f32>,
+    /// `(from_byte, to_byte, target_width)` for each slider literal: the literal
+    /// is hidden and stretched to `target_width` so the inline slider drawn over
+    /// it reserves horizontal space.
+    pub(super) sliders: &'a [(usize, usize, f32)],
+    /// Width of one monospace glyph, used to stretch slider literals.
+    pub(super) char_width: f32,
+}
 
 /// Highlight category for a contiguous byte span of editor text. Mirrors the
 /// token categories Strudel's CodeMirror grammar distinguishes, including
@@ -28,6 +44,7 @@ pub(super) enum Token {
     MiniRest,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn highlighted_editor_job(
     code: &str,
     wrap_width: f32,
@@ -36,6 +53,7 @@ pub(super) fn highlighted_editor_job(
     active_line: Option<(usize, usize)>,
     idents: &HashSet<String>,
     settings: &EditorSettings,
+    reservations: LayoutReservations<'_>,
 ) -> egui::text::LayoutJob {
     let font_id = settings.font_id();
     let palette = settings.theme.palette();
@@ -61,7 +79,9 @@ pub(super) fn highlighted_editor_job(
     let bracket_flash = palette.bracket_flash;
     let active_line_flash = palette.active_line;
 
+    let mut line = 0usize;
     for (start, end, token) in tokenize(code, idents) {
+        let piece = &code[start..end];
         let token = if settings.pattern_highlighting {
             token
         } else {
@@ -91,7 +111,30 @@ pub(super) fn highlighted_editor_job(
         if active.iter().any(|&span| spans_overlap((start, end), span)) {
             format.background = flash;
         }
-        job.append(&code[start..end], 0.0, format);
+        // Reserve the vertical gap for block widgets: make the widget's line tall
+        // and top-align its glyphs so the gap opens below the text (and the next
+        // line is pushed down). The trailing newline keeps its normal height so
+        // the following empty row is not also inflated.
+        if piece != "\n"
+            && let Some(&row_height) = reservations.line_heights.get(&line)
+        {
+            format.line_height = Some(row_height);
+            format.valign = egui::Align::TOP;
+        }
+        // Reserve horizontal space for an inline slider: hide the literal and
+        // stretch it to the slider width so the rest of the line shifts right.
+        if let Some(&(_, _, target_width)) = reservations
+            .sliders
+            .iter()
+            .find(|&&(from, to, _)| spans_overlap((start, end), (from, to)))
+        {
+            let glyphs = piece.chars().count().max(1) as f32;
+            let natural = glyphs * reservations.char_width;
+            format.extra_letter_spacing = ((target_width - natural) / glyphs).max(0.0);
+            format.color = egui::Color32::TRANSPARENT;
+        }
+        job.append(piece, 0.0, format);
+        line += piece.bytes().filter(|&b| b == b'\n').count();
     }
 
     job

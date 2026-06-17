@@ -1,11 +1,41 @@
 use super::decorations::WidgetDecoration;
 use super::settings::DrawTheme;
+use super::text::char_index_at_byte;
 use eframe::egui;
 use rudel_core::{Frac, Hap, Pattern, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 const DRAW_LOOKBEHIND: f64 = -2.0;
 const DRAW_LOOKAHEAD: f64 = 2.0;
+/// Vertical padding added around a block widget inside its reserved row.
+const WIDGET_GAP_PADDING: f32 = 6.0;
+
+/// Where the editor's laid-out text ended up, so widgets can be anchored to the
+/// real row geometry (which accounts for the space reserved for them).
+#[derive(Clone, Copy)]
+pub(crate) struct WidgetLayout<'a> {
+    pub(crate) galley: &'a egui::Galley,
+    pub(crate) galley_pos: egui::Pos2,
+    pub(crate) editor_rect: egui::Rect,
+    pub(crate) base_row_height: f32,
+}
+
+/// Full row height (base text row plus the gap reserved below it) for each
+/// source line that hosts one or more block widgets. The layouter inflates
+/// these rows so the following code is pushed down instead of overlapped.
+pub(crate) fn block_widget_line_heights(
+    code: &str,
+    widgets: &[WidgetDecoration],
+    base_row_height: f32,
+) -> HashMap<usize, f32> {
+    let mut heights: HashMap<usize, f32> = HashMap::new();
+    for widget in widgets {
+        let (line, _) = line_column_at_byte(code, widget.placement());
+        let reserved = surface_size(widget).y + WIDGET_GAP_PADDING;
+        *heights.entry(line).or_insert(base_row_height) += reserved;
+    }
+    heights
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct WidgetHostSync {
@@ -102,7 +132,7 @@ impl From<&WidgetDecoration> for WidgetKey {
 pub(crate) fn draw_widget_hosts(
     ui: &mut egui::Ui,
     code: &str,
-    editor_rect: egui::Rect,
+    layout: WidgetLayout<'_>,
     widgets: &[WidgetDecoration],
     host: &mut WidgetHostState,
     paint: WidgetPaintInput<'_>,
@@ -113,11 +143,21 @@ pub(crate) fn draw_widget_hosts(
     }
 
     let clip = ui.clip_rect();
+    // Widgets are sorted by source position; stack any that share a line within
+    // the gap reserved below that line.
+    let mut stack_line = usize::MAX;
+    let mut stack_offset = 0.0;
     for widget in widgets {
         let Some(surface) = host.surface(widget) else {
             continue;
         };
-        let rect = widget_rect(ui, code, widget, surface.size, editor_rect);
+        let (line, _) = line_column_at_byte(code, widget.placement());
+        if line != stack_line {
+            stack_line = line;
+            stack_offset = 0.0;
+        }
+        let rect = widget_rect(layout, code, widget, surface.size, stack_offset);
+        stack_offset += surface.size.y + WIDGET_GAP_PADDING;
         if !clip.intersects(rect) {
             continue;
         }
@@ -141,23 +181,26 @@ pub(crate) fn draw_widget_hosts(
 }
 
 fn widget_rect(
-    ui: &egui::Ui,
+    layout: WidgetLayout<'_>,
     code: &str,
     widget: &WidgetDecoration,
     size: egui::Vec2,
-    editor_rect: egui::Rect,
+    stack_offset: f32,
 ) -> egui::Rect {
-    let (line, column) = line_column_at_byte(code, widget.placement());
-    let font_id = egui::TextStyle::Monospace.resolve(ui.style());
-    let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
-    let char_width = ui.fonts_mut(|fonts| fonts.glyph_width(&font_id, 'm'));
-    let origin = editor_rect.min + egui::vec2(6.0, 4.0);
-    let pos = egui::pos2(
-        origin.x + column as f32 * char_width,
-        origin.y + (line as f32 + 1.15) * row_height,
-    );
-    let max_width = (editor_rect.right() - pos.x).max(160.0);
-    egui::Rect::from_min_size(pos, egui::vec2(size.x.min(max_width), size.y))
+    // Anchor to the bottom of the widget's (inflated) row in the real galley, so
+    // the widget sits in the gap reserved below the line — pushing the next line
+    // down rather than overlapping it.
+    let char_index = char_index_at_byte(code, widget.placement());
+    let row = layout
+        .galley
+        .pos_from_cursor(egui::text::CCursor::new(char_index));
+    let top = layout.galley_pos.y + row.min.y + layout.base_row_height + stack_offset;
+    let x = layout.editor_rect.min.x + 6.0;
+    let max_width = (layout.editor_rect.right() - x).max(160.0);
+    egui::Rect::from_min_size(
+        egui::pos2(x, top),
+        egui::vec2(size.x.min(max_width), size.y),
+    )
 }
 
 fn paint_widget_surface(
@@ -1153,6 +1196,17 @@ mod tests {
         assert_eq!(sync.created, vec!["wheel"]);
         assert_eq!(sync.removed, vec!["scope"]);
         assert_eq!(host.surface_count(), 2);
+    }
+
+    #[test]
+    fn block_widget_line_heights_reserve_a_gap_below_the_widget_line() {
+        // Widget anchored on line 1 (its placement byte falls in "line1").
+        let code = "line0\nline1\nline2";
+        let heights = block_widget_line_heights(code, &[widget("_pianoroll", "p", 6, 11)], 20.0);
+
+        // base row (20) + default _pianoroll height (60) + padding.
+        assert_eq!(heights.get(&1), Some(&(20.0 + 60.0 + WIDGET_GAP_PADDING)));
+        assert_eq!(heights.get(&0), None);
     }
 
     #[test]

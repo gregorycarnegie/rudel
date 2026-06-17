@@ -1,5 +1,6 @@
 use super::decorations::{SliderDecoration, SourceRange, TextChange};
 use super::settings::DrawTheme;
+use super::text::char_index_at_byte;
 use eframe::egui;
 
 const SLIDER_WIDTH: f32 = 64.0;
@@ -12,10 +13,28 @@ pub(crate) struct SliderHostUpdate {
     pub(crate) value: f64,
 }
 
+/// Where the editor's laid-out text ended up, so sliders can be anchored to the
+/// real row geometry (which accounts for the inline space reserved for them).
+#[derive(Clone, Copy)]
+pub(crate) struct SliderLayout<'a> {
+    pub(crate) galley: &'a egui::Galley,
+    pub(crate) galley_pos: egui::Pos2,
+    pub(crate) base_row_height: f32,
+}
+
+/// `(from_byte, to_byte, target_width)` for each slider literal, so the layouter
+/// can stretch and hide the literal and reserve inline space for the slider.
+pub(crate) fn slider_reservations(sliders: &[SliderDecoration]) -> Vec<(usize, usize, f32)> {
+    sliders
+        .iter()
+        .map(|slider| (slider.range.from, slider.range.to, SLIDER_WIDTH))
+        .collect()
+}
+
 pub(crate) fn draw_slider_hosts(
     ui: &mut egui::Ui,
     code: &mut String,
-    editor_rect: egui::Rect,
+    layout: SliderLayout<'_>,
     sliders: &[SliderDecoration],
     draw_theme: DrawTheme,
 ) -> Option<SliderHostUpdate> {
@@ -29,7 +48,7 @@ pub(crate) fn draw_slider_hosts(
             continue;
         }
         value = value.clamp(min, max);
-        let rect = slider_rect(ui, code, slider.range, editor_rect);
+        let rect = slider_rect(layout, code, slider.range);
         if !clip.intersects(rect) {
             continue;
         }
@@ -84,31 +103,18 @@ fn apply_slider_drag_value(
     })
 }
 
-fn slider_rect(
-    ui: &egui::Ui,
-    code: &str,
-    range: SourceRange,
-    editor_rect: egui::Rect,
-) -> egui::Rect {
-    let (line, column) = line_column_at_byte(code, range.from);
-    let font_id = egui::TextStyle::Monospace.resolve(ui.style());
-    let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
-    let char_width = ui.fonts_mut(|fonts| fonts.glyph_width(&font_id, 'm'));
-    let origin = editor_rect.min + egui::vec2(6.0, 4.0);
-    let pos = egui::pos2(
-        origin.x + column as f32 * char_width,
-        origin.y + line as f32 * row_height + row_height - SLIDER_HEIGHT * 0.75,
-    );
+fn slider_rect(layout: SliderLayout<'_>, code: &str, range: SourceRange) -> egui::Rect {
+    // Anchor to the literal's position in the real galley. The literal is hidden
+    // and stretched to the slider width by the layouter, so the slider sits over
+    // that reserved inline space and the rest of the line flows after it.
+    let char_index = char_index_at_byte(code, range.from);
+    let cursor = layout
+        .galley
+        .pos_from_cursor(egui::text::CCursor::new(char_index));
+    let pos = layout.galley_pos
+        + cursor.min.to_vec2()
+        + egui::vec2(0.0, (layout.base_row_height - SLIDER_HEIGHT).max(0.0) * 0.5);
     egui::Rect::from_min_size(pos, egui::vec2(SLIDER_WIDTH, SLIDER_HEIGHT))
-}
-
-fn line_column_at_byte(code: &str, byte: usize) -> (usize, usize) {
-    let byte = byte.min(code.len());
-    let prefix = &code[..byte];
-    let line = prefix.bytes().filter(|b| *b == b'\n').count();
-    let line_start = prefix.rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    let column = prefix[line_start..].chars().count();
-    (line, column)
 }
 
 fn slider_value_from_source(code: &str, slider: &SliderDecoration) -> Option<f64> {
@@ -219,10 +225,9 @@ mod tests {
     }
 
     #[test]
-    fn byte_position_maps_to_monospace_line_and_column() {
-        assert_eq!(line_column_at_byte("ab\ncd", 0), (0, 0));
-        assert_eq!(line_column_at_byte("ab\ncd", 4), (1, 1));
-        assert_eq!(line_column_at_byte("åb\nc", "åb\n".len()), (1, 0));
+    fn slider_reservations_expose_literal_ranges_and_target_width() {
+        let sliders = [slider(SourceRange::new(7, 10))];
+        assert_eq!(slider_reservations(&sliders), vec![(7, 10, SLIDER_WIDTH)]);
     }
 
     #[test]

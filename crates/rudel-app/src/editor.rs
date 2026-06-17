@@ -23,9 +23,9 @@ use edit::{
 };
 use highlight::highlighted_editor_job;
 use settings::{EditorSettings, apply_editor_style};
-use sliders::{SliderHostUpdate, draw_slider_hosts};
+use sliders::{SliderHostUpdate, SliderLayout, draw_slider_hosts};
 use text::byte_index_at_char;
-use widgets::{WidgetHostState, WidgetPaintInput, draw_widget_hosts};
+use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts};
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
 
@@ -106,6 +106,14 @@ pub(crate) fn code_editor(
     } else {
         None
     };
+    // Reserve layout space so block widgets push the code below them down and
+    // inline sliders push the rest of their line right, rather than painting on
+    // top of the code (matching Strudel's block/inline CodeMirror widgets).
+    let editor_font = settings.font_id();
+    let base_row_height = ui.fonts_mut(|fonts| fonts.row_height(&editor_font));
+    let char_width = ui.fonts_mut(|fonts| fonts.glyph_width(&editor_font, 'm'));
+    let line_heights = widgets::block_widget_line_heights(code, widgets, base_row_height);
+    let slider_reservations = sliders::slider_reservations(sliders);
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
         let job = highlighted_editor_job(
             text.as_str(),
@@ -115,6 +123,11 @@ pub(crate) fn code_editor(
             active_line,
             idents,
             settings,
+            highlight::LayoutReservations {
+                line_heights: &line_heights,
+                sliders: &slider_reservations,
+                char_width,
+            },
         );
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
@@ -271,10 +284,17 @@ pub(crate) fn code_editor(
         ui.data_mut(|d| d.remove::<Completion>(completion_id));
     }
     let draw_theme = settings.draw_theme();
+    let galley_pos = output.galley_pos;
+    let galley = output.galley.clone();
     draw_widget_hosts(
         ui,
         code,
-        output.response.rect,
+        WidgetLayout {
+            galley: &galley,
+            galley_pos,
+            editor_rect: output.response.rect,
+            base_row_height,
+        },
         widgets,
         widget_host,
         WidgetPaintInput {
@@ -283,7 +303,17 @@ pub(crate) fn code_editor(
             draw_theme,
         },
     );
-    let slider_update = draw_slider_hosts(ui, code, output.response.rect, sliders, draw_theme);
+    let slider_update = draw_slider_hosts(
+        ui,
+        code,
+        SliderLayout {
+            galley: &galley,
+            galley_pos,
+            base_row_height,
+        },
+        sliders,
+        draw_theme,
+    );
 
     EditorOutput {
         text_change: TextChange::from_texts(&before, code),
