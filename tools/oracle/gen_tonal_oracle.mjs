@@ -20,6 +20,7 @@ import { note, n, i, freq, chord, noteToMidi } from '@strudel/core';
 import { scale, transpose, scaleTranspose, voicing, rootNotes } from '@strudel/tonal';
 import { xen, withBase, ftrans } from '@strudel/xen';
 import { tune } from '@strudel/xen/tune.mjs';
+import { edoScale } from '@strudel/edo';
 
 // label -> Pattern. String scale/interval args are passed raw (reify -> pure),
 // matching how rudel reconstructs them from Value::Str; only the *base* step
@@ -95,6 +96,13 @@ const CASES = {
   // --- rootNotes -------------------------------------------------------------
   rootnotes2: chord(mini('<C^7 A7 Dm7 G7>')).rootNotes(2),
   rootnotes3: chord(mini('Cm7 F#maj7 Bb7')).rootNotes(3),
+
+  // --- edoScale (EDO MOS-notation scales) ------------------------------------
+  edo_12edo_bare: mini('0 2 4 6').edoScale(mini('C:LLsLLLs:2:1')),
+  edo_16edo_bare: mini('0 1 2 3 4 5 6').edoScale(mini('C:LLsLLL:3:1')),
+  edo_wrap: mini('7 8 9 13').edoScale(mini('C:LLsLLLs:2:1')),
+  edo_obj_freq: n(mini('0 2 4')).edoScale(mini('C:LLsLLLs:2:1')),
+  edo_alt_def: mini('0 1 2').edoScale(mini('<C:LLsLLLs:2:1 C:LLsLLL:3:1>')),
 };
 
 const CYCLES = 2;

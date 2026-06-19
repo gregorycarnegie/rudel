@@ -6,6 +6,7 @@
 // the functor / applicative / monad combinators in `pattern`.
 
 pub mod controls;
+pub mod edo;
 pub mod euclid;
 pub mod fraction;
 pub mod hap;

@@ -135,6 +135,13 @@ fn build(label: &str) -> Pattern {
         "rootnotes2" => p("<C^7 A7 Dm7 G7>").root_notes(2),
         "rootnotes3" => p("Cm7 F#maj7 Bb7").root_notes(3),
 
+        // edoScale
+        "edo_12edo_bare" => p("0 2 4 6").edo_scale(vs("C:LLsLLLs:2:1")),
+        "edo_16edo_bare" => p("0 1 2 3 4 5 6").edo_scale(vs("C:LLsLLL:3:1")),
+        "edo_wrap" => p("7 8 9 13").edo_scale(vs("C:LLsLLLs:2:1")),
+        "edo_obj_freq" => n(p("0 2 4")).edo_scale(vs("C:LLsLLLs:2:1")),
+        "edo_alt_def" => p("0 1 2").edo_scale(p("<C:LLsLLLs:2:1 C:LLsLLL:3:1>")),
+
         other => panic!("unknown golden label {other:?}"),
     }
 }

@@ -220,6 +220,24 @@ fn xen_ratio_array_and_with_base_via_koto() {
 }
 
 #[test]
+fn edo_scale_via_koto() {
+    // C:LLsLLLs:2:1 is C major in 12-EDO; bare degrees map to diatonic notes.
+    let pat = eval(r#""0 2 4 6".edoScale("C:LLsLLLs:2:1")"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| v.as_f64().expect("note number"))
+        .collect();
+    assert_eq!(got, vec![48.0, 52.0, 55.0, 59.0]);
+    // a non-12 EDO produces microtonal (fractional) MIDI notes.
+    let pat = eval(r#""0 1 2".edoScale("C:LLsLLL:3:1")"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| v.as_f64().expect("note number"))
+        .collect();
+    assert_eq!(got, vec![48.0, 50.25, 52.5]);
+}
+
+#[test]
 fn tuning_ratio_array_via_koto() {
     // tuning reads the bare value as the scale index and returns the raw ratio.
     let pat = eval(r#""0 1 2 3".tuning([1, 5/4, 3/2])"#).expect("eval");

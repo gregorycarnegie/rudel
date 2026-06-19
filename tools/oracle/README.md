@@ -34,17 +34,18 @@ foreach ($p in 'core','mini') {
 
 ### Tonal/xen oracle (extra deps)
 
-`gen_tonal_oracle.mjs` additionally imports `@strudel/{tonal,xen}`. `@strudel/xen`
-is self-contained (bundled `tunejs.js`), but `@strudel/tonal` pulls in
-`@tonaljs/tonal` and `chord-voicings`. Install those and link all four packages
-into `tools/oracle/node_modules/@strudel` (the symlinks are what node resolves —
-note that `npm install` prunes them, so re-create them afterwards):
+`gen_tonal_oracle.mjs` additionally imports `@strudel/{tonal,xen,edo}`.
+`@strudel/xen` and `@strudel/edo` are self-contained (bundled `tunejs.js` /
+`ratios.mjs`), but `@strudel/tonal` pulls in `@tonaljs/tonal` and
+`chord-voicings`. Install those and link all five packages into
+`tools/oracle/node_modules/@strudel` (the symlinks are what node resolves — note
+that `npm install` prunes them, so re-create them afterwards):
 
 ```sh
 cd tools/oracle
 npm install --no-save @tonaljs/tonal chord-voicings
 cd node_modules/@strudel
-for p in core mini tonal xen; do ln -s "$PWD/../../../../strudel/packages/$p" "$p"; done
+for p in core mini tonal xen edo; do ln -s "$PWD/../../../../strudel/packages/$p" "$p"; done
 ```
 
 ## Regenerate

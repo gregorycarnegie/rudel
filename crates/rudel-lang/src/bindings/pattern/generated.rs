@@ -409,6 +409,8 @@ kpattern_methods! {
         voicings => kpattern_voicings,
         #[koto_method]
         scale => kpattern_scale,
+        #[koto_method(alias = "edoScale")]
+        edo_scale => kpattern_edo_scale,
         #[koto_method]
         i => kpattern_i,
         #[koto_method]

@@ -412,6 +412,16 @@ pub(super) fn kpattern_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue>
     with_instance(&ctx, |pat| pat.scale(name))
 }
 
+pub(super) fn kpattern_edo_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    // The EDO definition (`C:LLsLLLs:2:1`) is a raw colon string, not mini.
+    let arg = method_arg(&ctx, 0);
+    let def = match arg_to_raw_str(&arg) {
+        Some(s) => rudel_core::pure(Value::Str(s)),
+        None => arg_to_pattern(&arg),
+    };
+    with_instance(&ctx, |pat| pat.edo_scale(def))
+}
+
 pub(super) fn kpattern_i(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     if ctx.args.is_empty() {
         with_instance(&ctx, |pat| pat.wrap_control("i"))
