@@ -16,6 +16,7 @@ mod sampler;
 mod spec;
 mod synth;
 mod voice;
+mod zzfx;
 
 pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::Adsr;
@@ -29,6 +30,7 @@ pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::VoiceSpec;
 pub use synth::Voice;
 pub use voice::VoiceLike;
+pub use zzfx::{ZzfxParams, ZzfxSynth, ZzfxVoice, build_samples};
 
 #[cfg(test)]
 mod tests;

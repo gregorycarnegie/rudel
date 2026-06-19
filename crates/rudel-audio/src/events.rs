@@ -5,7 +5,7 @@
 use crate::clock::Clock;
 use crate::samples::SampleBank;
 use rudel_core::{Pattern, Value, query_controls};
-use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec};
+use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams};
 use std::collections::BTreeMap;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
@@ -74,6 +74,12 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
             let mut params = DrumParams::new(kind);
             params.apply_controls(map);
             return VoiceSpec::Drum(params);
+        }
+        // ZzFX synths: `zzfx` and the `z_<wave>` family (superdough's
+        // registerZZFXSounds). Resolved here so a loaded sample of the same name
+        // still wins above.
+        if name == "zzfx" || name.starts_with("z_") {
+            return VoiceSpec::Zzfx(Box::new(ZzfxParams::from_controls(name, map, duration)));
         }
     }
     VoiceSpec::Synth(Box::new(VoiceParams::from_controls(map, duration)))
@@ -196,6 +202,22 @@ mod tests {
             VoiceSpec::Synth(p) => assert!(p.noise.is_some(), "expected a noise source"),
             _ => panic!("expected a synth noise voice"),
         }
+    }
+
+    #[test]
+    fn zzfx_names_resolve_to_zzfx_voice() {
+        // `zzfx` and the `z_<wave>` family route to the ZzFX synth.
+        let bank = SampleBank::new();
+        for name in ["zzfx", "z_sine", "z_sawtooth", "z_square", "z_noise"] {
+            let events = collect_events(&pure(Value::Str(name.into())), 1.0, 0.0, 1.0, &bank);
+            assert!(
+                matches!(events[0].spec, VoiceSpec::Zzfx(_)),
+                "{name} should resolve to a ZzFX voice"
+            );
+        }
+        // A non-z synth name still falls back to the oscillator synth.
+        let events = collect_events(&pure(Value::Str("zara".into())), 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Synth(_)));
     }
 
     #[test]

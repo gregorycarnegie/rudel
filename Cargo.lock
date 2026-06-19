@@ -3587,6 +3587,7 @@ version = "0.4.1"
 dependencies = [
  "proptest",
  "rudel-core",
+ "serde_json",
 ]
 
 [[package]]

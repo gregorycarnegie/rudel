@@ -60,4 +60,13 @@ cp mini_golden.json core_golden.json tonal_golden.json tune_table_golden.json \
   ../../crates/rudel-mini/tests/
 ```
 
+`gen_zzfx_oracle.mjs` is independent — it inlines superdough's `buildSamples`
+(only the `getAudioContext().sampleRate` line is replaced with a fixed rate), so
+it needs no `@strudel` symlinks. Its golden lives with the DSP tests:
+
+```sh
+node gen_zzfx_oracle.mjs        # -> zzfx_golden.json  (ZzFX audio golden)
+cp zzfx_golden.json ../../crates/rudel-dsp/tests/
+```
+
 Then run `cargo test -p rudel-mini`.
