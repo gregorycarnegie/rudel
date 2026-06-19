@@ -2,10 +2,11 @@
 
 These scripts dump golden reference values from Strudel's real engine so the
 Rust port can be checked against them. The committed goldens live in
-`crates/rudel-mini/tests/{mini_golden.json,core_golden.json}` (mini-notation and
-core transforms) and are embedded by the `*_parity.rs` integration tests.
-`tools/gen_parity_oracle.mjs` (one level up) generates the RNG/signal goldens for
-`crates/rudel-core/tests/parity_oracle.rs` and needs no setup.
+`crates/rudel-mini/tests/{mini_golden.json,core_golden.json,tonal_golden.json}`
+(mini-notation, core transforms, and tonal/xen) and are embedded by the
+`*_parity.rs` integration tests. `tools/gen_parity_oracle.mjs` (one level up)
+generates the RNG/signal goldens for `crates/rudel-core/tests/parity_oracle.rs`
+and needs no setup.
 
 ## Setup (one-time)
 
@@ -31,13 +32,29 @@ foreach ($p in 'core','mini') {
 
 (On Linux/macOS use `ln -s` symlinks instead of junctions.)
 
+### Tonal/xen oracle (extra deps)
+
+`gen_tonal_oracle.mjs` additionally imports `@strudel/{tonal,xen}`. `@strudel/xen`
+is self-contained (bundled `tunejs.js`), but `@strudel/tonal` pulls in
+`@tonaljs/tonal` and `chord-voicings`. Install those and link all four packages
+into `tools/oracle/node_modules/@strudel` (the symlinks are what node resolves —
+note that `npm install` prunes them, so re-create them afterwards):
+
+```sh
+cd tools/oracle
+npm install --no-save @tonaljs/tonal chord-voicings
+cd node_modules/@strudel
+for p in core mini tonal xen; do ln -s "$PWD/../../../../strudel/packages/$p" "$p"; done
+```
+
 ## Regenerate
 
 ```sh
 cd tools/oracle
-node gen_mini_oracle.mjs   # -> mini_golden.json
-node gen_core_oracle.mjs   # -> core_golden.json
-cp mini_golden.json core_golden.json ../../crates/rudel-mini/tests/
+node gen_mini_oracle.mjs    # -> mini_golden.json
+node gen_core_oracle.mjs    # -> core_golden.json
+node gen_tonal_oracle.mjs   # -> tonal_golden.json  (needs the tonal/xen deps above)
+cp mini_golden.json core_golden.json tonal_golden.json ../../crates/rudel-mini/tests/
 ```
 
 Then run `cargo test -p rudel-mini`.

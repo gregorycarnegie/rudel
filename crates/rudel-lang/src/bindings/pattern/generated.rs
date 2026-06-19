@@ -418,6 +418,8 @@ kpattern_methods! {
         #[koto_method]
         xen => kpattern_xen,
         #[koto_method]
+        tuning => kpattern_tuning,
+        #[koto_method]
         with_base => kpattern_with_base,
         #[koto_method]
         ftrans => kpattern_ftrans,

@@ -215,7 +215,12 @@ fn scale_intervals(name: &str) -> Option<&'static [i32]> {
 /// Split a scale spec like `"C:major"`, `"c4:harmonic:minor"`, or `"major"`
 /// into `(root_midi, intervals)`. The root defaults to `C` (octave 3).
 fn parse_scale(scale: &str) -> Option<(i32, &'static [i32])> {
-    let parts: Vec<&str> = scale.split(':').filter(|p| !p.is_empty()).collect();
+    // Both `:` (rudel/mini canonical) and whitespace (Strudel/@tonaljs canonical,
+    // and what a joined mini list like `["C","major"]` produces) separate tokens.
+    let parts: Vec<&str> = scale
+        .split([':', ' ', '\t'])
+        .filter(|p| !p.is_empty())
+        .collect();
     if parts.is_empty() {
         return None;
     }
@@ -234,6 +239,38 @@ fn parse_scale(scale: &str) -> Option<(i32, &'static [i32])> {
         type_parts.join(" ")
     };
     Some((root, scale_intervals(&type_name)?))
+}
+
+/// Render a scale argument as a name string. Mirrors Strudel's
+/// `if (Array.isArray(scale)) scale = scale.flat().join(' ')`: a mini list like
+/// `c:major` (parsed to `["c","major"]`) becomes `"c major"`, which
+/// [`parse_scale`] then splits on whitespace.
+fn scale_name_of(v: &Value) -> String {
+    match v {
+        Value::List(items) => items
+            .iter()
+            .map(scale_name_token)
+            .collect::<Vec<_>>()
+            .join(" "),
+        Value::Str(s) => s.clone(),
+        other => other.as_str().map(String::from).unwrap_or_default(),
+    }
+}
+
+fn scale_name_token(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.clone(),
+        Value::List(items) => items
+            .iter()
+            .map(scale_name_token)
+            .collect::<Vec<_>>()
+            .join(" "),
+        other => match other.as_f64() {
+            Some(f) if f.fract() == 0.0 => (f as i64).to_string(),
+            Some(f) => f.to_string(),
+            None => String::new(),
+        },
+    }
 }
 
 fn floor_div(a: i32, b: i32) -> i32 {
@@ -461,14 +498,10 @@ impl Pattern {
         let arg = scale.into_pattern();
         let pat = self.clone();
         if let Some(v) = &arg.pure_value {
-            let name = v.as_str().unwrap_or("C:major").to_string();
-            return pat.apply_scale(name);
+            return pat.apply_scale(scale_name_of(v));
         }
-        arg.fmap(move |v| {
-            let name = v.as_str().unwrap_or("C:major").to_string();
-            Value::Pat(Box::new(pat.apply_scale(name)))
-        })
-        .inner_join()
+        arg.fmap(move |v| Value::Pat(Box::new(pat.apply_scale(scale_name_of(&v)))))
+            .inner_join()
     }
 
     /// Apply a fixed scale name to every hap.
@@ -619,18 +652,22 @@ fn step_number_and_offset(v: &Value) -> Option<(i32, i32)> {
     }
 }
 
-/// Quantise a MIDI note to the nearest note in the scale.
+/// Quantise a MIDI note to the nearest note in the scale (`_getNearestScaleNote`).
+/// Faithful port of Strudel: candidate scale tones are taken from the tonic's
+/// pitch class at octave 0, with the octave (`8P`) appended so a note nearer the
+/// top of the scale than the 7th wraps up to the next root; ties resolve to the
+/// higher tone (`preferHigher = true`).
 fn nearest_scale_note(scale: &str, note_midi: i32) -> Option<i32> {
     let (root, intervals) = parse_scale(scale)?;
-    let rel = note_midi - root;
-    let base_oct = floor_div(rel, 12);
-    let chroma = modulo(rel, 12);
-    let best = intervals
-        .iter()
-        .min_by_key(|&&i| (i - chroma).abs())
-        .copied()
-        .unwrap_or(0);
-    Some(root + best + 12 * base_oct)
+    // Strudel discards the scale root's octave here (`Note.get(tonic).pc + '0'`),
+    // so candidates start from the tonic pitch class at octave 0.
+    let root_pc0 = modulo(root, 12) + 12;
+    let mut candidates: Vec<i32> = intervals.iter().map(|&iv| root_pc0 + iv).collect();
+    candidates.push(root_pc0 + 12); // the octave, for upward wrapping
+    let octave_diff = floor_div(note_midi - root_pc0, 12);
+    let aligned: Vec<i32> = candidates.iter().map(|&m| m + 12 * octave_diff).collect();
+    let idx = nearest_number_index(note_midi, &aligned, true);
+    Some(aligned[idx])
 }
 
 /// `scaleTranspose` body for a single hap.
@@ -743,10 +780,13 @@ mod tests {
 
     #[test]
     fn note_name_quantises_to_scale() {
-        // c#3 (=49) quantised to C major -> nearest is C(48) or D(50); ties -> C
+        // c#3 (=49) quantised to C major: ties resolve higher (preferHigher), so D(50).
         let pat = crate::note(pure(Value::Str("c#3".into()))).scale("C:major");
-        let got = notes(&pat)[0];
-        assert!(got == 48.0 || got == 50.0);
+        assert_eq!(notes(&pat), vec![50.0]);
+        // b3 (=59) in C major pentatonic is nearer the octave (C4=60) than the 7th
+        // (A3=57): the octave-wrap candidate makes it quantise up to 60.
+        let pat = crate::note(pure(Value::Str("b3".into()))).scale("C:major:pentatonic");
+        assert_eq!(notes(&pat), vec![60.0]);
     }
 
     #[test]

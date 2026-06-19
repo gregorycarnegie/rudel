@@ -436,6 +436,10 @@ pub(super) fn kpattern_xen(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     with_literal_or_pattern_arg(&ctx, |pat, scale| pat.xen(scale))
 }
 
+pub(super) fn kpattern_tuning(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_literal_or_pattern_arg(&ctx, |pat, ratios| pat.tuning(ratios))
+}
+
 pub(super) fn kpattern_with_base(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     with_literal_or_pattern_arg(&ctx, |pat, base| pat.with_base(base))
 }

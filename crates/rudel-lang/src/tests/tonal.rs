@@ -206,6 +206,17 @@ fn xen_ratio_array_and_with_base_via_koto() {
 }
 
 #[test]
+fn tuning_ratio_array_via_koto() {
+    // tuning reads the bare value as the scale index and returns the raw ratio.
+    let pat = eval(r#""0 1 2 3".tuning([1, 5/4, 3/2])"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| v.as_f64().expect("ratio number"))
+        .collect();
+    assert_eq!(got, vec![1.0, 1.25, 1.5, 2.0]);
+}
+
+#[test]
 fn xen_docs_math_pow_and_piano_via_koto() {
     let pat = eval(
         r#"
