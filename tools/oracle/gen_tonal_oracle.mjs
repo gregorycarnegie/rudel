@@ -97,6 +97,15 @@ const CASES = {
   rootnotes2: chord(mini('<C^7 A7 Dm7 G7>')).rootNotes(2),
   rootnotes3: chord(mini('Cm7 F#maj7 Bb7')).rootNotes(3),
 
+  // --- xenharmonic doc examples (xen.mjs / tune.mjs @example blocks) ----------
+  xen_doc_mixed: i(mini('0 1 2 3 4 5 6 7')).xen(mini('<5edo 10edo 15edo hexany15>')),
+  withbase_doc_patterned: i(mini('[0 1 2 3] [3 4] [4 3 2 1]'))
+    .xen('hexany23')
+    .withBase(mini('<220 [300 200]>')),
+  ftrans_doc_alt: i(mini('0 7 8 18')).xen('31edo').ftrans(mini('<0 1:31 1:12>')),
+  ftrans_doc_freq: freq(mini('200 300 400')).ftrans(mini('<0 7:31 7>')),
+  tune_doc_tranh3: i(mini('4 8 9 10 5 7 9 11')).tune('tranh3'),
+
   // --- edoScale (EDO MOS-notation scales) ------------------------------------
   edo_12edo_bare: mini('0 2 4 6').edoScale(mini('C:LLsLLLs:2:1')),
   edo_16edo_bare: mini('0 1 2 3 4 5 6').edoScale(mini('C:LLsLLL:3:1')),

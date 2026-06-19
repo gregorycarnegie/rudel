@@ -135,6 +135,15 @@ fn build(label: &str) -> Pattern {
         "rootnotes2" => p("<C^7 A7 Dm7 G7>").root_notes(2),
         "rootnotes3" => p("Cm7 F#maj7 Bb7").root_notes(3),
 
+        // xenharmonic doc examples
+        "xen_doc_mixed" => i(p("0 1 2 3 4 5 6 7")).xen(p("<5edo 10edo 15edo hexany15>")),
+        "withbase_doc_patterned" => i(p("[0 1 2 3] [3 4] [4 3 2 1]"))
+            .xen(vs("hexany23"))
+            .with_base(p("<220 [300 200]>")),
+        "ftrans_doc_alt" => i(p("0 7 8 18")).xen(vs("31edo")).ftrans(p("<0 1:31 1:12>")),
+        "ftrans_doc_freq" => freq(p("200 300 400")).ftrans(p("<0 7:31 7>")),
+        "tune_doc_tranh3" => i(p("4 8 9 10 5 7 9 11")).tune(vs("tranh3")),
+
         // edoScale
         "edo_12edo_bare" => p("0 2 4 6").edo_scale(vs("C:LLsLLLs:2:1")),
         "edo_16edo_bare" => p("0 1 2 3 4 5 6").edo_scale(vs("C:LLsLLL:3:1")),

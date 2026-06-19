@@ -52,10 +52,12 @@ for p in core mini tonal xen edo; do ln -s "$PWD/../../../../strudel/packages/$p
 
 ```sh
 cd tools/oracle
-node gen_mini_oracle.mjs    # -> mini_golden.json
-node gen_core_oracle.mjs    # -> core_golden.json
-node gen_tonal_oracle.mjs   # -> tonal_golden.json  (needs the tonal/xen deps above)
-cp mini_golden.json core_golden.json tonal_golden.json ../../crates/rudel-mini/tests/
+node gen_mini_oracle.mjs        # -> mini_golden.json
+node gen_core_oracle.mjs        # -> core_golden.json
+node gen_tonal_oracle.mjs       # -> tonal_golden.json  (needs the tonal/xen/edo deps above)
+node gen_tune_table_oracle.mjs  # -> tune_table_golden.json  (whole tune.js archive)
+cp mini_golden.json core_golden.json tonal_golden.json tune_table_golden.json \
+  ../../crates/rudel-mini/tests/
 ```
 
 Then run `cargo test -p rudel-mini`.
