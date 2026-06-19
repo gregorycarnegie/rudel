@@ -86,7 +86,9 @@ fn build(label: &str) -> Pattern {
 
         // withBase
         "withbase_num" => i(p("0 3 7")).xen(vs("12edo")).with_base(440.0),
-        "withbase_pair" => i(p("0 3")).xen(vs("12edo")).with_base(vlist(&[440.0, 110.0])),
+        "withbase_pair" => i(p("0 3"))
+            .xen(vs("12edo"))
+            .with_base(vlist(&[440.0, 110.0])),
 
         // ftrans / ftranspose
         "ftrans_ctx" => i(p("0 8 18")).xen(vs("31edo")).ftrans(7),
@@ -114,13 +116,16 @@ fn build(label: &str) -> Pattern {
         "voicing_guidetones" => p("C^7 Dm7").voicings("guidetones"),
         "voicing_legacy" => p("C^7 Am7").voicings("legacy"),
         "voicing_anchor" => chord_map("C^7 Dm7", &[("anchor", vs("c5"))]).voicing(),
-        "voicing_mode_above" => {
-            chord_map("C^7 Dm7", &[("dictionary", vs("lefthand")), ("mode", vs("above"))]).voicing()
-        }
-        "voicing_offset" => {
-            chord_map("C^7 Dm7", &[("dictionary", vs("lefthand")), ("offset", Value::Int(1))])
-                .voicing()
-        }
+        "voicing_mode_above" => chord_map(
+            "C^7 Dm7",
+            &[("dictionary", vs("lefthand")), ("mode", vs("above"))],
+        )
+        .voicing(),
+        "voicing_offset" => chord_map(
+            "C^7 Dm7",
+            &[("dictionary", vs("lefthand")), ("offset", Value::Int(1))],
+        )
+        .voicing(),
         // n("0 1 2 3").chord("C^7").voicing(): n comes from the base pattern.
         "voicing_n" => p("0 1 2 3")
             .with_value(|v| {
@@ -200,7 +205,14 @@ fn rudel_rows(pat: &Pattern) -> Vec<(String, f64)> {
                 None => ("null".to_string(), "null".to_string()),
             };
             let (kind, x) = norm(&h.value);
-            let key = format!("{}|{}|{}|{}|{}", frac_str(h.part.begin), frac_str(h.part.end), wb, we, kind);
+            let key = format!(
+                "{}|{}|{}|{}|{}",
+                frac_str(h.part.begin),
+                frac_str(h.part.end),
+                wb,
+                we,
+                kind
+            );
             (key, x)
         })
         .collect();

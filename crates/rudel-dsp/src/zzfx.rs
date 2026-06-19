@@ -88,7 +88,8 @@ pub fn build_samples(p: &ZzfxSynth, sample_rate: f64, rand01: f64) -> Vec<f64> {
 
     let mut slide = p.slide * (500.0 * pi2) / sr / sr;
     let start_slide = slide;
-    let mut frequency = p.frequency * ((1.0 + p.randomness * 2.0 * rand01 - p.randomness) * pi2) / sr;
+    let mut frequency =
+        p.frequency * ((1.0 + p.randomness * 2.0 * rand01 - p.randomness) * pi2) / sr;
     let mut start_frequency = frequency;
 
     let attack = p.attack * sr + 9.0; // minimum attack to prevent pop
@@ -124,8 +125,8 @@ pub fn build_samples(p: &ZzfxSynth, sample_rate: f64, rand01: f64) -> Vec<f64> {
                 0 => t.sin(),
                 1 => 1.0 - 4.0 * ((t / pi2).round() - t / pi2).abs(), // triangle
                 2 => 1.0 - (((2.0 * t / pi2) % 2.0 + 2.0) % 2.0),     // saw
-                3 => t.tan().min(1.0).max(-1.0),                       // tan
-                _ => ((t % pi2).powi(3)).sin(),                        // 4+ noise
+                3 => t.tan().min(1.0).max(-1.0),                      // tan
+                _ => ((t % pi2).powi(3)).sin(),                       // 4+ noise
             };
 
             let tremolo_gain = if repeat_time != 0 {
@@ -237,9 +238,9 @@ impl ZzfxParams {
         // frequency: explicit `freq`, else from `note` (default 36).
         let freq = map.get("freq").and_then(|v| v.as_f64()).unwrap_or_else(|| {
             let note = match map.get("note") {
-                Some(Value::Str(s)) => {
-                    crate::pitch::note_name_to_midi(s).map(|m| m as f64).unwrap_or(36.0)
-                }
+                Some(Value::Str(s)) => crate::pitch::note_name_to_midi(s)
+                    .map(|m| m as f64)
+                    .unwrap_or(36.0),
                 Some(v) => v.as_f64().unwrap_or(36.0),
                 None => 36.0,
             };
@@ -387,7 +388,10 @@ mod tests {
     use super::*;
 
     fn map(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]

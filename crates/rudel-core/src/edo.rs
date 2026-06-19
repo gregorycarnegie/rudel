@@ -432,7 +432,12 @@ mod tests {
     }
 
     fn deg_pat(degrees: &[i64]) -> Pattern {
-        sequence(&degrees.iter().map(|&d| pure(Value::Int(d))).collect::<Vec<_>>())
+        sequence(
+            &degrees
+                .iter()
+                .map(|&d| pure(Value::Int(d)))
+                .collect::<Vec<_>>(),
+        )
     }
 
     #[test]
@@ -478,7 +483,10 @@ mod tests {
         assert_eq!(
             first.get("degreeIndexes"),
             Some(&Value::List(
-                [0, 2, 4, 5, 7, 9, 11].iter().map(|&d| Value::Int(d)).collect()
+                [0, 2, 4, 5, 7, 9, 11]
+                    .iter()
+                    .map(|&d| Value::Int(d))
+                    .collect()
             ))
         );
         // intLabels: [null, M2, M3, P4, P5, M6, T7, P8]
@@ -489,7 +497,15 @@ mod tests {
         assert_eq!(labels[0], Value::Null);
         let label = |i: usize| labels[i].as_str().unwrap();
         assert_eq!(
-            [label(1), label(2), label(3), label(4), label(5), label(6), label(7)],
+            [
+                label(1),
+                label(2),
+                label(3),
+                label(4),
+                label(5),
+                label(6),
+                label(7)
+            ],
             ["M2", "M3", "P4", "P5", "M6", "T7", "P8"]
         );
     }

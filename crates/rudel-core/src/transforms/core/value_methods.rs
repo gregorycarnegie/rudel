@@ -44,6 +44,19 @@ macro_rules! aligned_variants {
     };
 }
 
+macro_rules! op_in_methods {
+    ($($(
+        #[$attr:meta]
+    )* $method:ident => $op:expr),* $(,)?) => {
+        $(
+            $(#[$attr])*
+            pub fn $method(&self, other: impl IntoPattern) -> Pattern {
+                self.op_in(other.into_pattern(), $op)
+            }
+        )*
+    };
+}
+
 impl Pattern {
     // -- Alignment matrix --------------------------------------------------
     // Each operator's default (`in`) variant is the plain method (`add`, `set`,
@@ -62,84 +75,47 @@ impl Pattern {
 
     // -- Math / value ops --------------------------------------------------
 
-    pub fn add(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), num_add)
-    }
-    pub fn sub(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), num_sub)
-    }
-    pub fn mul(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), num_mul)
-    }
-    pub fn div(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), num_div)
-    }
-    /// `set`: override this pattern's values (and map keys) with the other's,
-    /// keeping this pattern's structure.
-    pub fn set(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), |_, b| b.clone())
-    }
+    op_in_methods! {
+        add => num_add,
+        sub => num_sub,
+        mul => num_mul,
+        div => num_div,
 
-    /// Less-than (`lt`): boolean pattern, structure from this pattern.
-    pub fn lt(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_lt)
-    }
-    /// Greater-than (`gt`).
-    pub fn gt(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_gt)
-    }
-    /// Less-than-or-equal (`lte`).
-    pub fn lte(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_lte)
-    }
-    /// Greater-than-or-equal (`gte`).
-    pub fn gte(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_gte)
-    }
-    /// Loose equality (`eq`, numeric coercion).
-    pub fn eq(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_eq)
-    }
-    /// Strict equality (`eqt`, no coercion).
-    pub fn eqt(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_eqt)
-    }
-    /// Loose inequality (`ne`).
-    pub fn ne(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_ne)
-    }
-    /// Strict inequality (`net`).
-    pub fn net(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), cmp_net)
-    }
-    /// Logical and (`and`): JS `a && b` per event.
-    pub fn and(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), logic_and)
-    }
-    /// Logical or (`or`): JS `a || b` per event.
-    pub fn or(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), logic_or)
-    }
+        /// `set`: override this pattern's values (and map keys) with the other's,
+        /// keeping this pattern's structure.
+        set => |_, b: &Value| b.clone(),
 
-    /// Bitwise AND (`band`): int32 `a & b` per event, structure from the left.
-    pub fn band(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), bit_and)
-    }
-    /// Bitwise OR (`bor`).
-    pub fn bor(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), bit_or)
-    }
-    /// Bitwise XOR (`bxor`).
-    pub fn bxor(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), bit_xor)
-    }
-    /// Bitwise left shift (`blshift`).
-    pub fn blshift(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), bit_lshift)
-    }
-    /// Bitwise right shift (`brshift`).
-    pub fn brshift(&self, other: impl IntoPattern) -> Pattern {
-        self.op_in(other.into_pattern(), bit_rshift)
+        /// Less-than (`lt`): boolean pattern, structure from this pattern.
+        lt => cmp_lt,
+        /// Greater-than (`gt`).
+        gt => cmp_gt,
+        /// Less-than-or-equal (`lte`).
+        lte => cmp_lte,
+        /// Greater-than-or-equal (`gte`).
+        gte => cmp_gte,
+        /// Loose equality (`eq`, numeric coercion).
+        eq => cmp_eq,
+        /// Strict equality (`eqt`, no coercion).
+        eqt => cmp_eqt,
+        /// Loose inequality (`ne`).
+        ne => cmp_ne,
+        /// Strict inequality (`net`).
+        net => cmp_net,
+        /// Logical and (`and`): JS `a && b` per event.
+        and => logic_and,
+        /// Logical or (`or`): JS `a || b` per event.
+        or => logic_or,
+
+        /// Bitwise AND (`band`): int32 `a & b` per event, structure from the left.
+        band => bit_and,
+        /// Bitwise OR (`bor`).
+        bor => bit_or,
+        /// Bitwise XOR (`bxor`).
+        bxor => bit_xor,
+        /// Bitwise left shift (`blshift`).
+        blshift => bit_lshift,
+        /// Bitwise right shift (`brshift`).
+        brshift => bit_rshift,
     }
 
     /// Scale a unipolar (0..1) signal into the `min..max` range.

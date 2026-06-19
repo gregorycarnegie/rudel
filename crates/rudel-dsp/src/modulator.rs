@@ -125,7 +125,8 @@ impl Lfo {
 
     /// The next modulation value.
     pub fn tick(&mut self) -> f64 {
-        let mut modval = (waveshape(self.shape, self.phase, self.skew) + self.dcoffset) * self.depth;
+        let mut modval =
+            (waveshape(self.shape, self.phase, self.skew) + self.dcoffset) * self.depth;
         modval = modval.powf(self.curve);
         // JS `clamp` is min(max(v,min),max), which (unlike f64::clamp) does not
         // assume min <= max and never panics.
@@ -177,7 +178,10 @@ mod tests {
         let mut lfo = Lfo::new(&cfg, 64.0); // 16 samples per cycle
         let vals: Vec<f64> = (0..20).map(|_| lfo.tick()).collect();
         assert!(vals[0].abs() < 1e-12, "starts at 0");
-        assert!(vals.iter().all(|&v| (0.0..=1.0).contains(&v)), "bounded 0..1");
+        assert!(
+            vals.iter().all(|&v| (0.0..=1.0).contains(&v)),
+            "bounded 0..1"
+        );
         // rises across the first cycle, then drops back near 0 after the wrap.
         assert!(vals[10] > vals[1], "rising within a cycle");
         assert!(vals[17] < vals[15], "resets after the period");

@@ -53,7 +53,9 @@ fn tune_table_matches_tunejs_archive() {
         if ok {
             checked += 1;
         } else if failures.len() < 20 {
-            failures.push(format!("scale {name:?}\n  tunejs: {want:?}\n  rudel:  {got:?}"));
+            failures.push(format!(
+                "scale {name:?}\n  tunejs: {want:?}\n  rudel:  {got:?}"
+            ));
         } else {
             failures.push(format!("scale {name:?} (mismatch)"));
         }
