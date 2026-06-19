@@ -66,7 +66,8 @@ it needs no `@strudel` symlinks. Its golden lives with the DSP tests:
 
 ```sh
 node gen_zzfx_oracle.mjs        # -> zzfx_golden.json  (ZzFX audio golden)
-cp zzfx_golden.json ../../crates/rudel-dsp/tests/
+node gen_lfo_oracle.mjs         # -> lfo_golden.json   (LFO modulator-source golden)
+cp zzfx_golden.json lfo_golden.json ../../crates/rudel-dsp/tests/
 ```
 
 Then run `cargo test -p rudel-mini`.
