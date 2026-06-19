@@ -10,6 +10,7 @@
 
 use rudel_core::{Frac, Pattern, Value, freq, i, n, note, note_to_midi};
 use rudel_mini::parse;
+use std::collections::BTreeMap;
 
 fn p(code: &str) -> Pattern {
     parse(code).expect("parse")
@@ -21,6 +22,24 @@ fn vs(s: &str) -> Value {
 
 fn vlist(xs: &[f64]) -> Value {
     Value::List(xs.iter().map(|x| Value::F64(*x)).collect())
+}
+
+/// A chord pattern whose values become `{chord, ...extras}` maps, so the voicing
+/// controls (`dictionary`/`anchor`/`mode`/`offset`) can be set the way Strudel's
+/// `chord(...).dict(...)...` control chain does.
+fn chord_map(code: &str, extras: &[(&str, Value)]) -> Pattern {
+    let extras: Vec<(String, Value)> = extras
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect();
+    p(code).with_value(move |v| {
+        let mut m = BTreeMap::new();
+        m.insert("chord".to_string(), v);
+        for (k, val) in &extras {
+            m.insert(k.clone(), val.clone());
+        }
+        Value::Map(m)
+    })
 }
 
 /// Rebuild the rudel pattern for a golden label (mirrors gen_tonal_oracle.mjs).
@@ -87,6 +106,35 @@ fn build(label: &str) -> Pattern {
             350.291_542_792_12,
         ])),
 
+        // voicing
+        "voicing_default" => p("<C^7 A7 Dm7 G7>").voicing(),
+        "voicing_ireal_ext" => p("C^7 Am7").voicings("ireal-ext"),
+        "voicing_lefthand" => p("C^7 A7 Dm7 G7").voicings("lefthand"),
+        "voicing_triads" => p("C Am F G").voicings("triads"),
+        "voicing_guidetones" => p("C^7 Dm7").voicings("guidetones"),
+        "voicing_legacy" => p("C^7 Am7").voicings("legacy"),
+        "voicing_anchor" => chord_map("C^7 Dm7", &[("anchor", vs("c5"))]).voicing(),
+        "voicing_mode_above" => {
+            chord_map("C^7 Dm7", &[("dictionary", vs("lefthand")), ("mode", vs("above"))]).voicing()
+        }
+        "voicing_offset" => {
+            chord_map("C^7 Dm7", &[("dictionary", vs("lefthand")), ("offset", Value::Int(1))])
+                .voicing()
+        }
+        // n("0 1 2 3").chord("C^7").voicing(): n comes from the base pattern.
+        "voicing_n" => p("0 1 2 3")
+            .with_value(|v| {
+                let mut m = BTreeMap::new();
+                m.insert("n".to_string(), v);
+                m.insert("chord".to_string(), Value::Str("C^7".to_string()));
+                Value::Map(m)
+            })
+            .voicing(),
+
+        // rootNotes
+        "rootnotes2" => p("<C^7 A7 Dm7 G7>").root_notes(2),
+        "rootnotes3" => p("Cm7 F#maj7 Bb7").root_notes(3),
+
         other => panic!("unknown golden label {other:?}"),
     }
 }
@@ -102,21 +150,21 @@ fn note_num(v: &Value) -> f64 {
 }
 
 /// Reduce a rudel hap value to a (kind, number) pitch descriptor, matching the
-/// `norm` in gen_tonal_oracle.mjs.
+/// `norm` in gen_tonal_oracle.mjs (`note`/bare-number both collapse to `pitch`).
 fn norm(v: &Value) -> (&'static str, f64) {
     match v {
         Value::Map(m) => {
             if let Some(f) = m.get("freq").and_then(Value::as_f64) {
                 ("freq", f)
             } else if let Some(nv) = m.get("note") {
-                ("note", note_num(nv))
+                ("pitch", note_num(nv))
             } else if let Some(nv) = m.get("n") {
-                ("note", note_num(nv))
+                ("pitch", note_num(nv))
             } else {
                 ("other", 0.0)
             }
         }
-        other => ("num", other.as_f64().unwrap_or(f64::NAN)),
+        other => ("pitch", other.as_f64().unwrap_or(f64::NAN)),
     }
 }
 

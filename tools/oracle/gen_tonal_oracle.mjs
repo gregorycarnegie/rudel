@@ -16,8 +16,8 @@
 
 import { writeFileSync } from 'node:fs';
 import { mini } from '@strudel/mini';
-import { note, n, i, freq, noteToMidi } from '@strudel/core';
-import { scale, transpose, scaleTranspose } from '@strudel/tonal';
+import { note, n, i, freq, chord, noteToMidi } from '@strudel/core';
+import { scale, transpose, scaleTranspose, voicing, rootNotes } from '@strudel/tonal';
 import { xen, withBase, ftrans } from '@strudel/xen';
 import { tune } from '@strudel/xen/tune.mjs';
 
@@ -79,6 +79,22 @@ const CASES = {
   // --- tune ------------------------------------------------------------------
   tune_name: i(mini('0 1 2 3 4 5')).tune('hexany15'),
   tune_array: i(mini('0 1 2')).tune([261.6255653006, 302.72962012827, 350.29154279212]),
+
+  // --- voicing (default ireal + named dicts + anchor/mode/offset/n) -----------
+  voicing_default: chord(mini('<C^7 A7 Dm7 G7>')).voicing(),
+  voicing_ireal_ext: chord(mini('C^7 Am7')).dict('ireal-ext').voicing(),
+  voicing_lefthand: chord(mini('C^7 A7 Dm7 G7')).dict('lefthand').voicing(),
+  voicing_triads: chord(mini('C Am F G')).dict('triads').voicing(),
+  voicing_guidetones: chord(mini('C^7 Dm7')).dict('guidetones').voicing(),
+  voicing_legacy: chord(mini('C^7 Am7')).dict('legacy').voicing(),
+  voicing_anchor: chord(mini('C^7 Dm7')).anchor('c5').voicing(),
+  voicing_mode_above: chord(mini('C^7 Dm7')).dict('lefthand').mode('above').voicing(),
+  voicing_offset: chord(mini('C^7 Dm7')).dict('lefthand').offset(1).voicing(),
+  voicing_n: n(mini('0 1 2 3')).chord('C^7').voicing(),
+
+  // --- rootNotes -------------------------------------------------------------
+  rootnotes2: chord(mini('<C^7 A7 Dm7 G7>')).rootNotes(2),
+  rootnotes3: chord(mini('Cm7 F#maj7 Bb7')).rootNotes(3),
 };
 
 const CYCLES = 2;
@@ -91,16 +107,19 @@ function toMidi(x) {
   return typeof x === 'number' ? x : noteToMidi(x);
 }
 
-// Reduce a hap value to a (kind, number) pitch descriptor.
+// Reduce a hap value to a (kind, number) pitch descriptor. `note` and a bare
+// number both collapse to `pitch`: rudel emits MIDI/ratio numbers where Strudel
+// emits note-name strings or `.note()` maps (an intentional representation
+// difference), so only the numeric pitch is compared; `freq` stays distinct.
 function norm(v) {
   if (v && typeof v === 'object') {
     if (v.freq !== undefined) return ['freq', v.freq];
-    if (v.note !== undefined) return ['note', toMidi(v.note)];
-    if (v.n !== undefined) return ['note', toMidi(v.n)];
+    if (v.note !== undefined) return ['pitch', toMidi(v.note)];
+    if (v.n !== undefined) return ['pitch', toMidi(v.n)];
     return ['other', 0];
   }
-  if (typeof v === 'number') return ['num', v];
-  return ['note', toMidi(v)];
+  if (typeof v === 'number') return ['pitch', v];
+  return ['pitch', toMidi(v)];
 }
 
 function dump(pat) {

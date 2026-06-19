@@ -70,7 +70,8 @@ fn arp_with_via_koto() {
 
 #[test]
 fn voicing_via_koto() {
-    // a chord-symbol pattern voiced below a4: C triad -> C4 E4 G4.
+    // a chord-symbol pattern voiced with the default `ireal` dictionary below
+    // the c5 anchor: C -> E3 C4 E4 G4 C5.
     // (mini-notation can't spell `^`, so use `maj7`/`m7`-style symbols, or
     // pure("C^7") for the literal form.)
     let pat = eval(r#"pure("C").voicing()"#).expect("eval");
@@ -78,7 +79,13 @@ fn voicing_via_koto() {
     got.sort_by_key(|v| v.as_f64().unwrap() as i64);
     assert_eq!(
         got,
-        vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]
+        vec![
+            Value::F64(52.0),
+            Value::F64(60.0),
+            Value::F64(64.0),
+            Value::F64(67.0),
+            Value::F64(72.0)
+        ]
     );
     // named dictionary, literal ^ spelling via pure
     let pat = eval(r#"pure("C^7").voicings("lefthand")"#).expect("eval");
@@ -114,12 +121,19 @@ fn arp_and_arpeggiate_via_koto() {
 #[test]
 fn chord_control_and_voicing_controls_via_koto() {
     // top-level chord(...) plus `.dict()`/`.voicing()` voice a chord symbol.
+    // Default `ireal` dictionary: C -> E3 C4 E4 G4 C5.
     let pat = eval(r#"chord("C").voicing()"#).expect("eval");
     let mut got = values(&pat, 0, 1);
     got.sort_by_key(|v| v.as_f64().unwrap() as i64);
     assert_eq!(
         got,
-        vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]
+        vec![
+            Value::F64(52.0),
+            Value::F64(60.0),
+            Value::F64(64.0),
+            Value::F64(67.0),
+            Value::F64(72.0)
+        ]
     );
     // `.dict("lefthand")` routes through the named dictionary (mini can't spell
     // `^`, so use the `maj7` symbol, which normalises to `^7`).
