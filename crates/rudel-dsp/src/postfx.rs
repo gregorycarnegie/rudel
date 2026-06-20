@@ -275,6 +275,16 @@ pub struct PostFx {
     pub phasercenter: f32,
     /// Phaser sweep range in cents (`phasersweep`).
     pub phasersweep: f32,
+    /// Dynamics-compressor threshold in dB (`compressor`). `None` = off.
+    pub compressor: Option<f32>,
+    /// Compression ratio (`compressorRatio`), default 10.
+    pub comp_ratio: f32,
+    /// Soft-knee width in dB (`compressorKnee`), default 10.
+    pub comp_knee: f32,
+    /// Attack time in seconds (`compressorAttack`), default 0.005.
+    pub comp_attack: f32,
+    /// Release time in seconds (`compressorRelease`), default 0.05.
+    pub comp_release: f32,
 }
 
 impl Default for PostFx {
@@ -295,6 +305,11 @@ impl Default for PostFx {
             phaserdepth: 0.5,
             phasercenter: 1000.0,
             phasersweep: 2000.0,
+            compressor: None,
+            comp_ratio: 10.0,
+            comp_knee: 10.0,
+            comp_attack: 0.005,
+            comp_release: 0.05,
         }
     }
 }
@@ -325,6 +340,13 @@ impl PostFx {
             phaserdepth: get("phaserdepth").unwrap_or(0.5),
             phasercenter: get("phasercenter").unwrap_or(1000.0),
             phasersweep: get("phasersweep").unwrap_or(2000.0),
+            // superdough's getCompressor defaults (only applied when the
+            // `compressor` threshold key is present).
+            compressor: get("compressor"),
+            comp_ratio: get("compressorRatio").unwrap_or(10.0),
+            comp_knee: get("compressorKnee").unwrap_or(10.0),
+            comp_attack: get("compressorAttack").unwrap_or(0.005),
+            comp_release: get("compressorRelease").unwrap_or(0.05),
         }
     }
 
@@ -337,6 +359,7 @@ impl PostFx {
             || self.postgain != 1.0
             || self.tremolo.is_some()
             || self.phaser.is_some()
+            || self.compressor.is_some()
     }
 }
 
@@ -353,6 +376,8 @@ pub struct PostFxVoice {
     vowel: Option<(Formant, Formant)>,
     /// Per-channel swept notch filters when `phaser` is set.
     phaser: Option<(Biquad, Biquad)>,
+    /// Smoothed compressor gain (1.0 = no reduction), driven by attack/release.
+    comp_gain: f32,
 }
 
 impl PostFxVoice {
@@ -377,6 +402,7 @@ impl PostFxVoice {
             coarse_count: 0,
             vowel,
             phaser,
+            comp_gain: 1.0,
         }
     }
 
@@ -446,6 +472,36 @@ impl VoiceLike for PostFxVoice {
             let gain = (1.0 - depth) + depth * unipolar;
             l *= gain;
             r *= gain;
+        }
+        // compressor: feedforward soft-knee dynamics compressor, matching the
+        // per-voice DynamicsCompressorNode superdough inserts in the fx chain
+        // (`chain.connect(compressorNode)`). Stereo-linked (peak of |l|,|r|),
+        // no makeup gain (WebAudio's node has none).
+        if let Some(threshold) = self.fx.compressor {
+            let level = l.abs().max(r.abs()).max(1e-9);
+            let level_db = 20.0 * level.log10();
+            let knee = self.fx.comp_knee.max(0.0);
+            let ratio = self.fx.comp_ratio.max(1.0);
+            let over = level_db - threshold;
+            // static input→output level curve (dB), with a quadratic soft knee.
+            let out_db = if knee > 0.0 && over > -knee / 2.0 && over < knee / 2.0 {
+                level_db + (1.0 / ratio - 1.0) * (over + knee / 2.0).powi(2) / (2.0 * knee)
+            } else if over <= -knee / 2.0 {
+                level_db
+            } else {
+                threshold + over / ratio
+            };
+            let target_gain = 10f32.powf((out_db - level_db) / 20.0); // <= 1.0
+            // attack when reduction deepens (target below current), else release.
+            let time = if target_gain < self.comp_gain {
+                self.fx.comp_attack
+            } else {
+                self.fx.comp_release
+            };
+            let coeff = (-1.0 / (time.max(1e-4) * self.sample_rate)).exp();
+            self.comp_gain = coeff * self.comp_gain + (1.0 - coeff) * target_gain;
+            l *= self.comp_gain;
+            r *= self.comp_gain;
         }
         if self.fx.postgain != 1.0 {
             l *= self.fx.postgain;

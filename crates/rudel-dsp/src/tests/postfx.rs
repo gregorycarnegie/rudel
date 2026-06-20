@@ -43,6 +43,40 @@ fn vowel_formant_shapes_noise() {
 }
 
 #[test]
+fn compressor_attenuates_loud_signal_but_not_quiet() {
+    // A constant signal well above the threshold gets pulled down toward it
+    // over the attack; a signal below the threshold passes essentially intact.
+    let settled = |amp| {
+        // threshold -20 dB (~0.1 linear), ratio 10, hard knee.
+        let fx = PostFx {
+            compressor: Some(-20.0),
+            comp_ratio: 10.0,
+            comp_knee: 0.0,
+            comp_attack: 0.001,
+            comp_release: 0.05,
+            ..Default::default()
+        };
+        assert!(fx.is_active());
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(amp)), fx, 44100.0);
+        let mut last = 0.0f32;
+        for _ in 0..4410 {
+            last = v.tick().0.abs();
+        }
+        last
+    };
+
+    // Loud (0 dB = 1.0): far above -20 dB threshold -> heavily reduced.
+    let loud = settled(1.0);
+    assert!(loud < 0.5, "loud signal should be compressed, got {loud}");
+    // Quiet (-40 dB ~ 0.01): below threshold -> passes ~unchanged.
+    let quiet = settled(0.01);
+    assert!(
+        (quiet - 0.01).abs() < 5e-4,
+        "quiet signal should pass intact, got {quiet}"
+    );
+}
+
+#[test]
 fn postfx_active_flag() {
     assert!(!PostFx::default().is_active());
     assert!(
