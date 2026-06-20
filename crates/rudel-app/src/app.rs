@@ -10,7 +10,7 @@ use crate::volume::DEFAULT_VOLUME_PERCENT;
 use eframe::egui;
 use rudel_audio::Engine;
 use rudel_core::Pattern;
-use rudel_midi::{MidiEngine, MidiIn};
+use rudel_midi::{MidiEngine, MidiIn, MidiOut};
 use rudel_osc::OscEngine;
 use std::collections::HashSet;
 use std::thread::JoinHandle;
@@ -74,6 +74,11 @@ pub(crate) struct RudelApp {
     midi_port: String,
     osc_target: String,
     midi: Option<MidiEngine>,
+    /// In-flight MIDI output connection. The first device open can block for a
+    /// long time while the OS MIDI subsystem initializes, so it runs on a
+    /// background thread and the engine is adopted once it finishes (see
+    /// `poll_midi_connect`) instead of freezing the UI.
+    midi_pending: Option<JoinHandle<Result<MidiOut, String>>>,
     osc: Option<OscEngine>,
     io_error: Option<String>,
     // MIDI input (CC -> `ccin` bus, clock-in -> cps).
@@ -122,6 +127,7 @@ impl RudelApp {
             midi_port: String::new(),
             osc_target: "127.0.0.1:57120".to_string(),
             midi: None,
+            midi_pending: None,
             osc: None,
             io_error: None,
             midi_in: None,
@@ -246,6 +252,7 @@ mod tests {
             midi_port: String::new(),
             osc_target: "127.0.0.1:57120".to_string(),
             midi: None,
+            midi_pending: None,
             osc: None,
             io_error: None,
             midi_in: None,
@@ -262,6 +269,26 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(app.cps, 0.75);
+    }
+
+    #[test]
+    fn midi_connect_is_polled_off_the_ui_thread() {
+        // A background MIDI connection is adopted by poll_midi_connect rather
+        // than blocking the UI; here it resolves to an error (no device), which
+        // must be surfaced without leaving a dangling pending handle or engine.
+        let mut app = app_without_engine();
+        app.midi_pending = Some(std::thread::spawn(|| Err("no MIDI ports".to_string())));
+        // Poll returns true while the connection is in flight, false once adopted.
+        while app.poll_midi_connect() {}
+        assert!(app.midi_pending.is_none());
+        assert!(app.midi.is_none());
+        assert!(
+            app.io_error
+                .as_ref()
+                .is_some_and(|e| e.contains("no MIDI ports")),
+            "connect error should be surfaced, got {:?}",
+            app.io_error
+        );
     }
 
     #[test]
