@@ -1,4 +1,7 @@
-use crate::{CONTROL_CHANGE, DEFAULT_BEND_RANGE, NOTE_OFF, NOTE_ON, PITCH_BEND, PROGRAM_CHANGE};
+use crate::{
+    CHANNEL_AFTERTOUCH, CONTROL_CHANGE, DEFAULT_BEND_RANGE, NOTE_OFF, NOTE_ON, PITCH_BEND,
+    PROGRAM_CHANGE, SYSEX_END, SYSEX_START,
+};
 use rudel_core::{Value, freq_to_midi, note_to_midi};
 use std::collections::BTreeMap;
 
@@ -126,10 +129,7 @@ pub fn control_to_midi(controls: &BTreeMap<String, Value>) -> Option<MidiNote> {
     let velocity = get_f64(controls, "velocity")
         .or_else(|| get_f64(controls, "gain"))
         .unwrap_or(0.9);
-    let chan = get_f64(controls, "midichan")
-        .or_else(|| get_f64(controls, "channel"))
-        .unwrap_or(1.0);
-    let channel = ((chan as i64 - 1).clamp(0, 15)) as u8;
+    let channel = channel_of(controls);
 
     let mut ccs = Vec::new();
     if let (Some(n), Some(v)) = (get_f64(controls, "ccn"), get_f64(controls, "ccv")) {
@@ -155,4 +155,91 @@ pub fn control_to_midi(controls: &BTreeMap<String, Value>) -> Option<MidiNote> {
         bend_range,
         bend,
     })
+}
+
+/// 0-based MIDI channel from `midichan`/`channel` (1-based), defaulting to 1.
+pub(crate) fn channel_of(controls: &BTreeMap<String, Value>) -> u8 {
+    let chan = get_f64(controls, "midichan")
+        .or_else(|| get_f64(controls, "channel"))
+        .unwrap_or(1.0);
+    ((chan as i64 - 1).clamp(0, 15)) as u8
+}
+
+/// Collect a value or list of values into MIDI bytes (0..=255).
+fn bytes_from_value(v: &Value) -> Vec<u8> {
+    let to_byte = |x: f64| x.round().clamp(0.0, 255.0) as u8;
+    match v {
+        Value::List(items) => items.iter().filter_map(Value::as_f64).map(to_byte).collect(),
+        other => other.as_f64().map(to_byte).into_iter().collect(),
+    }
+}
+
+/// Split a value (single 14-bit number, or `[msb, lsb]` list) into 7-bit MSB/LSB.
+fn split14(v: &Value) -> (u8, u8) {
+    match v {
+        Value::List(items) => {
+            let msb = items.first().and_then(Value::as_f64).map(clamp7).unwrap_or(0);
+            let lsb = items.get(1).and_then(Value::as_f64).map(clamp7).unwrap_or(0);
+            (msb, lsb)
+        }
+        other => {
+            let n = other.as_f64().unwrap_or(0.0).round().clamp(0.0, 16383.0) as u16;
+            (((n >> 7) & 0x7F) as u8, (n & 0x7F) as u8)
+        }
+    }
+}
+
+/// Canonical NRPN sequence on `channel`: parameter (CC 99/98), data (CC 6/38),
+/// then the null-select (CC 101/100 = 127) that deactivates further data entry.
+/// midi.mjs delegates to WebMidi.js's `sendNRPN`; rudel emits the standard
+/// conformant byte stream (the upstream wrapper's exact arg shape is ambiguous).
+fn nrpn_messages(channel: u8, param: &Value, value: &Value) -> Vec<Vec<u8>> {
+    let (p_msb, p_lsb) = split14(param);
+    let (v_msb, v_lsb) = split14(value);
+    let cc = |controller, val| vec![CONTROL_CHANGE | channel, controller, val];
+    vec![
+        cc(99, p_msb),
+        cc(98, p_lsb),
+        cc(6, v_msb),
+        cc(38, v_lsb),
+        cc(101, 127),
+        cc(100, 127),
+    ]
+}
+
+/// Note-independent MIDI messages from a control map, in midi.mjs's handler
+/// order: channel aftertouch (`miditouch`), system exclusive (`sysexid` +
+/// `sysexdata`), NRPN (`nrpnn` + `nrpv`), and raw pitch bend (`midibend`). These
+/// fire whether or not the hap carries a note, matching `Pattern.prototype.midi`.
+pub(crate) fn aux_messages(controls: &BTreeMap<String, Value>) -> Vec<Vec<u8>> {
+    let channel = channel_of(controls);
+    let mut out = Vec::new();
+
+    // System exclusive: F0, <manufacturer id bytes>, <data bytes>, F7.
+    if let (Some(id), Some(data)) = (controls.get("sysexid"), controls.get("sysexdata")) {
+        let mut msg = vec![SYSEX_START];
+        msg.extend(bytes_from_value(id));
+        msg.extend(bytes_from_value(data));
+        msg.push(SYSEX_END);
+        out.push(msg);
+    }
+
+    // NRPN non-registered parameter (nrpnn) + value (nrpv).
+    if let (Some(n), Some(v)) = (controls.get("nrpnn"), controls.get("nrpv")) {
+        out.extend(nrpn_messages(channel, n, v));
+    }
+
+    // Raw pitch bend: midibend in -1..1 -> 14-bit centered at 8192, matching
+    // WebMidi.js `sendPitchBend` (round((v + 1) / 2 * 16383)).
+    if let Some(b) = get_f64(controls, "midibend") {
+        let level = (((b + 1.0) / 2.0) * 16383.0).round().clamp(0.0, 16383.0) as u16;
+        out.push(pitch_bend_bytes(channel, level).to_vec());
+    }
+
+    // Channel aftertouch: miditouch in 0..1 -> 7-bit pressure.
+    if let Some(t) = get_f64(controls, "miditouch") {
+        out.push(vec![CHANNEL_AFTERTOUCH | channel, clamp7(t * 127.0)]);
+    }
+
+    out
 }

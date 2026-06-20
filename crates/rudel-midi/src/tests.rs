@@ -1,5 +1,5 @@
 use super::*;
-use crate::note::{bend_value, clamp7, pitch_bend_bytes};
+use crate::note::{aux_messages, bend_value, clamp7, pitch_bend_bytes};
 use rudel_core::{Frac, Pattern, Value, note, pure, sequence, silence};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -100,6 +100,110 @@ fn fractional_pitch_emits_bend_before_note_on() {
         .unwrap();
     assert!(bend_idx < note_idx);
     assert!(data.contains(&vec![0x81, 60, 0]));
+}
+
+#[test]
+fn channel_aftertouch_scales_to_7bit() {
+    // miditouch 0.5 -> round(0.5 * 127) = 64 on channel 0 (status 0xD0).
+    let msgs = aux_messages(&map(&[("miditouch", Value::F64(0.5))]));
+    assert_eq!(msgs, vec![vec![0xD0, 64]]);
+    // on channel 3 (1-based -> nibble 2)
+    let msgs = aux_messages(&map(&[
+        ("miditouch", Value::F64(1.0)),
+        ("midichan", Value::Int(3)),
+    ]));
+    assert_eq!(msgs, vec![vec![0xD2, 127]]);
+}
+
+#[test]
+fn raw_pitch_bend_centers_at_zero() {
+    // midibend in -1..1 -> 14-bit, matching WebMidi.js round((v+1)/2*16383).
+    // 0.0 -> 8192 -> lsb 0, msb 64
+    assert_eq!(
+        aux_messages(&map(&[("midibend", Value::F64(0.0))])),
+        vec![vec![0xE0, 0, 64]]
+    );
+    // 1.0 -> 16383 -> lsb 127, msb 127; -1.0 -> 0
+    assert_eq!(
+        aux_messages(&map(&[("midibend", Value::F64(1.0))])),
+        vec![vec![0xE0, 127, 127]]
+    );
+    assert_eq!(
+        aux_messages(&map(&[("midibend", Value::F64(-1.0))])),
+        vec![vec![0xE0, 0, 0]]
+    );
+}
+
+#[test]
+fn sysex_frames_id_and_data() {
+    // F0, <id bytes>, <data bytes>, F7. id is a single number, data a list.
+    let msgs = aux_messages(&map(&[
+        ("sysexid", Value::Int(0x7E)),
+        (
+            "sysexdata",
+            Value::List(vec![Value::Int(0x7F), Value::Int(0x00), Value::Int(0x01)]),
+        ),
+    ]));
+    assert_eq!(msgs, vec![vec![0xF0, 0x7E, 0x7F, 0x00, 0x01, 0xF7]]);
+    // a 3-byte manufacturer id (array) frames just the same.
+    let msgs = aux_messages(&map(&[
+        (
+            "sysexid",
+            Value::List(vec![Value::Int(0x00), Value::Int(0x21), Value::Int(0x09)]),
+        ),
+        ("sysexdata", Value::List(vec![Value::Int(0x40)])),
+    ]));
+    assert_eq!(msgs, vec![vec![0xF0, 0x00, 0x21, 0x09, 0x40, 0xF7]]);
+}
+
+#[test]
+fn nrpn_emits_canonical_cc_sequence() {
+    // nrpnn=1000 -> param MSB 7, LSB 104; nrpv=500 -> data MSB 3, LSB 116;
+    // then the null-select (101/100 = 127). All on channel 0.
+    let msgs = aux_messages(&map(&[
+        ("nrpnn", Value::Int(1000)),
+        ("nrpv", Value::Int(500)),
+    ]));
+    assert_eq!(
+        msgs,
+        vec![
+            vec![0xB0, 99, 7],
+            vec![0xB0, 98, 104],
+            vec![0xB0, 6, 3],
+            vec![0xB0, 38, 116],
+            vec![0xB0, 101, 127],
+            vec![0xB0, 100, 127],
+        ]
+    );
+}
+
+#[test]
+fn aux_messages_fire_without_a_note() {
+    // A hap carrying only sysex (no pitch) still emits the sysex message, and no
+    // note-on/off, matching midi.mjs's note-independent handlers.
+    let controls = map(&[
+        ("sysexid", Value::Int(0x7E)),
+        ("sysexdata", Value::List(vec![Value::Int(0x01)])),
+    ]);
+    let pat = pure(Value::Map(controls));
+    let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+    let data: Vec<Vec<u8>> = msgs.iter().map(|m| m.data.clone()).collect();
+    assert_eq!(data, vec![vec![0xF0, 0x7E, 0x01, 0xF7]]);
+    assert!(!data.iter().any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON)));
+}
+
+#[test]
+fn aftertouch_accompanies_a_note_at_the_onset() {
+    // note + miditouch: both fire at the onset (aftertouch before the note-on).
+    let controls = map(&[
+        ("note", Value::Int(60)),
+        ("miditouch", Value::F64(1.0)),
+    ]);
+    let pat = pure(Value::Map(controls));
+    let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+    let data: Vec<Vec<u8>> = msgs.iter().map(|m| m.data.clone()).collect();
+    assert!(data.contains(&vec![0xD0, 127]));
+    assert!(data.contains(&vec![0x90, 60, clamp7(0.9 * 127.0)]));
 }
 
 #[test]
