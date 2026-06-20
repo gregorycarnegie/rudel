@@ -8,7 +8,7 @@ use eframe::egui;
 impl eframe::App for RudelApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_sample_jobs(ui.ctx());
-        let midi_connecting = self.poll_midi_connect();
+        let midi_connecting = self.poll_midi_connect() | self.poll_midi_in_connect();
 
         // Match Strudel's REPL transport keys: Ctrl/Alt+Enter evaluates,
         // Ctrl/Alt+. hushes, and Ctrl+Shift+. panics (reset/all-notes-off).
@@ -166,10 +166,15 @@ impl RudelApp {
                         .desired_width(90.0),
                 );
                 let connected = self.midi_in.is_some();
-                if ui
-                    .button(if connected { "Reconnect" } else { "Connect" })
-                    .clicked()
-                {
+                let connecting = self.midi_in_pending.is_some();
+                let label = if connecting {
+                    "Connecting…"
+                } else if connected {
+                    "Reconnect"
+                } else {
+                    "Connect"
+                };
+                if ui.add_enabled(!connecting, egui::Button::new(label)).clicked() {
                     self.connect_input();
                 }
                 if connected && ui.button("Disconnect").clicked() {

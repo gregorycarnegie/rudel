@@ -83,6 +83,11 @@ pub(crate) struct RudelApp {
     io_error: Option<String>,
     // MIDI input (CC -> `ccin` bus, clock-in -> cps).
     midi_in: Option<MidiIn>,
+    /// In-flight MIDI input connection, connected on a background thread for the
+    /// same reason as [`midi_pending`] and adopted by `poll_midi_in_connect`.
+    ///
+    /// [`midi_pending`]: RudelApp::midi_pending
+    midi_in_pending: Option<JoinHandle<Result<MidiIn, String>>>,
     midi_in_port: String,
     clock_sync: bool,
 }
@@ -131,6 +136,7 @@ impl RudelApp {
             osc: None,
             io_error: None,
             midi_in: None,
+            midi_in_pending: None,
             midi_in_port: String::new(),
             clock_sync: false,
         }
@@ -256,6 +262,7 @@ mod tests {
             osc: None,
             io_error: None,
             midi_in: None,
+            midi_in_pending: None,
             midi_in_port: String::new(),
             clock_sync: false,
         }
@@ -286,6 +293,24 @@ mod tests {
             app.io_error
                 .as_ref()
                 .is_some_and(|e| e.contains("no MIDI ports")),
+            "connect error should be surfaced, got {:?}",
+            app.io_error
+        );
+    }
+
+    #[test]
+    fn midi_input_connect_is_polled_off_the_ui_thread() {
+        // MIDI input connects on a background thread too; poll_midi_in_connect
+        // adopts the result and surfaces failures without a dangling handle.
+        let mut app = app_without_engine();
+        app.midi_in_pending = Some(std::thread::spawn(|| Err("no MIDI in ports".to_string())));
+        while app.poll_midi_in_connect() {}
+        assert!(app.midi_in_pending.is_none());
+        assert!(app.midi_in.is_none());
+        assert!(
+            app.io_error
+                .as_ref()
+                .is_some_and(|e| e.contains("no MIDI in ports")),
             "connect error should be surfaced, got {:?}",
             app.io_error
         );
