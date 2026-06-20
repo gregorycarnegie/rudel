@@ -20,7 +20,7 @@ mod voice;
 mod zzfx;
 
 pub use drum::{DrumKind, DrumParams, DrumVoice};
-pub use envelope::Adsr;
+pub use envelope::{Adsr, adsr_value};
 pub use filter::FilterParams;
 pub use fm::{FmOp, FmSpec};
 pub use modulator::{Lfo, LfoConfig, waveshape};
