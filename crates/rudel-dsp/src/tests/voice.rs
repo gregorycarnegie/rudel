@@ -431,3 +431,46 @@ fn pan_hard_left_silences_right() {
     assert!(l.abs() > 0.0);
     assert!(r.abs() < 1e-6);
 }
+
+#[test]
+fn short_note_with_long_decay_renders_and_finishes() {
+    // Smoke test for the ADSR note-duration cutoff (attack + decay > duration):
+    // the decay is cut short at hold_end and the release ramps from the value
+    // actually reached. Real-time output isn't sample-stable against superdough
+    // (the gain envelope drives a Web Audio gain node there), so assert the
+    // end-to-end properties: audible output, the envelope never exceeds unity,
+    // and the voice reaches silence and finishes after the release.
+    let p = VoiceParams {
+        duration: 0.05,
+        adsr: Adsr {
+            attack: 0.02,
+            decay: 0.5, // attack + decay (0.52) >> duration (0.05)
+            sustain: 0.6,
+            release: 0.05,
+        },
+        ..Default::default()
+    };
+    let mut v = Voice::new(p, 44100.0);
+    let mut peak = 0.0f32;
+    let mut tail = 0.0f32;
+    let mut finished = false;
+    for i in 0..44100 {
+        let (l, _r) = v.tick();
+        peak = peak.max(l.abs());
+        // last sample seen before the voice declares itself done
+        tail = l.abs();
+        if v.is_done() {
+            finished = true;
+            // a few extra ticks past the envelope should stay silent
+            for _ in 0..64 {
+                assert!(v.tick().0.abs() < 1e-6, "output should be silent after done");
+            }
+            let _ = i;
+            break;
+        }
+    }
+    assert!(peak > 0.0, "voice should produce non-silent output");
+    assert!(peak <= 1.0 + 1e-6, "amplitude envelope must not exceed unity");
+    assert!(tail < 0.2, "release should fade the tail toward silence, got {tail}");
+    assert!(finished, "voice should finish after the cut decay + release");
+}
