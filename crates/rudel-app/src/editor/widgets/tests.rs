@@ -5,7 +5,7 @@ use super::pitchwheel::freq_to_angle;
 use super::query::hap_matches_widget;
 use super::size::{default_surface_size, surface_size};
 use super::spiral::spiral_point;
-use super::style::{color_with_alpha, parse_hex_color, widget_draw_colors};
+use super::style::{color_with_alpha, parse_hex_color, resolve_color, widget_draw_colors};
 use super::*;
 use crate::editor::decorations::{SourceRange, WidgetDecoration};
 use crate::editor::settings::EditorTheme;
@@ -270,4 +270,24 @@ fn parses_hex_event_colors_and_applies_alpha() {
         color_with_alpha(egui::Color32::from_rgba_unmultiplied(10, 20, 30, 200), 0.5),
         egui::Color32::from_rgba_unmultiplied(10, 20, 30, 100)
     );
+}
+
+#[test]
+fn resolves_css_named_colors_and_hex() {
+    // hex passes straight through
+    assert_eq!(
+        resolve_color("#ff0000"),
+        Some(egui::Color32::from_rgb(0xff, 0, 0))
+    );
+    // CSS names resolve through draw/color.mjs's table (case-insensitively)
+    assert_eq!(
+        resolve_color("red"),
+        Some(egui::Color32::from_rgb(0xff, 0, 0))
+    );
+    assert_eq!(
+        resolve_color("CadetBlue"),
+        Some(egui::Color32::from_rgb(0x5f, 0x9e, 0xa0))
+    );
+    // unrecognized names fall back to None (caller uses the theme color)
+    assert_eq!(resolve_color("notacolor"), None);
 }

@@ -1,4 +1,4 @@
-use super::style::parse_hex_color;
+use super::style::resolve_color;
 use crate::editor::decorations::WidgetDecoration;
 use eframe::egui;
 use std::collections::BTreeMap;
@@ -170,5 +170,5 @@ fn option_color(
     options: &BTreeMap<String, rudel_lang::WidgetOption>,
     key: &str,
 ) -> Option<egui::Color32> {
-    option_str(options, key).and_then(parse_hex_color)
+    option_str(options, key).and_then(resolve_color)
 }

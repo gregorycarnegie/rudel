@@ -26,7 +26,7 @@ pub(super) fn event_color(hap: &Hap, fallback: egui::Color32) -> egui::Color32 {
     controls
         .get("color")
         .and_then(Value::as_str)
-        .and_then(parse_hex_color)
+        .and_then(resolve_color)
         .unwrap_or(fallback)
 }
 
@@ -38,6 +38,15 @@ pub(super) fn event_alpha(hap: &Hap) -> f32 {
         .unwrap_or(1.0);
     let gain = controls.get("gain").and_then(Value::as_f64).unwrap_or(1.0);
     (velocity * gain).clamp(0.0, 1.0) as f32
+}
+
+/// Resolve a pattern `color` control to a color: a `#rrggbb`/`#rrggbbaa` hex, or
+/// a CSS named color via `draw/color.mjs`'s table (which resolves to `#rrggbb`).
+pub(super) fn resolve_color(color: &str) -> Option<egui::Color32> {
+    if color.starts_with('#') {
+        return parse_hex_color(color);
+    }
+    parse_hex_color(rudel_core::css_color_hex(color)?)
 }
 
 pub(super) fn parse_hex_color(color: &str) -> Option<egui::Color32> {

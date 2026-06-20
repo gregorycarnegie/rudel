@@ -5,6 +5,7 @@
 // A `Pattern` is a pure function `State -> Vec<Hap>`; everything is built from
 // the functor / applicative / monad combinators in `pattern`.
 
+pub mod color;
 pub mod controls;
 pub mod edo;
 pub mod euclid;
@@ -67,6 +68,8 @@ pub use tonal::{
 };
 // Xenharmonic helpers.
 pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};
+// CSS named colors + color/hex -> number conversion (draw/color.mjs).
+pub use color::{convert_color_to_number, convert_hex_to_number, css_color_hex};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
 pub use query::{ControlEvent, query_controls, to_control_map};
 
