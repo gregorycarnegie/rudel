@@ -141,3 +141,58 @@ fn lowpass_attenuates_high_frequencies() {
         "filtered energy {e_filt} should be well below open {e_open}"
     );
 }
+
+#[test]
+fn biquad_impulse_response_matches_webaudio() {
+    // Sample-for-sample golden against a *real Web Audio graph*: an impulse
+    // rendered through a BiquadFilterNode in an OfflineAudioContext (node, via
+    // node-web-audio-api; see tools/oracle/gen_biquad_oracle.mjs). Only the
+    // bandpass/notch types are golden-tested, because their Q is linear in both
+    // WebAudio and the RBJ cookbook so they match Rudel's `Biquad` exactly;
+    // lowpass/highpass use WebAudio's dB-Q convention and stay on smoke tests.
+    use crate::filter::Biquad;
+
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/biquad_golden.json")).expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap() as f32;
+    let n = golden["length"].as_u64().unwrap() as usize;
+
+    // f32 transposed-direct-form-II vs WebAudio's f64 biquad: stable bandpass /
+    // notch impulse responses agree to well within this bound over 64 samples.
+    const EPS: f32 = 2e-4;
+
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let kind = case["type"].as_str().unwrap();
+        let freq = case["frequency"].as_f64().unwrap() as f32;
+        let q = case["q"].as_f64().unwrap() as f32;
+        let want: Vec<f32> = case["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap() as f32)
+            .collect();
+
+        let mut filter = match kind {
+            "bandpass" => Biquad::bandpass(sr, freq, q),
+            "notch" => Biquad::notch(sr, freq, q),
+            other => panic!("unexpected filter type in golden: {other}"),
+        };
+        for i in 0..n {
+            let x = if i == 0 { 1.0 } else { 0.0 };
+            let got = filter.process(x);
+            let d = (got - want[i]).abs();
+            if d > EPS {
+                failures.push(format!(
+                    "{kind} f={freq} q={q} sample[{i}] = {got} vs webaudio {} (diff {d:.3e})",
+                    want[i]
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "biquad impulse-response mismatches vs WebAudio:\n{}",
+        failures.join("\n")
+    );
+}

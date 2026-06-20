@@ -72,4 +72,26 @@ node gen_distortion_oracle.mjs  # -> distortion_golden.json  (waveshaping distor
 cp zzfx_golden.json lfo_golden.json adsr_golden.json distortion_golden.json ../../crates/rudel-dsp/tests/
 ```
 
+### Web Audio graph oracle (`OfflineAudioContext`)
+
+`gen_biquad_oracle.mjs` is the first oracle that renders a *real Web Audio
+graph* sample-for-sample instead of pure JS math: it drives a unit impulse
+through a `BiquadFilterNode` inside an `OfflineAudioContext`, using
+[`node-web-audio-api`](https://github.com/ircam-ismm/node-web-audio-api) (a
+faithful native implementation of the Web Audio API in node). This is the
+`OfflineAudioContext` route to golden-testing the WebAudio-rendered superdough
+paths. It needs only its own npm dep (declared in `package.json`, no `@strudel`
+symlinks):
+
+```sh
+npm install                     # installs node-web-audio-api
+node gen_biquad_oracle.mjs      # -> biquad_golden.json  (BiquadFilterNode impulse responses)
+cp biquad_golden.json ../../crates/rudel-dsp/tests/
+```
+
+Only `bandpass`/`notch` are golden-tested (linear Q in both WebAudio and the RBJ
+cookbook, so they match Rudel's `Biquad` exactly); `lowpass`/`highpass` use
+WebAudio's dB-Q convention and stay on smoke tests. The golden is consumed by
+`biquad_impulse_response_matches_webaudio` in `rudel-dsp`.
+
 Then run `cargo test -p rudel-mini`.
