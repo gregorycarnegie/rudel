@@ -51,7 +51,14 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
 
         // Loaded samples win over the built-in drum synth, which wins over the
         // plain oscillator synth.
-        let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
+        // `n` is rounded to the nearest integer (superdough's `getSoundIndex`
+        // does `Math.round(n)`); the euclidean wrap into range happens in
+        // `bank.resolve`, so a fractional or negative `n` matches upstream.
+        let index = map
+            .get("n")
+            .and_then(|v| v.as_f64())
+            .map(|n| n.round() as i64)
+            .unwrap_or(0);
         let midi = requested_midi(map);
         for candidate in banked.as_deref().into_iter().chain(std::iter::once(name)) {
             if let Some((sample, transpose)) = bank.resolve(candidate, index, midi) {
@@ -287,6 +294,32 @@ mod tests {
                     p.speed
                 );
             }
+            _ => panic!("expected a sampler voice"),
+        }
+    }
+
+    #[test]
+    fn n_is_rounded_to_the_nearest_sample_index() {
+        // Three "x" samples with distinct first values; n=1.6 rounds to index 2
+        // (superdough's getSoundIndex does Math.round(n)), not truncates to 1.
+        let mut bank = SampleBank::new();
+        for v in [0.1f32, 0.2, 0.3] {
+            bank.register(
+                "x",
+                Arc::new(Sample {
+                    data: vec![v; 8],
+                    sample_rate: 44100.0,
+                }),
+            );
+        }
+        let pat = s(Value::Str("x".into())).n(Value::F64(1.6));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Sampler(p) => assert!(
+                (p.sample.data[0] - 0.3).abs() < 1e-6,
+                "n=1.6 should round to index 2 (value 0.3), got {}",
+                p.sample.data[0]
+            ),
             _ => panic!("expected a sampler voice"),
         }
     }

@@ -6,17 +6,40 @@
 
 use serde_json::Value as Json;
 
-/// Resolve Strudel's shorthand bases to a concrete pseudo/real URL.
-/// `bubo:foo` expands to `github:Bubobubobubobubo/dough-foo`; any `local:`
-/// prefix maps to the `@strudel/sampler` dev server (`http://localhost:5432`),
-/// matching superdough's `getSampleUrl` (`if url.startsWith('local:') url =
-/// 'http://localhost:5432'`).
+/// Resolve Strudel's shorthand sample-source schemes to a concrete pseudo/real
+/// URL, mirroring superdough's `resolveSpecialPaths` (`bubo:`) plus the extra
+/// rewrites in `fetchSampleMap`:
+/// - `bubo:foo` -> `github:Bubobubobubobubo/dough-foo`
+/// - `local:`   -> `http://localhost:5432` (the `@strudel/sampler` dev server)
+/// - `shabda:words` -> `https://shabda.ndre.gr/words.json?strudel=1`
+/// - `shabda/speech[/<lang>/<gender>]:words` -> the shabda speech endpoint
+///
+/// (`github:` is left for [`github_path`] to expand, since it needs a subpath.)
 pub(crate) fn resolve_special_paths(base: &str) -> String {
     if let Some(repo) = base.strip_prefix("bubo:") {
         return format!("github:Bubobubobubobubo/dough-{repo}");
     }
     if base.starts_with("local:") {
         return "http://localhost:5432".to_string();
+    }
+    // `shabda/speech` is checked before `shabda:` (it has no `:` after the
+    // scheme word, so the bare-`shabda:` branch would not match it anyway).
+    if let Some(rest) = base.strip_prefix("shabda/speech") {
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        let (params, words) = rest.split_once(':').unwrap_or(("", rest));
+        // default voice (matches superdough's `gender='f'`, `language='en-GB'`);
+        // a `<lang>/<gender>` params segment overrides them.
+        let (language, gender) = if params.is_empty() {
+            ("en-GB", "f")
+        } else {
+            params.split_once('/').unwrap_or((params, "f"))
+        };
+        return format!(
+            "https://shabda.ndre.gr/speech/{words}.json?gender={gender}&language={language}&strudel=1"
+        );
+    }
+    if let Some(path) = base.strip_prefix("shabda:") {
+        return format!("https://shabda.ndre.gr/{path}.json?strudel=1");
     }
     base.to_string()
 }
@@ -299,6 +322,24 @@ mod tests {
         // any suffix.
         assert_eq!(resolve_special_paths("local:"), "http://localhost:5432");
         assert_eq!(resolve_special_paths("local:foo"), "http://localhost:5432");
+    }
+
+    #[test]
+    fn shabda_schemes_resolve_to_the_shabda_service() {
+        assert_eq!(
+            resolve_special_paths("shabda:cat dog"),
+            "https://shabda.ndre.gr/cat dog.json?strudel=1"
+        );
+        // speech with defaults
+        assert_eq!(
+            resolve_special_paths("shabda/speech:hello"),
+            "https://shabda.ndre.gr/speech/hello.json?gender=f&language=en-GB&strudel=1"
+        );
+        // speech with an explicit <lang>/<gender> segment
+        assert_eq!(
+            resolve_special_paths("shabda/speech/de-DE/m:hallo"),
+            "https://shabda.ndre.gr/speech/hallo.json?gender=m&language=de-DE&strudel=1"
+        );
     }
 
     #[test]

@@ -102,7 +102,7 @@ impl SampleBank {
 
     /// Fetch the `index`-th sample for `name` (wrapping if out of range),
     /// ignoring pitch. Equivalent to [`resolve`](Self::resolve) with no note.
-    pub fn get(&self, name: &str, index: usize) -> Option<Arc<Sample>> {
+    pub fn get(&self, name: &str, index: i64) -> Option<Arc<Sample>> {
         self.resolve(name, index, None).map(|(s, _)| s)
     }
 
@@ -115,11 +115,14 @@ impl SampleBank {
     /// - note-keyed maps pick the group whose tuning is closest to `midi` and
     ///   repitch that sample onto the requested note.
     ///
-    /// Mirrors superdough's `getCommonSampleInfo`.
+    /// Mirrors superdough's `getCommonSampleInfo`. `index` is the (already
+    /// rounded) `n` sample index and wraps euclidean-modulo over the chosen
+    /// group's length, so a negative `n` selects from the end — matching
+    /// superdough's `getSoundIndex` (`_mod(Math.round(n), numSounds)`).
     pub fn resolve(
         &self,
         name: &str,
-        index: usize,
+        index: i64,
         midi: Option<f64>,
     ) -> Option<(Arc<Sample>, f64)> {
         let groups = self.map.get(name)?;
@@ -134,12 +137,12 @@ impl SampleBank {
                     let db = (b.note.unwrap() as f64 - target).abs();
                     da.total_cmp(&db)
                 })?;
-            let sample = group.samples[index % group.samples.len()].clone();
+            let sample = group.samples[wrap_index(index, group.samples.len())].clone();
             Some((sample, target - group.note.unwrap() as f64))
         } else {
             // Flat: index into the un-pitched group; repitch vs C3 if note set.
             let group = groups.iter().find(|g| !g.samples.is_empty())?;
-            let sample = group.samples[index % group.samples.len()].clone();
+            let sample = group.samples[wrap_index(index, group.samples.len())].clone();
             Some((sample, midi.map(|m| m - 36.0).unwrap_or(0.0)))
         }
     }
@@ -336,6 +339,13 @@ impl SampleBank {
 /// Helper to determine if a URL scheme represents HTTP or HTTPS.
 fn is_http(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Wrap a (signed) sample index into `0..len`, euclidean-modulo, so negative
+/// indices count from the end. Mirrors `_mod` in superdough's `getSoundIndex`.
+/// `len` is assumed non-zero (callers only pass non-empty groups).
+fn wrap_index(index: i64, len: usize) -> usize {
+    index.rem_euclid(len as i64) as usize
 }
 
 /// Expand a leading `~` (or `~/`) in a local path to the user's home directory.
@@ -571,6 +581,9 @@ mod tests {
         assert_eq!(bank.get("bd", 0).unwrap().data[0], 0.1);
         assert_eq!(bank.get("bd", 1).unwrap().data[0], 0.2);
         assert_eq!(bank.get("bd", 2).unwrap().data[0], 0.1); // wraps
+        // negative indices count from the end (superdough's `_mod`).
+        assert_eq!(bank.get("bd", -1).unwrap().data[0], 0.2);
+        assert_eq!(bank.get("bd", -2).unwrap().data[0], 0.1);
         assert!(bank.get("missing", 0).is_none());
     }
 
