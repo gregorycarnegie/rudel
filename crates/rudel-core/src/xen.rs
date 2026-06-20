@@ -74,11 +74,7 @@ fn edo_divisions(name: &str) -> Option<usize> {
 }
 
 fn tune_freqs(name: &str) -> Option<&'static [f64]> {
-    let scales = crate::tune_table::TUNE_SCALES;
-    scales
-        .binary_search_by(|scale| scale.name.cmp(name))
-        .ok()
-        .map(|idx| scales[idx].freqs)
+    crate::tune_table::TUNE_SCALES.get(name).copied()
 }
 
 fn numeric_list(value: &Value) -> Option<Vec<f64>> {
@@ -466,15 +462,10 @@ mod tests {
     }
 
     #[test]
-    fn tune_scales_are_sorted_for_binary_search() {
-        for pair in crate::tune_table::TUNE_SCALES.windows(2) {
-            assert!(
-                pair[0].name < pair[1].name,
-                "tune scales must stay strictly sorted for binary search: {} before {}",
-                pair[0].name,
-                pair[1].name
-            );
-        }
+    fn tune_scale_lookup_uses_generated_archive_names() {
+        assert!(tune_freqs("hexany15").is_some());
+        assert!(tune_freqs("young-lm_piano").is_some());
+        assert!(tune_freqs("not-a-tune-scale").is_none());
     }
 
     #[test]
