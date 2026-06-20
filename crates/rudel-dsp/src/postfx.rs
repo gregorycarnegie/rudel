@@ -302,7 +302,7 @@ impl Default for PostFx {
             tremolo: None,
             tremolodepth: 0.5,
             phaser: None,
-            phaserdepth: 0.5,
+            phaserdepth: 0.75,
             phasercenter: 1000.0,
             phasersweep: 2000.0,
             compressor: None,
@@ -337,7 +337,8 @@ impl PostFx {
             tremolodepth: get("tremolodepth").unwrap_or(0.5),
             // `phaser` and `phaserrate` are aliases for the LFO rate.
             phaser: get("phaser").or_else(|| get("phaserrate")),
-            phaserdepth: get("phaserdepth").unwrap_or(0.5),
+            // superdough's getDefaultValue('phaserdepth') is 0.75.
+            phaserdepth: get("phaserdepth").unwrap_or(0.75),
             phasercenter: get("phasercenter").unwrap_or(1000.0),
             phasersweep: get("phasersweep").unwrap_or(2000.0),
             // superdough's getCompressor defaults (only applied when the
@@ -422,12 +423,24 @@ impl VoiceLike for PostFxVoice {
             l = fl.process(l);
             r = fr.process(r);
         }
-        // phaser: notch filter whose center sweeps ±phasersweep cents at the
-        // LFO rate (matches superdough's notch-detune phaser).
+        // phaser: notch filter whose detune sweeps ±phasersweep cents at the LFO
+        // rate. Matches superdough's `getPhaser`: a single `notch` BiquadFilter
+        // at `phasercenter + 282`, its `detune` driven by `getLfo` with the
+        // default **triangle** shape (`waveshapes.tri`, shape 0), `dcoffset -0.5`
+        // and `depth = sweep*2`, so detune = 2·sweep·(tri − 0.5) ∈ [−sweep, +sweep].
+        // (The LFO is a triangle, not a sine, and its phase here starts at the
+        // voice onset — superdough phase-locks it to the global clock via
+        // `frac(begin·rate)`, which coincides for onsets at cycle 0.)
         if let (Some(rate), Some((nl, nr))) = (self.fx.phaser, &mut self.phaser) {
-            let lfo = (std::f32::consts::TAU * rate * self.time).sin();
+            let phase = (rate * self.time).rem_euclid(1.0);
+            let tri = if phase < 0.5 {
+                2.0 * phase
+            } else {
+                2.0 - 2.0 * phase
+            };
+            let detune = 2.0 * self.fx.phasersweep * (tri - 0.5); // cents, ±sweep
             let center = self.fx.phasercenter + 282.0;
-            let freq = center * 2f32.powf(self.fx.phasersweep * lfo / 1200.0);
+            let freq = center * 2f32.powf(detune / 1200.0);
             let q = 2.0 - (self.fx.phaserdepth * 2.0).clamp(0.0, 1.9);
             nl.set_notch(self.sample_rate, freq, q);
             nr.set_notch(self.sample_rate, freq, q);

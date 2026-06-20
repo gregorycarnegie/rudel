@@ -48,27 +48,7 @@ fn vowel_formant_impulse_response_matches_webaudio() {
     // real Web Audio graph (OfflineAudioContext; tools/oracle/gen_vowel_oracle.mjs):
     // input -> 5 parallel bandpass biquads -> per-formant gains -> x8 makeup.
     // A `PostFxVoice` with only `vowel` set applies exactly that bank, so feeding
-    // a unit impulse yields the vowel filter's impulse response.
-    //
-    /// One-shot impulse: 1.0 on the first tick, silence after.
-    struct ImpulseVoice(bool);
-    impl VoiceLike for ImpulseVoice {
-        fn tick(&mut self) -> (f32, f32) {
-            let v = if self.0 { 0.0 } else { 1.0 };
-            self.0 = true;
-            (v, v)
-        }
-        fn is_done(&self) -> bool {
-            false
-        }
-        fn room(&self) -> f32 {
-            0.0
-        }
-        fn delay_send(&self) -> f32 {
-            0.0
-        }
-    }
-
+    // a unit impulse (`ImpulseVoice`) yields the vowel filter's impulse response.
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../../tests/vowel_golden.json")).expect("parse golden");
     let sr = golden["sampleRate"].as_f64().unwrap() as f32;
@@ -106,6 +86,78 @@ fn vowel_formant_impulse_response_matches_webaudio() {
         failures.is_empty(),
         "vowel impulse-response mismatches vs WebAudio:\n{}",
         failures.join("\n")
+    );
+}
+
+/// One-shot impulse: 1.0 on the first tick, silence after.
+struct ImpulseVoice(bool);
+impl VoiceLike for ImpulseVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        let v = if self.0 { 0.0 } else { 1.0 };
+        self.0 = true;
+        (v, v)
+    }
+    fn is_done(&self) -> bool {
+        false
+    }
+    fn room(&self) -> f32 {
+        0.0
+    }
+    fn delay_send(&self) -> f32 {
+        0.0
+    }
+}
+
+#[test]
+fn phaser_swept_notch_impulse_response_matches_webaudio() {
+    // Sample-for-sample golden against superdough's getPhaser rendered through a
+    // real Web Audio graph (OfflineAudioContext; tools/oracle/gen_phaser_oracle.mjs):
+    // a `notch` BiquadFilterNode at `phasercenter + 282` whose `detune` is swept
+    // by superdough's triangle LFO (±sweep cents). A `PostFxVoice` with only the
+    // phaser controls set applies exactly that swept notch, so feeding a unit
+    // impulse yields its (time-varying) impulse response. This both verifies the
+    // LFO-waveform correctness fix (triangle, not sine) and pins the swept-notch
+    // rendering against WebAudio.
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/phaser_golden.json")).expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap() as f32;
+    let n = golden["length"].as_u64().unwrap() as usize;
+    const EPS: f32 = 1e-3;
+
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let rate = case["rate"].as_f64().unwrap() as f32;
+        let depth = case["depth"].as_f64().unwrap() as f32;
+        let center = case["center"].as_f64().unwrap() as f32;
+        let sweep = case["sweep"].as_f64().unwrap() as f32;
+        let want: Vec<f32> = case["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap() as f32)
+            .collect();
+        let fx = PostFx {
+            phaser: Some(rate),
+            phaserdepth: depth,
+            phasercenter: center,
+            phasersweep: sweep,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ImpulseVoice(false)), fx, sr);
+        for (i, w) in want.iter().enumerate().take(n) {
+            let got = v.tick().0;
+            let d = (got - w).abs();
+            if d > EPS {
+                failures.push(format!(
+                    "phaser rate={rate} center={center} sweep={sweep} sample[{i}] = {got} vs webaudio {w} (diff {d:.3e})"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "phaser impulse-response mismatches vs WebAudio:\n{}",
+        failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n")
     );
 }
 

@@ -87,15 +87,19 @@ symlinks):
 npm install                     # installs node-web-audio-api
 node gen_biquad_oracle.mjs      # -> biquad_golden.json  (BiquadFilterNode impulse responses)
 node gen_vowel_oracle.mjs       # -> vowel_golden.json   (VowelNode formant-bank impulse responses)
-cp biquad_golden.json vowel_golden.json ../../crates/rudel-dsp/tests/
+node gen_phaser_oracle.mjs      # -> phaser_golden.json  (swept-notch phaser impulse responses)
+cp biquad_golden.json vowel_golden.json phaser_golden.json ../../crates/rudel-dsp/tests/
 ```
 
 For the biquad oracle only `bandpass`/`notch` are golden-tested (linear Q in both
 WebAudio and the RBJ cookbook, so they match Rudel's `Biquad` exactly);
 `lowpass`/`highpass` use WebAudio's dB-Q convention and stay on smoke tests. The
 vowel oracle renders superdough's `VowelNode` (5 parallel bandpass formants ->
-gains -> x8 makeup), matching Rudel's `Formant`. The goldens are consumed by
-`biquad_impulse_response_matches_webaudio` and
-`vowel_formant_impulse_response_matches_webaudio` in `rudel-dsp`.
+gains -> x8 makeup), matching Rudel's `Formant`. The phaser oracle renders
+superdough's `getPhaser` notch with its `detune` swept by the `getLfo` triangle
+(±sweep cents), matching Rudel's `PostFxVoice` phaser. The goldens are consumed
+by `biquad_impulse_response_matches_webaudio`,
+`vowel_formant_impulse_response_matches_webaudio`, and
+`phaser_swept_notch_impulse_response_matches_webaudio` in `rudel-dsp`.
 
 Then run `cargo test -p rudel-mini`.
