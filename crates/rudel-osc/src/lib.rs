@@ -639,7 +639,15 @@ mod tests {
         let got = recv.recv(&mut buf);
         engine.stop();
         drop(engine);
-        assert!(got.is_ok(), "engine should send at least one OSC packet");
+        let n = got.expect("engine should send at least one OSC packet");
+        // The packet decodes to a well-formed /dirt/play message carrying the
+        // injected cps/cycle/delta header.
+        let (address, off) = read_osc_string(&buf[..n], 0).expect("address");
+        assert_eq!(address, "/dirt/play");
+        let (tags, _) = read_osc_string(&buf[..n], off).expect("type tags");
+        assert!(tags.starts_with(','));
+        // header keys are sent as strings: ",s f s f s f ..." -> at least cps.
+        assert!(buf[..n].windows(3).any(|w| w == b"cps"), "missing cps header");
     }
 
     proptest! {

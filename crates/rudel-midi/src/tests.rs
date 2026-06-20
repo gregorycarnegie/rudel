@@ -346,3 +346,38 @@ fn engine_sends_through_a_sink() {
     );
     let _ = (Frac::zero(), silence()); // keep imports tidy across cfgs
 }
+
+#[test]
+fn engine_emits_sysex_and_note_through_the_sink() {
+    // End-to-end: a hap carrying both a note and sysex flows through the real
+    // scheduler thread and the note-independent aux path to a fake device.
+    #[derive(Clone)]
+    struct Rec(Arc<Mutex<Vec<Vec<u8>>>>);
+    impl MidiSink for Rec {
+        fn send(&mut self, bytes: &[u8]) {
+            self.0.lock().unwrap().push(bytes.to_vec());
+        }
+    }
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let sink = Rec(log.clone());
+    let controls = map(&[
+        ("note", Value::Int(60)),
+        ("sysexid", Value::Int(0x7E)),
+        ("sysexdata", Value::List(vec![Value::Int(0x01)])),
+    ]);
+    let pat = pure(Value::Map(controls));
+    let engine = MidiEngine::start(sink, pat, 4.0);
+    std::thread::sleep(Duration::from_millis(120));
+    engine.stop();
+    drop(engine);
+    let got = log.lock().unwrap();
+    assert!(
+        got.iter().any(|m| *m == vec![0xF0, 0x7E, 0x01, 0xF7]),
+        "expected a sysex frame, got {got:?}"
+    );
+    assert!(
+        got.iter()
+            .any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON)),
+        "expected a note-on alongside the sysex, got {got:?}"
+    );
+}
