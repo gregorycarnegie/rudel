@@ -43,6 +43,73 @@ fn vowel_formant_shapes_noise() {
 }
 
 #[test]
+fn vowel_formant_impulse_response_matches_webaudio() {
+    // Sample-for-sample golden against superdough's VowelNode rendered through a
+    // real Web Audio graph (OfflineAudioContext; tools/oracle/gen_vowel_oracle.mjs):
+    // input -> 5 parallel bandpass biquads -> per-formant gains -> x8 makeup.
+    // A `PostFxVoice` with only `vowel` set applies exactly that bank, so feeding
+    // a unit impulse yields the vowel filter's impulse response.
+    //
+    /// One-shot impulse: 1.0 on the first tick, silence after.
+    struct ImpulseVoice(bool);
+    impl VoiceLike for ImpulseVoice {
+        fn tick(&mut self) -> (f32, f32) {
+            let v = if self.0 { 0.0 } else { 1.0 };
+            self.0 = true;
+            (v, v)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+        fn room(&self) -> f32 {
+            0.0
+        }
+        fn delay_send(&self) -> f32 {
+            0.0
+        }
+    }
+
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/vowel_golden.json")).expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap() as f32;
+    let n = golden["length"].as_u64().unwrap() as usize;
+
+    // High-Q (80..140) bandpass biquads ring for many samples; f32 vs WebAudio's
+    // f64 stays within this bound over the 64-sample window.
+    const EPS: f32 = 1e-3;
+
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let vowel = case["vowel"].as_str().unwrap();
+        let want: Vec<f32> = case["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap() as f32)
+            .collect();
+        let fx = PostFx {
+            vowel: Vowel::from_name(vowel),
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ImpulseVoice(false)), fx, sr);
+        for (i, w) in want.iter().enumerate().take(n) {
+            let got = v.tick().0;
+            let d = (got - w).abs();
+            if d > EPS {
+                failures.push(format!(
+                    "vowel {vowel} sample[{i}] = {got} vs webaudio {w} (diff {d:.3e})"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "vowel impulse-response mismatches vs WebAudio:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
 fn compressor_attenuates_loud_signal_but_not_quiet() {
     // A constant signal well above the threshold gets pulled down toward it
     // over the attack; a signal below the threshold passes essentially intact.
