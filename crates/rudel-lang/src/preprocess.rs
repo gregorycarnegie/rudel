@@ -1,433 +1,78 @@
-/// Wrap every mini-notation string literal `"..."` / `'...'` in `m(literal,
-/// offset)`, where `offset` is the byte position of the string *content* in
-/// the original source. This is the analog of Strudel's `plugin-mini` rewrite
-/// (`m(value, location)`): it lets per-hap source locations be reported as
-/// absolute offsets into the editor text. Runs first, on the raw source, so
-/// the offsets match what the editor displays; later passes only move
-/// surrounding code, never the baked-in offset constants.
-///
-/// Map keys (`"x": ...`) are left alone — they are not patterns — and string
-/// interiors and `//` comments are skipped so an apostrophe or quote inside
-/// them does not desync the scanner.
-fn annotate_mini_offsets(src: &str) -> String {
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
-    let mut out = String::with_capacity(src.len() + 16);
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i].1;
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            while i < chars.len() && chars[i].1 != '\n' {
-                out.push(chars[i].1);
-                i += 1;
-            }
-            continue;
-        }
-        if c != '"' && c != '\'' {
-            out.push(c);
-            i += 1;
-            continue;
-        }
+mod labels;
+mod mini;
+mod scanner;
+mod syntax;
+mod widgets;
 
-        let quote = c;
-        let lit_start = chars[i].0;
-        let content_byte = chars.get(i + 1).map(|x| x.0).unwrap_or(src.len());
-        i += 1;
-        let mut escaped = false;
-        while i < chars.len() {
-            let ch = chars[i].1;
-            i += 1;
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == quote {
-                break;
-            }
-        }
-        let lit_end = chars.get(i).map(|x| x.0).unwrap_or(src.len());
-        let literal = &src[lit_start..lit_end];
+use crate::WidgetOption;
+use labels::rewrite_labels;
+use mini::annotate_mini_offsets;
+use std::collections::BTreeMap;
+use syntax::{
+    indent_dot_continuations, rewrite_arrow_functions, rewrite_const_declarations,
+    rewrite_string_method_chains, strip_line_comments,
+};
+use widgets::rewrite_editor_widgets_with_context;
 
-        // A string immediately followed by `:` is a map key, not a pattern.
-        let mut j = i;
-        while j < chars.len() && chars[j].1.is_whitespace() {
-            j += 1;
-        }
-        if chars.get(j).map(|x| x.1) == Some(':') {
-            out.push_str(literal);
-        } else {
-            out.push_str("m(");
-            out.push_str(literal);
-            out.push_str(", ");
-            out.push_str(&content_byte.to_string());
-            out.push(')');
-        }
-    }
-    out
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct PreprocessMeta {
+    pub mini_locations: Vec<(usize, usize)>,
+    pub widgets: Vec<PreprocessWidget>,
 }
 
-fn strip_line_comments(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
-    let mut out = String::with_capacity(src.len());
-    let mut quote = None;
-    let mut escaped = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if let Some(q) = quote {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
-            }
-            i += 1;
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            quote = Some(c);
-            out.push(c);
-            i += 1;
-        } else if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
-            i += 2;
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            if i < chars.len() {
-                out.push('\n');
-                i += 1;
-            }
-        } else {
-            out.push(c);
-            i += 1;
-        }
-    }
-    out
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct PreprocessWidget {
+    pub widget_type: String,
+    pub id: String,
+    pub from: usize,
+    pub to: usize,
+    pub index: usize,
+    pub options: BTreeMap<String, WidgetOption>,
+    pub value: Option<String>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub step: Option<f64>,
 }
 
-/// Rewrite JavaScript arrow functions into Koto lambdas so users can paste
-/// Strudel-style callbacks (`x => x.fast(2)`) instead of Koto's `|x| x.fast(2)`.
-///
-/// Handles the parameter list to the left of `=>` (a bare identifier, a
-/// parenthesised list, or `()`), turning it into `|...|` and dropping the `=>`.
-/// Expression bodies map cleanly; block bodies (`x => { ... }`) are *not*
-/// converted — Koto would read `{ ... }` as a map literal — which mirrors the
-/// expression-bodied callbacks Strudel's docs use. String literals are skipped
-/// so an `=>` inside a pattern string is left intact.
-fn rewrite_arrow_functions(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
-    let mut out: Vec<char> = Vec::with_capacity(chars.len());
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if let Some(q) = quote {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
-            }
-            i += 1;
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            quote = Some(c);
-            out.push(c);
-            i += 1;
-            continue;
-        }
-        // An arrow is the two-char sequence `=>` (never `>=`, which has the
-        // opposite order, so comparison operators are untouched).
-        if c == '=' && i + 1 < chars.len() && chars[i + 1] == '>' {
-            // Boundary of the parameter list: everything already emitted, minus
-            // trailing whitespace between the params and the `=>`.
-            let mut end = out.len();
-            while end > 0 && out[end - 1].is_whitespace() {
-                end -= 1;
-            }
-            let converted = if end == 0 {
-                false
-            } else if out[end - 1] == ')' {
-                // Parenthesised list: walk back to the matching `(`.
-                let mut depth = 0i32;
-                let mut open = None;
-                let mut k = end - 1;
-                loop {
-                    match out[k] {
-                        ')' => depth += 1,
-                        '(' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                open = Some(k);
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    if k == 0 {
-                        break;
-                    }
-                    k -= 1;
-                }
-                if let Some(open_idx) = open {
-                    out.truncate(end);
-                    let last = out.len() - 1;
-                    out[last] = '|';
-                    out[open_idx] = '|';
-                    true
-                } else {
-                    false
-                }
-            } else {
-                // Bare single identifier parameter.
-                let mut k = end;
-                while k > 0 {
-                    let ch = out[k - 1];
-                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
-                        k -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                if k == end {
-                    false
-                } else {
-                    out.truncate(end);
-                    out.push('|');
-                    out.insert(k, '|');
-                    true
-                }
-            };
-
-            if converted {
-                i += 2; // skip `=>`
-                // Collapse the whitespace after `=>` to a single space (or none,
-                // if the body starts on the next line) for predictable output.
-                while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
-                    i += 1;
-                }
-                if i < chars.len() && chars[i] != '\n' && chars[i] != '\r' {
-                    out.push(' ');
-                }
-                continue;
-            }
-        }
-        out.push(c);
-        i += 1;
-    }
-    out.iter().collect()
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PreprocessResult {
+    pub source: String,
+    pub meta: PreprocessMeta,
 }
 
-fn rewrite_const_declarations(src: &str) -> String {
-    src.lines()
-        .map(|line| {
-            let indent_len = line.len() - line.trim_start().len();
-            let (indent, rest) = line.split_at(indent_len);
-            if let Some(stripped) = rest.strip_prefix("const ") {
-                format!("{indent}{stripped}")
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn normalize_string_literal(literal: &str) -> String {
-    let Some(quote) = literal.chars().next() else {
-        return literal.to_string();
-    };
-    if quote != '"' && quote != '\'' {
-        return literal.to_string();
-    }
-    let content = &literal[1..literal.len().saturating_sub(1)];
-    if !content.contains('{') && !content.contains('}') {
-        return literal.to_string();
-    }
-    let mut hashes = "#".to_string();
-    while content.contains(&format!("'{}", hashes)) {
-        hashes.push('#');
-    }
-    format!("r{hashes}'{content}'{hashes}")
-}
-
-fn rewrite_string_method_chains(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
-    let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if c != '"' && c != '\'' {
-            out.push(c);
-            i += 1;
-            continue;
-        }
-
-        let start = i;
-        let quote = c;
-        let mut escaped = false;
-        i += 1;
-        while i < chars.len() {
-            let c = chars[i];
-            i += 1;
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == quote {
-                break;
-            }
-        }
-        let literal = normalize_string_literal(&chars[start..i].iter().collect::<String>());
-        let mut j = i;
-        while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
-            j += 1;
-        }
-        let method_chain =
-            j + 1 < chars.len() && chars[j] == '.' && chars[j + 1].is_ascii_alphabetic();
-        if method_chain {
-            out.push_str("pat(");
-            out.push_str(&literal);
-            out.push(')');
-        } else {
-            out.push_str(&literal);
-        }
-    }
-    out
-}
-
-fn delimiter_delta(line: &str) -> i64 {
-    let mut delta = 0;
-    let mut quote = None;
-    let mut escaped = false;
-    for c in line.chars() {
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
-            }
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            quote = Some(c);
-        } else if matches!(c, '(' | '[' | '{') {
-            delta += 1;
-        } else if matches!(c, ')' | ']' | '}') {
-            delta -= 1;
-        }
-    }
-    delta
-}
-
-fn label_at_line(line: &str) -> Option<(String, String)> {
-    if line.chars().next().is_some_and(char::is_whitespace) {
-        return None;
-    }
-    let mut end = 0;
-    for (i, c) in line.char_indices() {
-        let ok = if i == 0 {
-            c.is_ascii_alphabetic() || c == '_' || c == '$'
-        } else {
-            c.is_ascii_alphanumeric() || c == '_' || c == '$'
-        };
-        if ok {
-            end = i + c.len_utf8();
-        } else {
-            break;
-        }
-    }
-    if end == 0 {
-        return None;
-    }
-    let rest = &line[end..];
-    rest.strip_prefix(':')
-        .map(|expr| (line[..end].to_string(), expr.trim_start().to_string()))
-}
-
-fn top_level_boundary(line: &str) -> bool {
-    !line.chars().next().is_some_and(char::is_whitespace) && !line.trim_start().starts_with('.')
-}
-
-fn sanitize_label(name: &str) -> String {
-    let mut out: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if out.is_empty() {
-        out.push_str("anon");
-    }
-    out
-}
-
-fn rewrite_labels(src: &str) -> String {
-    let lines: Vec<&str> = src.lines().collect();
-    let mut out = Vec::new();
-    let mut labels = Vec::new();
-    let mut i = 0;
-    while i < lines.len() {
-        let Some((name, rest)) = label_at_line(lines[i]) else {
-            out.push(lines[i].to_string());
-            i += 1;
-            continue;
-        };
-
-        let mut expr_lines = vec![rest];
-        let mut depth = delimiter_delta(expr_lines[0].as_str());
-        i += 1;
-        while i < lines.len() {
-            let line = lines[i];
-            if depth <= 0 {
-                if line.trim().is_empty() {
-                    i += 1;
-                    break;
-                }
-                if label_at_line(line).is_some() || top_level_boundary(line) {
-                    break;
-                }
-            }
-            expr_lines.push(line.to_string());
-            depth += delimiter_delta(line);
-            i += 1;
-        }
-
-        let var = format!("rudel_label_{}_{}", labels.len(), sanitize_label(&name));
-        let expr = expr_lines.join("\n").trim().to_string();
-        out.push(format!("{var} = rudel_label({name:?}, {expr})"));
-        labels.push(var);
-    }
-
-    if !labels.is_empty() {
-        out.push(format!("stack({})", labels.join(", ")));
-    }
-    out.join("\n")
-}
-
+#[cfg(test)]
 pub(crate) fn preprocess_strudel(script: &str) -> String {
-    let script = annotate_mini_offsets(script);
+    preprocess_strudel_with_meta(script).source
+}
+
+pub(crate) fn preprocess_strudel_with_meta(script: &str) -> PreprocessResult {
+    preprocess_strudel_with_meta_in_range(script, 0)
+}
+
+pub(crate) fn preprocess_strudel_with_meta_in_range(
+    script: &str,
+    node_offset: usize,
+) -> PreprocessResult {
+    let (script, widgets, anchors) = rewrite_editor_widgets_with_context(script, node_offset, "");
+    let (script, mini_locations) = annotate_mini_offsets(&script, node_offset, &anchors);
     let script = strip_line_comments(&script);
     let script = rewrite_arrow_functions(&script);
     let script = rewrite_const_declarations(&script);
     let script = rewrite_string_method_chains(&script);
+    let script = indent_dot_continuations(&script);
     let script = rewrite_labels(&script);
     // Mirror the transpiler's empty-body fallback: an empty (or fully
     // commented-out) script evaluates to silence rather than erroring.
-    if script.trim().is_empty() {
+    let source = if script.trim().is_empty() {
         "silence()".to_string()
     } else {
         script
+    };
+    PreprocessResult {
+        source,
+        meta: PreprocessMeta {
+            mini_locations,
+            widgets,
+        },
     }
 }

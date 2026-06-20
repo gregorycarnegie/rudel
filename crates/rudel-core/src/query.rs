@@ -185,8 +185,7 @@ mod tests {
     fn duration_control_sets_event_length() {
         // A 2-step seq has a 1/2-cycle whole, but `.duration(1)` overrides it so
         // the first event sounds for a full cycle.
-        let pat =
-            note(sequence(&[pure(Value::Int(60)), pure(Value::Int(62))])).duration(1.0);
+        let pat = note(sequence(&[pure(Value::Int(60)), pure(Value::Int(62))])).duration(1.0);
         let evs = query_controls(&pat, 1.0, 0.0, 1.0);
         assert!((evs[0].duration_seconds - 1.0).abs() < 1e-9);
         // Structural onsets are unchanged: still two events, at 0 and 1/2.

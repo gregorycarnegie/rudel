@@ -194,6 +194,19 @@ impl Pattern {
         result
     }
 
+    /// Tag every hap (`tag` in Strudel). Rudel currently uses this for
+    /// editor-owned visual widgets to isolate each inline canvas branch.
+    pub fn tag(&self, tag: impl Into<String>) -> Pattern {
+        let tag = tag.into();
+        self.with_context(move |context| {
+            let mut context = context.clone();
+            if !context.tags.contains(&tag) {
+                context.tags.push(tag.clone());
+            }
+            context
+        })
+    }
+
     /// Split queries at cycle boundaries so every hap stays within one cycle.
     pub fn split_queries(&self) -> Pattern {
         let pat = self.clone();

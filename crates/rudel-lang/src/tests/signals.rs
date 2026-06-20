@@ -113,3 +113,42 @@ fn factories_resolve() {
         assert!(eval(s).is_ok(), "should eval: {s}");
     }
 }
+
+#[test]
+fn binary_and_bitwise_via_koto() {
+    // binary(5) -> "1 0 1": three steps.
+    let pat = eval("binary(5)").expect("eval");
+    assert_eq!(
+        values(&pat, 0, 1),
+        vec![Value::Int(1), Value::Int(0), Value::Int(1)]
+    );
+    // binaryN with explicit width matches Strudel's documented example length.
+    assert_eq!(values(&eval("binaryN(55532, 16)").unwrap(), 0, 1).len(), 16);
+    // bitwise composer methods and a pattern-last standalone.
+    assert_eq!(
+        values(&eval("pure(6).band(3)").unwrap(), 0, 1),
+        vec![Value::Int(2)]
+    );
+    assert_eq!(
+        values(&eval("pure(1).blshift(3)").unwrap(), 0, 1),
+        vec![Value::Int(8)]
+    );
+    assert_eq!(
+        values(&eval("brshift(2, pure(16))").unwrap(), 0, 1),
+        vec![Value::Int(4)]
+    );
+}
+
+#[test]
+fn binary_lists_and_randl_via_koto() {
+    // binaryL(5) packs the bits into a 3-element list value.
+    match &values(&eval("binaryL(5)").unwrap(), 0, 1)[0] {
+        Value::List(items) => assert_eq!(items.len(), 3),
+        other => panic!("expected a list, got {other:?}"),
+    }
+    // randL(8) is a list of 8 random numbers.
+    match &values(&eval("randL(8)").unwrap(), 0, 1)[0] {
+        Value::List(items) => assert_eq!(items.len(), 8),
+        other => panic!("expected a list, got {other:?}"),
+    }
+}

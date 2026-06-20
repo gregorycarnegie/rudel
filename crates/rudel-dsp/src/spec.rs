@@ -4,11 +4,13 @@ use crate::postfx::{PostFx, PostFxVoice};
 use crate::sampler::{SamplerParams, SamplerVoice};
 use crate::synth::Voice;
 use crate::voice::VoiceLike;
+use crate::zzfx::{ZzfxParams, ZzfxVoice};
 
 pub enum VoiceSpec {
     Synth(Box<VoiceParams>),
     Sampler(SamplerParams),
     Drum(DrumParams),
+    Zzfx(Box<ZzfxParams>),
 }
 
 impl VoiceSpec {
@@ -17,6 +19,7 @@ impl VoiceSpec {
             VoiceSpec::Synth(p) => Box::new(Voice::new(*p, sample_rate)),
             VoiceSpec::Sampler(p) => Box::new(SamplerVoice::new(p, sample_rate)),
             VoiceSpec::Drum(p) => Box::new(DrumVoice::new(p, sample_rate)),
+            VoiceSpec::Zzfx(p) => Box::new(ZzfxVoice::new(*p, sample_rate)),
         }
     }
 

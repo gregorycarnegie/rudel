@@ -18,12 +18,12 @@ use rudel_core::Pattern;
 
 pub(crate) use callback::register_standalone_callbacks;
 pub(crate) use convert::{arg_to_f64, arg_to_raw_str, arg0};
-pub(crate) use repl::{collected_stack, reset_slots};
 pub(super) use convert::{
     arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair,
     koto_to_value,
 };
 pub(super) use pick::pick_args;
+pub(crate) use repl::{collected_stack, reset_slots};
 
 /// A Koto wrapper around a rudel [`Pattern`].
 #[derive(Clone, KotoCopy, KotoType)]
@@ -110,7 +110,7 @@ pub(crate) fn method_names() -> Vec<String> {
         .data()
         .iter()
         .filter_map(|(key, _)| match key.value() {
-            KValue::Str(s) => Some(s.to_string()),
+            KValue::Str(s) if !s.starts_with("rudel_widget_") => Some(s.to_string()),
             _ => None,
         })
         .collect();

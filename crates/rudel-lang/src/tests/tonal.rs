@@ -70,7 +70,8 @@ fn arp_with_via_koto() {
 
 #[test]
 fn voicing_via_koto() {
-    // a chord-symbol pattern voiced below a4: C triad -> C4 E4 G4.
+    // a chord-symbol pattern voiced with the default `ireal` dictionary below
+    // the c5 anchor: C -> E3 C4 E4 G4 C5.
     // (mini-notation can't spell `^`, so use `maj7`/`m7`-style symbols, or
     // pure("C^7") for the literal form.)
     let pat = eval(r#"pure("C").voicing()"#).expect("eval");
@@ -78,7 +79,13 @@ fn voicing_via_koto() {
     got.sort_by_key(|v| v.as_f64().unwrap() as i64);
     assert_eq!(
         got,
-        vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]
+        vec![
+            Value::F64(52.0),
+            Value::F64(60.0),
+            Value::F64(64.0),
+            Value::F64(67.0),
+            Value::F64(72.0)
+        ]
     );
     // named dictionary, literal ^ spelling via pure
     let pat = eval(r#"pure("C^7").voicings("lefthand")"#).expect("eval");
@@ -114,12 +121,19 @@ fn arp_and_arpeggiate_via_koto() {
 #[test]
 fn chord_control_and_voicing_controls_via_koto() {
     // top-level chord(...) plus `.dict()`/`.voicing()` voice a chord symbol.
+    // Default `ireal` dictionary: C -> E3 C4 E4 G4 C5.
     let pat = eval(r#"chord("C").voicing()"#).expect("eval");
     let mut got = values(&pat, 0, 1);
     got.sort_by_key(|v| v.as_f64().unwrap() as i64);
     assert_eq!(
         got,
-        vec![Value::F64(60.0), Value::F64(64.0), Value::F64(67.0)]
+        vec![
+            Value::F64(52.0),
+            Value::F64(60.0),
+            Value::F64(64.0),
+            Value::F64(67.0),
+            Value::F64(72.0)
+        ]
     );
     // `.dict("lefthand")` routes through the named dictionary (mini can't spell
     // `^`, so use the `maj7` symbol, which normalises to `^7`).
@@ -203,6 +217,35 @@ fn xen_ratio_array_and_with_base_via_koto() {
         })
         .collect();
     assert_eq!(got, vec![440.0, 550.0, 660.0]);
+}
+
+#[test]
+fn edo_scale_via_koto() {
+    // C:LLsLLLs:2:1 is C major in 12-EDO; bare degrees map to diatonic notes.
+    let pat = eval(r#""0 2 4 6".edoScale("C:LLsLLLs:2:1")"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| v.as_f64().expect("note number"))
+        .collect();
+    assert_eq!(got, vec![48.0, 52.0, 55.0, 59.0]);
+    // a non-12 EDO produces microtonal (fractional) MIDI notes.
+    let pat = eval(r#""0 1 2".edoScale("C:LLsLLL:3:1")"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| v.as_f64().expect("note number"))
+        .collect();
+    assert_eq!(got, vec![48.0, 50.25, 52.5]);
+}
+
+#[test]
+fn tuning_ratio_array_via_koto() {
+    // tuning reads the bare value as the scale index and returns the raw ratio.
+    let pat = eval(r#""0 1 2 3".tuning([1, 5/4, 3/2])"#).expect("eval");
+    let got: Vec<f64> = values(&pat, 0, 1)
+        .into_iter()
+        .map(|v| v.as_f64().expect("ratio number"))
+        .collect();
+    assert_eq!(got, vec![1.0, 1.25, 1.5, 2.0]);
 }
 
 #[test]

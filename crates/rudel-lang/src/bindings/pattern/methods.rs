@@ -48,6 +48,26 @@ fn collect_callables(args: &[KValue]) -> Vec<KValue> {
     }
 }
 
+macro_rules! literal_or_pattern_methods {
+    ($($fn_name:ident => $method:ident),* $(,)?) => {
+        $(
+            pub(super) fn $fn_name(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+                with_literal_or_pattern_arg(&ctx, |pat, arg| pat.$method(arg))
+            }
+        )*
+    };
+}
+
+macro_rules! pattern_arg_methods {
+    ($($fn_name:ident => $method:ident),* $(,)?) => {
+        $(
+            pub(super) fn $fn_name(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+                with_pattern_arg(&ctx, |pat, arg| pat.$method(arg))
+            }
+        )*
+    };
+}
+
 /// `pat.tour(a, b, ...)`: insert the pattern into the list of patterns
 /// stepwise, moving backwards one slot per repetition (also accepts a single
 /// list/tuple of patterns).
@@ -412,6 +432,16 @@ pub(super) fn kpattern_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue>
     with_instance(&ctx, |pat| pat.scale(name))
 }
 
+pub(super) fn kpattern_edo_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    // The EDO definition (`C:LLsLLLs:2:1`) is a raw colon string, not mini.
+    let arg = method_arg(&ctx, 0);
+    let def = match arg_to_raw_str(&arg) {
+        Some(s) => rudel_core::pure(Value::Str(s)),
+        None => arg_to_pattern(&arg),
+    };
+    with_instance(&ctx, |pat| pat.edo_scale(def))
+}
+
 pub(super) fn kpattern_i(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     if ctx.args.is_empty() {
         with_instance(&ctx, |pat| pat.wrap_control("i"))
@@ -428,24 +458,13 @@ pub(super) fn kpattern_freq(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
     }
 }
 
-pub(super) fn kpattern_tune(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_literal_or_pattern_arg(&ctx, |pat, scale| pat.tune(scale))
-}
-
-pub(super) fn kpattern_xen(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_literal_or_pattern_arg(&ctx, |pat, scale| pat.xen(scale))
-}
-
-pub(super) fn kpattern_with_base(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_literal_or_pattern_arg(&ctx, |pat, base| pat.with_base(base))
-}
-
-pub(super) fn kpattern_ftrans(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_literal_or_pattern_arg(&ctx, |pat, amount| pat.ftrans(amount))
-}
-
-pub(super) fn kpattern_ftranspose(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_literal_or_pattern_arg(&ctx, |pat, amount| pat.ftrans(amount))
+literal_or_pattern_methods! {
+    kpattern_tune => tune,
+    kpattern_xen => xen,
+    kpattern_tuning => tuning,
+    kpattern_with_base => with_base,
+    kpattern_ftrans => ftrans,
+    kpattern_ftranspose => ftrans,
 }
 
 pub(super) fn kpattern_partials(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
@@ -472,12 +491,9 @@ pub(super) fn kpattern_ctrl(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
     with_instance(&ctx, |pat| pat.ctrl(name.clone(), value.clone()))
 }
 
-pub(super) fn kpattern_sound(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_pattern_arg(&ctx, |pat, arg| pat.s(arg))
-}
-
-pub(super) fn kpattern_struct_alias(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_pattern_arg(&ctx, |pat, arg| pat.struct_pat(arg))
+pattern_arg_methods! {
+    kpattern_sound => s,
+    kpattern_struct_alias => struct_pat,
 }
 
 /// Shared body for the pick family: the instance is the selector pattern and
@@ -567,16 +583,10 @@ pub(super) fn kpattern_as_controls(ctx: MethodContext<KPattern>) -> KotoResult<K
     })
 }
 
-pub(super) fn kpattern_loop_play(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_pattern_arg(&ctx, |pat, arg| pat.loop_play(arg))
-}
-
-pub(super) fn kpattern_loop_begin(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_pattern_arg(&ctx, |pat, arg| pat.loop_begin(arg))
-}
-
-pub(super) fn kpattern_loop_end(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    with_pattern_arg(&ctx, |pat, arg| pat.loop_end(arg))
+pattern_arg_methods! {
+    kpattern_loop_play => loop_play,
+    kpattern_loop_begin => loop_begin,
+    kpattern_loop_end => loop_end,
 }
 
 pub(super) fn kpattern_p(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
@@ -622,4 +632,16 @@ pub(super) fn kpattern_chord(ctx: MethodContext<KPattern>) -> KotoResult<KValue>
             pat.set(rudel_core::control_dyn("chord", arg))
         })
     }
+}
+
+/// Inline visual widget methods (`._pianoroll(...)`, `._spiral(...)`, ...).
+/// Strudel's CodeMirror host tags the source pattern with the generated widget
+/// id before registering a canvas. Rudel keeps the same branch identity in hap
+/// context so the native editor can draw only the events for that widget.
+pub(super) fn kpattern_visual_widget(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let Some(id) = arg_to_raw_str(&method_arg(&ctx, 0)) else {
+        return Ok(KPattern::wrap(pat));
+    };
+    Ok(KPattern::wrap(pat.tag(id)))
 }

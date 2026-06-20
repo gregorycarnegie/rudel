@@ -6,11 +6,40 @@
 
 use serde_json::Value as Json;
 
-/// Resolve Strudel's shorthand bases to a concrete pseudo/real URL.
-/// `bubo:foo` expands to `github:Bubobubobubobubo/dough-foo`.
+/// Resolve Strudel's shorthand sample-source schemes to a concrete pseudo/real
+/// URL, mirroring superdough's `resolveSpecialPaths` (`bubo:`) plus the extra
+/// rewrites in `fetchSampleMap`:
+/// - `bubo:foo` -> `github:Bubobubobubobubo/dough-foo`
+/// - `local:`   -> `http://localhost:5432` (the `@strudel/sampler` dev server)
+/// - `shabda:words` -> `https://shabda.ndre.gr/words.json?strudel=1`
+/// - `shabda/speech[/<lang>/<gender>]:words` -> the shabda speech endpoint
+///
+/// (`github:` is left for [`github_path`] to expand, since it needs a subpath.)
 pub(crate) fn resolve_special_paths(base: &str) -> String {
     if let Some(repo) = base.strip_prefix("bubo:") {
         return format!("github:Bubobubobubobubo/dough-{repo}");
+    }
+    if base.starts_with("local:") {
+        return "http://localhost:5432".to_string();
+    }
+    // `shabda/speech` is checked before `shabda:` (it has no `:` after the
+    // scheme word, so the bare-`shabda:` branch would not match it anyway).
+    if let Some(rest) = base.strip_prefix("shabda/speech") {
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        let (params, words) = rest.split_once(':').unwrap_or(("", rest));
+        // default voice (matches superdough's `gender='f'`, `language='en-GB'`);
+        // a `<lang>/<gender>` params segment overrides them.
+        let (language, gender) = if params.is_empty() {
+            ("en-GB", "f")
+        } else {
+            params.split_once('/').unwrap_or((params, "f"))
+        };
+        return format!(
+            "https://shabda.ndre.gr/speech/{words}.json?gender={gender}&language={language}&strudel=1"
+        );
+    }
+    if let Some(path) = base.strip_prefix("shabda:") {
+        return format!("https://shabda.ndre.gr/{path}.json?strudel=1");
     }
     base.to_string()
 }
@@ -38,8 +67,19 @@ pub(crate) fn github_path(base: &str, subpath: &str) -> Result<String, String> {
 }
 
 /// Strip the last path segment of a URL to get its base directory (no trailing
-/// slash), e.g. `.../packs/strudel.json` -> `.../packs`.
+/// slash), e.g. `.../packs/strudel.json` -> `.../packs`. Mirrors superdough's
+/// `getBaseURL` (`new URL('.', url)` without the trailing slash): an http(s)
+/// URL whose authority carries *no* path component (e.g. `http://localhost:5432`,
+/// the `@strudel/sampler` dev server) is its own base, so the leading `//` of
+/// the scheme is never mistaken for a path separator.
 pub(crate) fn base_url_of(url: &str) -> String {
+    if let Some(scheme) = url.find("://") {
+        let after_authority = scheme + 3;
+        if !url[after_authority..].contains('/') {
+            // authority only, no path — the URL is already the base directory.
+            return url.to_string();
+        }
+    }
     match url.rfind('/') {
         Some(i) => url[..i].to_string(),
         None => String::new(),
@@ -254,6 +294,51 @@ mod tests {
         assert_eq!(
             resolve_special_paths("bubo:drum"),
             "github:Bubobubobubobubo/dough-drum"
+        );
+    }
+
+    #[test]
+    fn base_url_of_matches_getbaseurl() {
+        // file under a path -> directory of that file
+        assert_eq!(
+            base_url_of("https://host/a/b/strudel.json"),
+            "https://host/a/b"
+        );
+        // root-level file -> the authority
+        assert_eq!(base_url_of("https://host/strudel.json"), "https://host");
+        // authority only (the `local:` sampler server) -> the URL itself, NOT
+        // the scheme's `http:/` truncation the naive rfind would produce.
+        assert_eq!(base_url_of("http://localhost:5432"), "http://localhost:5432");
+        // trailing slash -> authority without the slash
+        assert_eq!(base_url_of("http://localhost:5432/"), "http://localhost:5432");
+        // pseudo/local fallback unchanged
+        assert_eq!(base_url_of("packs/strudel.json"), "packs");
+    }
+
+    #[test]
+    fn local_scheme_resolves_to_the_sampler_dev_server() {
+        // `@strudel/sampler` serves its banks JSON at http://localhost:5432, and
+        // superdough's `local:` shorthand maps the whole url there regardless of
+        // any suffix.
+        assert_eq!(resolve_special_paths("local:"), "http://localhost:5432");
+        assert_eq!(resolve_special_paths("local:foo"), "http://localhost:5432");
+    }
+
+    #[test]
+    fn shabda_schemes_resolve_to_the_shabda_service() {
+        assert_eq!(
+            resolve_special_paths("shabda:cat dog"),
+            "https://shabda.ndre.gr/cat dog.json?strudel=1"
+        );
+        // speech with defaults
+        assert_eq!(
+            resolve_special_paths("shabda/speech:hello"),
+            "https://shabda.ndre.gr/speech/hello.json?gender=f&language=en-GB&strudel=1"
+        );
+        // speech with an explicit <lang>/<gender> segment
+        assert_eq!(
+            resolve_special_paths("shabda/speech/de-DE/m:hallo"),
+            "https://shabda.ndre.gr/speech/hallo.json?gender=m&language=de-DE&strudel=1"
         );
     }
 

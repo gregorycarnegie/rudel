@@ -1,4 +1,4 @@
-use crate::note::control_to_midi;
+use crate::note::{aux_messages, control_to_midi};
 use crate::{
     CONTROL_CHANGE, DEFAULT_BEND_RANGE, MPE_FIRST_MEMBER, MPE_LAST_MEMBER, MPE_MASTER_CHANNEL,
 };
@@ -130,10 +130,20 @@ pub(crate) fn schedule_window_with_state(
 ) -> Vec<TimedMidi> {
     let mut out = Vec::new();
     for ev in query_controls(pattern, cps, begin_cycle, end_cycle) {
+        let on = ev.onset_seconds;
+
+        // Note-independent messages (sysex, NRPN, aftertouch, raw bend) fire at
+        // the onset whether or not the hap carries a note, like midi.mjs.
+        for data in aux_messages(&ev.controls) {
+            out.push(TimedMidi {
+                at_seconds: on,
+                data,
+            });
+        }
+
         let Some(mut note) = control_to_midi(&ev.controls) else {
             continue;
         };
-        let on = ev.onset_seconds;
         // Hold for the event duration, minus a tiny gap to retrigger cleanly.
         let off = on + (ev.duration_seconds - 0.001).max(0.0);
         if note.mpe {

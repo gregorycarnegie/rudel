@@ -556,3 +556,40 @@ fn timeline_method_and_standalone_via_koto() {
     assert_eq!(method, base);
     assert_eq!(standalone, base);
 }
+
+#[test]
+fn beat_collect_morph_xfade_via_koto() {
+    // beat: "0,7,10" (a mini stack) places three onsets in a 16-division cycle.
+    let pat = eval(r#"s("bd").beat("0,7,10", 16)"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 3);
+
+    // collect: stacked notes collapse into one list-valued hap.
+    let pat = eval(r#"note("c,e,g").collect()"#).expect("eval");
+    let haps = pat.query_arc(Frac::zero(), Frac::one());
+    assert_eq!(haps.len(), 1);
+    assert!(matches!(haps[0].value, Value::Map(_) | Value::List(_)));
+
+    // morph (array + string forms) yields a boolean structure pattern.
+    assert!(eval(r#"s("hh").struct(morph([1,0,1,0,1,0,1,0], [1,1,0,1,0,1,0], 0.25))"#).is_ok());
+    let pat = eval(r#"morph("1:0:1:0", "1:0:1:0", 0)"#).expect("eval");
+    assert_eq!(
+        pat.query_arc(Frac::zero(), Frac::one())
+            .iter()
+            .all(|h| h.value == Value::Bool(true)),
+        true
+    );
+
+    // xfade: at pos 1 the right side is full and the left is silent.
+    let pat = eval(r#"s("a").xfade(1, s("b"))"#).expect("eval");
+    let haps = pat.query_arc(Frac::zero(), Frac::one());
+    let gain = |name: &str| {
+        haps.iter().find_map(|h| match &h.value {
+            Value::Map(m) if m.get("s") == Some(&Value::Str(name.into())) => {
+                m.get("gain").and_then(Value::as_f64)
+            }
+            _ => None,
+        })
+    };
+    assert_eq!(gain("a"), Some(0.0));
+    assert_eq!(gain("b"), Some(1.0));
+}

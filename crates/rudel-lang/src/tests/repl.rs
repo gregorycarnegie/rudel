@@ -28,10 +28,7 @@ fn multiple_slots_stack() {
     let vals = values(&pat, 0, 1);
     assert_eq!(vals.len(), 2);
     let ids: std::collections::BTreeSet<_> = vals.iter().filter_map(id_of).collect();
-    assert_eq!(
-        ids,
-        ["1", "2"].iter().map(|s| s.to_string()).collect()
-    );
+    assert_eq!(ids, ["1", "2"].iter().map(|s| s.to_string()).collect());
 }
 
 #[test]

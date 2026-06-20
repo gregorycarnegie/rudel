@@ -29,6 +29,13 @@ fn samples_alone_evaluates_to_silence() {
 }
 
 #[test]
+fn eval_result_collects_sample_effects() {
+    let result = eval_result(r#"samples("github:x/y")"#).expect("eval");
+    assert_eq!(result.sample_effects.sources, vec!["github:x/y"]);
+    assert!(result.meta.widgets.is_empty());
+}
+
+#[test]
 fn samples_inline_map_collects_json_and_base() {
     let (_pat, effects) = eval_with_samples(
         r#"samples({ bd: "808bd/a.wav", sd: ["s/c.wav", "s/d.wav"] }, "https://x.com/")"#,

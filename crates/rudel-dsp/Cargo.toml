@@ -12,3 +12,4 @@ rudel-core = { path = "../rudel-core" }
 
 [dev-dependencies]
 proptest.workspace = true
+serde_json.workspace = true

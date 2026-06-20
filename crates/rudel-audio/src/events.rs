@@ -5,7 +5,7 @@
 use crate::clock::Clock;
 use crate::samples::SampleBank;
 use rudel_core::{Pattern, Value, query_controls};
-use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec};
+use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams};
 use std::collections::BTreeMap;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
@@ -51,7 +51,14 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
 
         // Loaded samples win over the built-in drum synth, which wins over the
         // plain oscillator synth.
-        let index = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize;
+        // `n` is rounded to the nearest integer (superdough's `getSoundIndex`
+        // does `Math.round(n)`); the euclidean wrap into range happens in
+        // `bank.resolve`, so a fractional or negative `n` matches upstream.
+        let index = map
+            .get("n")
+            .and_then(|v| v.as_f64())
+            .map(|n| n.round() as i64)
+            .unwrap_or(0);
         let midi = requested_midi(map);
         for candidate in banked.as_deref().into_iter().chain(std::iter::once(name)) {
             if let Some((sample, transpose)) = bank.resolve(candidate, index, midi) {
@@ -74,6 +81,12 @@ fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> 
             let mut params = DrumParams::new(kind);
             params.apply_controls(map);
             return VoiceSpec::Drum(params);
+        }
+        // ZzFX synths: `zzfx` and the `z_<wave>` family (superdough's
+        // registerZZFXSounds). Resolved here so a loaded sample of the same name
+        // still wins above.
+        if name == "zzfx" || name.starts_with("z_") {
+            return VoiceSpec::Zzfx(Box::new(ZzfxParams::from_controls(name, map, duration)));
         }
     }
     VoiceSpec::Synth(Box::new(VoiceParams::from_controls(map, duration)))
@@ -199,6 +212,22 @@ mod tests {
     }
 
     #[test]
+    fn zzfx_names_resolve_to_zzfx_voice() {
+        // `zzfx` and the `z_<wave>` family route to the ZzFX synth.
+        let bank = SampleBank::new();
+        for name in ["zzfx", "z_sine", "z_sawtooth", "z_square", "z_noise"] {
+            let events = collect_events(&pure(Value::Str(name.into())), 1.0, 0.0, 1.0, &bank);
+            assert!(
+                matches!(events[0].spec, VoiceSpec::Zzfx(_)),
+                "{name} should resolve to a ZzFX voice"
+            );
+        }
+        // A non-z synth name still falls back to the oscillator synth.
+        let events = collect_events(&pure(Value::Str("zara".into())), 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Synth(_)));
+    }
+
+    #[test]
     fn bank_prefixes_the_sample_name() {
         // s("bd").bank("RolandTR909") resolves the banked sample "RolandTR909_bd".
         let mut bank = SampleBank::new();
@@ -265,6 +294,32 @@ mod tests {
                     p.speed
                 );
             }
+            _ => panic!("expected a sampler voice"),
+        }
+    }
+
+    #[test]
+    fn n_is_rounded_to_the_nearest_sample_index() {
+        // Three "x" samples with distinct first values; n=1.6 rounds to index 2
+        // (superdough's getSoundIndex does Math.round(n)), not truncates to 1.
+        let mut bank = SampleBank::new();
+        for v in [0.1f32, 0.2, 0.3] {
+            bank.register(
+                "x",
+                Arc::new(Sample {
+                    data: vec![v; 8],
+                    sample_rate: 44100.0,
+                }),
+            );
+        }
+        let pat = s(Value::Str("x".into())).n(Value::F64(1.6));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Sampler(p) => assert!(
+                (p.sample.data[0] - 0.3).abs() < 1e-6,
+                "n=1.6 should round to index 2 (value 0.3), got {}",
+                p.sample.data[0]
+            ),
             _ => panic!("expected a sampler voice"),
         }
     }

@@ -183,6 +183,74 @@ pub fn run(n: i64) -> Pattern {
     fastcat(&pats)
 }
 
+/// Bit length of `n` (`floor(log2(n)) + 1`), at least 1.
+fn nbits_for(n: i64) -> i64 {
+    if n <= 0 {
+        1
+    } else {
+        (n as f64).log2().floor() as i64 + 1
+    }
+}
+
+/// `binaryN(n, nBits)`: a `nBits`-step pattern of the bits of `n`, MSB first
+/// (handy as a `struct`). Ported from Strudel's
+/// `n.segment(nBits).brshift(bitPos).band(1)`, so a patterned `n` is sampled per
+/// step.
+pub fn binary_n(n: impl crate::transforms::IntoPattern, nbits: i64) -> Pattern {
+    let nbits = nbits.max(1);
+    // bitPos per step i: -i + (nBits - 1) = nBits-1-i (MSB on the left).
+    let bit_pos = run(nbits).mul(-1).add(nbits - 1);
+    n.into_pattern()
+        .segment(Frac::int(nbits))
+        .brshift(bit_pos)
+        .band(pure(Value::Int(1)))
+}
+
+/// `binary(n)`: like [`binary_n`] with `nBits = floor(log2(n)) + 1`.
+pub fn binary(n: i64) -> Pattern {
+    binary_n(pure(Value::Int(n)), nbits_for(n))
+}
+
+/// `binaryNL(n, nBits)`: each value becomes the *list* of its `nBits` bits, MSB
+/// first (for `partials`/`phases`). A patterned `n` yields a list per value.
+pub fn binary_nl(n: impl crate::transforms::IntoPattern, nbits: i64) -> Pattern {
+    let nbits = nbits.max(0);
+    n.into_pattern().fmap(move |v| {
+        let num = v.as_f64().unwrap_or(0.0) as i64 as i32;
+        let bits = (0..nbits)
+            .rev()
+            .map(|i| Value::Int(((num >> i) & 1) as i64))
+            .collect();
+        Value::List(bits)
+    })
+}
+
+/// `binaryL(n)`: like [`binary_nl`] with `nBits = floor(log2(value)) + 1` per
+/// value (so each value's list is exactly as long as its bit length).
+pub fn binary_l(n: impl crate::transforms::IntoPattern) -> Pattern {
+    n.into_pattern().fmap(|v| {
+        let num = (v.as_f64().unwrap_or(0.0) as i64 as i32).max(0);
+        let nbits = nbits_for(num as i64);
+        let bits = (0..nbits)
+            .rev()
+            .map(|i| Value::Int(((num >> i) & 1) as i64))
+            .collect();
+        Value::List(bits)
+    })
+}
+
+/// `randL(n)`: a continuous signal whose value is a list of `n` random numbers
+/// in `[0, 1)` (the legacy RNG, abs as in Strudel). Used to drive `partials`.
+pub fn rand_l(n: i64) -> Pattern {
+    signal(move |t| {
+        let rands = time_to_rands(t.to_f64(), n.max(0) as usize)
+            .into_iter()
+            .map(|x| Value::F64(x.abs()))
+            .collect();
+        Value::List(rands)
+    })
+}
+
 /// `scan`: step through growing runs, one per cycle — cycle 0 plays `run(1)`,
 /// cycle 1 plays `run(2)`, …, up to `run(n)`, then loops.
 pub fn scan(n: i64) -> Pattern {
@@ -408,6 +476,74 @@ mod tests {
             })
             .collect();
         assert_eq!(vals, vec![7, 7, 7, 7]);
+    }
+
+    fn ints(pat: &Pattern) -> Vec<i64> {
+        let mut haps = pat.query_arc(Frac::zero(), Frac::one());
+        haps.sort_by_key(|h| h.part.begin);
+        haps.into_iter()
+            .map(|h| h.value.as_f64().unwrap() as i64)
+            .collect()
+    }
+
+    #[test]
+    fn bitwise_ops_match_int32_semantics() {
+        assert_eq!(ints(&pure(Value::Int(6)).band(3)), vec![2]); // 0b110 & 0b011
+        assert_eq!(ints(&pure(Value::Int(5)).bor(2)), vec![7]); // 0b101 | 0b010
+        assert_eq!(ints(&pure(Value::Int(5)).bxor(1)), vec![4]); // 0b101 ^ 0b001
+        assert_eq!(ints(&pure(Value::Int(1)).blshift(3)), vec![8]);
+        assert_eq!(ints(&pure(Value::Int(16)).brshift(2)), vec![4]);
+    }
+
+    #[test]
+    fn binary_produces_msb_first_bits() {
+        // binary(5): 0b101 -> "1 0 1" (nBits = floor(log2 5)+1 = 3).
+        assert_eq!(ints(&binary(5)), vec![1, 0, 1]);
+    }
+
+    #[test]
+    fn binary_n_matches_strudel_example() {
+        // binaryN(55532, 16) == "1 1 0 1 1 0 0 0 1 1 1 0 1 1 0 0".
+        assert_eq!(
+            ints(&binary_n(pure(Value::Int(55532)), 16)),
+            vec![1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0]
+        );
+    }
+
+    fn list_ints(pat: &Pattern) -> Vec<i64> {
+        match &pat.query_arc(Frac::zero(), Frac::one())[0].value {
+            Value::List(items) => items.iter().map(|v| v.as_f64().unwrap() as i64).collect(),
+            other => panic!("expected a list value, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_list_forms_pack_bits_into_a_list() {
+        // binaryNL(5, 3) and binaryL(5) both -> [1, 0, 1].
+        assert_eq!(list_ints(&binary_nl(pure(Value::Int(5)), 3)), vec![1, 0, 1]);
+        assert_eq!(list_ints(&binary_l(pure(Value::Int(5)))), vec![1, 0, 1]);
+        // padded form keeps leading zeros.
+        assert_eq!(
+            list_ints(&binary_nl(pure(Value::Int(5)), 5)),
+            vec![0, 0, 1, 0, 1]
+        );
+    }
+
+    #[test]
+    fn rand_l_is_a_list_of_n_values_in_range() {
+        let haps = rand_l(4).query_arc(Frac::zero(), Frac::one());
+        match &haps[0].value {
+            Value::List(items) => {
+                assert_eq!(items.len(), 4);
+                assert!(
+                    items
+                        .iter()
+                        .all(|v| (0.0..1.0).contains(&v.as_f64().unwrap())),
+                    "all randL values are in [0, 1)"
+                );
+            }
+            other => panic!("expected a list value, got {other:?}"),
+        }
     }
 
     #[test]

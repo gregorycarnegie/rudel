@@ -213,6 +213,19 @@ fn apply_tune_to_hap(hap: Hap, scale: &XenScale) -> Option<Hap> {
     })
 }
 
+/// Interpret a value as a numeral (Strudel's `parseNumeral`): numbers pass
+/// through; note-name strings convert to MIDI; otherwise 0.
+fn numeral(v: &Value) -> f64 {
+    match v {
+        Value::Str(s) => s
+            .parse::<f64>()
+            .ok()
+            .or_else(|| crate::tonal::note_to_midi(s).map(|m| m as f64))
+            .unwrap_or(0.0),
+        other => other.as_f64().unwrap_or(0.0),
+    }
+}
+
 fn base_pair(value: &Value) -> (f64, f64) {
     match value {
         Value::List(items) if !items.is_empty() => {
@@ -402,6 +415,34 @@ impl Pattern {
     pub fn fTranspose(&self, amount: impl IntoPattern) -> Pattern {
         self.ftrans(amount)
     }
+
+    /// Map each bare hap value through a ratio list (`tuning`). The proto-`xen`
+    /// from `xen.mjs`: like [`xen`](Self::xen) but it reads the value directly as
+    /// the scale index (no `i` control) and returns the raw ratio (no 220Hz base).
+    pub fn tuning(&self, ratios: impl IntoPattern) -> Pattern {
+        let arg = ratios.into_pattern();
+        if let Some(v) = &arg.pure_value {
+            return match numeric_list(v) {
+                Some(r) => self.apply_tuning(r),
+                None => silence(),
+            };
+        }
+        let pat = self.clone();
+        arg.fmap(move |v| {
+            Value::Pat(Box::new(match numeric_list(&v) {
+                Some(r) => pat.apply_tuning(r),
+                None => silence(),
+            }))
+        })
+        .inner_join()
+    }
+
+    fn apply_tuning(&self, ratios: Vec<f64>) -> Pattern {
+        self.with_value(move |value| match scale_offset(&ratios, numeral(&value)) {
+            Some(freq) => Value::F64(freq),
+            None => value,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -497,6 +538,28 @@ mod tests {
             .xen("12edo")
             .with_base(Value::List(vec![Value::F64(440.0), Value::F64(110.0)]));
         approx_eq(freqs(&pat)[0], 880.0);
+    }
+
+    #[test]
+    fn tuning_maps_bare_value_through_ratios() {
+        // tuning reads the bare value as the scale index and returns the ratio
+        // (no `i` control, no 220Hz base): 0->1, 1->5/4, 2->3/2, 3->ratio[0]*2.
+        let pat = sequence(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+            pure(Value::Int(3)),
+        ])
+        .tuning(Value::List(vec![
+            Value::F64(1.0),
+            Value::F64(5.0 / 4.0),
+            Value::F64(3.0 / 2.0),
+        ]));
+        let got = freqs(&pat);
+        approx_eq(got[0], 1.0);
+        approx_eq(got[1], 5.0 / 4.0);
+        approx_eq(got[2], 3.0 / 2.0);
+        approx_eq(got[3], 2.0);
     }
 
     #[test]

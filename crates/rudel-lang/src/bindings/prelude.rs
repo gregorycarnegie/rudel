@@ -1,6 +1,6 @@
 use super::pattern::{
-    KPattern, arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value,
-    arg_to_weighted_pair, arg0, koto_to_value, pick_args,
+    KPattern, arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_raw_str,
+    arg_to_value, arg_to_weighted_pair, arg0, koto_to_value, pick_args,
 };
 use koto::prelude::*;
 use rudel_core::{Frac, Pattern, PickJoin, Value};
@@ -429,6 +429,22 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("steady", |ctx| {
         Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
     });
+    // slider(value, min?, max?, step?): Strudel's transpiler rewrites this to
+    // sliderWithID(id, value, ...). The untranspiled fallback is steady(value).
+    prelude.add_fn("slider", |ctx| {
+        Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
+    });
+    let slider_with_id = |ctx: &mut CallContext| {
+        let id = ctx
+            .args()
+            .first()
+            .and_then(arg_to_raw_str)
+            .unwrap_or_default();
+        let value = ctx.args().get(1).unwrap_or(&KValue::Null);
+        Ok(KPattern(crate::sliders::slider_with_id(id, arg_to_value(value))).into())
+    };
+    prelude.add_fn("slider_with_id", slider_with_id);
+    prelude.add_fn("sliderWithID", slider_with_id);
     // choose / chooseOut / chooseIn: continuously pick from the given values.
     // `choose`/`chooseOut` take structure from the random chooser; `chooseIn`
     // takes it from the chosen values.
@@ -461,6 +477,49 @@ pub(crate) fn register(prelude: &KMap) {
             super::pattern::arg_to_f64(&arg0(ctx)) as i64
         ))
         .into())
+    });
+    // binary(n) / binaryN(n, nBits): bit patterns of a number (struct fodder).
+    // binaryL(n) / binaryNL(n, nBits): the bits packed into a list value.
+    // randL(n): a list of n random numbers. nBits defaults to 16, as in Strudel.
+    fn nbits_arg(ctx: &CallContext) -> i64 {
+        ctx.args().get(1).map(arg_to_f64).unwrap_or(16.0) as i64
+    }
+    prelude.add_fn("binary", |ctx| {
+        Ok(KPattern(rudel_core::binary(
+            super::pattern::arg_to_f64(&arg0(ctx)) as i64
+        ))
+        .into())
+    });
+    prelude.add_fn("binaryN", |ctx| {
+        let nbits = nbits_arg(ctx);
+        Ok(KPattern(rudel_core::binary_n(arg_to_pattern(&arg0(ctx)), nbits)).into())
+    });
+    prelude.add_fn("binaryL", |ctx| {
+        Ok(KPattern(rudel_core::binary_l(arg_to_pattern(&arg0(ctx)))).into())
+    });
+    prelude.add_fn("binaryNL", |ctx| {
+        let nbits = nbits_arg(ctx);
+        Ok(KPattern(rudel_core::binary_nl(arg_to_pattern(&arg0(ctx)), nbits)).into())
+    });
+    prelude.add_fn("randL", |ctx| {
+        Ok(KPattern(rudel_core::rand_l(
+            super::pattern::arg_to_f64(&arg0(ctx)) as i64
+        ))
+        .into())
+    });
+    // morph(from, to, by): morph between two binary rhythms. `from`/`to` are
+    // list-valued (a `[1,0,1,...]` array or a `"1:0:1:..."` mini list); `by` is
+    // a 0→1 number or signal.
+    prelude.add_fn("morph", |ctx| {
+        let a = ctx.args();
+        let list_or_pat = |v: &KValue| match v {
+            KValue::List(_) | KValue::Tuple(_) => rudel_core::pure(arg_to_value(v)),
+            _ => arg_to_pattern(v),
+        };
+        let from = list_or_pat(a.first().unwrap_or(&KValue::Null));
+        let to = list_or_pat(a.get(1).unwrap_or(&KValue::Null));
+        let by = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
+        Ok(KPattern(rudel_core::morph(from, to, by)).into())
     });
     // MIDI input: `ccin(cc)` / `ccin(cc, chan)` is a 0..1 signal of the latest
     // value of an incoming control-change (the input counterpart to `ccn`).
@@ -519,6 +578,8 @@ pub(crate) fn register(prelude: &KMap) {
             "early" => early, "late" => late,
             "lt" => lt, "gt" => gt, "lte" => lte, "gte" => gte,
             "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,
+            "band" => band, "bor" => bor, "bxor" => bxor,
+            "blshift" => blshift, "brshift" => brshift,
             "fastGap" => fast_gap, "fast_gap" => fast_gap,
             "transpose" => transpose, "trans" => trans,
             "scaleTranspose" => scale_transpose, "scale_transpose" => scale_transpose,
@@ -527,7 +588,7 @@ pub(crate) fn register(prelude: &KMap) {
         noarg: [
             "palindrome" => palindrome, "degrade" => degrade, "undegrade" => undegrade,
             "press" => press, "brak" => brak, "ratio" => ratio, "fit" => fit,
-            "invert" => invert, "inv" => invert,
+            "invert" => invert, "inv" => invert, "collect" => collect,
         ];
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back,
@@ -565,6 +626,9 @@ pub(crate) fn register(prelude: &KMap) {
         ];
         i64_frac_f64: ["echo" => echo];
         i64_f64_frac: ["stut" => stut];
-        pat2: ["slice" => slice, "splice" => splice, "bite" => bite];
+        pat2: [
+            "slice" => slice, "splice" => splice, "bite" => bite,
+            "beat" => beat, "xfade" => xfade,
+        ];
     );
 }

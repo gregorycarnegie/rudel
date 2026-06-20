@@ -340,6 +340,8 @@ kpattern_methods! {
         early, late, fast_gap,
         // comparison / logic composers (boolean results)
         lt, gt, lte, gte, eq, eqt, ne, net, and, or, keepif, bypass,
+        // bitwise composers (int32 results)
+        band, bor, bxor, blshift, brshift,
         // Simple controls and their aliases (note, s, gain, lpf, the numbered
         // FM families, MIDI controls, ...) are NOT listed here: they are
         // registered dynamically from rudel-core's `control_builders`
@@ -368,7 +370,7 @@ kpattern_methods! {
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
-        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert,
+        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
@@ -376,7 +378,7 @@ kpattern_methods! {
     ],
     f64_arg: [degrade_by, undegrade_by, cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
-    pattern_pattern_arg: [slice, splice, bite],
+    pattern_pattern_arg: [slice, splice, bite, beat, xfade],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
     i64_i64_arg: [euclid, euclid_legato],
@@ -407,6 +409,8 @@ kpattern_methods! {
         voicings => kpattern_voicings,
         #[koto_method]
         scale => kpattern_scale,
+        #[koto_method(alias = "edoScale")]
+        edo_scale => kpattern_edo_scale,
         #[koto_method]
         i => kpattern_i,
         #[koto_method]
@@ -415,6 +419,8 @@ kpattern_methods! {
         tune => kpattern_tune,
         #[koto_method]
         xen => kpattern_xen,
+        #[koto_method]
+        tuning => kpattern_tuning,
         #[koto_method]
         with_base => kpattern_with_base,
         #[koto_method]
@@ -447,6 +453,34 @@ kpattern_methods! {
         osc => kpattern_osc,
         #[koto_method]
         chord => kpattern_chord,
+        #[koto_method]
+        _pianoroll => kpattern_visual_widget,
+        #[koto_method]
+        _punchcard => kpattern_visual_widget,
+        #[koto_method]
+        _spiral => kpattern_visual_widget,
+        #[koto_method]
+        _scope => kpattern_visual_widget,
+        #[koto_method]
+        _pitchwheel => kpattern_visual_widget,
+        #[koto_method]
+        _spectrum => kpattern_visual_widget,
+        #[koto_method]
+        _wordfall => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_pianoroll => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_punchcard => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_spiral => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_scope => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_pitchwheel => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_spectrum => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_wordfall => kpattern_visual_widget,
         #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
         loop_at_cps => kpattern_loop_at_cps,
         #[koto_method(alias = "applyN")]

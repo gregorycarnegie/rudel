@@ -43,6 +43,159 @@ fn vowel_formant_shapes_noise() {
 }
 
 #[test]
+fn vowel_formant_impulse_response_matches_webaudio() {
+    // Sample-for-sample golden against superdough's VowelNode rendered through a
+    // real Web Audio graph (OfflineAudioContext; tools/oracle/gen_vowel_oracle.mjs):
+    // input -> 5 parallel bandpass biquads -> per-formant gains -> x8 makeup.
+    // A `PostFxVoice` with only `vowel` set applies exactly that bank, so feeding
+    // a unit impulse (`ImpulseVoice`) yields the vowel filter's impulse response.
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/vowel_golden.json")).expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap() as f32;
+    let n = golden["length"].as_u64().unwrap() as usize;
+
+    // High-Q (80..140) bandpass biquads ring for many samples; f32 vs WebAudio's
+    // f64 stays within this bound over the 64-sample window.
+    const EPS: f32 = 1e-3;
+
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let vowel = case["vowel"].as_str().unwrap();
+        let want: Vec<f32> = case["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap() as f32)
+            .collect();
+        let fx = PostFx {
+            vowel: Vowel::from_name(vowel),
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ImpulseVoice(false)), fx, sr);
+        for (i, w) in want.iter().enumerate().take(n) {
+            let got = v.tick().0;
+            let d = (got - w).abs();
+            if d > EPS {
+                failures.push(format!(
+                    "vowel {vowel} sample[{i}] = {got} vs webaudio {w} (diff {d:.3e})"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "vowel impulse-response mismatches vs WebAudio:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// One-shot impulse: 1.0 on the first tick, silence after.
+struct ImpulseVoice(bool);
+impl VoiceLike for ImpulseVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        let v = if self.0 { 0.0 } else { 1.0 };
+        self.0 = true;
+        (v, v)
+    }
+    fn is_done(&self) -> bool {
+        false
+    }
+    fn room(&self) -> f32 {
+        0.0
+    }
+    fn delay_send(&self) -> f32 {
+        0.0
+    }
+}
+
+#[test]
+fn phaser_swept_notch_impulse_response_matches_webaudio() {
+    // Sample-for-sample golden against superdough's getPhaser rendered through a
+    // real Web Audio graph (OfflineAudioContext; tools/oracle/gen_phaser_oracle.mjs):
+    // a `notch` BiquadFilterNode at `phasercenter + 282` whose `detune` is swept
+    // by superdough's triangle LFO (±sweep cents). A `PostFxVoice` with only the
+    // phaser controls set applies exactly that swept notch, so feeding a unit
+    // impulse yields its (time-varying) impulse response. This both verifies the
+    // LFO-waveform correctness fix (triangle, not sine) and pins the swept-notch
+    // rendering against WebAudio.
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/phaser_golden.json")).expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap() as f32;
+    let n = golden["length"].as_u64().unwrap() as usize;
+    const EPS: f32 = 1e-3;
+
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let rate = case["rate"].as_f64().unwrap() as f32;
+        let depth = case["depth"].as_f64().unwrap() as f32;
+        let center = case["center"].as_f64().unwrap() as f32;
+        let sweep = case["sweep"].as_f64().unwrap() as f32;
+        let want: Vec<f32> = case["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap() as f32)
+            .collect();
+        let fx = PostFx {
+            phaser: Some(rate),
+            phaserdepth: depth,
+            phasercenter: center,
+            phasersweep: sweep,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ImpulseVoice(false)), fx, sr);
+        for (i, w) in want.iter().enumerate().take(n) {
+            let got = v.tick().0;
+            let d = (got - w).abs();
+            if d > EPS {
+                failures.push(format!(
+                    "phaser rate={rate} center={center} sweep={sweep} sample[{i}] = {got} vs webaudio {w} (diff {d:.3e})"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "phaser impulse-response mismatches vs WebAudio:\n{}",
+        failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n")
+    );
+}
+
+#[test]
+fn compressor_attenuates_loud_signal_but_not_quiet() {
+    // A constant signal well above the threshold gets pulled down toward it
+    // over the attack; a signal below the threshold passes essentially intact.
+    let settled = |amp| {
+        // threshold -20 dB (~0.1 linear), ratio 10, hard knee.
+        let fx = PostFx {
+            compressor: Some(-20.0),
+            comp_ratio: 10.0,
+            comp_knee: 0.0,
+            comp_attack: 0.001,
+            comp_release: 0.05,
+            ..Default::default()
+        };
+        assert!(fx.is_active());
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(amp)), fx, 44100.0);
+        let mut last = 0.0f32;
+        for _ in 0..4410 {
+            last = v.tick().0.abs();
+        }
+        last
+    };
+
+    // Loud (0 dB = 1.0): far above -20 dB threshold -> heavily reduced.
+    let loud = settled(1.0);
+    assert!(loud < 0.5, "loud signal should be compressed, got {loud}");
+    // Quiet (-40 dB ~ 0.01): below threshold -> passes ~unchanged.
+    let quiet = settled(0.01);
+    assert!(
+        (quiet - 0.01).abs() < 5e-4,
+        "quiet signal should pass intact, got {quiet}"
+    );
+}
+
+#[test]
 fn postfx_active_flag() {
     assert!(!PostFx::default().is_active());
     assert!(
@@ -177,12 +330,21 @@ fn distort_boosts_small_signal() {
 fn distort_algo_resolves_from_name_and_index() {
     // String names map to the algorithm; numbers index superdough's order,
     // wrapping; unknown names fall back to the default (scurve).
-    assert_eq!(DistortAlgo::from_value(&Value::Str("soft".into())), DistortAlgo::Soft);
-    assert_eq!(DistortAlgo::from_value(&Value::Str("diode".into())), DistortAlgo::Diode);
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("soft".into())),
+        DistortAlgo::Soft
+    );
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("diode".into())),
+        DistortAlgo::Diode
+    );
     assert_eq!(DistortAlgo::from_value(&Value::Int(0)), DistortAlgo::Scurve);
     assert_eq!(DistortAlgo::from_value(&Value::Int(2)), DistortAlgo::Hard);
     assert_eq!(DistortAlgo::from_value(&Value::Int(9)), DistortAlgo::Scurve); // wraps
-    assert_eq!(DistortAlgo::from_value(&Value::Str("nope".into())), DistortAlgo::Scurve);
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("nope".into())),
+        DistortAlgo::Scurve
+    );
 }
 
 #[test]
@@ -205,12 +367,24 @@ fn distort_algorithms_match_reference_formulas() {
     }
     // Every algorithm maps silence to silence and stays finite.
     for alg in [
-        DistortAlgo::Scurve, DistortAlgo::Soft, DistortAlgo::Hard, DistortAlgo::Cubic,
-        DistortAlgo::Diode, DistortAlgo::Asym, DistortAlgo::Fold, DistortAlgo::Sinefold,
+        DistortAlgo::Scurve,
+        DistortAlgo::Soft,
+        DistortAlgo::Hard,
+        DistortAlgo::Cubic,
+        DistortAlgo::Diode,
+        DistortAlgo::Asym,
+        DistortAlgo::Fold,
+        DistortAlgo::Sinefold,
         DistortAlgo::Chebyshev,
     ] {
-        assert!(alg.shape(0.0, 2.0).abs() < 1e-6, "{alg:?} should map 0 -> 0");
-        assert!(alg.shape(0.6, 5.0).is_finite(), "{alg:?} produced a non-finite sample");
+        assert!(
+            alg.shape(0.0, 2.0).abs() < 1e-6,
+            "{alg:?} should map 0 -> 0"
+        );
+        assert!(
+            alg.shape(0.6, 5.0).is_finite(),
+            "{alg:?} produced a non-finite sample"
+        );
     }
 }
 

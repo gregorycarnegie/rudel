@@ -8,6 +8,7 @@ mod drum;
 mod envelope;
 mod filter;
 mod fm;
+mod modulator;
 mod oscillator;
 mod params;
 mod pitch;
@@ -16,11 +17,13 @@ mod sampler;
 mod spec;
 mod synth;
 mod voice;
+mod zzfx;
 
 pub use drum::{DrumKind, DrumParams, DrumVoice};
-pub use envelope::Adsr;
+pub use envelope::{Adsr, adsr_value};
 pub use filter::FilterParams;
 pub use fm::{FmOp, FmSpec};
+pub use modulator::{Lfo, LfoConfig, waveshape};
 pub use oscillator::{NoiseKind, Waveform};
 pub use params::VoiceParams;
 pub use pitch::{mtof, note_name_to_midi, note_to_freq};
@@ -29,6 +32,7 @@ pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::VoiceSpec;
 pub use synth::Voice;
 pub use voice::VoiceLike;
+pub use zzfx::{ZzfxParams, ZzfxSynth, ZzfxVoice, build_samples};
 
 #[cfg(test)]
 mod tests;

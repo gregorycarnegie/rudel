@@ -3,5 +3,8 @@
   "private": true,
   "type": "module",
   "version": "0.0.0",
-  "dependencies": { "fraction.js": "^5.2.1" }
+  "dependencies": {
+    "fraction.js": "^5.2.1",
+    "node-web-audio-api": "^2.0.0"
+  }
 }

@@ -2,6 +2,10 @@ mod panels;
 mod routing;
 mod samples;
 
+use crate::editor::blocks::block_at_byte;
+use crate::editor::decorations::{EditorDecorationState, SourceRange};
+use crate::editor::settings::EditorSettings;
+use crate::editor::widgets::WidgetHostState;
 use crate::volume::DEFAULT_VOLUME_PERCENT;
 use eframe::egui;
 use rudel_audio::Engine;
@@ -10,6 +14,7 @@ use rudel_midi::{MidiEngine, MidiIn};
 use rudel_osc::OscEngine;
 use std::collections::HashSet;
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 const DEFAULT_CODE: &str = r#"stack(
   s("bd ~ bd bd").gain(0.9),
@@ -42,12 +47,19 @@ pub(crate) struct RudelApp {
     volume_percent: f32,
     /// Identifiers the editor highlights as keywords, generated once from the
     /// live runtime via `rudel_lang::reference()` so it can't drift.
+    reference: rudel_lang::Reference,
     highlight_idents: HashSet<String>,
     playing: bool,
     /// When playback started, used as a wall-clock position source for
     /// active-event highlighting when there is no audio device to clock from.
     play_start: Option<std::time::Instant>,
     current: Option<Pattern>,
+    eval_meta: rudel_lang::EvalMeta,
+    editor_decorations: EditorDecorationState,
+    editor_settings: EditorSettings,
+    widget_host: WidgetHostState,
+    editor_cursor_byte: usize,
+    block_flash: Option<(SourceRange, Instant)>,
 
     // Sample loading.
     sample_dir: String,
@@ -81,6 +93,8 @@ impl RudelApp {
             }
             Err(e) => (None, Some(e)),
         };
+        let reference = rudel_lang::reference();
+        let highlight_idents = RudelApp::build_highlight_idents(&reference);
         RudelApp {
             engine,
             audio_error,
@@ -89,10 +103,17 @@ impl RudelApp {
             status: "ready".to_string(),
             cps: 0.5,
             volume_percent: DEFAULT_VOLUME_PERCENT,
-            highlight_idents: RudelApp::build_highlight_idents(),
+            reference,
+            highlight_idents,
             playing: false,
             play_start: None,
             current: None,
+            eval_meta: rudel_lang::EvalMeta::default(),
+            editor_decorations: EditorDecorationState::default(),
+            editor_settings: EditorSettings::default(),
+            widget_host: WidgetHostState::default(),
+            editor_cursor_byte: 0,
+            block_flash: None,
             sample_dir: String::new(),
             sample_names: Vec::new(),
             loaded_sample_sources: HashSet::new(),
@@ -112,12 +133,11 @@ impl RudelApp {
     /// Build the editor's highlight identifier set from the live runtime
     /// reference: top-level functions, pattern methods, control names, plus the
     /// Koto language keywords.
-    fn build_highlight_idents() -> HashSet<String> {
-        let reference = rudel_lang::reference();
+    fn build_highlight_idents(reference: &rudel_lang::Reference) -> HashSet<String> {
         let mut idents: HashSet<String> = HashSet::new();
-        idents.extend(reference.functions);
-        idents.extend(reference.methods);
-        idents.extend(reference.controls);
+        idents.extend(reference.functions.iter().cloned());
+        idents.extend(reference.methods.iter().cloned());
+        idents.extend(reference.controls.iter().cloned());
         idents.extend(
             crate::reference::LANGUAGE_KEYWORDS
                 .iter()
@@ -128,12 +148,47 @@ impl RudelApp {
 
     /// Evaluate the editor contents and route the result to the active output.
     fn evaluate(&mut self) {
-        match rudel_lang::eval_with_samples(&self.code) {
-            Ok((pat, effects)) => {
-                self.apply_sample_effects(&effects);
-                self.current = Some(pat);
+        match rudel_lang::eval_result(&self.code) {
+            Ok(result) => {
+                self.apply_sample_effects(&result.sample_effects);
+                self.current = Some(result.pattern);
+                self.editor_decorations.replace_all(&result.meta);
+                self.widget_host.sync(self.editor_decorations.widgets());
+                self.eval_meta = result.meta;
                 self.eval_error = None;
                 self.status = "evaluated".to_string();
+                self.route();
+            }
+            Err(e) => {
+                self.eval_error = Some(e);
+                self.status = "error".to_string();
+            }
+        }
+    }
+
+    fn evaluate_current_block(&mut self) {
+        let Some(range) = block_at_byte(&self.code, self.editor_cursor_byte) else {
+            self.evaluate();
+            return;
+        };
+        if range.is_empty_in(&self.code) {
+            self.status = "empty block".to_string();
+            return;
+        }
+
+        let block = self.code[range.from..range.to].to_string();
+        match rudel_lang::eval_result_with_source_range(&block, (range.from, range.to)) {
+            Ok(result) => {
+                self.apply_sample_effects(&result.sample_effects);
+                self.current = Some(result.pattern);
+                let source_range = SourceRange::new(range.from, range.to);
+                self.editor_decorations
+                    .replace_range(&result.meta, source_range);
+                self.widget_host.sync(self.editor_decorations.widgets());
+                self.eval_meta = result.meta;
+                self.eval_error = None;
+                self.block_flash = Some((source_range, Instant::now()));
+                self.status = "block evaluated".to_string();
                 self.route();
             }
             Err(e) => {
@@ -162,6 +217,8 @@ mod tests {
     use crate::volume::MAX_VOLUME_PERCENT;
 
     fn app_without_engine() -> RudelApp {
+        let reference = rudel_lang::reference();
+        let highlight_idents = RudelApp::build_highlight_idents(&reference);
         RudelApp {
             engine: None,
             audio_error: None,
@@ -170,10 +227,17 @@ mod tests {
             status: String::new(),
             cps: 0.5,
             volume_percent: DEFAULT_VOLUME_PERCENT,
-            highlight_idents: RudelApp::build_highlight_idents(),
+            reference,
+            highlight_idents,
             playing: false,
             play_start: None,
             current: None,
+            eval_meta: rudel_lang::EvalMeta::default(),
+            editor_decorations: EditorDecorationState::default(),
+            editor_settings: EditorSettings::default(),
+            widget_host: WidgetHostState::default(),
+            editor_cursor_byte: 0,
+            block_flash: None,
             sample_dir: String::new(),
             sample_names: Vec::new(),
             loaded_sample_sources: HashSet::new(),
@@ -219,5 +283,33 @@ mod tests {
 
         app.set_volume_percent(-10.0);
         assert_eq!(app.volume_percent, 0.0);
+    }
+
+    #[test]
+    fn block_eval_uses_absolute_metadata_and_preserves_outside_widgets() {
+        let mut app = app_without_engine();
+        app.code = r#"note("c")._spiral()
+
+slider(0.5, 0, 1)"#
+            .to_string();
+
+        app.editor_cursor_byte = 0;
+        app.evaluate_current_block();
+        assert_eq!(app.editor_decorations.widgets().len(), 1);
+        assert_eq!(app.editor_decorations.widgets()[0].widget_type, "_spiral");
+
+        app.editor_cursor_byte = app.code.find("slider").unwrap();
+        app.evaluate_current_block();
+
+        assert_eq!(app.editor_decorations.widgets().len(), 1);
+        assert_eq!(app.editor_decorations.widgets()[0].widget_type, "_spiral");
+        assert_eq!(app.editor_decorations.sliders().len(), 1);
+        assert_eq!(
+            app.editor_decorations.sliders()[0].range,
+            SourceRange::new(
+                app.code.find("0.5").unwrap(),
+                app.code.find("0.5").unwrap() + 3
+            )
+        );
     }
 }

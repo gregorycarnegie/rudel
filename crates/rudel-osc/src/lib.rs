@@ -3,7 +3,7 @@
 // real-time scheduler mirroring the MIDI back-end.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use rudel_core::{Pattern, Value, note_to_midi, query_controls};
+use rudel_core::{Pattern, Value, note_to_midi, note_to_midi_with_octave, query_controls};
 use std::collections::BTreeMap;
 use std::net::{ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -83,6 +83,14 @@ fn value_to_arg(v: &Value) -> Option<OscArg> {
     }
 }
 
+/// Strudel's `parseNumeral`: a numeric string becomes its number, a note-name
+/// string its MIDI number; `None` if it is neither (Strudel throws there).
+fn parse_numeral(s: &str) -> Option<f64> {
+    s.parse::<f64>()
+        .ok()
+        .or_else(|| note_to_midi(s).map(|m| m as f64))
+}
+
 /// Build a SuperDirt `/dirt/play` message from a control map. Prepends
 /// `cps`, `cycle` and `delta` (seconds), adds `midinote` for note values, and
 /// undoes the `unit: 'c'` speed scaling (as SuperDirt re-applies it).
@@ -104,19 +112,53 @@ pub fn superdirt_message(
         .filter(|c| *c > 0.0)
         .unwrap_or(cps);
 
-    // note -> midinote (number); keep the original note too.
+    // `n` is coerced to a numeral (parseNumeral), so numeric strings go out as
+    // numbers and note-name strings as their MIDI number.
+    if let Some(Value::Str(s)) = map.get("n").cloned() {
+        if let Some(num) = parse_numeral(&s) {
+            map.insert("n".to_string(), Value::F64(num));
+        }
+    }
+
+    // note -> midinote (number); keep the original note too. A note-name string
+    // resolves against the `octave` control (default 3), like `noteToMidi`.
     if let Some(note) = map.get("note") {
+        let octave = map.get("octave").and_then(Value::as_f64).unwrap_or(3.0) as i32;
         let midi = match note {
             Value::Str(s) => s
                 .parse::<f64>()
                 .ok()
-                .or_else(|| note_to_midi(s).map(|m| m as f64)),
+                .or_else(|| note_to_midi_with_octave(s, octave).map(|m| m as f64)),
             other => other.as_f64(),
         };
         if let Some(m) = midi {
             map.insert("midinote".to_string(), Value::F64(m));
         }
     }
+
+    // `bank` prepends the sample-set name to `s` (SuperDirt's `bank + s`).
+    if let (Some(Value::Str(bank)), Some(Value::Str(s))) = (map.get("bank").cloned(), map.get("s")) {
+        map.insert("s".to_string(), Value::Str(format!("{bank}{s}")));
+    }
+
+    // `roomsize` aliases SuperDirt's `size`.
+    if let Some(roomsize) = map.get("roomsize").and_then(Value::as_f64) {
+        map.insert("size".to_string(), Value::F64(roomsize));
+    }
+
+    // A `channels` list is serialized to a JSON array string, as SuperDirt expects.
+    if let Some(Value::List(items)) = map.get("channels").cloned() {
+        let parts: Vec<String> = items
+            .iter()
+            .map(|v| match v.as_f64() {
+                Some(f) if f.fract() == 0.0 => format!("{}", f as i64),
+                Some(f) => format!("{f}"),
+                None => "null".to_string(),
+            })
+            .collect();
+        map.insert("channels".to_string(), Value::Str(format!("[{}]", parts.join(","))));
+    }
+
     // SuperDirt re-applies cps to `unit: 'c'` speeds, so undo it here.
     if matches!(map.get("unit"), Some(Value::Str(u)) if u == "c")
         && let Some(speed) = map.get("speed").and_then(|v| v.as_f64())
@@ -417,6 +459,52 @@ mod tests {
     }
 
     #[test]
+    fn superdirt_applies_parse_controls_transforms() {
+        // bank prepends to s; roomsize -> size; channels -> JSON string;
+        // n numeral-coerced; note name uses the octave control.
+        let controls = BTreeMap::from([
+            ("s".to_string(), Value::Str("bd".into())),
+            ("bank".to_string(), Value::Str("RolandTR909".into())),
+            ("roomsize".to_string(), Value::F64(0.8)),
+            ("n".to_string(), Value::Str("3".into())),
+            (
+                "channels".to_string(),
+                Value::List(vec![Value::Int(0), Value::Int(1)]),
+            ),
+        ]);
+        let msg = superdirt_message(&controls, 0.5, 0.0, 1.0);
+        let pairs: Vec<_> = msg.args.chunks(2).collect();
+        let has = |k: &str, v: OscArg| {
+            pairs
+                .iter()
+                .any(|c| c[0] == OscArg::Str(k.into()) && c[1] == v)
+        };
+        assert!(has("s", OscArg::Str("RolandTR909bd".into())), "bank+s");
+        assert!(has("size", OscArg::Float(0.8)), "roomsize -> size");
+        assert!(has("n", OscArg::Float(3.0)), "n numeral");
+        assert!(
+            has("channels", OscArg::Str("[0,1]".into())),
+            "channels JSON"
+        );
+    }
+
+    #[test]
+    fn superdirt_note_uses_octave_control() {
+        // "c" with octave 5 -> MIDI 72 (vs the default-octave 60).
+        let controls = BTreeMap::from([
+            ("note".to_string(), Value::Str("c".into())),
+            ("octave".to_string(), Value::F64(5.0)),
+        ]);
+        let msg = superdirt_message(&controls, 0.5, 0.0, 1.0);
+        let pairs: Vec<_> = msg.args.chunks(2).collect();
+        assert!(
+            pairs
+                .iter()
+                .any(|c| c[0] == OscArg::Str("midinote".into()) && c[1] == OscArg::Float(72.0))
+        );
+    }
+
+    #[test]
     fn event_cps_control_overrides_engine_cps() {
         let controls = BTreeMap::from([
             ("s".to_string(), Value::Str("bd".into())),
@@ -551,7 +639,15 @@ mod tests {
         let got = recv.recv(&mut buf);
         engine.stop();
         drop(engine);
-        assert!(got.is_ok(), "engine should send at least one OSC packet");
+        let n = got.expect("engine should send at least one OSC packet");
+        // The packet decodes to a well-formed /dirt/play message carrying the
+        // injected cps/cycle/delta header.
+        let (address, off) = read_osc_string(&buf[..n], 0).expect("address");
+        assert_eq!(address, "/dirt/play");
+        let (tags, _) = read_osc_string(&buf[..n], off).expect("type tags");
+        assert!(tags.starts_with(','));
+        // header keys are sent as strings: ",s f s f s f ..." -> at least cps.
+        assert!(buf[..n].windows(3).any(|w| w == b"cps"), "missing cps header");
     }
 
     proptest! {

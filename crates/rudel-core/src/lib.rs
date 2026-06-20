@@ -5,7 +5,9 @@
 // A `Pattern` is a pure function `State -> Vec<Hap>`; everything is built from
 // the functor / applicative / monad combinators in `pattern`.
 
+pub mod color;
 pub mod controls;
+pub mod edo;
 pub mod euclid;
 pub mod fraction;
 pub mod hap;
@@ -39,16 +41,16 @@ pub use value::Value;
 
 // Signals and randomness.
 pub use signal::{
-    berlin, brand, brand_by, cosine, cosine2, cycles_per, irand, isaw, isaw2, itri, itri2, per,
-    perlin, perx, rand, rand2, randrun, run, saw, saw2, scan, sine, sine2, square, square2, steady,
-    time, tri, tri2,
+    berlin, binary, binary_l, binary_n, binary_nl, brand, brand_by, cosine, cosine2, cycles_per,
+    irand, isaw, isaw2, itri, itri2, per, perlin, perx, rand, rand_l, rand2, randrun, run, saw,
+    saw2, scan, sine, sine2, square, square2, steady, time, tri, tri2,
 };
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
 pub use transforms::{
-    choose, choose_cycles, choose_in, choose_with, randcat, ratio_value, stepalt, wchoose,
-    wrandcat, zip,
+    choose, choose_cycles, choose_in, choose_with, morph, randcat, ratio_value, stepalt, wchoose,
+    wrandcat, xfade, zip,
 };
 // Pick combinators (select patterns from a list/table via a selector pattern).
 pub use transforms::{PickJoin, pick_list, pick_map};
@@ -60,9 +62,14 @@ pub use controls::{
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
 pub use input::{cc_in, clear_cc, get_cc, set_cc};
 // Tonal: note names, scales, chords.
-pub use tonal::{chord_notes, note_to_midi, note_to_midi_with_octave, scale_offset, scale_step};
+pub use tonal::{
+    chord_notes, chord_symbols, note_to_midi, note_to_midi_with_octave, scale_names, scale_offset,
+    scale_step,
+};
 // Xenharmonic helpers.
 pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};
+// CSS named colors + color/hex -> number conversion (draw/color.mjs).
+pub use color::{convert_color_to_number, convert_hex_to_number, css_color_hex};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
 pub use query::{ControlEvent, query_controls, to_control_map};
 

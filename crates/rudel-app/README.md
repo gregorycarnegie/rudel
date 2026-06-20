@@ -19,7 +19,8 @@ Audited against Strudel's `packages/codemirror`. Supported subset:
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+Enter` / `Alt+Enter` | Evaluate the editor contents |
+| `Ctrl+Enter` / `Alt+Enter` | Evaluate the editor contents, or the current block when `block eval` is enabled |
+| `Ctrl+Shift+Enter` | Evaluate the blank-line-delimited block at the cursor, or the full editor when `block eval` is enabled |
 | `Ctrl+.` / `Alt+.` | Hush (stop playback, keep the pattern) |
 | `Ctrl+Shift+.` | Panic / reset (stop and flush stuck MIDI notes) |
 | `Ctrl+/` / `Ctrl+\` | Toggle `//` comments on the line or selection |
@@ -28,16 +29,23 @@ Audited against Strudel's `packages/codemirror`. Supported subset:
 | `Tab` / `Enter` | Accept the highlighted autocomplete suggestion (when the popup is open) |
 | `↑` / `↓` / `Esc` | Navigate / dismiss the autocomplete popup |
 
+The `editor settings` panel mirrors Strudel's CodeMirror compartments for line
+wrapping, bracket matching/closing, line numbers, active-line highlighting,
+autocomplete, pattern highlighting, flash, tab indentation, block-based eval,
+theme, font family, font size, and tooltips. Multi-cursor is visible as a
+deferred setting until egui has a matching native selection surface.
 Auto-pairing of `()`, `[]`, `{}`, quotes, and backticks, auto-indent after a
-newline inside brackets, live bracket-match highlighting around the cursor, and
-keyword autocomplete (suggestions generated from the runtime's function /
-method / control names) also match the CodeMirror REPL.
-
-Not yet supported (vs Strudel): per-block evaluation.
+newline inside brackets, live bracket-match highlighting around the cursor,
+contextual autocomplete, and Ctrl-held reference tooltips match the CodeMirror
+REPL where their settings are enabled. The selected editor theme also supplies
+the draw colors used by inline visual surfaces, sliders, native
+`_pianoroll`/`_pitchwheel`/`_spiral` widgets, and the native one-cycle
+visualizer.
 
 ## Features
 
-- Multiline Koto editor with Ctrl+Enter evaluation and Ctrl+. hush.
+- Multiline Koto editor with full-buffer and current-block evaluation.
+- CodeMirror-style editor settings with Strudel-compatible defaults.
 - Play/stop transport and cycles-per-second slider.
 - Audio, MIDI, and OSC output selector.
 - Lazy MIDI/OSC connection with graceful fallback to audio on connection errors.
@@ -45,6 +53,8 @@ Not yet supported (vs Strudel): per-block evaluation.
 - Syntax highlighting with mini-notation awareness inside string literals.
 - Reference panel for built-in synths, drums, loaded samples, controls, signals,
   and factories.
+- Inline Strudel-style visual widgets for pianoroll/punchcard/wordfall,
+  pitchwheel, and spiral patterns, including common static size/draw options.
 - One-cycle visualizer with a live playhead and per-orbit bands.
 
 ## Output Notes
