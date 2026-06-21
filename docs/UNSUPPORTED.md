@@ -84,3 +84,12 @@ a browser WebGL integration with its own JavaScript DSL. Rudel is a native egui
 application with no embedded JavaScript/WebGL video-synth engine, so Hydra is
 **intentionally unsupported**. There is no native equivalent surface and no plan
 to embed a shader video synth; use Hydra in Strudel's web REPL if you need it.
+
+### Device motion / orientation (`@strudel/motion`) — intentionally unsupported
+
+`@strudel/motion` (`enableMotion` plus signals such as `accX`/`accY`/`accZ`,
+`gravity*`, `rotation*`, and `(absolute)orientation*`) exposes the browser
+`DeviceMotionEvent`/`DeviceOrientationEvent` sensor streams as patternable
+signals, intended for phones/tablets running the web REPL. Rudel targets desktop
+(Windows/macOS/Linux) and has no device-motion sensor source, so these signals
+are **intentionally unsupported**. There is no native equivalent surface.
