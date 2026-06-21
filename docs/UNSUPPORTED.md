@@ -55,3 +55,20 @@ described above — running user-driven drawing every animation frame — it is
 patterns that call `animate` will not produce visuals. The supported way to get
 scheduler-time visuals in Rudel is the inline editor widgets (`_pianoroll`,
 `_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`).
+
+### Audio analyzer visuals — `scope`/`spectrum` (`@strudel/webaudio`) — deferred
+
+Strudel's `scope.mjs` and `spectrum.mjs` (`scope`, `tscope`, `fscope`, `_scope`,
+`spectrum`, `_spectrum`) read live audio data from a Web Audio `AnalyserNode`:
+time-domain samples for the oscilloscope (with align/trigger options and smear)
+and FFT magnitudes for the spectrum (with scrolling history and color memory).
+
+Unlike the pianoroll/pitchwheel/spiral widgets — which are *pure pattern*
+visuals derived from haps and need no audio analyzer — `scope`/`spectrum`
+require a real-time audio analyzer tap. Rudel's audio engine
+(`crates/rudel-audio`) does not currently expose an analyzer/FFT node, so these
+are **deferred**: the inline `_scope`/`_spectrum` widget types are not rendered
+and the `scope`/`spectrum` controls have no visual effect. This is the one
+visual area gated on engine work (an analyzer tap on the mixer output) rather
+than on a deliberate "never" decision; it is tracked separately from the pure
+pattern visuals, which are implemented.
