@@ -105,7 +105,12 @@ unsupported and intentionally different features.
 ```bash
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo bench -p rudel-lang   # performance benchmarks over representative patterns
 ```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the test +
+clippy checks on every push and PR; the suite includes the parity drift guards
+(reference surface, per-package API inventory, and mini/tonal goldens).
 
 Parity oracle notes live in [`tools/oracle/README.md`](tools/oracle/README.md).
 
