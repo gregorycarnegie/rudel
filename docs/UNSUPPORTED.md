@@ -42,3 +42,16 @@ lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
 `cleanupDraw`/`cleanupDrawContext` lifecycle are not ported; the inline widget
 host re-queries the pattern each frame instead of keeping painter-side hap
 memory.
+
+### `animate` (`@strudel/draw` `animate.mjs`) — intentionally unsupported
+
+`animate` is built directly on the `draw.mjs` runtime: it registers a per-frame
+JavaScript painter that draws arbitrary shapes from patterned visual params
+(`x`, `y`, `w`, `h`, `angle`, `r`, `fill`, `smear`) onto the global canvas, plus
+helpers (`rescale`, `moveXY`, `zoomIn`) and a `smear`/clear toggle, and reports a
+"sync mode" status. Because it depends on the arbitrary-callback draw runtime
+described above — running user-driven drawing every animation frame — it is
+**intentionally unsupported** in Rudel. There is no native equivalent surface;
+patterns that call `animate` will not produce visuals. The supported way to get
+scheduler-time visuals in Rudel is the inline editor widgets (`_pianoroll`,
+`_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`).
