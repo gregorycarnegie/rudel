@@ -55,20 +55,10 @@
       "reason": "TimeSpan-object variants that throw on a plain array upstream, i.e. internal helpers; the user-facing two-arg compress/focus/zoom are exposed (FULL_STRUDEL.md core/pattern.mjs item).",
       "names": ["compressSpan", "compressspan", "focusSpan", "focusspan", "zoomArc", "zoomarc"]
     },
-    "alias_casing": {
-      "status": "deferred",
-      "reason": "Lowercase alias spellings of names Rudel exposes in camelCase (euclidRot/iterBack/juxBy/fastGap/chunkBack); owned by the alias-behavior item.",
-      "names": ["euclidrot", "iterback", "juxby", "fastgap", "chunkback"]
-    },
-    "control_gap": {
-      "status": "deferred",
-      "reason": "Controls / control synonyms not yet exposed (vlpf, hsl/hsla color, shape/transient/tremolo-sync synonyms, distort synonyms); owned by the controls item.",
-      "names": ["vlpf", "hsl", "hsla", "shapevol", "transsustain", "tremsync", "distortion"]
-    },
-    "pattern_fn_gap": {
-      "status": "deferred",
-      "reason": "core/pattern.mjs exports not yet exposed (log/log2 math, weave/weaveWith, parray); owned by the core/pattern.mjs audit item.",
-      "names": ["log", "log2", "weave", "weaveWith", "parray"]
+    "doc_artifact": {
+      "status": "unsupported",
+      "reason": "Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`; `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive); `log` is the console/visualization method (`pat.log()` writes hap data to the side panel), part of the draw-runtime family (docs/UNSUPPORTED.md).",
+      "names": ["vlpf", "weave", "weaveWith", "log"]
     }
   }
 }

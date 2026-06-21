@@ -267,6 +267,17 @@ pub(crate) fn register(prelude: &KMap) {
     );
     // `nothing` is an alias for `silence`.
     prelude.add_fn("nothing", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // `parray([p0, p1, ...])`: pack one value from each pattern into a list
+    // value per hap. Strudel passes a single array; also accept bare varargs.
+    prelude.add_fn("parray", |ctx| {
+        let a = ctx.args();
+        let pats: Vec<Pattern> = if a.len() == 1 {
+            arg_to_group(&a[0])
+        } else {
+            a.iter().map(arg_to_pattern).collect()
+        };
+        Ok(KPattern(rudel_core::parray(&pats)).into())
+    });
     // stackBy(mode, ...pats): dispatch to a step-alignment by mode name.
     // (Strudel patternifies `mode`; here it is taken as a constant string.)
     prelude.add_fn("stackBy", |ctx| {
@@ -572,6 +583,26 @@ pub(crate) fn register(prelude: &KMap) {
     };
     prelude.add_fn("euclidish", euclidish_fn);
     prelude.add_fn("eish", euclidish_fn);
+
+    // `hsl(h, s, l, pat)` / `hsla(h, s, l, a, pat)`: CSS colour helpers writing
+    // the `color` control (pattern last, mirroring Strudel's `register`).
+    prelude.add_fn("hsl", |ctx| {
+        let a = ctx.args();
+        let h = arg_to_pattern(a.first().unwrap_or(&KValue::Null));
+        let s = arg_to_pattern(a.get(1).unwrap_or(&KValue::Null));
+        let l = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
+        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
+        Ok(KPattern(pat.hsl(h, s, l)).into())
+    });
+    prelude.add_fn("hsla", |ctx| {
+        let a = ctx.args();
+        let h = arg_to_pattern(a.first().unwrap_or(&KValue::Null));
+        let s = arg_to_pattern(a.get(1).unwrap_or(&KValue::Null));
+        let l = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
+        let alpha = arg_to_pattern(a.get(3).unwrap_or(&KValue::Null));
+        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
+        Ok(KPattern(pat.hsla(h, s, l, alpha)).into())
+    });
     prelude.add_fn("bjork", |ctx| {
         let a = ctx.args();
         let euc: Vec<i64> = match a.first() {
@@ -600,7 +631,7 @@ pub(crate) fn register(prelude: &KMap) {
             "eq" => eq, "eqt" => eqt, "ne" => ne, "net" => net,
             "band" => band, "bor" => bor, "bxor" => bxor,
             "blshift" => blshift, "brshift" => brshift,
-            "fastGap" => fast_gap, "fast_gap" => fast_gap,
+            "fastGap" => fast_gap, "fast_gap" => fast_gap, "fastgap" => fast_gap,
             "transpose" => transpose, "trans" => trans,
             "scaleTranspose" => scale_transpose, "scale_transpose" => scale_transpose,
             "scaleTrans" => strans, "strans" => strans,
@@ -611,7 +642,7 @@ pub(crate) fn register(prelude: &KMap) {
             "invert" => invert, "inv" => invert, "collect" => collect,
         ];
         i64_1: [
-            "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back,
+            "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back, "iterback" => iter_back,
             "repeatCycles" => repeat_cycles, "repeat_cycles" => repeat_cycles,
             "expand" => expand, "extend" => extend, "contract" => contract,
             "shrink" => shrink, "grow" => grow,
@@ -641,7 +672,7 @@ pub(crate) fn register(prelude: &KMap) {
             "euclidLegato" => euclid_legato, "euclid_legato" => euclid_legato,
         ];
         i64_3: [
-            "euclidRot" => euclid_rot, "euclid_rot" => euclid_rot,
+            "euclidRot" => euclid_rot, "euclid_rot" => euclid_rot, "euclidrot" => euclid_rot,
             "euclidLegatoRot" => euclid_legato_rot, "euclid_legato_rot" => euclid_legato_rot,
         ];
         i64_frac_f64: ["echo" => echo];

@@ -690,6 +690,34 @@ pub fn stack(pats: &[Pattern]) -> Pattern {
     Pattern::new(move |state| pats.iter().flat_map(|p| p.query(state)).collect()).set_steps(steps)
 }
 
+/// Combine N patterns into one whose values are lists `[v0, v1, ...]`, taking
+/// one value from each input per hap via `appBoth` (`parray`). Wholes are the
+/// intersection of all inputs, mirroring Strudel's `parray([p0, p1, ...])`.
+pub fn parray(pats: &[Pattern]) -> Pattern {
+    let n = pats.len();
+    if n == 0 {
+        return pure(Value::List(Vec::new()));
+    }
+    // Curried packer: consumes `remaining` values one at a time (each supplied
+    // by an `app_both` step) and emits them as a `Value::List`.
+    fn packer(acc: Vec<Value>, remaining: usize) -> Value {
+        Value::func(move |v| {
+            let mut next = acc.clone();
+            next.push(v);
+            if remaining == 1 {
+                Value::List(next)
+            } else {
+                packer(next, remaining - 1)
+            }
+        })
+    }
+    let mut result = pure(packer(Vec::new(), n));
+    for p in pats {
+        result = result.app_both(p);
+    }
+    result
+}
+
 /// Concatenate patterns, one per cycle (`slowcat`/`cat`).
 pub fn slowcat(pats: &[Pattern]) -> Pattern {
     if pats.len() == 1 {

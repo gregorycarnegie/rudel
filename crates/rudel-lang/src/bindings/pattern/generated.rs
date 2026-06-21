@@ -369,7 +369,7 @@ kpattern_methods! {
         adsr, ad, ds, ar, control, sysex, scrub,
     ],
     no_arg: [
-        rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil,
+        rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil, log2,
         to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
     ],
     i64_arg: [
@@ -499,6 +499,10 @@ kpattern_methods! {
         chunk_back_into => kpattern_chunk_back_into,
         #[koto_method(alias = "eish")]
         euclidish => kpattern_euclidish,
+        #[koto_method]
+        hsl => kpattern_hsl,
+        #[koto_method]
+        hsla => kpattern_hsla,
         #[koto_method]
         bjork => kpattern_bjork,
         // `every`/`firstOf`/`lastOf` take a *patternified* cycle count

@@ -111,6 +111,10 @@ control_aliases!(
     tremskew => tremoloskew,
     tremphase => tremolophase,
     tremshape => tremoloshape,
+    tremsync => tremolosync,
+    // waveshaping `shape` postgain + transient-shaper sustain synonyms
+    shapevol => shape,
+    transsustain => transient,
     // phaser aliases
     ph => phaserrate,
     phs => phasersweep,
@@ -136,6 +140,9 @@ control_aliases!(
     rsize => size,
     dist => distort,
     distvol => distortvol,
+    // Strudel documents `distortion` as a `@synonyms` of `distortvol` (the
+    // waveshaping postgain), not of the `distort` amount.
+    distortion => distortvol,
     disttype => distorttype,
     // filter LFO aliases
     lpdepthfreq => lpdepthfrequency,

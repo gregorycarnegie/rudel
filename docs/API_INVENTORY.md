@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 1 | 0 | 2 | 0 |
-| `core` | 618 | 577 | 19 | 22 | 0 |
+| `core` | 618 | 590 | 23 | 5 | 0 |
 | `csound` | 2 | 0 | 2 | 0 | 0 |
 | `draw` | 8 | 0 | 0 | 8 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 0 | 0 | 4 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **597** | **74** | **38** | **0** |
+| **Total** | **709** | **610** | **78** | **21** | **0** |
 
 ## `codemirror`
 
@@ -126,7 +126,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `chunkBack` | implemented |  |
 | `chunkBackInto` | implemented |  |
 | `chunkInto` | implemented |  |
-| `chunkback` | deferred | alias casing |
+| `chunkback` | implemented |  |
 | `chunkbackinto` | implemented |  |
 | `chunkinto` | implemented |  |
 | `clearScope` | deferred | draw runtime |
@@ -179,7 +179,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `diode` | implemented |  |
 | `dist` | implemented |  |
 | `distort` | implemented |  |
-| `distortion` | deferred | control gap |
+| `distortion` | implemented |  |
 | `distorttype` | implemented |  |
 | `distortvol` | implemented |  |
 | `disttype` | implemented |  |
@@ -212,7 +212,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `euclidLegatoRot` | implemented |  |
 | `euclidRot` | implemented |  |
 | `euclidish` | implemented |  |
-| `euclidrot` | deferred | alias casing |
+| `euclidrot` | implemented |  |
 | `every` | implemented |  |
 | `expression` | implemented |  |
 | `fadeInTime` | implemented |  |
@@ -224,7 +224,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `fastGap` | implemented |  |
 | `fastcat` | implemented |  |
 | `fastchunk` | implemented |  |
-| `fastgap` | deferred | alias casing |
+| `fastgap` | implemented |  |
 | `fft` | implemented |  |
 | `filter` | intentional | query path callback |
 | `filterWhen` | intentional | query path callback |
@@ -296,8 +296,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `hpsustain` | implemented |  |
 | `hpsync` | implemented |  |
 | `hresonance` | implemented |  |
-| `hsl` | deferred | control gap |
-| `hsla` | deferred | control gap |
+| `hsl` | implemented |  |
+| `hsla` | implemented |  |
 | `hurry` | implemented |  |
 | `i` | implemented |  |
 | `imag` | implemented |  |
@@ -314,12 +314,12 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `irspeed` | implemented |  |
 | `iter` | implemented |  |
 | `iterBack` | implemented |  |
-| `iterback` | deferred | alias casing |
+| `iterback` | implemented |  |
 | `jux` | implemented |  |
 | `juxBy` | implemented |  |
 | `juxFlip` | implemented |  |
 | `juxFlipBy` | implemented |  |
-| `juxby` | deferred | alias casing |
+| `juxby` | implemented |  |
 | `juxflip` | implemented |  |
 | `juxflipby` | implemented |  |
 | `kcutoff` | implemented |  |
@@ -336,8 +336,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `lfo` | implemented |  |
 | `linger` | implemented |  |
 | `lock` | implemented |  |
-| `log` | deferred | pattern fn gap |
-| `log2` | deferred | pattern fn gap |
+| `log` | intentional | doc artifact |
+| `log2` | implemented |  |
 | `logValues` | deferred | draw runtime |
 | `loop` | implemented |  |
 | `loopAt` | implemented |  |
@@ -416,7 +416,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `panspan` | implemented |  |
 | `pansplay` | implemented |  |
 | `panwidth` | implemented |  |
-| `parray` | deferred | pattern fn gap |
+| `parray` | implemented |  |
 | `partials` | implemented |  |
 | `patt` | implemented |  |
 | `pattack` | implemented |  |
@@ -516,7 +516,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `set` | implemented |  |
 | `setcpm` | implemented |  |
 | `shape` | implemented |  |
-| `shapevol` | deferred | control gap |
+| `shapevol` | implemented |  |
 | `shrink` | implemented |  |
 | `shuffle` | implemented |  |
 | `silence` | implemented |  |
@@ -568,7 +568,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `timeline` | implemented |  |
 | `toBipolar` | implemented |  |
 | `transient` | implemented |  |
-| `transsustain` | deferred | control gap |
+| `transsustain` | implemented |  |
 | `trem` | implemented |  |
 | `tremdepth` | implemented |  |
 | `tremolo` | implemented |  |
@@ -580,7 +580,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tremphase` | implemented |  |
 | `tremshape` | implemented |  |
 | `tremskew` | implemented |  |
-| `tremsync` | deferred | control gap |
+| `tremsync` | implemented |  |
 | `triode` | implemented |  |
 | `tsdelay` | implemented |  |
 | `uid` | implemented |  |
@@ -596,7 +596,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `vib` | implemented |  |
 | `vibmod` | implemented |  |
 | `vibrato` | implemented |  |
-| `vlpf` | deferred | control gap |
+| `vlpf` | intentional | doc artifact |
 | `vmod` | implemented |  |
 | `voice` | implemented |  |
 | `vowel` | implemented |  |
@@ -622,8 +622,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `wavetablePosition` | implemented |  |
 | `wavetableWarp` | implemented |  |
 | `wavetableWarpMode` | implemented |  |
-| `weave` | deferred | pattern fn gap |
-| `weaveWith` | deferred | pattern fn gap |
+| `weave` | intentional | doc artifact |
+| `weaveWith` | intentional | doc artifact |
 | `when` | implemented |  |
 | `whenKey` | intentional | browser input |
 | `within` | implemented |  |

@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=301 methods=1045 controls=659
+# functions=309 methods=1052 controls=663
 
 [functions]
 Math
@@ -51,6 +51,7 @@ chunkBack
 chunkBackInto
 chunkInto
 chunk_back
+chunkback
 chunkbackinto
 chunkinto
 clamp
@@ -85,6 +86,7 @@ euclid_legato
 euclid_legato_rot
 euclid_rot
 euclidish
+euclidrot
 every
 expand
 extend
@@ -95,6 +97,7 @@ fast_chunk
 fast_gap
 fastcat
 fastchunk
+fastgap
 firstOf
 first_of
 fit
@@ -111,6 +114,8 @@ grow
 gt
 gte
 hard
+hsl
+hsla
 hurry
 hush
 i
@@ -126,6 +131,7 @@ isaw2
 iter
 iterBack
 iter_back
+iterback
 itri
 itri2
 jux
@@ -133,6 +139,7 @@ juxBy
 juxFlip
 juxFlipBy
 jux_by
+juxby
 juxflip
 juxflipby
 keep
@@ -166,6 +173,7 @@ often
 outside
 pace
 palindrome
+parray
 pat
 per
 perCycle
@@ -478,6 +486,7 @@ dictionary
 diode
 dist
 distort
+distortion
 distorttype
 distortvol
 disttype
@@ -887,6 +896,8 @@ hpskew
 hpsustain
 hpsync
 hresonance
+hsl
+hsla
 hurry
 i
 imag
@@ -932,6 +943,7 @@ leslie
 lfo
 linger
 lock
+log2
 loop
 loopAt
 loopAtCps
@@ -1196,6 +1208,7 @@ set_squeeze
 set_squeezein
 set_squeezeout
 shape
+shapevol
 shrink
 shuffle
 sinefold
@@ -1266,6 +1279,7 @@ tour
 trans
 transient
 transpose
+transsustain
 trem
 tremdepth
 tremolo
@@ -1277,6 +1291,7 @@ tremolosync
 tremphase
 tremshape
 tremskew
+tremsync
 triode
 tsdelay
 tune
@@ -1443,6 +1458,7 @@ dict
 dictionary
 dist
 distort
+distortion
 distorttype
 distortvol
 disttype
@@ -1922,6 +1938,7 @@ scram
 seconds
 semitone
 shape
+shapevol
 size
 slide
 smear
@@ -1941,6 +1958,7 @@ sysexdata
 sysexid
 sz
 transient
+transsustain
 trem
 tremdepth
 tremolo
@@ -1952,6 +1970,7 @@ tremolosync
 tremphase
 tremshape
 tremskew
+tremsync
 triode
 tsdelay
 uid

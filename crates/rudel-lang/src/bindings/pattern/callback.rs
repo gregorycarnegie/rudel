@@ -272,7 +272,7 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     }
     cb_i64! {
         "chunk" => chunk, "slowChunk" => chunk, "slowchunk" => chunk,
-        "chunkBack" => chunk_back, "chunk_back" => chunk_back,
+        "chunkBack" => chunk_back, "chunk_back" => chunk_back, "chunkback" => chunk_back,
         "fastChunk" => fast_chunk, "fastchunk" => fast_chunk, "fast_chunk" => fast_chunk,
     }
     cb_cycles! {
@@ -281,7 +281,7 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
         "lastOf" => true, "last_of" => true,
     }
     cb_f64! {
-        "juxBy" => jux_by, "jux_by" => jux_by,
+        "juxBy" => jux_by, "jux_by" => jux_by, "juxby" => jux_by,
         "juxFlipBy" => jux_flip_by, "juxflipby" => jux_flip_by,
         "fluxBy" => jux_flip_by, "fluxby" => jux_flip_by,
         "sometimesBy" => sometimes_by, "sometimes_by" => sometimes_by,

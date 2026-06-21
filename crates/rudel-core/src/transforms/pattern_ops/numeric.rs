@@ -19,6 +19,10 @@ impl Pattern {
     pub fn ceil(&self) -> Pattern {
         self.fmap(|v| Value::F64(v.as_f64().unwrap_or(0.0).ceil()))
     }
+    /// Base-2 logarithm of each numeric value (`log2`).
+    pub fn log2(&self) -> Pattern {
+        self.fmap(|v| Value::F64(v.as_f64().unwrap_or(0.0).log2()))
+    }
     /// Scale a unipolar (0..1) value to bipolar (-1..1) (`toBipolar`).
     pub fn to_bipolar(&self) -> Pattern {
         self.fmap(|v| Value::F64(v.as_f64().unwrap_or(0.0) * 2.0 - 1.0))

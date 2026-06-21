@@ -309,6 +309,26 @@ pub(super) fn kpattern_euclidish(ctx: MethodContext<KPattern>) -> KotoResult<KVa
     Ok(KPattern::wrap(pat.euclidish(pulses, steps, perc)))
 }
 
+/// `pat.hsl(h, s, l)`: write a CSS `hsl(...)` colour to the `color` control.
+/// `h`/`s`/`l` may be patterns (hue in turns, saturation/lightness in `0..1`).
+pub(super) fn kpattern_hsl(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let h = method_pattern_arg(&ctx, 0);
+    let s = method_pattern_arg(&ctx, 1);
+    let l = method_pattern_arg(&ctx, 2);
+    Ok(KPattern::wrap(pat.hsl(h, s, l)))
+}
+
+/// `pat.hsla(h, s, l, a)`: like `hsl` with an extra alpha channel (`0..1`).
+pub(super) fn kpattern_hsla(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let h = method_pattern_arg(&ctx, 0);
+    let s = method_pattern_arg(&ctx, 1);
+    let l = method_pattern_arg(&ctx, 2);
+    let a = method_pattern_arg(&ctx, 3);
+    Ok(KPattern::wrap(pat.hsla(h, s, l, a)))
+}
+
 /// `pat.bjork([pulses, steps, rotation])`: Tidal-style euclid taking a tuple
 /// (a lone number means `steps = pulses`, `rotation = 0`).
 pub(super) fn kpattern_bjork(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

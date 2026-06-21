@@ -321,3 +321,31 @@ fn eval_stack_and_controls() {
 fn non_pattern_result_errors() {
     assert!(eval("1 + 2").is_err());
 }
+
+#[test]
+fn log2_takes_base_two_logarithm_of_values() {
+    // log2 maps bare numeric values (like floor/ceil), so apply it before
+    // wrapping the result in a control.
+    let pat = eval(r#"n("1 2 4 8".log2())"#).expect("eval");
+    let ns: Vec<f64> = values(&pat, 0, 1)
+        .iter()
+        .map(|v| match v {
+            Value::Map(m) => m.get("n").and_then(|x| x.as_f64()).expect("n key"),
+            other => panic!("expected control map, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(ns, vec![0.0, 1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn parray_packs_one_value_per_pattern_into_a_list() {
+    // parray([a, b, c]) emits [va, vb, vc] per hap; wholes are the intersection.
+    let pat = eval(r#"parray(["0", "1", "2"])"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::List(items) => {
+            let nums: Vec<f64> = items.iter().map(|v| v.as_f64().unwrap_or(-1.0)).collect();
+            assert_eq!(nums, vec![0.0, 1.0, 2.0]);
+        }
+        other => panic!("expected list value, got {other:?}"),
+    }
+}

@@ -32,8 +32,8 @@ pub use hap::{Context, Hap};
 pub use impure::{reset_state, reset_timelines};
 pub use modulate::modulate;
 pub use pattern::{
-    Pattern, arrange, cat, fastcat, gap, nothing, parse_string, polymeter, pure, reify, sequence,
-    set_string_parser, silence, slowcat, slowcat_prime, stack, stack_centre, stack_left,
+    Pattern, arrange, cat, fastcat, gap, nothing, parray, parse_string, polymeter, pure, reify,
+    sequence, set_string_parser, silence, slowcat, slowcat_prime, stack, stack_centre, stack_left,
     stack_right, stepcat, timecat, value_to_pattern,
 };
 pub use state::State;
