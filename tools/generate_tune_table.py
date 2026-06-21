@@ -20,32 +20,35 @@ def main() -> None:
     lines = [
         "// Generated from strudel/packages/xen/tunejs.js. Do not edit by hand.",
         "// Strudel/Tune.js scale names are case-sensitive.",
-        "",
-        "#[derive(Debug)]",
-        "pub(crate) struct TuneScale {",
-        "    pub(crate) name: &'static str,",
-        "    pub(crate) freqs: &'static [f64],",
-        "}",
+        "//",
+        "// tune.js stores each scale as absolute frequencies whose final entry is the",
+        "// octave duplicate of the tonic. Rudel only consumes octave-normalised ratios,",
+        "// so they are pre-divided here (each freq / the tonic, dropping the octave) at",
+        "// generation time. Named-scale lookups therefore return a static ratio slice",
+        "// directly, with no per-call division or allocation.",
         "",
         "#[rustfmt::skip]",
-        "pub(crate) static TUNE_SCALES: &[TuneScale] = &[",
+        "pub(crate) static TUNE_SCALES: phf::Map<&'static str, &'static [f64]> = phf::phf_map! {",
     ]
     count = 0
     for name in sorted(archive):
         freqs = archive[name].get("frequencies", [])
         if not freqs:
             continue
+        tonic = float(freqs[0])
+        if tonic == 0.0:
+            continue
+        # Drop the trailing octave duplicate and normalise to ratios. This mirrors
+        # rudel's previous runtime `ratios_from_frequencies`: same IEEE-754 double
+        # division, so the emitted literals are bit-identical to that conversion.
+        ratios = [float(f) / tonic for f in freqs[:-1]] or [1.0]
         name_lit = json.dumps(name)
-        def f64_lit(x: object) -> str:
-            lit = f"{float(x):.15g}"
-            if "." not in lit and "e" not in lit and "E" not in lit:
-                lit += ".0"
-            return lit
-
-        freq_lits = ", ".join(f64_lit(x) for x in freqs)
-        lines.append(f"    TuneScale {{ name: {name_lit}, freqs: &[{freq_lits}] }},")
+        # `repr` gives the shortest round-tripping decimal; Rust's f64 parser is
+        # round-trip correct, so each literal reloads to the exact same double.
+        ratio_lits = ", ".join(repr(r) for r in ratios)
+        lines.append(f"    {name_lit} => &[{ratio_lits}],")
         count += 1
-    lines.append("];")
+    lines.append("};")
     lines.append("")
     OUT.write_text("\n".join(lines), encoding="utf-8")
     print(f"wrote {OUT} with {count} scales")

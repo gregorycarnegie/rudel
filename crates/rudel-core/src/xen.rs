@@ -6,6 +6,7 @@ use crate::hap::Hap;
 use crate::pattern::{Pattern, silence};
 use crate::transforms::IntoPattern;
 use crate::value::Value;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 const DEFAULT_BASE: f64 = 220.0;
@@ -27,7 +28,7 @@ const JI_12: &[f64] = &[
 
 #[derive(Clone, Debug)]
 struct XenScale {
-    ratios: Vec<f64>,
+    ratios: Cow<'static, [f64]>,
     edo_size: Option<f64>,
 }
 
@@ -73,7 +74,9 @@ fn edo_divisions(name: &str) -> Option<usize> {
     (n > 0).then_some(n)
 }
 
-fn tune_freqs(name: &str) -> Option<&'static [f64]> {
+/// Octave-normalised ratios for a named tune.js scale, pre-divided at generation
+/// time (see `tune_table.rs`) so this borrows a static slice with no allocation.
+fn tune_ratios(name: &str) -> Option<&'static [f64]> {
     crate::tune_table::TUNE_SCALES.get(name).copied()
 }
 
@@ -98,8 +101,8 @@ fn tune_scale_from_value(value: &Value) -> Option<XenScale> {
     match value {
         Value::Str(name) => {
             let ratios = match name.as_str() {
-                "12ji" => JI_12.to_vec(),
-                _ => ratios_from_frequencies(tune_freqs(name)?)?,
+                "12ji" => Cow::Borrowed(JI_12),
+                _ => Cow::Borrowed(tune_ratios(name)?),
             };
             Some(XenScale {
                 ratios,
@@ -109,7 +112,7 @@ fn tune_scale_from_value(value: &Value) -> Option<XenScale> {
         Value::List(_) => {
             let freqs = numeric_list(value)?;
             Some(XenScale {
-                ratios: ratios_from_frequencies(&freqs)?,
+                ratios: Cow::Owned(ratios_from_frequencies(&freqs)?),
                 edo_size: None,
             })
         }
@@ -122,13 +125,13 @@ fn xen_scale_from_value(value: &Value) -> Option<XenScale> {
         Value::Str(name) => {
             if let Some(ratios) = edo_ratios(name) {
                 return Some(XenScale {
-                    ratios,
+                    ratios: Cow::Owned(ratios),
                     edo_size: edo_divisions(name).map(|n| n as f64),
                 });
             }
             let ratios = match name.as_str() {
-                "12ji" => JI_12.to_vec(),
-                _ => ratios_from_frequencies(tune_freqs(name)?)?,
+                "12ji" => Cow::Borrowed(JI_12),
+                _ => Cow::Borrowed(tune_ratios(name)?),
             };
             Some(XenScale {
                 ratios,
@@ -136,7 +139,7 @@ fn xen_scale_from_value(value: &Value) -> Option<XenScale> {
             })
         }
         Value::List(_) => Some(XenScale {
-            ratios: numeric_list(value)?,
+            ratios: Cow::Owned(numeric_list(value)?),
             edo_size: None,
         }),
         _ => None,
@@ -147,7 +150,22 @@ fn trim_precision_10(x: f64) -> f64 {
     if !x.is_finite() || x == 0.0 {
         return x;
     }
-    format!("{x:.9e}").parse::<f64>().unwrap_or(x)
+    // Round to 10 significant digits exactly as `format!("{x:.9e}")` would (same
+    // formatter, same parser), but format into a stack buffer to avoid the heap
+    // allocation `format!` does on every hap of the xen hot path. An f64 in
+    // `{:.9e}` form is at most ~24 bytes, so 32 always suffices.
+    use std::io::Write;
+    const CAP: usize = 32;
+    let mut buf = [0u8; CAP];
+    let len = {
+        let mut cursor = &mut buf[..];
+        let _ = write!(cursor, "{x:.9e}");
+        CAP - cursor.len()
+    };
+    std::str::from_utf8(&buf[..len])
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(x)
 }
 
 fn tune_floor(x: f64) -> f64 {
@@ -463,9 +481,9 @@ mod tests {
 
     #[test]
     fn tune_scale_lookup_uses_generated_archive_names() {
-        assert!(tune_freqs("hexany15").is_some());
-        assert!(tune_freqs("young-lm_piano").is_some());
-        assert!(tune_freqs("not-a-tune-scale").is_none());
+        assert!(tune_ratios("hexany15").is_some());
+        assert!(tune_ratios("young-lm_piano").is_some());
+        assert!(tune_ratios("not-a-tune-scale").is_none());
     }
 
     #[test]
