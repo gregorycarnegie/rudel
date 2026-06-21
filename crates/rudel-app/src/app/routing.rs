@@ -5,20 +5,52 @@ use rudel_osc::{OscEngine, OscOut};
 
 impl RudelApp {
     /// Connect (or reconnect) a MIDI input device: incoming CCs feed `ccin`, and
-    /// MIDI clock can drive `cps` when `clock_sync` is on.
+    /// MIDI clock can drive `cps` when `clock_sync` is on. Like the output, the
+    /// device open can block while the OS MIDI subsystem starts up, so it runs
+    /// on a background thread and is adopted by [`poll_midi_in_connect`] instead
+    /// of freezing the UI.
+    ///
+    /// [`poll_midi_in_connect`]: RudelApp::poll_midi_in_connect
     pub(super) fn connect_input(&mut self) {
+        if self.midi_in_pending.is_some() {
+            return; // a connection is already in flight
+        }
         let port = {
             let p = self.midi_in_port.trim();
-            if p.is_empty() { None } else { Some(p) }
+            if p.is_empty() {
+                None
+            } else {
+                Some(p.to_string())
+            }
         };
-        match MidiIn::connect(port) {
-            Ok(input) => {
+        self.status = "connecting MIDI input…".to_string();
+        self.midi_in_pending = Some(std::thread::spawn(move || MidiIn::connect(port.as_deref())));
+    }
+
+    /// Adopt a background MIDI input connection once it finishes. Called each
+    /// frame; returns `true` while a connection is still in flight.
+    pub(super) fn poll_midi_in_connect(&mut self) -> bool {
+        match &self.midi_in_pending {
+            Some(handle) if handle.is_finished() => {}
+            Some(_) => return true, // still connecting
+            None => return false,
+        }
+        let handle = self.midi_in_pending.take().unwrap();
+        match handle.join() {
+            Ok(Ok(input)) => {
                 self.midi_in = Some(input);
                 self.io_error = None;
                 self.status = "MIDI input connected".to_string();
             }
-            Err(e) => self.io_error = Some(format!("MIDI in: {e}")),
+            Ok(Err(e)) => {
+                self.io_error = Some(format!("MIDI in: {e}"));
+                self.status = "MIDI input connect failed".to_string();
+            }
+            Err(_) => {
+                self.io_error = Some("MIDI in: connect thread panicked".to_string());
+            }
         }
+        false
     }
 
     pub(super) fn set_playing(&mut self, playing: bool) {
@@ -117,24 +149,58 @@ impl RudelApp {
         }
     }
 
+    /// Begin connecting the MIDI output if it isn't connected or already
+    /// connecting. The first device open can block for a long time while the OS
+    /// MIDI subsystem starts up, so the connection runs on a background thread
+    /// to keep the UI responsive; [`poll_midi_connect`] adopts the engine when
+    /// the thread finishes.
+    ///
+    /// [`poll_midi_connect`]: RudelApp::poll_midi_connect
     fn ensure_midi(&mut self) {
-        if self.midi.is_some() {
+        if self.midi.is_some() || self.midi_pending.is_some() {
             return;
         }
         let port = {
             let p = self.midi_port.trim();
-            if p.is_empty() { None } else { Some(p) }
+            if p.is_empty() {
+                None
+            } else {
+                Some(p.to_string())
+            }
         };
-        match MidiOut::connect(port) {
-            Ok(out) => {
+        self.status = "connecting MIDI…".to_string();
+        self.midi_pending = Some(std::thread::spawn(move || MidiOut::connect(port.as_deref())));
+    }
+
+    /// Adopt a background MIDI connection once it finishes: start the scheduler
+    /// on the connected port and route the current pattern to it. Called each
+    /// frame from the UI loop. Returns `true` while a connection is still in
+    /// flight (so the caller can keep repainting).
+    pub(super) fn poll_midi_connect(&mut self) -> bool {
+        match &self.midi_pending {
+            Some(handle) if handle.is_finished() => {}
+            Some(_) => return true, // still connecting
+            None => return false,
+        }
+        let handle = self.midi_pending.take().unwrap();
+        match handle.join() {
+            Ok(Ok(out)) => {
                 let pat = self.current.clone().unwrap_or_else(rudel_core::silence);
                 self.midi = Some(MidiEngine::start(out, pat, self.cps));
                 self.io_error = None;
+                self.status = "MIDI connected".to_string();
+                // Push the current pattern split to the freshly started engine.
+                self.route();
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 self.io_error = Some(format!("MIDI: {e}"));
+                self.status = "MIDI connect failed".to_string();
+            }
+            Err(_) => {
+                self.io_error = Some("MIDI: connect thread panicked".to_string());
             }
         }
+        false
     }
 
     fn ensure_osc(&mut self) {
