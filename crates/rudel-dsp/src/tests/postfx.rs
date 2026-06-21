@@ -475,3 +475,43 @@ fn phaser_attenuates_tone_at_notch() {
         "phaser notch should attenuate the tone (phased {e_phased} vs plain {e_plain})"
     );
 }
+
+#[test]
+fn process_block_matches_tick_for_memoryless_fx() {
+    // The vectorized `process_block` fast path must be sample-for-sample
+    // equivalent to the per-sample `tick` chain it replaces. Render two
+    // identical saw + memoryless-post-fx voices, one by blocks and one by
+    // ticks, and confirm they agree. The block size is a non-multiple of the
+    // SIMD width so both the 8-wide body and the scalar remainder are covered.
+    let sr = 48_000.0;
+    let fx = PostFx {
+        crush: Some(8.0),
+        shape: Some(0.4),
+        distort: Some(0.5),
+        tremolo: Some(5.0),
+        postgain: 0.8,
+        ..Default::default()
+    };
+    let saw = || VoiceParams {
+        duration: 1.0e9,
+        waveform: Waveform::Saw,
+        ..Default::default()
+    };
+    let mut by_block = PostFxVoice::new(Box::new(Voice::new(saw(), sr)), fx, sr);
+    let mut by_tick = PostFxVoice::new(Box::new(Voice::new(saw(), sr)), fx, sr);
+
+    let block = 100;
+    let (mut bl, mut br) = (vec![0.0f32; block], vec![0.0f32; block]);
+    let mut max_diff = 0.0f32;
+    for _ in 0..20 {
+        by_block.process_block(&mut bl, &mut br);
+        for k in 0..block {
+            let (tl, tr) = by_tick.tick();
+            max_diff = max_diff.max((bl[k] - tl).abs()).max((br[k] - tr).abs());
+        }
+    }
+    assert!(
+        max_diff < 1e-4,
+        "process_block diverged from tick (max diff {max_diff:e})"
+    );
+}

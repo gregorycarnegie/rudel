@@ -88,6 +88,41 @@ const CHOKE_SECS: f32 = 0.01;
 const DEFAULT_MASTER_VOLUME: f64 = 1.0;
 const MAX_MASTER_VOLUME: f64 = 2.0;
 
+/// Reusable per-block scratch buffers: one voice's rendered stereo block
+/// (`src_*`) and the dry / reverb / delay accumulation buses. Grown to the
+/// callback's block size on first use, then reused.
+#[derive(Default)]
+struct MixScratch {
+    src_l: Vec<f32>,
+    src_r: Vec<f32>,
+    dry_l: Vec<f32>,
+    dry_r: Vec<f32>,
+    room_l: Vec<f32>,
+    room_r: Vec<f32>,
+    delay_l: Vec<f32>,
+    delay_r: Vec<f32>,
+}
+
+impl MixScratch {
+    /// Ensure every buffer holds at least `n` samples.
+    fn ensure(&mut self, n: usize) {
+        for b in [
+            &mut self.src_l,
+            &mut self.src_r,
+            &mut self.dry_l,
+            &mut self.dry_r,
+            &mut self.room_l,
+            &mut self.room_r,
+            &mut self.delay_l,
+            &mut self.delay_r,
+        ] {
+            if b.len() < n {
+                b.resize(n, 0.0);
+            }
+        }
+    }
+}
+
 /// Mixes active voices and starts new ones as their onset time arrives. Lives
 /// in the audio callback.
 struct Mixer {
@@ -109,22 +144,57 @@ struct Mixer {
     reverb: Box<dyn AudioUnit>,
     /// Master output volume, shared with the UI/control thread.
     volume: Arc<AtomicU64>,
+    /// Reusable per-block render/accumulation buffers.
+    scratch: MixScratch,
 }
 
 impl Mixer {
-    /// Render a single stereo frame of audio, processing active voices and global effects.
+    /// Render a single stereo frame (a one-frame [`render_block`](Self::render_block)).
     fn render_frame(&mut self) -> (f32, f32) {
+        let mut out = [(0.0f32, 0.0f32)];
+        self.render_block(&mut out);
+        out[0]
+    }
+
+    /// Render `out.len()` stereo frames. The callback buffer is split into
+    /// sub-blocks at voice-onset boundaries so onsets stay sample-accurate;
+    /// within each sub-block no voice starts, so all active voices render a
+    /// whole block at once via [`VoiceLike::process_block`].
+    fn render_block(&mut self, out: &mut [(f32, f32)]) {
         while let Ok(ev) = self.rx.try_recv() {
             self.pending.push(ev);
         }
-        let now = self.sample_clock as f64 / self.sample_rate as f64;
+        let sr = self.sample_rate as f64;
+        let total = out.len();
+        let mut offset = 0;
+        while offset < total {
+            let now = self.sample_clock as f64 / sr;
+            self.start_due_events(now);
+            // Run until the next not-yet-started onset (or the end of the buffer).
+            let next_onset_clock = self
+                .pending
+                .iter()
+                .map(|ev| (ev.onset_seconds * sr).ceil() as u64)
+                .filter(|&c| c > self.sample_clock)
+                .min();
+            let remaining = total - offset;
+            let sub_len = match next_onset_clock {
+                Some(c) => ((c - self.sample_clock) as usize).min(remaining).max(1),
+                None => remaining,
+            };
+            self.mix_sub_block(&mut out[offset..offset + sub_len]);
+            offset += sub_len;
+        }
+        self.played.store(self.sample_clock, Ordering::Relaxed);
+    }
 
+    /// Start every pending event whose onset has arrived by `now`, choking any
+    /// same-`cut`-group voice (last-one-wins, like Strudel's cut groups).
+    fn start_due_events(&mut self, now: f64) {
         let mut i = 0;
         while i < self.pending.len() {
             if self.pending[i].onset_seconds <= now {
                 let ev = self.pending.swap_remove(i);
-                // A new voice in a `cut` group chokes any still-playing voice in
-                // the same group (last-one-wins, like Strudel's cut groups).
                 if let Some(g) = ev.cut {
                     for av in &mut self.active {
                         if av.cut == Some(g) && av.choke_gain.is_none() {
@@ -141,52 +211,156 @@ impl Mixer {
                 i += 1;
             }
         }
+    }
 
-        // dry mix plus reverb (room) and delay sends
-        let (mut dl, mut dr) = (0.0f32, 0.0f32);
-        let (mut rl, mut rr) = (0.0f32, 0.0f32);
-        let (mut el, mut er) = (0.0f32, 0.0f32);
+    /// Mix all active voices over `out` (no new voices start within it): render
+    /// each voice's block, accumulate the dry / reverb / delay buses, then apply
+    /// the global delay + reverb per sample and write the master mix.
+    fn mix_sub_block(&mut self, out: &mut [(f32, f32)]) {
+        let len = out.len();
+        let volume = load_f64(&self.volume) as f32;
         let choke_step = 1.0 / (self.sample_rate * CHOKE_SECS);
-        self.active.retain_mut(|av| {
-            let (mut a, mut b) = av.voice.tick();
-            if let Some(g) = &mut av.choke_gain {
-                a *= *g;
-                b *= *g;
-                *g -= choke_step;
-                if *g <= 0.0 {
-                    return false; // fully faded — drop the voice
-                }
-            }
-            // `dry` scales the direct signal; the reverb/delay sends below are
-            // taken pre-dry, so `dry(0)` leaves only the wet signal.
+        self.scratch.ensure(len);
+
+        let Mixer {
+            active,
+            scratch,
+            delay,
+            reverb,
+            sample_clock,
+            ..
+        } = self;
+        let MixScratch {
+            src_l,
+            src_r,
+            dry_l,
+            dry_r,
+            room_l,
+            room_r,
+            delay_l,
+            delay_r,
+        } = scratch;
+        for b in [
+            &mut *dry_l,
+            dry_r,
+            room_l,
+            room_r,
+            delay_l,
+            delay_r,
+        ] {
+            b[..len].fill(0.0);
+        }
+
+        active.retain_mut(|av| {
+            av.voice.process_block(&mut src_l[..len], &mut src_r[..len]);
+            // `dry` scales the direct signal; the reverb/delay sends are taken
+            // pre-dry, so `dry(0)` leaves only the wet signal.
             let dry = av.voice.dry();
-            dl += a * dry;
-            dr += b * dry;
             let room = av.voice.room();
-            if room > 0.0 {
-                rl += a * room;
-                rr += b * room;
-            }
             let dsend = av.voice.delay_send();
-            if dsend > 0.0 {
-                el += a * dsend;
-                er += b * dsend;
+            if let Some(g) = &mut av.choke_gain {
+                // Choked voices fade per sample; drop the voice once silent.
+                let mut gain = *g;
+                for i in 0..len {
+                    let (a, b) = (src_l[i] * gain, src_r[i] * gain);
+                    dry_l[i] += a * dry;
+                    dry_r[i] += b * dry;
+                    if room > 0.0 {
+                        room_l[i] += a * room;
+                        room_r[i] += b * room;
+                    }
+                    if dsend > 0.0 {
+                        delay_l[i] += a * dsend;
+                        delay_r[i] += b * dsend;
+                    }
+                    gain -= choke_step;
+                    if gain <= 0.0 {
+                        return false; // fully faded — drop the voice
+                    }
+                }
+                *g = gain;
+            } else {
+                for i in 0..len {
+                    dry_l[i] += src_l[i] * dry;
+                    dry_r[i] += src_r[i] * dry;
+                }
+                if room > 0.0 {
+                    for i in 0..len {
+                        room_l[i] += src_l[i] * room;
+                        room_r[i] += src_r[i] * room;
+                    }
+                }
+                if dsend > 0.0 {
+                    for i in 0..len {
+                        delay_l[i] += src_l[i] * dsend;
+                        delay_r[i] += src_r[i] * dsend;
+                    }
+                }
             }
             !av.voice.is_done()
         });
 
-        let (delay_l, delay_r) = self.delay.process(el, er);
-        let mut rout = [0.0f32; 2];
-        self.reverb.tick(&[rl, rr], &mut rout);
+        for (i, frame) in out.iter_mut().enumerate() {
+            let (dl_out, dr_out) = delay.process(delay_l[i], delay_r[i]);
+            let mut rout = [0.0f32; 2];
+            reverb.tick(&[room_l[i], room_r[i]], &mut rout);
+            *frame = (
+                (dry_l[i] + dl_out + rout[0]) * volume,
+                (dry_r[i] + dr_out + rout[1]) * volume,
+            );
+        }
+        *sample_clock += len as u64;
+    }
+}
 
-        let volume = load_f64(&self.volume) as f32;
+/// A headless [`Mixer`] with no audio device, for offline rendering and
+/// benchmarks. Schedule [`NoteEvent`]s, then pull frames or blocks.
+#[doc(hidden)]
+pub struct OfflineMixer {
+    tx: Sender<NoteEvent>,
+    mixer: Mixer,
+}
 
-        self.sample_clock += 1;
-        self.played.store(self.sample_clock, Ordering::Relaxed);
-        (
-            (dl + delay_l + rout[0]) * volume,
-            (dr + delay_r + rout[1]) * volume,
-        )
+impl OfflineMixer {
+    /// Build an offline mixer at the given sample rate (global reverb + delay
+    /// configured exactly as the real engine).
+    pub fn new(sample_rate: f32) -> OfflineMixer {
+        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let volume = Arc::new(AtomicU64::new(0));
+        store_f64(&volume, DEFAULT_MASTER_VOLUME);
+        let mixer = Mixer {
+            rx,
+            pending: Vec::new(),
+            active: Vec::new(),
+            sample_clock: 0,
+            sample_rate,
+            played: Arc::new(AtomicU64::new(0)),
+            delay: StereoDelay::new(sample_rate, 1.0 / 6.0, 0.4),
+            reverb: build_reverb(sample_rate),
+            volume,
+            scratch: MixScratch::default(),
+        };
+        OfflineMixer { tx, mixer }
+    }
+
+    /// Queue a note event (delivered on the next render call).
+    pub fn schedule(&self, ev: NoteEvent) {
+        let _ = self.tx.send(ev);
+    }
+
+    /// Render one stereo frame.
+    pub fn render_frame(&mut self) -> (f32, f32) {
+        self.mixer.render_frame()
+    }
+
+    /// Render `out.len()` stereo frames into `out`.
+    pub fn render_block(&mut self, out: &mut [(f32, f32)]) {
+        self.mixer.render_block(out);
+    }
+
+    /// Number of currently active voices.
+    pub fn active_len(&self) -> usize {
+        self.mixer.active.len()
     }
 }
 
@@ -238,6 +412,7 @@ impl Engine {
             delay: StereoDelay::new(sample_rate, 1.0 / 6.0, 0.4),
             reverb: build_reverb(sample_rate),
             volume: volume.clone(),
+            scratch: MixScratch::default(),
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
@@ -520,6 +695,7 @@ mod tests {
             delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
             reverb: build_reverb(44100.0),
             volume,
+            scratch: MixScratch::default(),
         }
     }
 
@@ -596,6 +772,54 @@ mod tests {
             mixer.active[0].choke_gain.is_none(),
             "the surviving voice is the new one, not choking"
         );
+    }
+
+    #[test]
+    fn block_render_matches_frame_render_across_onsets() {
+        // The sub-block splitting in `render_block` must be sample-for-sample
+        // equivalent to stepping `render_frame`, including onsets that land
+        // partway through a buffer. Drive two identical mixers with the same
+        // staggered notes — one in a single 256-frame block, one frame by frame —
+        // and confirm they agree. The notes are plain synths (no post-fx), so the
+        // default `process_block` is a `tick` loop and the two paths are exact.
+        let note = |onset: f64| NoteEvent {
+            onset_seconds: onset,
+            spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams::from_controls(
+                &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
+                10.0,
+            ))),
+            fx: rudel_dsp::PostFx::default(),
+            cut: None,
+        };
+        // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.
+        let onsets = [0.0, 37.0 / 44100.0, 150.0 / 44100.0];
+
+        let (tx_a, rx_a) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx_b, rx_b) = crossbeam_channel::unbounded::<NoteEvent>();
+        for &o in &onsets {
+            tx_a.send(note(o)).unwrap();
+            tx_b.send(note(o)).unwrap();
+        }
+        drop(tx_a);
+        drop(tx_b);
+
+        let mut by_block = test_mixer(rx_a);
+        let mut by_frame = test_mixer(rx_b);
+
+        let n = 256;
+        let mut block_out = vec![(0.0f32, 0.0f32); n];
+        by_block.render_block(&mut block_out);
+
+        let mut max_diff = 0.0f32;
+        for frame in block_out {
+            let (fl, fr) = by_frame.render_frame();
+            max_diff = max_diff.max((frame.0 - fl).abs()).max((frame.1 - fr).abs());
+        }
+        assert!(
+            max_diff < 1e-6,
+            "block render diverged from frame render (max diff {max_diff:e})"
+        );
+        assert_eq!(by_block.active.len(), by_frame.active.len(), "voice counts");
     }
 
     #[test]

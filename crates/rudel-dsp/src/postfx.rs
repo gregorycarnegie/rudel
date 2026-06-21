@@ -2,6 +2,7 @@ use crate::filter::Biquad;
 use crate::voice::VoiceLike;
 use rudel_core::Value;
 use std::collections::BTreeMap;
+use std::f32::consts::TAU;
 use wide::f32x8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -436,6 +437,103 @@ impl PostFxVoice {
         let shape = (2.0 * shape) / (1.0 - shape);
         ((1.0 + shape) * x) / (1.0 + shape * x.abs()) * postgain
     }
+
+    /// True when the only active post-effects are the *memoryless* ones
+    /// (`crush`/`shape`/`distort`/`tremolo`/`postgain`) — no state-recursive
+    /// stage (vowel/phaser/coarse/compressor) and no non-default distortion
+    /// curve. Those cases take the vectorized [`process_block`](Self::process_block)
+    /// fast path; everything else falls back to the per-sample [`tick`](Self::tick).
+    fn memoryless_only(&self) -> bool {
+        self.vowel.is_none()
+            && self.phaser.is_none()
+            && self.fx.coarse.is_none()
+            && self.fx.compressor.is_none()
+            && (self.fx.distort.is_none() || self.fx.distort_alg == DistortAlgo::Scurve)
+    }
+
+    /// Precomputed coefficients for the memoryless chain, hoisted out of the
+    /// per-sample loop so `process_block` only does arithmetic per frame.
+    fn memoryless_coeffs(&self) -> MemorylessFx {
+        MemorylessFx {
+            crush: self.fx.crush.map(|b| 2f32.powf(b.max(1.0) - 1.0)),
+            shape: self.fx.shape.map(|s| {
+                let s = if s < 1.0 { s } else { 1.0 - 4e-10 };
+                ((2.0 * s) / (1.0 - s), self.fx.shapevol.clamp(0.001, 1.0))
+            }),
+            distort: self
+                .fx
+                .distort
+                .map(|d| (d.exp_m1(), self.fx.distortvol.clamp(0.001, 1.0))),
+            tremolo: self
+                .fx
+                .tremolo
+                .map(|rate| (rate, self.fx.tremolodepth.clamp(0.0, 1.0))),
+            postgain: self.fx.postgain,
+        }
+    }
+}
+
+/// Precomputed parameters for the vectorized memoryless post-fx chain.
+struct MemorylessFx {
+    /// Quantization step `2^(bits-1)` when `crush` is active.
+    crush: Option<f32>,
+    /// `(shape, postgain)` with `shape` already mapped, when `shape` is active.
+    shape: Option<(f32, f32)>,
+    /// `(k, postgain)` drive for the s-curve distortion, when `distort` is active.
+    distort: Option<(f32, f32)>,
+    /// `(rate, depth)` when `tremolo` is active.
+    tremolo: Option<(f32, f32)>,
+    /// Overall post-gain (`1.0` = unity).
+    postgain: f32,
+}
+
+impl MemorylessFx {
+    /// Apply the chain to eight frames whose elapsed times are `t` (seconds).
+    fn apply8(&self, mut v: f32x8, t: f32x8) -> f32x8 {
+        if let Some(x) = self.crush {
+            let xv = f32x8::splat(x);
+            v = (v * xv).round() / xv;
+        }
+        if let Some((s, pg)) = self.shape {
+            let (s, pg) = (f32x8::splat(s), f32x8::splat(pg));
+            v = ((f32x8::splat(1.0) + s) * v) / (f32x8::splat(1.0) + s * v.abs()) * pg;
+        }
+        if let Some((k, pg)) = self.distort {
+            let kv = f32x8::splat(k);
+            // s-curve: ((1+k)·x)/(1+k·|x|), then postgain.
+            v = (f32x8::splat(1.0) + kv) * v / (f32x8::splat(1.0) + kv * v.abs())
+                * f32x8::splat(pg);
+        }
+        if let Some((rate, depth)) = self.tremolo {
+            let uni = f32x8::splat(0.5) * (f32x8::splat(1.0) - (f32x8::splat(TAU * rate) * t).cos());
+            v *= f32x8::splat(1.0 - depth) + f32x8::splat(depth) * uni;
+        }
+        if self.postgain != 1.0 {
+            v *= f32x8::splat(self.postgain);
+        }
+        v
+    }
+
+    /// Scalar counterpart of [`apply8`](Self::apply8) for the block remainder.
+    fn apply1(&self, mut v: f32, t: f32) -> f32 {
+        if let Some(x) = self.crush {
+            v = (v * x).round() / x;
+        }
+        if let Some((s, pg)) = self.shape {
+            v = ((1.0 + s) * v) / (1.0 + s * v.abs()) * pg;
+        }
+        if let Some((k, pg)) = self.distort {
+            v = (1.0 + k) * v / (1.0 + k * v.abs()) * pg;
+        }
+        if let Some((rate, depth)) = self.tremolo {
+            let uni = 0.5 * (1.0 - (TAU * rate * t).cos());
+            v *= (1.0 - depth) + depth * uni;
+        }
+        if self.postgain != 1.0 {
+            v *= self.postgain;
+        }
+        v
+    }
 }
 
 impl VoiceLike for PostFxVoice {
@@ -547,6 +645,43 @@ impl VoiceLike for PostFxVoice {
         self.time += 1.0 / self.sample_rate;
         (l, r)
     }
+
+    /// Block render. When only memoryless effects are active, the inner voice is
+    /// rendered into the output buffers and the post-fx chain is applied eight
+    /// frames at a time with SIMD; otherwise it falls back to the per-sample
+    /// [`tick`](Self::tick) chain (which carries the recursive effects' state).
+    fn process_block(&mut self, out_l: &mut [f32], out_r: &mut [f32]) {
+        if !self.memoryless_only() {
+            for (l, r) in out_l.iter_mut().zip(out_r.iter_mut()) {
+                (*l, *r) = self.tick();
+            }
+            return;
+        }
+        let n = out_l.len();
+        self.inner.process_block(out_l, out_r);
+
+        let fx = self.memoryless_coeffs();
+        let inv_sr = 1.0 / self.sample_rate;
+        let t0 = self.time;
+
+        let mut i = 0;
+        while i + 8 <= n {
+            let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| t0 + (i + l) as f32 * inv_sr));
+            let l = fx.apply8(f32x8::from(<[f32; 8]>::try_from(&out_l[i..i + 8]).unwrap()), t);
+            let r = fx.apply8(f32x8::from(<[f32; 8]>::try_from(&out_r[i..i + 8]).unwrap()), t);
+            out_l[i..i + 8].copy_from_slice(&l.to_array());
+            out_r[i..i + 8].copy_from_slice(&r.to_array());
+            i += 8;
+        }
+        while i < n {
+            let t = t0 + i as f32 * inv_sr;
+            out_l[i] = fx.apply1(out_l[i], t);
+            out_r[i] = fx.apply1(out_r[i], t);
+            i += 1;
+        }
+        self.time = t0 + n as f32 * inv_sr;
+    }
+
     fn is_done(&self) -> bool {
         self.inner.is_done()
     }
