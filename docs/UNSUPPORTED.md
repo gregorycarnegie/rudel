@@ -121,3 +121,14 @@ native output paths are **MIDI** (`crates/rudel-midi`) and **SuperDirt-compatibl
 OSC over UDP** (`crates/rudel-osc`) — selectable in the app's output picker.
 These cover the common "drive external gear / another program" use cases without
 needing the Web Serial or MQTT-over-WebSocket bridges.
+
+### Csound (`@strudel/csound`) — intentionally unsupported
+
+`@strudel/csound` (`loadCsound`/`loadCSound`, `loadOrc`, the `csound` output)
+loads the [Csound](https://csound.com/) WebAssembly build in the browser and
+routes haps to Csound instruments/orchestras as an alternative sound engine.
+Rudel has its own native DSP engine (`crates/rudel-dsp` + `crates/rudel-audio`:
+synth oscillators, noise, drums, sampler, filters, envelopes, effects) and does
+not embed Csound, so the `csound` output is **intentionally unsupported**.
+Use Rudel's native synths/samples, or route to an external Csound instance via
+MIDI/OSC.
