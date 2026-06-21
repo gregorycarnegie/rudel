@@ -115,11 +115,22 @@ same names `doc.json` keys on). It needs no `@strudel` symlinks or npm deps.
 node gen_reference_oracle.mjs   # -> reference_golden.json  (Strudel name surface)
 ```
 
-The golden stays in `tools/oracle/` and is embedded directly by
-`crates/rudel-lang/tests/reference_parity.rs`, which compares it against
-`rudel_lang::reference()` (the live-introspected Rudel surface). Every
-Strudel-documented name Rudel does not expose is accounted for in
-`tools/oracle/reference_allowlist.json` (category + reason); the test asserts the
-diff equals that allowlist exactly, so regenerating the golden after a Strudel
-bump — or adding/removing a Rudel name — fails the test until the allowlist is
-updated. Run `cargo test -p rudel-lang --test reference_parity`.
+The golden stays in `tools/oracle/` and records both the flat `names`/`controls`
+surface and a per-name `packagesByName` map. It is embedded directly by three
+`rudel-lang` tests:
+
+- `reference_parity.rs` compares it against `rudel_lang::reference()` (the
+  live-introspected Rudel surface). Every Strudel-documented name Rudel does not
+  expose is accounted for in `tools/oracle/reference_allowlist.json`
+  (category + reason); the test asserts the diff equals that allowlist exactly,
+  so regenerating the golden after a Strudel bump — or adding/removing a Rudel
+  name — fails until the allowlist is updated.
+- `api_inventory.rs` renders the per-package classified inventory to
+  `docs/API_INVENTORY.md` (implemented / intentional / deferred / unaccounted)
+  and asserts the committed copy is byte-identical. Regenerate with
+  `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`.
+- `reference_snapshot.rs` snapshots Rudel's own reference/autocomplete surface to
+  `crates/rudel-lang/tests/reference_surface.txt`. Regenerate with
+  `RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot`.
+
+Run `cargo test -p rudel-lang` to exercise all three.

@@ -114,10 +114,10 @@ pub fn superdirt_message(
 
     // `n` is coerced to a numeral (parseNumeral), so numeric strings go out as
     // numbers and note-name strings as their MIDI number.
-    if let Some(Value::Str(s)) = map.get("n").cloned() {
-        if let Some(num) = parse_numeral(&s) {
-            map.insert("n".to_string(), Value::F64(num));
-        }
+    if let Some(Value::Str(s)) = map.get("n").cloned()
+        && let Some(num) = parse_numeral(&s)
+    {
+        map.insert("n".to_string(), Value::F64(num));
     }
 
     // note -> midinote (number); keep the original note too. A note-name string

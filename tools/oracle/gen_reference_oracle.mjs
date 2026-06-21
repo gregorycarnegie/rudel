@@ -49,13 +49,17 @@ const files = collectSources(PACKAGES);
 
 const names = new Set();
 const controls = new Set();
+// name -> sorted list of packages that define it (for the per-package API
+// inventory). A name can be defined in more than one package.
+const namePackages = new Map();
 
-const add = (set, name) => {
-  if (!name) return;
-  const trimmed = name.trim();
-  // jsdoc names are bare identifiers; ignore namespaced (`Pattern#foo`) or
-  // empty tokens that the loose regexes might catch.
-  if (/^[A-Za-z_$][\w$]*$/.test(trimmed)) set.add(trimmed);
+const isIdent = (name) => /^[A-Za-z_$][\w$]*$/.test(name);
+
+// Top-level package directory a source file belongs to (`.../packages/<pkg>/...`).
+const packageOf = (file) => {
+  const norm = file.replace(/\\/g, '/');
+  const m = norm.match(/\/packages\/([^/]+)\//);
+  return m ? m[1] : 'unknown';
 };
 
 const splitList = (raw) =>
@@ -66,47 +70,58 @@ const splitList = (raw) =>
 
 for (const file of files) {
   const code = readFileSync(file, 'utf8');
+  const pkg = packageOf(file);
+
+  // jsdoc names are bare identifiers; ignore namespaced (`Pattern#foo`) or
+  // empty tokens that the loose regexes might catch.
+  const addName = (name) => {
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!isIdent(trimmed)) return;
+    names.add(trimmed);
+    if (!namePackages.has(trimmed)) namePackages.set(trimmed, new Set());
+    namePackages.get(trimmed).add(pkg);
+  };
+  const addControl = (name) => {
+    const trimmed = (name || '').trim();
+    if (isIdent(trimmed)) controls.add(trimmed);
+    addName(trimmed);
+  };
 
   // @name <ident>
-  for (const m of code.matchAll(/@name\s+([A-Za-z_$][\w$]*)/g)) add(names, m[1]);
+  for (const m of code.matchAll(/@name\s+([A-Za-z_$][\w$]*)/g)) addName(m[1]);
 
   // @synonyms a, b, c
   for (const m of code.matchAll(/@synonyms\s+([^\n*]+)/g)) {
-    for (const s of splitList(m[1])) add(names, s);
+    for (const s of splitList(m[1])) addName(s);
   }
 
   // register('x', ...)  and  register(['x', 'y'], ...)
-  for (const m of code.matchAll(/\bregister\(\s*'([^']+)'/g)) add(names, m[1]);
+  for (const m of code.matchAll(/\bregister\(\s*'([^']+)'/g)) addName(m[1]);
   for (const m of code.matchAll(/\bregister\(\s*\[([^\]]*)\]/g)) {
-    for (const s of splitList(m[1])) add(names, s);
+    for (const s of splitList(m[1])) addName(s);
   }
 
   // export const { a, b } = registerControl(...)
   for (const m of code.matchAll(/const\s*\{([^}]*)\}\s*=\s*registerControl/g)) {
-    for (const s of splitList(m[1])) {
-      add(controls, s);
-      add(names, s);
-    }
+    for (const s of splitList(m[1])) addControl(s);
   }
 
   // registerControl('name', 'alias', ...)
   for (const m of code.matchAll(/\bregisterControl\(\s*'([^']+)'((?:\s*,\s*'[^']+')*)/g)) {
-    add(controls, m[1]);
-    add(names, m[1]);
-    for (const s of m[2].match(/'([^']+)'/g) || []) {
-      const v = s.replace(/'/g, '');
-      add(controls, v);
-      add(names, v);
-    }
+    addControl(m[1]);
+    for (const s of m[2].match(/'([^']+)'/g) || []) addControl(s.replace(/'/g, ''));
   }
   // registerControl(['name', 'alias', ...], ...)
   for (const m of code.matchAll(/\bregisterControl\(\s*\[([^\]]*)\]/g)) {
-    for (const s of splitList(m[1])) {
-      add(controls, s);
-      add(names, s);
-    }
+    for (const s of splitList(m[1])) addControl(s);
   }
 }
+
+// name -> ["pkgA", "pkgB"] sorted, for stable output.
+const packagesByName = Object.fromEntries(
+  [...namePackages.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([name, set]) => [name, [...set].sort()]),
+);
 
 const out = {
   comment:
@@ -114,6 +129,7 @@ const out = {
     '(jsdoc @name/@synonyms + register/registerControl). Do not edit by hand.',
   names: [...names].sort(),
   controls: [...controls].sort(),
+  packagesByName,
 };
 
 const dest = resolve(__dirname, 'reference_golden.json');

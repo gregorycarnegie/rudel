@@ -1088,5 +1088,2134 @@
     "znoise",
     "zrand",
     "zzfx"
-  ]
+  ],
+  "packagesByName": {
+    "FX": [
+      "core"
+    ],
+    "FXr": [
+      "core"
+    ],
+    "FXrel": [
+      "core"
+    ],
+    "FXrelease": [
+      "core"
+    ],
+    "K": [
+      "core"
+    ],
+    "absOriA": [
+      "motion"
+    ],
+    "absOriB": [
+      "motion"
+    ],
+    "absOriG": [
+      "motion"
+    ],
+    "absOriX": [
+      "motion"
+    ],
+    "absOriY": [
+      "motion"
+    ],
+    "absOriZ": [
+      "motion"
+    ],
+    "absoluteOrientationAlpha": [
+      "motion"
+    ],
+    "absoluteOrientationBeta": [
+      "motion"
+    ],
+    "absoluteOrientationGamma": [
+      "motion"
+    ],
+    "absoluteOrientationX": [
+      "motion"
+    ],
+    "absoluteOrientationY": [
+      "motion"
+    ],
+    "absoluteOrientationZ": [
+      "motion"
+    ],
+    "accX": [
+      "motion"
+    ],
+    "accY": [
+      "motion"
+    ],
+    "accZ": [
+      "motion"
+    ],
+    "accelerate": [
+      "core"
+    ],
+    "accelerationX": [
+      "motion"
+    ],
+    "accelerationY": [
+      "motion"
+    ],
+    "accelerationZ": [
+      "motion"
+    ],
+    "activeLabel": [
+      "core"
+    ],
+    "ad": [
+      "core"
+    ],
+    "add": [
+      "core"
+    ],
+    "addVoicings": [
+      "tonal"
+    ],
+    "adsr": [
+      "core"
+    ],
+    "almostAlways": [
+      "core"
+    ],
+    "almostNever": [
+      "core"
+    ],
+    "always": [
+      "core"
+    ],
+    "amp": [
+      "core"
+    ],
+    "analyze": [
+      "core"
+    ],
+    "anchor": [
+      "core"
+    ],
+    "apply": [
+      "core"
+    ],
+    "applyN": [
+      "core"
+    ],
+    "ar": [
+      "core"
+    ],
+    "arp": [
+      "core"
+    ],
+    "arpWith": [
+      "core"
+    ],
+    "as": [
+      "core"
+    ],
+    "asym": [
+      "core"
+    ],
+    "att": [
+      "core"
+    ],
+    "attack": [
+      "core"
+    ],
+    "bandf": [
+      "core"
+    ],
+    "bandq": [
+      "core"
+    ],
+    "bank": [
+      "core"
+    ],
+    "bb": [
+      "core"
+    ],
+    "bbexpr": [
+      "core"
+    ],
+    "bbst": [
+      "core"
+    ],
+    "beat": [
+      "core"
+    ],
+    "begin": [
+      "core"
+    ],
+    "berlin": [
+      "core"
+    ],
+    "bgain": [
+      "core"
+    ],
+    "binary": [
+      "core"
+    ],
+    "binaryL": [
+      "core"
+    ],
+    "binaryN": [
+      "core"
+    ],
+    "binaryNL": [
+      "core"
+    ],
+    "binshift": [
+      "core"
+    ],
+    "bite": [
+      "core"
+    ],
+    "bjork": [
+      "core"
+    ],
+    "bmod": [
+      "core"
+    ],
+    "bp": [
+      "core"
+    ],
+    "bpa": [
+      "core"
+    ],
+    "bpattack": [
+      "core"
+    ],
+    "bpd": [
+      "core"
+    ],
+    "bpdc": [
+      "core"
+    ],
+    "bpdecay": [
+      "core"
+    ],
+    "bpdepth": [
+      "core"
+    ],
+    "bpdepthfreq": [
+      "core"
+    ],
+    "bpdepthfrequency": [
+      "core"
+    ],
+    "bpe": [
+      "core"
+    ],
+    "bpenv": [
+      "core"
+    ],
+    "bpf": [
+      "core"
+    ],
+    "bpq": [
+      "core"
+    ],
+    "bpr": [
+      "core"
+    ],
+    "bprate": [
+      "core"
+    ],
+    "bprelease": [
+      "core"
+    ],
+    "bps": [
+      "core"
+    ],
+    "bpshape": [
+      "core"
+    ],
+    "bpskew": [
+      "core"
+    ],
+    "bpsustain": [
+      "core"
+    ],
+    "bpsync": [
+      "core"
+    ],
+    "brak": [
+      "core"
+    ],
+    "brand": [
+      "core"
+    ],
+    "brandBy": [
+      "core"
+    ],
+    "bus": [
+      "core"
+    ],
+    "busgain": [
+      "core"
+    ],
+    "bypass": [
+      "core"
+    ],
+    "byteBeatExpression": [
+      "core"
+    ],
+    "byteBeatStartTime": [
+      "core"
+    ],
+    "cat": [
+      "core"
+    ],
+    "ccn": [
+      "core"
+    ],
+    "ccv": [
+      "core"
+    ],
+    "ceil": [
+      "core"
+    ],
+    "ch": [
+      "core"
+    ],
+    "channel": [
+      "core"
+    ],
+    "channels": [
+      "core"
+    ],
+    "chebyshev": [
+      "core"
+    ],
+    "chop": [
+      "core"
+    ],
+    "chord": [
+      "core"
+    ],
+    "chorus": [
+      "core"
+    ],
+    "chunk": [
+      "core"
+    ],
+    "chunkBack": [
+      "core"
+    ],
+    "chunkBackInto": [
+      "core"
+    ],
+    "chunkInto": [
+      "core"
+    ],
+    "chunkback": [
+      "core"
+    ],
+    "chunkbackinto": [
+      "core"
+    ],
+    "chunkinto": [
+      "core"
+    ],
+    "clearScope": [
+      "core"
+    ],
+    "clip": [
+      "core"
+    ],
+    "coarse": [
+      "core"
+    ],
+    "color": [
+      "core"
+    ],
+    "colour": [
+      "core"
+    ],
+    "comb": [
+      "core"
+    ],
+    "compress": [
+      "core"
+    ],
+    "compressSpan": [
+      "core"
+    ],
+    "compressor": [
+      "core"
+    ],
+    "compressorAttack": [
+      "core"
+    ],
+    "compressorKnee": [
+      "core"
+    ],
+    "compressorRatio": [
+      "core"
+    ],
+    "compressorRelease": [
+      "core"
+    ],
+    "compressspan": [
+      "core"
+    ],
+    "control": [
+      "core"
+    ],
+    "cpm": [
+      "core"
+    ],
+    "cps": [
+      "core"
+    ],
+    "crush": [
+      "core"
+    ],
+    "csound": [
+      "csound"
+    ],
+    "csoundm": [
+      "csound"
+    ],
+    "ctf": [
+      "core"
+    ],
+    "ctlNum": [
+      "core"
+    ],
+    "ctranspose": [
+      "core"
+    ],
+    "cubic": [
+      "core"
+    ],
+    "curve": [
+      "core"
+    ],
+    "cut": [
+      "core"
+    ],
+    "cutoff": [
+      "core"
+    ],
+    "datt": [
+      "core"
+    ],
+    "dec": [
+      "core"
+    ],
+    "decay": [
+      "core"
+    ],
+    "degrade": [
+      "core"
+    ],
+    "degradeBy": [
+      "core"
+    ],
+    "degradeByWith": [
+      "core"
+    ],
+    "degree": [
+      "core"
+    ],
+    "delay": [
+      "core"
+    ],
+    "delayfb": [
+      "core"
+    ],
+    "delayfeedback": [
+      "core"
+    ],
+    "delays": [
+      "core"
+    ],
+    "delayspeed": [
+      "core"
+    ],
+    "delaysync": [
+      "core"
+    ],
+    "delayt": [
+      "core"
+    ],
+    "delaytime": [
+      "core"
+    ],
+    "deltaSlide": [
+      "core"
+    ],
+    "density": [
+      "core"
+    ],
+    "det": [
+      "core"
+    ],
+    "detune": [
+      "core"
+    ],
+    "dfb": [
+      "core"
+    ],
+    "dict": [
+      "core"
+    ],
+    "dictionary": [
+      "core"
+    ],
+    "diode": [
+      "core"
+    ],
+    "dist": [
+      "core"
+    ],
+    "distort": [
+      "core"
+    ],
+    "distortion": [
+      "core"
+    ],
+    "distorttype": [
+      "core"
+    ],
+    "distortvol": [
+      "core"
+    ],
+    "disttype": [
+      "core"
+    ],
+    "distvol": [
+      "core"
+    ],
+    "div": [
+      "core"
+    ],
+    "djf": [
+      "core"
+    ],
+    "dracula": [
+      "codemirror"
+    ],
+    "drive": [
+      "core"
+    ],
+    "dry": [
+      "core"
+    ],
+    "ds": [
+      "core"
+    ],
+    "dt": [
+      "core"
+    ],
+    "duck": [
+      "core"
+    ],
+    "duckatt": [
+      "core"
+    ],
+    "duckattack": [
+      "core"
+    ],
+    "duckdepth": [
+      "core"
+    ],
+    "duckons": [
+      "core"
+    ],
+    "duckonset": [
+      "core"
+    ],
+    "duckorbit": [
+      "core"
+    ],
+    "dur": [
+      "core"
+    ],
+    "duration": [
+      "core"
+    ],
+    "early": [
+      "core"
+    ],
+    "echo": [
+      "core"
+    ],
+    "echoWith": [
+      "core"
+    ],
+    "echowith": [
+      "core"
+    ],
+    "edoScale": [
+      "edo"
+    ],
+    "eish": [
+      "core"
+    ],
+    "end": [
+      "core"
+    ],
+    "enhance": [
+      "core"
+    ],
+    "env": [
+      "core"
+    ],
+    "euclid": [
+      "core"
+    ],
+    "euclidLegato": [
+      "core"
+    ],
+    "euclidLegatoRot": [
+      "core"
+    ],
+    "euclidRot": [
+      "core"
+    ],
+    "euclidish": [
+      "core"
+    ],
+    "euclidrot": [
+      "core"
+    ],
+    "every": [
+      "core"
+    ],
+    "expression": [
+      "core"
+    ],
+    "fTrans": [
+      "xen"
+    ],
+    "fTranspose": [
+      "xen"
+    ],
+    "fadeInTime": [
+      "core"
+    ],
+    "fadeOutTime": [
+      "core"
+    ],
+    "fadeTime": [
+      "core"
+    ],
+    "fanchor": [
+      "core"
+    ],
+    "fast": [
+      "core"
+    ],
+    "fastChunk": [
+      "core"
+    ],
+    "fastGap": [
+      "core"
+    ],
+    "fastcat": [
+      "core"
+    ],
+    "fastchunk": [
+      "core"
+    ],
+    "fastgap": [
+      "core"
+    ],
+    "fft": [
+      "core"
+    ],
+    "filter": [
+      "core"
+    ],
+    "filterWhen": [
+      "core"
+    ],
+    "firstOf": [
+      "core"
+    ],
+    "fit": [
+      "core"
+    ],
+    "floor": [
+      "core"
+    ],
+    "flux": [
+      "core"
+    ],
+    "fluxBy": [
+      "core"
+    ],
+    "fluxby": [
+      "core"
+    ],
+    "fm": [
+      "core"
+    ],
+    "fmap": [
+      "core"
+    ],
+    "fmatt": [
+      "core"
+    ],
+    "fmattack": [
+      "core"
+    ],
+    "fmdec": [
+      "core"
+    ],
+    "fmdecay": [
+      "core"
+    ],
+    "fme": [
+      "core"
+    ],
+    "fmenv": [
+      "core"
+    ],
+    "fmh": [
+      "core"
+    ],
+    "fmi": [
+      "core"
+    ],
+    "fmrel": [
+      "core"
+    ],
+    "fmrelease": [
+      "core"
+    ],
+    "fmsus": [
+      "core"
+    ],
+    "fmsustain": [
+      "core"
+    ],
+    "fmwave": [
+      "core"
+    ],
+    "focus": [
+      "core"
+    ],
+    "focusSpan": [
+      "core"
+    ],
+    "focusspan": [
+      "core"
+    ],
+    "fold": [
+      "core"
+    ],
+    "frameRate": [
+      "core"
+    ],
+    "frames": [
+      "core"
+    ],
+    "freeze": [
+      "core"
+    ],
+    "freq": [
+      "core"
+    ],
+    "fromBipolar": [
+      "core"
+    ],
+    "fscope": [
+      "webaudio"
+    ],
+    "fshift": [
+      "core"
+    ],
+    "fshiftnote": [
+      "core"
+    ],
+    "fshiftphase": [
+      "core"
+    ],
+    "ftrans": [
+      "xen"
+    ],
+    "ftranspose": [
+      "xen"
+    ],
+    "ftype": [
+      "core"
+    ],
+    "fxr": [
+      "core"
+    ],
+    "gain": [
+      "core"
+    ],
+    "gap": [
+      "core"
+    ],
+    "gat": [
+      "core"
+    ],
+    "gate": [
+      "core"
+    ],
+    "getDuration": [
+      "superdough"
+    ],
+    "gravX": [
+      "motion"
+    ],
+    "gravY": [
+      "motion"
+    ],
+    "gravZ": [
+      "motion"
+    ],
+    "gravityX": [
+      "motion"
+    ],
+    "gravityY": [
+      "motion"
+    ],
+    "gravityZ": [
+      "motion"
+    ],
+    "grow": [
+      "core"
+    ],
+    "hard": [
+      "core"
+    ],
+    "harmonic": [
+      "core"
+    ],
+    "hbrick": [
+      "core"
+    ],
+    "hcutoff": [
+      "core"
+    ],
+    "hold": [
+      "core"
+    ],
+    "hours": [
+      "core"
+    ],
+    "hp": [
+      "core"
+    ],
+    "hpa": [
+      "core"
+    ],
+    "hpattack": [
+      "core"
+    ],
+    "hpd": [
+      "core"
+    ],
+    "hpdc": [
+      "core"
+    ],
+    "hpdecay": [
+      "core"
+    ],
+    "hpdepth": [
+      "core"
+    ],
+    "hpdepthfreq": [
+      "core"
+    ],
+    "hpdepthfrequency": [
+      "core"
+    ],
+    "hpe": [
+      "core"
+    ],
+    "hpenv": [
+      "core"
+    ],
+    "hpf": [
+      "core"
+    ],
+    "hpq": [
+      "core"
+    ],
+    "hpr": [
+      "core"
+    ],
+    "hprate": [
+      "core"
+    ],
+    "hprelease": [
+      "core"
+    ],
+    "hps": [
+      "core"
+    ],
+    "hpshape": [
+      "core"
+    ],
+    "hpskew": [
+      "core"
+    ],
+    "hpsustain": [
+      "core"
+    ],
+    "hpsync": [
+      "core"
+    ],
+    "hresonance": [
+      "core"
+    ],
+    "hsl": [
+      "core"
+    ],
+    "hsla": [
+      "core"
+    ],
+    "hurry": [
+      "core"
+    ],
+    "i": [
+      "core"
+    ],
+    "imag": [
+      "core"
+    ],
+    "inhabit": [
+      "core"
+    ],
+    "inhabitmod": [
+      "core"
+    ],
+    "inside": [
+      "core"
+    ],
+    "into": [
+      "core"
+    ],
+    "inv": [
+      "core"
+    ],
+    "invert": [
+      "core"
+    ],
+    "ir": [
+      "core"
+    ],
+    "irand": [
+      "core"
+    ],
+    "irbegin": [
+      "core"
+    ],
+    "iresponse": [
+      "core"
+    ],
+    "irspeed": [
+      "core"
+    ],
+    "iter": [
+      "core"
+    ],
+    "iterBack": [
+      "core"
+    ],
+    "iterback": [
+      "core"
+    ],
+    "jux": [
+      "core"
+    ],
+    "juxBy": [
+      "core"
+    ],
+    "juxFlip": [
+      "core"
+    ],
+    "juxFlipBy": [
+      "core"
+    ],
+    "juxby": [
+      "core"
+    ],
+    "juxflip": [
+      "core"
+    ],
+    "juxflipby": [
+      "core"
+    ],
+    "kcutoff": [
+      "core"
+    ],
+    "keep": [
+      "core"
+    ],
+    "keyDown": [
+      "core"
+    ],
+    "krush": [
+      "core"
+    ],
+    "label": [
+      "core"
+    ],
+    "lastOf": [
+      "core"
+    ],
+    "late": [
+      "core"
+    ],
+    "layer": [
+      "core"
+    ],
+    "lbrick": [
+      "core"
+    ],
+    "legato": [
+      "core"
+    ],
+    "leslie": [
+      "core"
+    ],
+    "lfo": [
+      "core"
+    ],
+    "linger": [
+      "core"
+    ],
+    "lock": [
+      "core"
+    ],
+    "log": [
+      "core"
+    ],
+    "log2": [
+      "core"
+    ],
+    "logValues": [
+      "core"
+    ],
+    "loop": [
+      "core"
+    ],
+    "loopAt": [
+      "core"
+    ],
+    "loopAtCps": [
+      "core"
+    ],
+    "loopBegin": [
+      "core"
+    ],
+    "loopEnd": [
+      "core"
+    ],
+    "loopat": [
+      "core"
+    ],
+    "loopatcps": [
+      "core"
+    ],
+    "loopb": [
+      "core"
+    ],
+    "loope": [
+      "core"
+    ],
+    "lp": [
+      "core"
+    ],
+    "lpa": [
+      "core"
+    ],
+    "lpattack": [
+      "core"
+    ],
+    "lpd": [
+      "core"
+    ],
+    "lpdc": [
+      "core"
+    ],
+    "lpdecay": [
+      "core"
+    ],
+    "lpdepth": [
+      "core"
+    ],
+    "lpdepthfreq": [
+      "core"
+    ],
+    "lpdepthfrequency": [
+      "core"
+    ],
+    "lpe": [
+      "core"
+    ],
+    "lpenv": [
+      "core"
+    ],
+    "lpf": [
+      "core"
+    ],
+    "lpq": [
+      "core"
+    ],
+    "lpr": [
+      "core"
+    ],
+    "lprate": [
+      "core"
+    ],
+    "lprelease": [
+      "core"
+    ],
+    "lps": [
+      "core"
+    ],
+    "lpshape": [
+      "core"
+    ],
+    "lpskew": [
+      "core"
+    ],
+    "lpsustain": [
+      "core"
+    ],
+    "lpsync": [
+      "core"
+    ],
+    "lrate": [
+      "core"
+    ],
+    "lsize": [
+      "core"
+    ],
+    "markcss": [
+      "codemirror"
+    ],
+    "midibend": [
+      "core"
+    ],
+    "midichan": [
+      "core"
+    ],
+    "midicmd": [
+      "core"
+    ],
+    "midikeys": [
+      "midi"
+    ],
+    "midimap": [
+      "core"
+    ],
+    "midin": [
+      "midi"
+    ],
+    "midiport": [
+      "core"
+    ],
+    "miditouch": [
+      "core"
+    ],
+    "minutes": [
+      "core"
+    ],
+    "mode": [
+      "core"
+    ],
+    "mousex": [
+      "core"
+    ],
+    "mousey": [
+      "core"
+    ],
+    "moveXY": [
+      "draw"
+    ],
+    "mtranspose": [
+      "core"
+    ],
+    "mul": [
+      "core"
+    ],
+    "n": [
+      "core"
+    ],
+    "never": [
+      "core"
+    ],
+    "noise": [
+      "core"
+    ],
+    "note": [
+      "core"
+    ],
+    "nrpnn": [
+      "core"
+    ],
+    "nrpv": [
+      "core"
+    ],
+    "nudge": [
+      "core"
+    ],
+    "o": [
+      "core"
+    ],
+    "oct": [
+      "core"
+    ],
+    "octave": [
+      "core"
+    ],
+    "octaveR": [
+      "core"
+    ],
+    "octaves": [
+      "core"
+    ],
+    "octer": [
+      "core"
+    ],
+    "octersub": [
+      "core"
+    ],
+    "octersubsub": [
+      "core"
+    ],
+    "off": [
+      "core"
+    ],
+    "offset": [
+      "core"
+    ],
+    "often": [
+      "core"
+    ],
+    "onTriggerTime": [
+      "core"
+    ],
+    "orbit": [
+      "core"
+    ],
+    "oriA": [
+      "motion"
+    ],
+    "oriB": [
+      "motion"
+    ],
+    "oriG": [
+      "motion"
+    ],
+    "oriX": [
+      "motion"
+    ],
+    "oriY": [
+      "motion"
+    ],
+    "oriZ": [
+      "motion"
+    ],
+    "orientationAlpha": [
+      "motion"
+    ],
+    "orientationBeta": [
+      "motion"
+    ],
+    "orientationGamma": [
+      "motion"
+    ],
+    "orientationX": [
+      "motion"
+    ],
+    "orientationY": [
+      "motion"
+    ],
+    "orientationZ": [
+      "motion"
+    ],
+    "osc": [
+      "osc"
+    ],
+    "oschost": [
+      "core"
+    ],
+    "oscport": [
+      "core"
+    ],
+    "outside": [
+      "core"
+    ],
+    "overgain": [
+      "core"
+    ],
+    "overshape": [
+      "core"
+    ],
+    "pace": [
+      "core"
+    ],
+    "palindrome": [
+      "core"
+    ],
+    "pan": [
+      "core"
+    ],
+    "panchor": [
+      "core"
+    ],
+    "panorient": [
+      "core"
+    ],
+    "panspan": [
+      "core"
+    ],
+    "pansplay": [
+      "core"
+    ],
+    "panwidth": [
+      "core"
+    ],
+    "parray": [
+      "core"
+    ],
+    "partials": [
+      "core"
+    ],
+    "patt": [
+      "core"
+    ],
+    "pattack": [
+      "core"
+    ],
+    "pcurve": [
+      "core"
+    ],
+    "pdec": [
+      "core"
+    ],
+    "pdecay": [
+      "core"
+    ],
+    "penv": [
+      "core"
+    ],
+    "perCycle": [
+      "core"
+    ],
+    "perlin": [
+      "core"
+    ],
+    "ph": [
+      "core"
+    ],
+    "phasdp": [
+      "core"
+    ],
+    "phaser": [
+      "core"
+    ],
+    "phasercenter": [
+      "core"
+    ],
+    "phaserdepth": [
+      "core"
+    ],
+    "phaserrate": [
+      "core"
+    ],
+    "phasersweep": [
+      "core"
+    ],
+    "phases": [
+      "core"
+    ],
+    "phc": [
+      "core"
+    ],
+    "phd": [
+      "core"
+    ],
+    "phs": [
+      "core"
+    ],
+    "pianoroll": [
+      "draw"
+    ],
+    "pick": [
+      "core"
+    ],
+    "pickF": [
+      "core"
+    ],
+    "pickOut": [
+      "core"
+    ],
+    "pickReset": [
+      "core"
+    ],
+    "pickRestart": [
+      "core"
+    ],
+    "pickSqueeze": [
+      "core"
+    ],
+    "pickmod": [
+      "core"
+    ],
+    "pickmodF": [
+      "core"
+    ],
+    "pickmodOut": [
+      "core"
+    ],
+    "pickmodReset": [
+      "core"
+    ],
+    "pickmodRestart": [
+      "core"
+    ],
+    "pickmodSqueeze": [
+      "core"
+    ],
+    "pitchJump": [
+      "core"
+    ],
+    "pitchJumpTime": [
+      "core"
+    ],
+    "pitchwheel": [
+      "draw"
+    ],
+    "ply": [
+      "core"
+    ],
+    "plyForEach": [
+      "core"
+    ],
+    "plyWith": [
+      "core"
+    ],
+    "plyforeach": [
+      "core"
+    ],
+    "plywith": [
+      "core"
+    ],
+    "pm": [
+      "core"
+    ],
+    "polyTouch": [
+      "core"
+    ],
+    "polyrhythm": [
+      "core"
+    ],
+    "postgain": [
+      "core"
+    ],
+    "pr": [
+      "core"
+    ],
+    "prel": [
+      "core"
+    ],
+    "prelease": [
+      "core"
+    ],
+    "press": [
+      "core"
+    ],
+    "pressBy": [
+      "core"
+    ],
+    "progNum": [
+      "core"
+    ],
+    "psus": [
+      "core"
+    ],
+    "psustain": [
+      "core"
+    ],
+    "punchcard": [
+      "draw"
+    ],
+    "pw": [
+      "core"
+    ],
+    "pwr": [
+      "core"
+    ],
+    "pwrate": [
+      "core"
+    ],
+    "pws": [
+      "core"
+    ],
+    "pwsweep": [
+      "core"
+    ],
+    "rand": [
+      "core"
+    ],
+    "randL": [
+      "core"
+    ],
+    "randcat": [
+      "core"
+    ],
+    "range": [
+      "core"
+    ],
+    "range2": [
+      "core"
+    ],
+    "rangex": [
+      "core"
+    ],
+    "rarely": [
+      "core"
+    ],
+    "ratio": [
+      "core"
+    ],
+    "rdim": [
+      "core"
+    ],
+    "real": [
+      "core"
+    ],
+    "rel": [
+      "core"
+    ],
+    "release": [
+      "core"
+    ],
+    "repeatCycles": [
+      "core"
+    ],
+    "rescale": [
+      "draw"
+    ],
+    "resonance": [
+      "core"
+    ],
+    "rev": [
+      "core"
+    ],
+    "revv": [
+      "core"
+    ],
+    "rfade": [
+      "core"
+    ],
+    "rib": [
+      "core"
+    ],
+    "ribbon": [
+      "core"
+    ],
+    "ring": [
+      "core"
+    ],
+    "ringdf": [
+      "core"
+    ],
+    "ringf": [
+      "core"
+    ],
+    "rlp": [
+      "core"
+    ],
+    "room": [
+      "core"
+    ],
+    "roomdim": [
+      "core"
+    ],
+    "roomfade": [
+      "core"
+    ],
+    "roomlp": [
+      "core"
+    ],
+    "roomsize": [
+      "core"
+    ],
+    "rootNotes": [
+      "tonal"
+    ],
+    "rotA": [
+      "motion"
+    ],
+    "rotB": [
+      "motion"
+    ],
+    "rotG": [
+      "motion"
+    ],
+    "rotX": [
+      "motion"
+    ],
+    "rotY": [
+      "motion"
+    ],
+    "rotZ": [
+      "motion"
+    ],
+    "rotationAlpha": [
+      "motion"
+    ],
+    "rotationBeta": [
+      "motion"
+    ],
+    "rotationGamma": [
+      "motion"
+    ],
+    "rotationX": [
+      "motion"
+    ],
+    "rotationY": [
+      "motion"
+    ],
+    "rotationZ": [
+      "motion"
+    ],
+    "round": [
+      "core"
+    ],
+    "rsize": [
+      "core"
+    ],
+    "s": [
+      "core"
+    ],
+    "scale": [
+      "tonal"
+    ],
+    "scaleTrans": [
+      "tonal"
+    ],
+    "scaleTranspose": [
+      "tonal"
+    ],
+    "scope": [
+      "webaudio"
+    ],
+    "scram": [
+      "core"
+    ],
+    "scramble": [
+      "core"
+    ],
+    "scrub": [
+      "core"
+    ],
+    "seconds": [
+      "core"
+    ],
+    "seed": [
+      "core"
+    ],
+    "seg": [
+      "core"
+    ],
+    "segment": [
+      "core"
+    ],
+    "semitone": [
+      "core"
+    ],
+    "sequence": [
+      "core"
+    ],
+    "set": [
+      "core"
+    ],
+    "setGainCurve": [
+      "superdough"
+    ],
+    "setMaxPolyphony": [
+      "superdough"
+    ],
+    "setcpm": [
+      "core"
+    ],
+    "shape": [
+      "core"
+    ],
+    "shapevol": [
+      "core"
+    ],
+    "shrink": [
+      "core"
+    ],
+    "shuffle": [
+      "core"
+    ],
+    "silence": [
+      "core"
+    ],
+    "sinefold": [
+      "core"
+    ],
+    "size": [
+      "core"
+    ],
+    "slice": [
+      "core"
+    ],
+    "slide": [
+      "core"
+    ],
+    "slider": [
+      "codemirror"
+    ],
+    "slow": [
+      "core"
+    ],
+    "slowChunk": [
+      "core"
+    ],
+    "slowcat": [
+      "core"
+    ],
+    "slowchunk": [
+      "core"
+    ],
+    "smear": [
+      "core"
+    ],
+    "soft": [
+      "core"
+    ],
+    "someCycles": [
+      "core"
+    ],
+    "someCyclesBy": [
+      "core"
+    ],
+    "sometimes": [
+      "core"
+    ],
+    "sometimesBy": [
+      "core"
+    ],
+    "songPtr": [
+      "core"
+    ],
+    "sound": [
+      "core"
+    ],
+    "source": [
+      "core"
+    ],
+    "sparsity": [
+      "core"
+    ],
+    "speak": [
+      "core"
+    ],
+    "spectrum": [
+      "webaudio"
+    ],
+    "speed": [
+      "core"
+    ],
+    "spiral": [
+      "draw"
+    ],
+    "splice": [
+      "core"
+    ],
+    "spread": [
+      "core"
+    ],
+    "squiz": [
+      "core"
+    ],
+    "src": [
+      "core"
+    ],
+    "stepcat": [
+      "core"
+    ],
+    "stepsPerOctave": [
+      "core"
+    ],
+    "strans": [
+      "tonal"
+    ],
+    "stretch": [
+      "core"
+    ],
+    "striate": [
+      "core"
+    ],
+    "stut": [
+      "core"
+    ],
+    "stutWith": [
+      "core"
+    ],
+    "stutwith": [
+      "core"
+    ],
+    "sub": [
+      "core"
+    ],
+    "superimpose": [
+      "core"
+    ],
+    "sus": [
+      "core"
+    ],
+    "sustain": [
+      "core"
+    ],
+    "sustainpedal": [
+      "core"
+    ],
+    "swing": [
+      "core"
+    ],
+    "swingBy": [
+      "core"
+    ],
+    "sysex": [
+      "core"
+    ],
+    "sysexdata": [
+      "core"
+    ],
+    "sysexid": [
+      "core"
+    ],
+    "sz": [
+      "core"
+    ],
+    "tables": [
+      "superdough"
+    ],
+    "tag": [
+      "core"
+    ],
+    "timeCat": [
+      "core"
+    ],
+    "timecat": [
+      "core"
+    ],
+    "timeline": [
+      "core"
+    ],
+    "toBipolar": [
+      "core"
+    ],
+    "trans": [
+      "tonal"
+    ],
+    "transient": [
+      "core"
+    ],
+    "transpose": [
+      "tonal"
+    ],
+    "transsustain": [
+      "core"
+    ],
+    "trem": [
+      "core"
+    ],
+    "tremdepth": [
+      "core"
+    ],
+    "tremolo": [
+      "core"
+    ],
+    "tremolodepth": [
+      "core"
+    ],
+    "tremolophase": [
+      "core"
+    ],
+    "tremoloshape": [
+      "core"
+    ],
+    "tremoloskew": [
+      "core"
+    ],
+    "tremolosync": [
+      "core"
+    ],
+    "tremphase": [
+      "core"
+    ],
+    "tremshape": [
+      "core"
+    ],
+    "tremskew": [
+      "core"
+    ],
+    "tremsync": [
+      "core"
+    ],
+    "triode": [
+      "core"
+    ],
+    "tscope": [
+      "webaudio"
+    ],
+    "tsdelay": [
+      "core"
+    ],
+    "tune": [
+      "xen"
+    ],
+    "tuning": [
+      "xen"
+    ],
+    "uid": [
+      "core"
+    ],
+    "undegrade": [
+      "core"
+    ],
+    "undegradeBy": [
+      "core"
+    ],
+    "unison": [
+      "core"
+    ],
+    "unit": [
+      "core"
+    ],
+    "useRNG": [
+      "core"
+    ],
+    "v": [
+      "core"
+    ],
+    "val": [
+      "core"
+    ],
+    "vel": [
+      "core"
+    ],
+    "velocity": [
+      "core"
+    ],
+    "vib": [
+      "core"
+    ],
+    "vibmod": [
+      "core"
+    ],
+    "vibrato": [
+      "core"
+    ],
+    "vlpf": [
+      "core"
+    ],
+    "vmod": [
+      "core"
+    ],
+    "voice": [
+      "core"
+    ],
+    "voicing": [
+      "tonal"
+    ],
+    "voicings": [
+      "tonal"
+    ],
+    "vowel": [
+      "core"
+    ],
+    "warp": [
+      "core"
+    ],
+    "warpatt": [
+      "core"
+    ],
+    "warpattack": [
+      "core"
+    ],
+    "warpdc": [
+      "core"
+    ],
+    "warpdec": [
+      "core"
+    ],
+    "warpdecay": [
+      "core"
+    ],
+    "warpdepth": [
+      "core"
+    ],
+    "warpenv": [
+      "core"
+    ],
+    "warpmode": [
+      "core"
+    ],
+    "warprate": [
+      "core"
+    ],
+    "warprel": [
+      "core"
+    ],
+    "warprelease": [
+      "core"
+    ],
+    "warpshape": [
+      "core"
+    ],
+    "warpskew": [
+      "core"
+    ],
+    "warpsus": [
+      "core"
+    ],
+    "warpsustain": [
+      "core"
+    ],
+    "warpsync": [
+      "core"
+    ],
+    "waveloss": [
+      "core"
+    ],
+    "wavetablePhaseRand": [
+      "core"
+    ],
+    "wavetablePosition": [
+      "core"
+    ],
+    "wavetableWarp": [
+      "core"
+    ],
+    "wavetableWarpMode": [
+      "core"
+    ],
+    "weave": [
+      "core"
+    ],
+    "weaveWith": [
+      "core"
+    ],
+    "when": [
+      "core"
+    ],
+    "whenKey": [
+      "core"
+    ],
+    "withBase": [
+      "xen"
+    ],
+    "within": [
+      "core"
+    ],
+    "wordfall": [
+      "draw"
+    ],
+    "worklet": [
+      "core"
+    ],
+    "wrandcat": [
+      "core"
+    ],
+    "wt": [
+      "core"
+    ],
+    "wtatt": [
+      "core"
+    ],
+    "wtattack": [
+      "core"
+    ],
+    "wtdc": [
+      "core"
+    ],
+    "wtdec": [
+      "core"
+    ],
+    "wtdecay": [
+      "core"
+    ],
+    "wtdepth": [
+      "core"
+    ],
+    "wtenv": [
+      "core"
+    ],
+    "wtphaserand": [
+      "core"
+    ],
+    "wtrate": [
+      "core"
+    ],
+    "wtrel": [
+      "core"
+    ],
+    "wtrelease": [
+      "core"
+    ],
+    "wtshape": [
+      "core"
+    ],
+    "wtskew": [
+      "core"
+    ],
+    "wtsus": [
+      "core"
+    ],
+    "wtsustain": [
+      "core"
+    ],
+    "wtsync": [
+      "core"
+    ],
+    "xen": [
+      "xen"
+    ],
+    "xfade": [
+      "core"
+    ],
+    "xsdelay": [
+      "core"
+    ],
+    "zcrush": [
+      "core"
+    ],
+    "zdelay": [
+      "core"
+    ],
+    "zmod": [
+      "core"
+    ],
+    "znoise": [
+      "core"
+    ],
+    "zoom": [
+      "core"
+    ],
+    "zoomArc": [
+      "core"
+    ],
+    "zoomIn": [
+      "draw"
+    ],
+    "zoomarc": [
+      "core"
+    ],
+    "zrand": [
+      "core"
+    ],
+    "zzfx": [
+      "core"
+    ]
+  }
 }

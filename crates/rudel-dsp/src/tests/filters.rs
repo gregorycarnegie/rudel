@@ -178,14 +178,13 @@ fn biquad_impulse_response_matches_webaudio() {
             "notch" => Biquad::notch(sr, freq, q),
             other => panic!("unexpected filter type in golden: {other}"),
         };
-        for i in 0..n {
+        for (i, &expected) in want.iter().enumerate().take(n) {
             let x = if i == 0 { 1.0 } else { 0.0 };
             let got = filter.process(x);
-            let d = (got - want[i]).abs();
+            let d = (got - expected).abs();
             if d > EPS {
                 failures.push(format!(
-                    "{kind} f={freq} q={q} sample[{i}] = {got} vs webaudio {} (diff {d:.3e})",
-                    want[i]
+                    "{kind} f={freq} q={q} sample[{i}] = {got} vs webaudio {expected} (diff {d:.3e})"
                 ));
             }
         }
