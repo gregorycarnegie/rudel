@@ -5,6 +5,10 @@ use crate::oscillator::{NoiseGen, NoiseKind, Waveform, sample_table};
 use crate::params::VoiceParams;
 use crate::voice::VoiceLike;
 use std::f32::consts::{FRAC_PI_2, TAU};
+use wide::f32x8;
+
+/// SIMD lane count used to render the super-saw unison voices in parallel.
+const SUPER_LANES: usize = 8;
 
 /// superdough's dry/wet crossfade gain: full across one half of the range, then
 /// a linear fade across the other. `wetfade(d<0.5)=1`, then ramps down to 0.
@@ -67,6 +71,11 @@ pub struct Voice {
     fm_phases: [f32; FM_OPS + 1],
     /// Per-voice phases for the super-saw source.
     super_phases: Vec<f32>,
+    /// Per-voice frequency multipliers for the super-saw source: the constant
+    /// `2^(detune/12)` for each unison voice, hoisted out of the per-sample loop
+    /// so `next_source` only multiplies by the (possibly pitch-modulated) base
+    /// increment each sample instead of recomputing a `powf` per voice.
+    super_incr_ratio: Vec<f32>,
     /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
     pitch_env: Option<(Adsr, f32, f32)>,
     done: bool,
@@ -89,13 +98,31 @@ impl Voice {
         if params.bp.freq.is_some() {
             filters.push(VoiceFilter::new(FilterKind::Band, &params.bp, sample_rate));
         }
-        // Spread the super-saw voices' initial phases for a fuller sound.
-        let super_phases = if params.supersaw {
-            (0..params.unison.max(1))
-                .map(|n| n as f32 / params.unison.max(1) as f32)
-                .collect()
+        // Spread the super-saw voices' initial phases for a fuller sound, and
+        // precompute each voice's constant detune ratio `2^(d/12)`. Both arrays
+        // are padded up to a multiple of the SIMD lane count so `next_source`
+        // can sum them eight at a time with no scalar remainder. Padding lanes
+        // hold phase 0.5 (saw value `2·0.5 − 1 = 0`) and ratio 0 (never advance),
+        // so they contribute nothing to the mix.
+        let (super_phases, super_incr_ratio) = if params.supersaw {
+            let voices = params.unison.max(1);
+            let padded = voices.next_multiple_of(SUPER_LANES);
+            let scale = if voices > 1 {
+                params.spread / (voices as f32 - 1.0)
+            } else {
+                0.0
+            };
+            let center = params.spread * 0.5;
+            let mut phases = vec![0.5f32; padded];
+            let mut ratios = vec![0.0f32; padded];
+            for n in 0..voices {
+                phases[n] = n as f32 / voices as f32;
+                let d = n as f32 * scale - center; // semitone detune for this voice
+                ratios[n] = 2f32.powf(d / 12.0);
+            }
+            (phases, ratios)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
         // Pitch envelope (superdough getPitchEnvelope): sweep detune in cents.
         let pitch_active = params.penv.is_some()
@@ -130,6 +157,7 @@ impl Voice {
             noise: NoiseGen::new(),
             fm_phases: [0.0; FM_OPS + 1],
             super_phases,
+            super_incr_ratio,
             pitch_env,
             done: false,
         }
@@ -211,22 +239,30 @@ impl Voice {
         let pitch = self.pitch_mult();
         if self.params.supersaw {
             let voices = self.params.unison.max(1);
-            // main detune (cents -> semitones)
+            // main detune (cents -> semitones); per-voice detune ratios are
+            // precomputed in `super_incr_ratio`, so the per-sample phase
+            // increment for voice `n` is `base_over_sr * ratio[n]`.
             let base = self.params.freq * pitch * 2f32.powf((self.params.detune / 100.0) / 12.0);
-            let scale = if voices > 1 {
-                self.params.spread / (voices as f32 - 1.0)
-            } else {
-                0.0
-            };
-            let center = self.params.spread * 0.5;
-            let mut sum = 0.0;
-            for (n, ph) in self.super_phases.iter_mut().enumerate() {
-                let d = n as f32 * scale - center; // semitone detune for this voice
-                let f = base * 2f32.powf(d / 12.0);
-                sum += 2.0 * *ph - 1.0; // naive saw
-                *ph = (*ph + f / sr).rem_euclid(1.0);
+            let base_over_sr = f32x8::splat(base / sr);
+            let two = f32x8::splat(2.0);
+            let one = f32x8::splat(1.0);
+            // Render the unison voices eight at a time: accumulate each lane's
+            // naive saw (`2·phase − 1`) and advance its phase by the per-voice
+            // increment, wrapping to [0, 1) with `phase − floor(phase)` (the
+            // increment is non-negative, so this matches `rem_euclid(1.0)`).
+            let mut acc = f32x8::splat(0.0);
+            for (pchunk, rchunk) in self
+                .super_phases
+                .chunks_exact_mut(SUPER_LANES)
+                .zip(self.super_incr_ratio.chunks_exact(SUPER_LANES))
+            {
+                let p = f32x8::from(<[f32; SUPER_LANES]>::try_from(&*pchunk).unwrap());
+                let r = f32x8::from(<[f32; SUPER_LANES]>::try_from(rchunk).unwrap());
+                acc += two * p - one;
+                let np = p + base_over_sr * r;
+                pchunk.copy_from_slice(&(np - np.floor()).to_array());
             }
-            return sum / (voices as f32).sqrt();
+            return acc.reduce_add() / (voices as f32).sqrt();
         }
         if let Some(kind) = self.params.noise {
             return self.noise.next(kind);

@@ -2,6 +2,7 @@ use crate::filter::Biquad;
 use crate::voice::VoiceLike;
 use rudel_core::Value;
 use std::collections::BTreeMap;
+use wide::f32x8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vowel {
@@ -66,28 +67,51 @@ impl Vowel {
     }
 }
 
-/// A mono bank of five parallel band-pass formant filters.
+/// A mono bank of five parallel band-pass formant filters, run as a single
+/// 8-lane SIMD biquad: the five formants occupy lanes 0..5 (lanes 5..8 hold
+/// zero coefficients/gain and stay silent). All five transposed-direct-form-II
+/// recurrences advance together, and the gain-weighted outputs are summed with
+/// one horizontal reduce.
 #[derive(Clone)]
 struct Formant {
-    filters: [Biquad; 5],
-    gains: [f32; 5],
+    b0: f32x8,
+    b1: f32x8,
+    b2: f32x8,
+    a1: f32x8,
+    a2: f32x8,
+    z1: f32x8,
+    z2: f32x8,
+    gains: f32x8,
 }
 
 impl Formant {
     fn new(vowel: Vowel, sample_rate: f32) -> Formant {
         let f = vowel.formants();
+        let (mut b0, mut b1, mut b2, mut a1, mut a2, mut gains) =
+            ([0.0f32; 8], [0.0; 8], [0.0; 8], [0.0; 8], [0.0; 8], [0.0; 8]);
+        for i in 0..5 {
+            let (cb0, cb1, cb2, ca1, ca2) =
+                Biquad::bandpass(sample_rate, f[i].0, f[i].2).coeffs();
+            (b0[i], b1[i], b2[i], a1[i], a2[i], gains[i]) = (cb0, cb1, cb2, ca1, ca2, f[i].1);
+        }
         Formant {
-            filters: std::array::from_fn(|i| Biquad::bandpass(sample_rate, f[i].0, f[i].2)),
-            gains: std::array::from_fn(|i| f[i].1),
+            b0: f32x8::from(b0),
+            b1: f32x8::from(b1),
+            b2: f32x8::from(b2),
+            a1: f32x8::from(a1),
+            a2: f32x8::from(a2),
+            z1: f32x8::splat(0.0),
+            z2: f32x8::splat(0.0),
+            gains: f32x8::from(gains),
         }
     }
 
     fn process(&mut self, x: f32) -> f32 {
-        let mut sum = 0.0;
-        for i in 0..5 {
-            sum += self.filters[i].process(x) * self.gains[i];
-        }
-        sum * 8.0 // makeup gain (matches superdough's VowelNode)
+        let xv = f32x8::splat(x);
+        let y = self.b0 * xv + self.z1;
+        self.z1 = self.b1 * xv - self.a1 * y + self.z2;
+        self.z2 = self.b2 * xv - self.a2 * y;
+        (y * self.gains).reduce_add() * 8.0 // makeup gain (matches superdough's VowelNode)
     }
 }
 

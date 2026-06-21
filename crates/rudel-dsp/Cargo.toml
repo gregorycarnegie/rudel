@@ -9,7 +9,20 @@ rust-version.workspace = true
 
 [dependencies]
 rudel-core = { path = "../rudel-core" }
+wide.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 serde_json.workspace = true
+
+[[bench]]
+name = "supersaw"
+harness = false
+
+[[bench]]
+name = "additive"
+harness = false
+
+[[bench]]
+name = "vowel"
+harness = false

@@ -3587,7 +3587,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-app"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "eframe",
  "rudel-audio",
@@ -3600,7 +3600,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-audio"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "cpal",
  "crossbeam-channel",
@@ -3616,7 +3616,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-core"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "num-integer",
  "num-rational",
@@ -3627,16 +3627,17 @@ dependencies = [
 
 [[package]]
 name = "rudel-dsp"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "proptest",
  "rudel-core",
  "serde_json",
+ "wide",
 ]
 
 [[package]]
 name = "rudel-lang"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "koto",
  "proptest",
@@ -3647,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-midi"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "midir",
  "rudel-core",
@@ -3655,7 +3656,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-mini"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "pest",
  "pest_derive",
@@ -3665,7 +3666,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-osc"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "proptest",
  "rudel-core",
@@ -5189,9 +5190,9 @@ dependencies = [
 
 [[package]]
 name = "wide"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a7714cd0430a663154667c74da5d09325c2387695bee18b3f7f72825aa3693a"
+checksum = "dfdfe6a32973f2d1b268b8895845a8a96cac2f0191e72c27cc929036060dbf89"
 dependencies = [
  "bytemuck",
  "safe_arch",

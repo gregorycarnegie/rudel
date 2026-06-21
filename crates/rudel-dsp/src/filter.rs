@@ -82,6 +82,13 @@ impl Biquad {
         self.z2 = self.b2 * x - self.a2 * y;
         y
     }
+
+    /// The transposed-direct-form-II coefficients `(b0, b1, b2, a1, a2)`, used to
+    /// pack several independent biquads into SIMD lanes (see the vowel formant
+    /// bank in `postfx.rs`).
+    pub(crate) fn coeffs(&self) -> (f32, f32, f32, f32, f32) {
+        (self.b0, self.b1, self.b2, self.a1, self.a2)
+    }
 }
 
 /// Per-filter parameters (low/high/band) including an optional cutoff envelope.

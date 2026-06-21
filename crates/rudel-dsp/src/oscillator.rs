@@ -1,4 +1,5 @@
 use std::f32::consts::TAU;
+use wide::f32x8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Waveform {
@@ -111,15 +112,23 @@ pub(crate) fn build_additive(
         })
         .collect();
 
+    // Fill the table eight slots at a time: each lane is a distinct phase `t`,
+    // and for every harmonic we evaluate `r·cos(ang) + i·sin(ang)` across all
+    // eight lanes with one vectorized `sin_cos`. `ADDITIVE_SIZE` is a multiple
+    // of the lane count, so `chunks_exact_mut` leaves no scalar remainder.
     let mut table = vec![0.0f32; ADDITIVE_SIZE];
-    for (idx, slot) in table.iter_mut().enumerate() {
-        let t = idx as f32 / ADDITIVE_SIZE as f32;
-        let mut acc = 0.0;
+    let inv_size = 1.0 / ADDITIVE_SIZE as f32;
+    let tau = f32x8::splat(TAU);
+    for (chunk, slots) in table.chunks_exact_mut(8).enumerate() {
+        let base = chunk * 8;
+        let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| (base + l) as f32 * inv_size));
+        let mut acc = f32x8::splat(0.0);
         for (k, &(r, i)) in coeffs.iter().enumerate() {
-            let ang = TAU * (k + 1) as f32 * t;
-            acc += r * ang.cos() + i * ang.sin();
+            let ang = tau * f32x8::splat((k + 1) as f32) * t;
+            let (sin, cos) = ang.sin_cos();
+            acc += f32x8::splat(r) * cos + f32x8::splat(i) * sin;
         }
-        *slot = acc;
+        slots.copy_from_slice(&acc.to_array());
     }
     // Normalize to peak 1 (Web Audio normalizes PeriodicWave by default).
     let peak = table.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
