@@ -72,3 +72,15 @@ and the `scope`/`spectrum` controls have no visual effect. This is the one
 visual area gated on engine work (an analyzer tap on the mixer output) rather
 than on a deliberate "never" decision; it is tracked separately from the pure
 pattern visuals, which are implemented.
+
+## External integrations and inputs
+
+### Hydra (`@strudel/hydra`) — intentionally unsupported
+
+`@strudel/hydra` (`initHydra`, `H`, `clearHydra`) embeds the
+[Hydra](https://hydra.ojack.xyz/) live-coding video synth, a WebGL/`regl`-based
+fragment-shader engine, and lets patterns drive its uniforms. It is fundamentally
+a browser WebGL integration with its own JavaScript DSL. Rudel is a native egui
+application with no embedded JavaScript/WebGL video-synth engine, so Hydra is
+**intentionally unsupported**. There is no native equivalent surface and no plan
+to embed a shader video synth; use Hydra in Strudel's web REPL if you need it.
