@@ -95,6 +95,11 @@ Still evolving: richer synth families, more Strudel sample-bank loading modes,
 MIDI input/clock-in, per-pattern routing helpers, deeper editor ergonomics, and
 the long tail of Strudel/Tidal compatibility.
 
+Some Strudel packages bridge to browser-only platform APIs or provide alternative
+language front-ends and are intentionally not ported. See
+[`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md) for the authoritative list of
+unsupported and intentionally different features.
+
 ## Tests
 
 ```bash
