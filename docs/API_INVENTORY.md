@@ -11,21 +11,21 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 ## Summary
 
-| Package | Names | Implemented | Intentional | Deferred | Unaccounted |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `codemirror` | 3 | 1 | 0 | 2 | 0 |
-| `core` | 618 | 574 | 19 | 25 | 0 |
-| `csound` | 2 | 0 | 2 | 0 | 0 |
-| `draw` | 8 | 0 | 0 | 8 | 0 |
-| `edo` | 1 | 1 | 0 | 0 | 0 |
-| `midi` | 2 | 0 | 2 | 0 | 0 |
-| `motion` | 48 | 0 | 48 | 0 | 0 |
-| `osc` | 1 | 1 | 0 | 0 | 0 |
-| `superdough` | 4 | 0 | 2 | 2 | 0 |
-| `tonal` | 10 | 9 | 1 | 0 | 0 |
-| `webaudio` | 4 | 0 | 0 | 4 | 0 |
-| `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **594** | **74** | **41** | **0** |
+| Package      | Names   | Implemented | Intentional | Deferred | Unaccounted |
+| ------------ | ------: | ----------: | ----------: | -------: | ----------: |
+| `codemirror` | 3       | 1           | 0           | 2        | 0           |
+| `core`       | 618     | 574         | 19          | 25       | 0           |
+| `csound`     | 2       | 0           | 2           | 0        | 0           |
+| `draw`       | 8       | 0           | 0           | 8        | 0           |
+| `edo`        | 1       | 1           | 0           | 0        | 0           |
+| `midi`       | 2       | 0           | 2           | 0        | 0           |
+| `motion`     | 48      | 0           | 48          | 0        | 0           |
+| `osc`        | 1       | 1           | 0           | 0        | 0           |
+| `superdough` | 4       | 0           | 2           | 2        | 0           |
+| `tonal`      | 10      | 9           | 1           | 0        | 0           |
+| `webaudio`   | 4       | 0           | 0           | 4        | 0           |
+| `xen`        | 8       | 8           | 0           | 0        | 0           |
+| **Total**    | **709** | **594**     | **74**      | **41**   | **0**       |
 
 ## `codemirror`
 
