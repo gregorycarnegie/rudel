@@ -93,3 +93,15 @@ to embed a shader video synth; use Hydra in Strudel's web REPL if you need it.
 signals, intended for phones/tablets running the web REPL. Rudel targets desktop
 (Windows/macOS/Linux) and has no device-motion sensor source, so these signals
 are **intentionally unsupported**. There is no native equivalent surface.
+
+### Gamepad (`@strudel/gamepad`) — intentionally unsupported (no native input source yet)
+
+`@strudel/gamepad` (`gamepad`, `buttonMap`, `getGamepadStates`,
+`clearGamepadStates`) reads controllers through the browser
+[Gamepad API](https://developer.mozilla.org/docs/Web/API/Gamepad_API) and
+exposes axes/buttons as patternable signals. Rudel has no gamepad input source
+wired into the engine, so this is **currently unsupported** and patterns
+referencing `gamepad` have no input. Unlike the strictly browser-only packages,
+a native port is technically feasible (e.g. via a Rust controller crate such as
+`gilrs`); it is simply not implemented and not yet planned. There is no native
+equivalent surface today.
