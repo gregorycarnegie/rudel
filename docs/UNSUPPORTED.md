@@ -105,3 +105,19 @@ referencing `gamepad` have no input. Unlike the strictly browser-only packages,
 a native port is technically feasible (e.g. via a Rust controller crate such as
 `gilrs`); it is simply not implemented and not yet planned. There is no native
 equivalent surface today.
+
+### Serial and MQTT (`@strudel/serial`, `@strudel/mqtt`) — intentionally unsupported
+
+`@strudel/serial` (`Pattern.prototype.serial`, `getWriter`) writes hap values to
+a serial device through the browser
+[Web Serial API](https://developer.mozilla.org/docs/Web/API/Web_Serial_API),
+and `@strudel/mqtt` (`Pattern.prototype.mqtt`) publishes hap values to an MQTT
+broker over WebSockets. Both are browser-platform output bridges. Rudel does not
+implement either, so `.serial(...)` and `.mqtt(...)` are **intentionally
+unsupported** and have no effect.
+
+For getting events out of Rudel to other hardware/software, the supported,
+native output paths are **MIDI** (`crates/rudel-midi`) and **SuperDirt-compatible
+OSC over UDP** (`crates/rudel-osc`) — selectable in the app's output picker.
+These cover the common "drive external gear / another program" use cases without
+needing the Web Serial or MQTT-over-WebSocket bridges.
