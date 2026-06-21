@@ -121,7 +121,9 @@ pub(crate) fn build_additive(
     let tau = f32x8::splat(TAU);
     for (chunk, slots) in table.chunks_exact_mut(8).enumerate() {
         let base = chunk * 8;
-        let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| (base + l) as f32 * inv_size));
+        let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| {
+            (base + l) as f32 * inv_size
+        }));
         let mut acc = f32x8::splat(0.0);
         for (k, &(r, i)) in coeffs.iter().enumerate() {
             let ang = tau * f32x8::splat((k + 1) as f32) * t;

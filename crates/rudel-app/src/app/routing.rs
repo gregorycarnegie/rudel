@@ -169,7 +169,9 @@ impl RudelApp {
             }
         };
         self.status = "connecting MIDI…".to_string();
-        self.midi_pending = Some(std::thread::spawn(move || MidiOut::connect(port.as_deref())));
+        self.midi_pending = Some(std::thread::spawn(move || {
+            MidiOut::connect(port.as_deref())
+        }));
     }
 
     /// Adopt a background MIDI connection once it finishes: start the scheduler

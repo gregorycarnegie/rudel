@@ -2,8 +2,7 @@ use super::base::{spread_control, value_parts};
 use super::registry::control_name;
 use crate::pattern::Pattern;
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 /// Strudel's `distort` multi-control: a `:`-list (`"3:0.5:diode"`) spreads into
 /// `distort`/`distortvol`/`distorttype` (waveshape amount, postgain, algorithm).
@@ -79,7 +78,7 @@ pub fn ad(pat: impl IntoPattern) -> Pattern {
             let parts = value_parts(&other);
             let attack = parts.first().cloned().unwrap_or(Value::Int(0));
             let decay = parts.get(1).cloned().unwrap_or_else(|| attack.clone());
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert("attack".to_string(), attack);
             m.insert("decay".to_string(), decay);
             Value::Map(m)
@@ -95,7 +94,7 @@ pub fn ds(pat: impl IntoPattern) -> Pattern {
             let parts = value_parts(&other);
             let decay = parts.first().cloned().unwrap_or(Value::Int(0));
             let sustain = parts.get(1).cloned().unwrap_or(Value::Int(0));
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert("decay".to_string(), decay);
             m.insert("sustain".to_string(), sustain);
             Value::Map(m)
@@ -112,7 +111,7 @@ pub fn ar(pat: impl IntoPattern) -> Pattern {
             let parts = value_parts(&other);
             let attack = parts.first().cloned().unwrap_or(Value::Int(0));
             let release = parts.get(1).cloned().unwrap_or_else(|| attack.clone());
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert("attack".to_string(), attack);
             m.insert("release".to_string(), release);
             Value::Map(m)
@@ -159,7 +158,7 @@ impl Pattern {
     pub fn as_controls(&self, names: &[&str]) -> Pattern {
         let keys: Vec<String> = names.iter().map(|n| control_name(n)).collect();
         self.fmap(move |v| {
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             for (key, val) in keys.iter().zip(value_parts(&v)) {
                 m.insert(key.clone(), val);
             }

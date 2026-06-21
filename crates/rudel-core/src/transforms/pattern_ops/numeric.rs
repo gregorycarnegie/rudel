@@ -2,8 +2,7 @@ use super::helpers::frac;
 use crate::fraction::Frac;
 use crate::pattern::{Pattern, pure};
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 impl Pattern {
     // -- Numeric value transforms ------------------------------------------
@@ -41,7 +40,7 @@ impl Pattern {
     /// Both speed up the pattern and the sample playback (`hurry`).
     pub fn hurry(&self, r: impl Into<Frac>) -> Pattern {
         let r = frac(r);
-        let mut m = BTreeMap::new();
+        let mut m = ValueMap::new();
         m.insert("speed".to_string(), Value::Frac(r));
         self._fast(r).mul(pure(Value::Map(m)))
     }

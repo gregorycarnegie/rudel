@@ -1,11 +1,11 @@
 use super::*;
 use crate::note::{aux_messages, bend_value, clamp7, pitch_bend_bytes};
+use rudel_core::ValueMap;
 use rudel_core::{Frac, Pattern, Value, note, pure, sequence, silence};
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn map(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
+fn map(pairs: &[(&str, Value)]) -> ValueMap {
     pairs
         .iter()
         .map(|(k, v)| (k.to_string(), v.clone()))
@@ -189,16 +189,17 @@ fn aux_messages_fire_without_a_note() {
     let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
     let data: Vec<Vec<u8>> = msgs.iter().map(|m| m.data.clone()).collect();
     assert_eq!(data, vec![vec![0xF0, 0x7E, 0x01, 0xF7]]);
-    assert!(!data.iter().any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON)));
+    assert!(
+        !data
+            .iter()
+            .any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON))
+    );
 }
 
 #[test]
 fn aftertouch_accompanies_a_note_at_the_onset() {
     // note + miditouch: both fire at the onset (aftertouch before the note-on).
-    let controls = map(&[
-        ("note", Value::Int(60)),
-        ("miditouch", Value::F64(1.0)),
-    ]);
+    let controls = map(&[("note", Value::Int(60)), ("miditouch", Value::F64(1.0))]);
     let pat = pure(Value::Map(controls));
     let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
     let data: Vec<Vec<u8>> = msgs.iter().map(|m| m.data.clone()).collect();

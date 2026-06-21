@@ -10,6 +10,7 @@ use super::*;
 use crate::editor::decorations::{SourceRange, WidgetDecoration};
 use crate::editor::settings::EditorTheme;
 use eframe::egui;
+use rudel_core::ValueMap;
 use rudel_core::{Frac, Hap, Value};
 use std::collections::BTreeMap;
 
@@ -165,15 +166,15 @@ fn hap_matching_prefers_widget_tags_and_falls_back_to_source_locations() {
 
 #[test]
 fn pianoroll_value_matches_strudel_value_priority() {
-    let freq = hap(Value::Map(BTreeMap::from([(
+    let freq = hap(Value::Map(ValueMap::from([(
         "freq".to_string(),
         Value::F64(440.0),
     )])));
-    let note = hap(Value::Map(BTreeMap::from([(
+    let note = hap(Value::Map(ValueMap::from([(
         "note".to_string(),
         Value::Str("c4".to_string()),
     )])));
-    let sound = hap(Value::Map(BTreeMap::from([(
+    let sound = hap(Value::Map(ValueMap::from([(
         "s".to_string(),
         Value::Str("bd".to_string()),
     )])));

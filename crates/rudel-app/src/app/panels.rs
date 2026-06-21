@@ -174,7 +174,10 @@ impl RudelApp {
                 } else {
                     "Connect"
                 };
-                if ui.add_enabled(!connecting, egui::Button::new(label)).clicked() {
+                if ui
+                    .add_enabled(!connecting, egui::Button::new(label))
+                    .clicked()
+                {
                     self.connect_input();
                 }
                 if connected && ui.button("Disconnect").clicked() {

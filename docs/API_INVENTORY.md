@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 1 | 0 | 2 | 0 |
-| `core` | 618 | 574 | 19 | 25 | 0 |
+| `core` | 618 | 577 | 19 | 22 | 0 |
 | `csound` | 2 | 0 | 2 | 0 | 0 |
 | `draw` | 8 | 0 | 0 | 8 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 0 | 0 | 4 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **594** | **74** | **41** | **0** |
+| **Total** | **709** | **597** | **74** | **38** | **0** |
 
 ## `codemirror`
 
@@ -81,7 +81,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `binshift` | implemented |  |
 | `bite` | implemented |  |
 | `bjork` | implemented |  |
-| `bmod` | deferred | modulator |
+| `bmod` | implemented |  |
 | `bp` | implemented |  |
 | `bpa` | implemented |  |
 | `bpattack` | implemented |  |
@@ -206,7 +206,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `eish` | implemented |  |
 | `end` | implemented |  |
 | `enhance` | implemented |  |
-| `env` | deferred | modulator |
+| `env` | implemented |  |
 | `euclid` | implemented |  |
 | `euclidLegato` | implemented |  |
 | `euclidLegatoRot` | implemented |  |
@@ -333,7 +333,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `lbrick` | implemented |  |
 | `legato` | implemented |  |
 | `leslie` | implemented |  |
-| `lfo` | deferred | modulator |
+| `lfo` | implemented |  |
 | `linger` | implemented |  |
 | `lock` | implemented |  |
 | `log` | deferred | pattern fn gap |

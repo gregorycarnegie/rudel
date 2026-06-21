@@ -154,7 +154,9 @@ fn main() {
     println!();
     for &n in VOICE_COUNTS {
         let mut voices: Vec<Box<dyn VoiceLike>> = (0..n).map(|_| postfx_voice()).collect();
-        time(&format!("synth+postfx x{n}"), n, 3_000, || mix_block(&mut voices));
+        time(&format!("synth+postfx x{n}"), n, 3_000, || {
+            mix_block(&mut voices)
+        });
     }
 
     println!("\n## process_block (Phase 1 prototype)");

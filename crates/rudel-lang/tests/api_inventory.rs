@@ -57,9 +57,10 @@ fn allowlist_index(allowlist: &serde_json::Value) -> BTreeMap<String, (String, S
 fn render() -> String {
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../../../tools/oracle/reference_golden.json")).unwrap();
-    let allowlist: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tools/oracle/reference_allowlist.json"))
-            .unwrap();
+    let allowlist: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tools/oracle/reference_allowlist.json"
+    ))
+    .unwrap();
 
     let r = rudel_lang::reference();
     let mut rudel: BTreeSet<String> = BTreeSet::new();
@@ -164,7 +165,9 @@ fn render() -> String {
         out.push_str("| --- | --- | --- |\n");
         for name in members {
             let (status, entry) = classify(name);
-            let note = entry.map(|(_, cat)| cat.replace('_', " ")).unwrap_or_default();
+            let note = entry
+                .map(|(_, cat)| cat.replace('_', " "))
+                .unwrap_or_default();
             out.push_str(&format!("| `{}` | {} | {} |\n", name, status.label(), note));
         }
         out.push('\n');

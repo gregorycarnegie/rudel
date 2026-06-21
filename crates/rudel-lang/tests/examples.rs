@@ -23,17 +23,41 @@ const EXAMPLES: &[(&str, &str, &str)] = &[
     ("notes", "numeric notes", r#"n("0 2 4 7").s("piano")"#),
     ("notes", "octaves + sharps", r#"note("c4 e4 g4 c5 f#3")"#),
     // --- effects ---
-    ("effects", "filter + room", r#"note("c e g").lpf(800).room(0.4)"#),
-    ("effects", "gain + pan", r#"s("hh*8").gain("0.6 1").pan(sine)"#),
+    (
+        "effects",
+        "filter + room",
+        r#"note("c e g").lpf(800).room(0.4)"#,
+    ),
+    (
+        "effects",
+        "gain + pan",
+        r#"s("hh*8").gain("0.6 1").pan(sine)"#,
+    ),
     ("effects", "delay + crush", r#"s("cp").delay(0.5).crush(4)"#),
     ("effects", "distortion shortcut", r#"note("c2").soft(2)"#),
     // --- pattern effects ---
     ("pattern-fx", "fast/slow", r#"s("bd sd").fast(2).slow(3)"#),
-    ("pattern-fx", "every + rev", r#"note("c e g").every(3, |x| x.rev())"#),
+    (
+        "pattern-fx",
+        "every + rev",
+        r#"note("c e g").every(3, |x| x.rev())"#,
+    ),
     ("pattern-fx", "jux", r#"s("bd sd").jux(rev)"#),
-    ("pattern-fx", "off + add", r#"note("c").off(0.25, |x| x.add(note(7)))"#),
-    ("pattern-fx", "sometimesBy", r#"s("hh*8").sometimesBy(0.4, |x| x.speed(2))"#),
-    ("pattern-fx", "chop/striate", r#"s("break").chop(8).striate(4)"#),
+    (
+        "pattern-fx",
+        "off + add",
+        r#"note("c").off(0.25, |x| x.add(note(7)))"#,
+    ),
+    (
+        "pattern-fx",
+        "sometimesBy",
+        r#"s("hh*8").sometimesBy(0.4, |x| x.speed(2))"#,
+    ),
+    (
+        "pattern-fx",
+        "chop/striate",
+        r#"s("break").chop(8).striate(4)"#,
+    ),
     // --- mini-notation ---
     ("mini", "euclid", r#"s("bd(3,8) sd(5,8,2)")"#),
     ("mini", "alternation", r#"note("<c e g>")"#),
@@ -43,31 +67,67 @@ const EXAMPLES: &[(&str, &str, &str)] = &[
     // --- tonal ---
     ("tonal", "scale", r#"n("0 1 2 3 4 5 6 7").scale("c:major")"#),
     ("tonal", "transpose", r#"note("c e g").transpose("<0 7>")"#),
-    ("tonal", "scaleTranspose", r#"n("0 2 4").scale("a:minor").scaleTranspose(2)"#),
+    (
+        "tonal",
+        "scaleTranspose",
+        r#"n("0 2 4").scale("a:minor").scaleTranspose(2)"#,
+    ),
     ("tonal", "voicing", r#"chord("<C^7 Dm7>").voicing()"#),
     // --- xen ---
     ("xen", "edo", r#"i("0 8 18").xen("31edo")"#),
     ("xen", "ftrans", r#"note("c e g").ftrans("<0 7:31>")"#),
-    ("xen", "edoScale", r#"n("0 1 2 3").edoScale("C:LLsLLLs:2:1")"#),
+    (
+        "xen",
+        "edoScale",
+        r#"n("0 1 2 3").edoScale("C:LLsLLLs:2:1")"#,
+    ),
     // --- samples ---
-    ("samples", "load + play", r#"samples("github:tidalcycles/dirt-samples")
-s("bd sd")"#),
-    ("samples", "bank + index", r#"s("bd:3 hh:1").bank("RolandTR909")"#),
+    (
+        "samples",
+        "load + play",
+        r#"samples("github:tidalcycles/dirt-samples")
+s("bd sd")"#,
+    ),
+    (
+        "samples",
+        "bank + index",
+        r#"s("bd:3 hh:1").bank("RolandTR909")"#,
+    ),
     ("samples", "slice", r#"s("break").slice(8, "0 1 2 3")"#),
     // --- synths ---
-    ("synths", "oscillator", r#"note("c e g").s("sawtooth").lpf(1200)"#),
+    (
+        "synths",
+        "oscillator",
+        r#"note("c e g").s("sawtooth").lpf(1200)"#,
+    ),
     ("synths", "fm", r#"note("c").s("sine").fm(4).fmh(2)"#),
-    ("synths", "adsr", r#"note("c e g").s("square").attack(0.01).release(0.3)"#),
+    (
+        "synths",
+        "adsr",
+        r#"note("c e g").s("square").attack(0.01).release(0.3)"#,
+    ),
     ("synths", "zzfx", r#"note("c e g").s("z_sawtooth")"#),
     // --- MIDI ---
     ("midi", "midi out", r#"note("c e g").midi()"#),
-    ("midi", "cc + channel", r#"note("c").ccn(74).ccv(64).midichan(2)"#),
+    (
+        "midi",
+        "cc + channel",
+        r#"note("c").ccn(74).ccv(64).midichan(2)"#,
+    ),
     // --- OSC ---
     ("osc", "superdirt osc", r#"s("bd sd").osc()"#),
     // --- visual feedback ---
     ("visual", "color control", r#"note("c e g").color("cyan")"#),
-    ("visual", "pianoroll widget", r#"s("bd sd hh oh")._pianoroll()"#),
-    ("visual", "punchcard widget", r#"n("0 2 4 7").s("piano")._punchcard()"#),
+    (
+        "visual",
+        "pianoroll widget",
+        r#"s("bd sd hh oh")._pianoroll()"#,
+    ),
+    (
+        "visual",
+        "punchcard widget",
+        r#"n("0 2 4 7").s("piano")._punchcard()"#,
+    ),
 ];
 
 #[test]

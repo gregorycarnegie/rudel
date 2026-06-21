@@ -13,6 +13,7 @@ pub mod fraction;
 pub mod hap;
 pub mod impure;
 pub mod input;
+pub mod modulate;
 pub mod pattern;
 pub mod query;
 pub mod samples;
@@ -29,6 +30,7 @@ pub mod xen;
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
 pub use impure::{reset_state, reset_timelines};
+pub use modulate::modulate;
 pub use pattern::{
     Pattern, arrange, cat, fastcat, gap, nothing, parse_string, polymeter, pure, reify, sequence,
     set_string_parser, silence, slowcat, slowcat_prime, stack, stack_centre, stack_left,
@@ -37,7 +39,7 @@ pub use pattern::{
 pub use state::State;
 pub use timespan::TimeSpan;
 pub use transforms::{Align, IntoPattern};
-pub use value::Value;
+pub use value::{Value, ValueMap};
 
 // Signals and randomness.
 pub use signal::{

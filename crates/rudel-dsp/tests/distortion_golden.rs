@@ -8,8 +8,8 @@
 // node->Rust golden across all nine algorithms.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use rudel_dsp::DistortAlgo;
 use rudel_core::Value;
+use rudel_dsp::DistortAlgo;
 
 // f32 waveshapers vs the f64 oracle. Across the realistic drive range
 // (distort <= 2) every algorithm agrees to < 1e-5. The tolerance floor is set by
@@ -23,8 +23,18 @@ const EPS: f64 = 5e-4;
 fn distort_algorithms_match_superdough() {
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("distortion_golden.json")).expect("parse golden");
-    let xs: Vec<f64> = golden["xs"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
-    let ks: Vec<f64> = golden["ks"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let xs: Vec<f64> = golden["xs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    let ks: Vec<f64> = golden["ks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
     let cases = golden["cases"].as_array().unwrap();
 
     let mut failures = Vec::new();

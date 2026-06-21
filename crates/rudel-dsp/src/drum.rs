@@ -1,7 +1,6 @@
 use crate::filter::Biquad;
 use crate::voice::VoiceLike;
-use rudel_core::Value;
-use std::collections::BTreeMap;
+use rudel_core::ValueMap;
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,7 +76,7 @@ impl DrumParams {
         }
     }
 
-    pub fn apply_controls(&mut self, map: &BTreeMap<String, Value>) {
+    pub fn apply_controls(&mut self, map: &ValueMap) {
         if let Some(g) = map.get("gain").and_then(|v| v.as_f64()) {
             self.gain = g as f32;
         }

@@ -185,14 +185,14 @@ fn numeric_field(value: &Value, key: &str) -> Option<Frac> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use crate::value::ValueMap;
 
     fn span(b: i64, e: i64) -> TimeSpan {
         TimeSpan::new(Frac::int(b), Frac::int(e))
     }
 
     fn map_hap(pairs: &[(&str, Value)]) -> Hap {
-        let m: BTreeMap<String, Value> = pairs
+        let m: ValueMap = pairs
             .iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect();
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn end_clipped_uses_clipped_duration() {
         // whole [0,1) with clip 0.5 -> sounding event ends at 1/2.
-        let m: BTreeMap<String, Value> = [("clip".to_string(), Value::F64(0.5))].into();
+        let m: ValueMap = [("clip".to_string(), Value::F64(0.5))].into();
         let hap = Hap::new(Some(span(0, 1)), span(0, 1), Value::Map(m));
         assert_eq!(hap.end_clipped(), Frac::new(1, 2));
     }

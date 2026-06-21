@@ -240,14 +240,7 @@ impl Mixer {
             delay_l,
             delay_r,
         } = scratch;
-        for b in [
-            &mut *dry_l,
-            dry_r,
-            room_l,
-            room_r,
-            delay_l,
-            delay_r,
-        ] {
+        for b in [&mut *dry_l, dry_r, room_l, room_r, delay_l, delay_r] {
             b[..len].fill(0.0);
         }
 

@@ -8,9 +8,9 @@
 // MIDI numbers; Strudel emits enharmonic note names — an intentional difference).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use rudel_core::ValueMap;
 use rudel_core::{Frac, Pattern, Value, freq, i, n, note, note_to_midi};
 use rudel_mini::parse;
-use std::collections::BTreeMap;
 
 fn p(code: &str) -> Pattern {
     parse(code).expect("parse")
@@ -33,7 +33,7 @@ fn chord_map(code: &str, extras: &[(&str, Value)]) -> Pattern {
         .map(|(k, v)| (k.to_string(), v.clone()))
         .collect();
     p(code).with_value(move |v| {
-        let mut m = BTreeMap::new();
+        let mut m = ValueMap::new();
         m.insert("chord".to_string(), v);
         for (k, val) in &extras {
             m.insert(k.clone(), val.clone());
@@ -129,7 +129,7 @@ fn build(label: &str) -> Pattern {
         // n("0 1 2 3").chord("C^7").voicing(): n comes from the base pattern.
         "voicing_n" => p("0 1 2 3")
             .with_value(|v| {
-                let mut m = BTreeMap::new();
+                let mut m = ValueMap::new();
                 m.insert("n".to_string(), v);
                 m.insert("chord".to_string(), Value::Str("C^7".to_string()));
                 Value::Map(m)

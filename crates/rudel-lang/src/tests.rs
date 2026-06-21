@@ -3,6 +3,7 @@ mod common;
 mod basics;
 mod callbacks;
 mod controls;
+mod modulate;
 mod pick;
 mod preprocess;
 mod repl;

@@ -17,8 +17,8 @@ pub fn filter_output(pat: &Pattern, target: &str, include_untagged: bool) -> Pat
     })
     .fmap(|v| match v {
         Value::Map(mut m) => {
-            m.remove(IO_KEY);
-            m.remove("_midiport");
+            m.shift_remove(IO_KEY);
+            m.shift_remove("_midiport");
             Value::Map(m)
         }
         other => other,

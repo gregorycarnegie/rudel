@@ -4,9 +4,9 @@
 
 use crate::clock::Clock;
 use crate::samples::SampleBank;
+use rudel_core::ValueMap;
 use rudel_core::{Pattern, Value, query_controls};
 use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams};
-use std::collections::BTreeMap;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
 pub use rudel_core::to_control_map;
@@ -26,7 +26,7 @@ pub struct NoteEvent {
 
 /// The requested MIDI note for a sampler, from `freq` or `note` (name or
 /// number). `None` when neither is set. Mirrors superdough's `valueToMidi`.
-fn requested_midi(map: &BTreeMap<String, Value>) -> Option<f64> {
+fn requested_midi(map: &ValueMap) -> Option<f64> {
     if let Some(freq) = map.get("freq").and_then(|v| v.as_f64()) {
         // freqToMidi: 12*log2(freq/440) + 69
         return Some(12.0 * (freq / 440.0).log2() + 69.0);
@@ -38,7 +38,7 @@ fn requested_midi(map: &BTreeMap<String, Value>) -> Option<f64> {
 }
 
 /// Resolve a control map into either a sampler or synth voice spec.
-fn spec_for(map: &BTreeMap<String, Value>, duration: f32, bank: &SampleBank) -> VoiceSpec {
+fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank) -> VoiceSpec {
     if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
         // The `bank` control prepends `<bank>_` to the sound name, matching
         // Strudel: `s("bd").bank("RolandTR909")` resolves `RolandTR909_bd`. We

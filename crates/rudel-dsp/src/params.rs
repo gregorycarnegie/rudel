@@ -3,8 +3,7 @@ use crate::filter::FilterParams;
 use crate::fm::FmSpec;
 use crate::oscillator::{AdditiveType, NoiseKind, Waveform, build_additive};
 use crate::pitch::note_to_freq;
-use rudel_core::Value;
-use std::collections::BTreeMap;
+use rudel_core::{Value, ValueMap};
 
 pub struct VoiceParams {
     pub waveform: Waveform,
@@ -108,7 +107,7 @@ impl Default for VoiceParams {
 
 impl VoiceParams {
     /// Build params from a control map and the note duration in seconds.
-    pub fn from_controls(map: &BTreeMap<String, Value>, duration: f32) -> VoiceParams {
+    pub fn from_controls(map: &ValueMap, duration: f32) -> VoiceParams {
         let mut p = VoiceParams {
             duration,
             ..Default::default()

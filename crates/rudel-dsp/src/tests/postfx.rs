@@ -157,7 +157,12 @@ fn phaser_swept_notch_impulse_response_matches_webaudio() {
     assert!(
         failures.is_empty(),
         "phaser impulse-response mismatches vs WebAudio:\n{}",
-        failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 

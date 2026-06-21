@@ -572,10 +572,11 @@ fn beat_collect_morph_xfade_via_koto() {
     // morph (array + string forms) yields a boolean structure pattern.
     assert!(eval(r#"s("hh").struct(morph([1,0,1,0,1,0,1,0], [1,1,0,1,0,1,0], 0.25))"#).is_ok());
     let pat = eval(r#"morph("1:0:1:0", "1:0:1:0", 0)"#).expect("eval");
-    assert!(pat
-        .query_arc(Frac::zero(), Frac::one())
-        .iter()
-        .all(|h| h.value == Value::Bool(true)));
+    assert!(
+        pat.query_arc(Frac::zero(), Frac::one())
+            .iter()
+            .all(|h| h.value == Value::Bool(true))
+    );
 
     // xfade: at pos 1 the right side is full and the left is silent.
     let pat = eval(r#"s("a").xfade(1, s("b"))"#).expect("eval");

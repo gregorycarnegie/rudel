@@ -119,12 +119,7 @@ impl SampleBank {
     /// rounded) `n` sample index and wraps euclidean-modulo over the chosen
     /// group's length, so a negative `n` selects from the end — matching
     /// superdough's `getSoundIndex` (`_mod(Math.round(n), numSounds)`).
-    pub fn resolve(
-        &self,
-        name: &str,
-        index: i64,
-        midi: Option<f64>,
-    ) -> Option<(Arc<Sample>, f64)> {
+    pub fn resolve(&self, name: &str, index: i64, midi: Option<f64>) -> Option<(Arc<Sample>, f64)> {
         let groups = self.map.get(name)?;
         if groups.iter().any(|g| g.note.is_some()) {
             // Pitched map: pick the closest tuned group (fallback target C3=36).

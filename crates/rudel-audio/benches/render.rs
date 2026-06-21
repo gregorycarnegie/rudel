@@ -84,7 +84,9 @@ fn time(label: &str, voices: usize, iters: u32, mut f: impl FnMut() -> usize) {
 }
 
 fn main() {
-    println!("# full mixer (voices + reverb + delay): render {BLOCK}-frame blocks @ {SAMPLE_RATE} Hz");
+    println!(
+        "# full mixer (voices + reverb + delay): render {BLOCK}-frame blocks @ {SAMPLE_RATE} Hz"
+    );
     let mut out = vec![(0.0f32, 0.0f32); BLOCK];
     for &n in VOICE_COUNTS {
         let mut mixer = loaded_mixer(n);

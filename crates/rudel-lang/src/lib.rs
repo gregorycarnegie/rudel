@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use bindings::register;
-use bindings::{collected_stack, function_names, method_names, reset_slots};
+use bindings::{apply_pattern_transforms, function_names, method_names, reset_slots};
 use preprocess::{preprocess_strudel_with_meta, preprocess_strudel_with_meta_in_range};
 use samples::register_samples;
 
@@ -212,15 +212,17 @@ fn eval_result_with_preprocessor(
     let chunk = koto.compile(&script).map_err(|e| e.to_string())?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
     let effects = std::mem::take(&mut *effects.lock().unwrap());
-    // When the script registered pattern slots (`note("c").d1()` etc.), the
-    // result is their stack, mirroring Strudel's `applyPatternTransforms`;
-    // otherwise the script's own return value is used.
-    let pattern = match collected_stack() {
-        Some(stacked) => stacked,
-        None => match result {
-            KValue::Object(o) if o.is_a::<KPattern>() => o.cast::<KPattern>().unwrap().0.clone(),
-            other => return Err(format!("script did not return a pattern (got {other:?})")),
-        },
+    // Combine the script's pattern with any registered slots/labels and the
+    // `each`/`all` transforms, mirroring Strudel's `applyPatternTransforms`:
+    // registered slots stack (with soloing and `each`), otherwise the script's
+    // own return value is used, and every `all` transform runs over the result.
+    let script_pattern = match &result {
+        KValue::Object(o) if o.is_a::<KPattern>() => Some(o.cast::<KPattern>().unwrap().0.clone()),
+        _ => None,
+    };
+    let pattern = match apply_pattern_transforms(script_pattern) {
+        Some(pattern) => pattern,
+        None => return Err(format!("script did not return a pattern (got {result:?})")),
     };
     Ok(EvalResult {
         pattern,

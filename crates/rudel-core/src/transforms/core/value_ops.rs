@@ -9,7 +9,7 @@ fn as_map(v: &Value) -> Value {
     match v {
         Value::Map(_) => v.clone(),
         other => {
-            let mut m = std::collections::BTreeMap::new();
+            let mut m = crate::value::ValueMap::new();
             m.insert("value".to_string(), other.clone());
             Value::Map(m)
         }

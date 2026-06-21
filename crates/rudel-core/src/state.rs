@@ -3,25 +3,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::timespan::TimeSpan;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::ValueMap;
 
 /// Query state: the span being queried plus ambient controls.
 #[derive(Clone, Debug)]
 pub struct State {
     pub span: TimeSpan,
-    pub controls: BTreeMap<String, Value>,
+    pub controls: ValueMap,
 }
 
 impl State {
     pub fn new(span: TimeSpan) -> Self {
         State {
             span,
-            controls: BTreeMap::new(),
+            controls: ValueMap::new(),
         }
     }
 
-    pub fn with_controls(span: TimeSpan, controls: BTreeMap<String, Value>) -> Self {
+    pub fn with_controls(span: TimeSpan, controls: ValueMap) -> Self {
         State { span, controls }
     }
 

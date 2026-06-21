@@ -7,8 +7,7 @@
 use crate::hap::Hap;
 use crate::pattern::{Pattern, pure, silence, stack};
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 /// Semitone offsets for the seven note letters from C.
 pub(crate) fn letter_semitone(letter: char) -> Option<i32> {
@@ -358,7 +357,7 @@ pub fn step_in_named_scale(step: i32, scale: &str, anchor_midi: i32) -> Option<i
 ///
 /// Only folds when a `note` is present; otherwise the controls are left in place
 /// so an external synth can still interpret them.
-pub fn apply_transpose_controls(controls: &mut BTreeMap<String, Value>, scale: Option<&str>) {
+pub fn apply_transpose_controls(controls: &mut ValueMap, scale: Option<&str>) {
     if !controls.contains_key("mtranspose") && !controls.contains_key("ctranspose") {
         return;
     }
@@ -378,8 +377,8 @@ pub fn apply_transpose_controls(controls: &mut BTreeMap<String, Value>, scale: O
         midi += semis;
     }
     controls.insert("note".to_string(), Value::F64(midi));
-    controls.remove("mtranspose");
-    controls.remove("ctranspose");
+    controls.shift_remove("mtranspose");
+    controls.shift_remove("ctranspose");
 }
 
 pub const CHORD_SYMBOLS: &[&str] = &[
@@ -592,8 +591,8 @@ fn apply_scale_to_hap(hap: Hap, scale: &str) -> Option<Hap> {
             let anchor = m.get("anchor").and_then(value_to_midi).map(|m| m as i32);
             let note = scale_resolve(&source, scale, anchor)?;
             let mut out = m.clone();
-            out.remove("n");
-            out.remove("value");
+            out.shift_remove("n");
+            out.shift_remove("value");
             out.insert("note".to_string(), Value::F64(note));
             Value::Map(out)
         }

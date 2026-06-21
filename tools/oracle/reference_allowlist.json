@@ -45,11 +45,6 @@
         "useRNG", "setGainCurve", "setMaxPolyphony", "addVoicings"
       ]
     },
-    "modulator": {
-      "status": "deferred",
-      "reason": "User-facing modulator descriptor methods; the LFO source DSP is ported but the descriptor methods + Web Audio control-target routing are pending (FULL_STRUDEL.md modulate/lfo/env/bmod item).",
-      "names": ["lfo", "env", "bmod"]
-    },
     "query_path_callback": {
       "status": "unsupported",
       "reason": "Per-hap predicates evaluated in the query path, which the Koto VM cannot run there (it is not Send/Sync); tag exists only to feed filter (FULL_STRUDEL.md core/pattern.mjs item).",

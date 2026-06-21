@@ -308,9 +308,15 @@ mod tests {
         assert_eq!(base_url_of("https://host/strudel.json"), "https://host");
         // authority only (the `local:` sampler server) -> the URL itself, NOT
         // the scheme's `http:/` truncation the naive rfind would produce.
-        assert_eq!(base_url_of("http://localhost:5432"), "http://localhost:5432");
+        assert_eq!(
+            base_url_of("http://localhost:5432"),
+            "http://localhost:5432"
+        );
         // trailing slash -> authority without the slash
-        assert_eq!(base_url_of("http://localhost:5432/"), "http://localhost:5432");
+        assert_eq!(
+            base_url_of("http://localhost:5432/"),
+            "http://localhost:5432"
+        );
         // pseudo/local fallback unchanged
         assert_eq!(base_url_of("packs/strudel.json"), "packs");
     }

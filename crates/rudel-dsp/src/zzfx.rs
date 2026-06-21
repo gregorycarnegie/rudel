@@ -7,8 +7,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::voice::VoiceLike;
-use rudel_core::Value;
-use std::collections::BTreeMap;
+use rudel_core::{Value, ValueMap};
 use std::f32::consts::FRAC_PI_2;
 use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -224,7 +223,7 @@ pub struct ZzfxParams {
 impl ZzfxParams {
     /// Map a control map to ZzFX params (port of `getZZFX`). `duration` is the
     /// hap's length in seconds.
-    pub fn from_controls(name: &str, map: &BTreeMap<String, Value>, duration: f32) -> ZzfxParams {
+    pub fn from_controls(name: &str, map: &ValueMap, duration: f32) -> ZzfxParams {
         let num = |k: &str, d: f64| map.get(k).and_then(|v| v.as_f64()).unwrap_or(d);
 
         let attack = num("attack", 0.0);
@@ -387,7 +386,7 @@ impl VoiceLike for ZzfxVoice {
 mod tests {
     use super::*;
 
-    fn map(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
+    fn map(pairs: &[(&str, Value)]) -> ValueMap {
         pairs
             .iter()
             .map(|(k, v)| (k.to_string(), v.clone()))

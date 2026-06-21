@@ -13,8 +13,7 @@ use crate::pattern::{Pattern, pure, silence, stack};
 use crate::tonal::{
     chord_symbol, interval_to_semitones, letter_semitone, note_to_midi_with_octave,
 };
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 type VoicingTable = phf::OrderedMap<&'static str, &'static [&'static str]>;
 
@@ -1451,7 +1450,7 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
 /// Extract a voicing's controls from a hap value (chord string, or a map with a
 /// `chord` key plus optional `dict`/`anchor`/`mode`/`offset`/`octaves`/`n`).
 /// Returns `(chord, opts, extra_controls)`.
-fn opts_from_value(value: &Value) -> Option<(String, VoicingOpts, BTreeMap<String, Value>)> {
+fn opts_from_value(value: &Value) -> Option<(String, VoicingOpts, ValueMap)> {
     match value {
         Value::Map(m) => {
             let chord = chord_symbol(m.get("chord")?)?;
@@ -1493,20 +1492,20 @@ fn opts_from_value(value: &Value) -> Option<(String, VoicingOpts, BTreeMap<Strin
                 "octaves",
                 "n",
             ] {
-                extra.remove(k);
+                extra.shift_remove(k);
             }
             Some((chord, opts, extra))
         }
         other => Some((
             chord_symbol(other)?,
             VoicingOpts::default(),
-            BTreeMap::new(),
+            ValueMap::new(),
         )),
     }
 }
 
 /// Build a stacked note pattern for one chord, merging any extra controls.
-fn voicing_pattern(chord: &str, opts: &VoicingOpts, extra: &BTreeMap<String, Value>) -> Pattern {
+fn voicing_pattern(chord: &str, opts: &VoicingOpts, extra: &ValueMap) -> Pattern {
     match render_voicing(chord, opts) {
         Some(notes) => {
             let pats: Vec<Pattern> = notes
@@ -1641,7 +1640,7 @@ mod tests {
     #[test]
     fn voicing_reads_dictionary_control_key() {
         // a map carrying chord + the `dictionary` control key (from `dict()`).
-        let mut m = BTreeMap::new();
+        let mut m = ValueMap::new();
         m.insert("chord".to_string(), Value::Str("C^7".into()));
         m.insert("dictionary".to_string(), Value::Str("lefthand".into()));
         let pat = pure(Value::Map(m)).voicing();

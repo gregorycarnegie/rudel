@@ -48,9 +48,10 @@ fn rudel_names() -> BTreeSet<String> {
 fn reference_diff_matches_allowlist() {
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../../../tools/oracle/reference_golden.json")).unwrap();
-    let allowlist: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tools/oracle/reference_allowlist.json"))
-            .unwrap();
+    let allowlist: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tools/oracle/reference_allowlist.json"
+    ))
+    .unwrap();
 
     let strudel = collect(&golden, "names");
     let rudel = rudel_names();
@@ -83,9 +84,10 @@ fn every_strudel_control_is_exposed_or_allowlisted() {
     // separately so a missing control can't hide inside the combined name diff.
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../../../tools/oracle/reference_golden.json")).unwrap();
-    let allowlist: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tools/oracle/reference_allowlist.json"))
-            .unwrap();
+    let allowlist: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tools/oracle/reference_allowlist.json"
+    ))
+    .unwrap();
 
     let strudel_controls = collect(&golden, "controls");
     // A control name counts as covered if it is reachable in Rudel under any

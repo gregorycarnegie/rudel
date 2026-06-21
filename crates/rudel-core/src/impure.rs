@@ -83,8 +83,8 @@ mod tests {
     use crate::state::State;
     use crate::timespan::TimeSpan;
     use crate::value::Value;
+    use crate::value::ValueMap;
     use crate::{pure, sequence};
-    use std::collections::BTreeMap;
 
     fn cycle(n: i64) -> TimeSpan {
         TimeSpan::new(Frac::int(n), Frac::int(n + 1))
@@ -94,9 +94,9 @@ mod tests {
     /// from the scheduler (sets the `cyclist` control like the back-ends do).
     fn query_cycle(pat: &Pattern, n: i64, scheduler: bool) -> Vec<crate::hap::Hap> {
         let controls = if scheduler {
-            BTreeMap::from([("cyclist".to_string(), Value::Str("cyclist".into()))])
+            ValueMap::from([("cyclist".to_string(), Value::Str("cyclist".into()))])
         } else {
-            BTreeMap::new()
+            ValueMap::new()
         };
         pat.query(&State::with_controls(cycle(n), controls))
     }

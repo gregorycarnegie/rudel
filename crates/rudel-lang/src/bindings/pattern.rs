@@ -8,6 +8,7 @@ mod callback;
 mod convert;
 mod generated;
 mod methods;
+mod modulate;
 mod pick;
 mod repl;
 
@@ -22,8 +23,9 @@ pub(super) use convert::{
     arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair,
     koto_to_value,
 };
+pub(crate) use modulate::register_modulate_fns;
 pub(super) use pick::pick_args;
-pub(crate) use repl::{collected_stack, reset_slots};
+pub(crate) use repl::{apply_pattern_transforms, push_all, register_slot, reset_slots, set_each};
 
 /// A Koto wrapper around a rudel [`Pattern`].
 #[derive(Clone, KotoCopy, KotoType)]
@@ -79,6 +81,9 @@ pub(crate) fn extend_control_entries() {
         // REPL pattern slots (`p`/`q`/`d1`/`p1`/`q1`) registered onto the same
         // shared entries map.
         repl::insert_slot_methods(&entries);
+        // Modulator builders (`modulate`/`lfo`/`env`/`bmod`), which take a
+        // config map whose key order is significant.
+        modulate::insert_modulate_methods(&entries);
         // Numbered FM controls have no Rust builder fns; their names and
         // canonical keys are generated at runtime.
         for (name, key) in rudel_core::numbered_control_names() {

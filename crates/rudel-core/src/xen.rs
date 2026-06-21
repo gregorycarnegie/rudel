@@ -5,9 +5,8 @@
 use crate::hap::Hap;
 use crate::pattern::{Pattern, silence};
 use crate::transforms::IntoPattern;
-use crate::value::Value;
+use crate::value::{Value, ValueMap};
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 const DEFAULT_BASE: f64 = 220.0;
 
@@ -193,7 +192,7 @@ fn apply_xen_to_hap(hap: Hap, scale: &XenScale) -> Option<Hap> {
     let Value::Map(mut m) = value else {
         return None;
     };
-    let step = m.remove("i").and_then(|v| v.as_f64())?;
+    let step = m.shift_remove("i").and_then(|v| v.as_f64())?;
     let freq = trim_precision_10(DEFAULT_BASE * scale_offset(&scale.ratios, step)?);
     m.insert("freq".to_string(), Value::F64(freq));
     if let Some(edo_size) = scale.edo_size {
@@ -271,13 +270,16 @@ fn rescale_freq_value(value: Value, base: f64, original: f64) -> Value {
     }
 }
 
-fn frequency_from_value(value: Value) -> (bool, BTreeMap<String, Value>, f64) {
+fn frequency_from_value(value: Value) -> (bool, ValueMap, f64) {
     match value {
         Value::Map(mut m) => {
-            let freq = m.remove("freq").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let freq = m
+                .shift_remove("freq")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             (true, m, freq)
         }
-        other => (false, BTreeMap::new(), other.as_f64().unwrap_or(0.0)),
+        other => (false, ValueMap::new(), other.as_f64().unwrap_or(0.0)),
     }
 }
 

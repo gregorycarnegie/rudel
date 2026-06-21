@@ -1,12 +1,13 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=296 methods=1041 controls=659
+# functions=301 methods=1045 controls=659
 
 [functions]
 Math
 add
 aliasBank
+all
 almostAlways
 almostNever
 almost_always
@@ -28,6 +29,7 @@ binaryNL
 bite
 bjork
 blshift
+bmod
 bor
 brak
 brand
@@ -66,11 +68,13 @@ degrade_by
 diode
 div
 drop
+each
 early
 echo
 echoWith
 echowith
 eish
+env
 eq
 eqt
 euclid
@@ -136,6 +140,7 @@ keepif
 lastOf
 last_of
 late
+lfo
 linger
 loopAt
 loop_at
@@ -362,6 +367,7 @@ binshift
 bite
 bjork
 blshift
+bmod
 bor
 bp
 bpa
@@ -510,6 +516,7 @@ edo_scale
 eish
 end
 enhance
+env
 eq
 eqt
 euclid
@@ -922,6 +929,7 @@ layer
 lbrick
 legato
 leslie
+lfo
 linger
 lock
 loop
@@ -973,6 +981,7 @@ miditouch
 minutes
 mix
 mode
+modulate
 modulo
 modulo_mix
 modulo_out

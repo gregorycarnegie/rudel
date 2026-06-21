@@ -1,10 +1,9 @@
 use crate::pattern::Pattern;
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 pub(super) fn single(name: &str, v: Value) -> Value {
-    let mut m = BTreeMap::new();
+    let mut m = ValueMap::new();
     m.insert(name.to_string(), v);
     Value::Map(m)
 }
@@ -36,7 +35,7 @@ pub fn wrap_control_dyn(name: impl Into<String>, pat: impl IntoPattern) -> Patte
     let name = name.into();
     pat.into_pattern().fmap(move |v| match v {
         Value::Map(mut m) if m.contains_key("value") => {
-            if let Some(value) = m.remove("value") {
+            if let Some(value) = m.shift_remove("value") {
                 m.insert(name.clone(), value);
             }
             Value::Map(m)
@@ -62,7 +61,7 @@ pub(super) fn spread_control(names: &'static [&'static str], pat: Pattern) -> Pa
     pat.fmap(move |v| match v {
         Value::Map(_) => v,
         other => {
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             for (key, val) in names.iter().zip(value_parts(&other)) {
                 m.insert(key.to_string(), val);
             }

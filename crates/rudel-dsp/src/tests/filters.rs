@@ -6,7 +6,7 @@ fn ftype_24db_cascades_the_filter() {
     // Drive each filter with a steady-ish high-frequency input and compare the
     // residual energy.
     fn residual(ftype: f64) -> f32 {
-        let map = BTreeMap::from([
+        let map = ValueMap::from([
             ("cutoff".to_string(), Value::F64(200.0)),
             ("ftype".to_string(), Value::F64(ftype)),
         ]);
@@ -35,7 +35,7 @@ fn ftype_24db_cascades_the_filter() {
     // ftype parses on params: 0/1 -> single, 2 -> cascade.
     let cascade_of = |f: f64| {
         VoiceParams::from_controls(
-            &BTreeMap::from([
+            &ValueMap::from([
                 ("cutoff".to_string(), Value::F64(500.0)),
                 ("ftype".to_string(), Value::F64(f)),
             ]),

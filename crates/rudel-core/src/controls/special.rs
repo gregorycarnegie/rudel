@@ -1,15 +1,14 @@
 use super::base::single;
 use crate::pattern::Pattern;
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 /// The `s`/`sound` control, with `"name:index"` splitting into `{ s, n }`.
 pub fn s(pat: impl IntoPattern) -> Pattern {
     pat.into_pattern().fmap(|v| match v {
         Value::Str(ref string) if string.contains(':') => {
             let mut parts = string.splitn(2, ':');
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert(
                 "s".to_string(),
                 Value::Str(parts.next().unwrap_or("").to_string()),
@@ -27,7 +26,7 @@ pub fn s(pat: impl IntoPattern) -> Pattern {
         }
         // mini-notation produces a list for `bd:3`
         Value::List(ref items) if !items.is_empty() => {
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert("s".to_string(), items[0].clone());
             if let Some(idx) = items.get(1) {
                 m.insert("n".to_string(), idx.clone());
@@ -51,7 +50,7 @@ pub fn mode(pat: impl IntoPattern) -> Pattern {
     pat.into_pattern().fmap(|v| match v {
         Value::Map(_) => v,
         Value::List(ref items) if !items.is_empty() => {
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert("mode".to_string(), items[0].clone());
             if let Some(anchor) = items.get(1) {
                 m.insert("anchor".to_string(), anchor.clone());
@@ -60,7 +59,7 @@ pub fn mode(pat: impl IntoPattern) -> Pattern {
         }
         Value::Str(ref s) if s.contains(':') => {
             let mut parts = s.splitn(2, ':');
-            let mut m = BTreeMap::new();
+            let mut m = ValueMap::new();
             m.insert(
                 "mode".to_string(),
                 Value::Str(parts.next().unwrap_or("").to_string()),

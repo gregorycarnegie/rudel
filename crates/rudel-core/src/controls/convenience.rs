@@ -1,7 +1,6 @@
 use crate::pattern::Pattern;
-use crate::value::Value;
+use crate::value::{Value, ValueMap};
 use crate::xen::freq_to_midi;
-use std::collections::BTreeMap;
 
 impl Pattern {
     /// Strudel's `piano()` convenience: select the piano sample bank, set a
@@ -22,7 +21,7 @@ impl Pattern {
     }
 }
 
-fn piano_pan(m: &BTreeMap<String, Value>) -> Option<f64> {
+fn piano_pan(m: &ValueMap) -> Option<f64> {
     let midi = m
         .get("note")
         .and_then(value_to_midi)

@@ -8,8 +8,7 @@ use crate::fraction::Frac;
 use crate::pattern::{Pattern, fastcat, pure, slowcat};
 use crate::state::State;
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 /// Strudel's default cycles-per-second, used when the query state carries no
 /// `_cps` control (the cps-dependent transforms read it from there).
@@ -26,14 +25,14 @@ fn cps_of(state: &State) -> f64 {
 
 /// Coerce a hap value into a control map: maps pass through, anything else
 /// becomes `{ s: value }` (mirrors Strudel's `o instanceof Object ? o : {s:o}`).
-fn as_control_map(v: &Value) -> BTreeMap<String, Value> {
+fn as_control_map(v: &Value) -> ValueMap {
     match v {
         Value::Map(m) => m.clone(),
-        other => BTreeMap::from([("s".to_string(), other.clone())]),
+        other => ValueMap::from([("s".to_string(), other.clone())]),
     }
 }
 
-fn map_f64(m: &BTreeMap<String, Value>, key: &str) -> Option<f64> {
+fn map_f64(m: &ValueMap, key: &str) -> Option<f64> {
     m.get(key).and_then(|v| v.as_f64())
 }
 
@@ -102,7 +101,7 @@ impl Pattern {
         }
         let slices: Vec<Pattern> = (0..n)
             .map(|i| {
-                let mut m = BTreeMap::new();
+                let mut m = ValueMap::new();
                 m.insert("begin".to_string(), Value::F64(i as f64 / n as f64));
                 m.insert("end".to_string(), Value::F64((i + 1) as f64 / n as f64));
                 pure(Value::Map(m))
@@ -257,7 +256,7 @@ fn slice_value(nval: &Value, ival: &Value, oval: &Value) -> Value {
             (i / n, (i + 1.0) / n, n)
         }
     };
-    let mut m = BTreeMap::new();
+    let mut m = ValueMap::new();
     m.insert("begin".to_string(), Value::F64(begin));
     m.insert("end".to_string(), Value::F64(end));
     m.insert("_slices".to_string(), Value::F64(slices));
@@ -273,26 +272,26 @@ mod tests {
     use super::*;
     use crate::{State, TimeSpan, s, sequence, silence};
 
-    fn maps(pat: &Pattern, b: i64, e: i64) -> Vec<BTreeMap<String, Value>> {
+    fn maps(pat: &Pattern, b: i64, e: i64) -> Vec<ValueMap> {
         let mut haps = pat.query_arc(Frac::int(b), Frac::int(e));
         haps.sort_by_key(|h| h.part.begin);
         haps.into_iter()
             .map(|h| match h.value {
                 Value::Map(m) => m,
-                other => BTreeMap::from([("v".to_string(), other)]),
+                other => ValueMap::from([("v".to_string(), other)]),
             })
             .collect()
     }
 
-    fn query_cps(pat: &Pattern, cps: f64) -> Vec<BTreeMap<String, Value>> {
-        let controls = BTreeMap::from([("_cps".to_string(), Value::F64(cps))]);
+    fn query_cps(pat: &Pattern, cps: f64) -> Vec<ValueMap> {
+        let controls = ValueMap::from([("_cps".to_string(), Value::F64(cps))]);
         let state = State::with_controls(TimeSpan::new(Frac::zero(), Frac::one()), controls);
         let mut haps = pat.query(&state);
         haps.sort_by_key(|h| h.part.begin);
         haps.into_iter()
             .map(|h| match h.value {
                 Value::Map(m) => m,
-                other => BTreeMap::from([("v".to_string(), other)]),
+                other => ValueMap::from([("v".to_string(), other)]),
             })
             .collect()
     }

@@ -12,8 +12,7 @@
 
 use crate::pattern::{Pattern, silence};
 use crate::transforms::IntoPattern;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 const TUNING: f64 = 440.0;
 
@@ -365,9 +364,9 @@ fn edo_map_value(value: Value, p: &Pitches) -> Value {
     if is_object {
         let mut m = match value {
             Value::Map(m) => m,
-            _ => BTreeMap::new(),
+            _ => ValueMap::new(),
         };
-        m.remove("n");
+        m.shift_remove("n");
         m.insert("degree".to_string(), Value::Int(degree));
         m.insert("degreeIndexes".to_string(), p.degree_indexes());
         m.insert("intLabels".to_string(), p.int_labels_value());
@@ -467,7 +466,7 @@ mod tests {
     fn object_input_carries_edo_metadata() {
         let pat = n(deg_pat(&[0, 2])).edo_scale("C:LLsLLLs:2:1");
         let haps = pat.query_arc(Frac::zero(), Frac::one());
-        let mut maps: Vec<&BTreeMap<String, Value>> = haps
+        let mut maps: Vec<&ValueMap> = haps
             .iter()
             .filter_map(|h| match &h.value {
                 Value::Map(m) => Some(m),

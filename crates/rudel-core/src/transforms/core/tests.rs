@@ -1,8 +1,7 @@
 use crate::fraction::Frac;
 use crate::pattern::{Pattern, fastcat, pure};
 use crate::signal::rand;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 fn vals(pat: &Pattern) -> Vec<Value> {
     let mut haps = pat.query_arc(Frac::zero(), Frac::one());
@@ -56,13 +55,13 @@ fn add_squeeze_fits_other_per_event() {
 #[test]
 fn set_squeeze_merges_maps() {
     // {note:0} set.squeeze {s:a}{s:b} -> per note event, two {note,s} haps
-    let note = pure(Value::Map(BTreeMap::from([("note".into(), Value::Int(0))])));
+    let note = pure(Value::Map(ValueMap::from([("note".into(), Value::Int(0))])));
     let s = fastcat(&[
-        pure(Value::Map(BTreeMap::from([(
+        pure(Value::Map(ValueMap::from([(
             "s".into(),
             Value::Str("a".into()),
         )]))),
-        pure(Value::Map(BTreeMap::from([(
+        pure(Value::Map(ValueMap::from([(
             "s".into(),
             Value::Str("b".into()),
         )]))),
@@ -154,11 +153,11 @@ fn add_poly_aligns_step_counts() {
 #[test]
 fn keep_prefers_left_value() {
     // {s:bd} keep {s:sd, n:1} -> keeps s:bd, gains n:1
-    let a = pure(Value::Map(BTreeMap::from([(
+    let a = pure(Value::Map(ValueMap::from([(
         "s".into(),
         Value::Str("bd".into()),
     )])));
-    let b = pure(Value::Map(BTreeMap::from([
+    let b = pure(Value::Map(ValueMap::from([
         ("s".into(), Value::Str("sd".into())),
         ("n".into(), Value::Int(1)),
     ])));

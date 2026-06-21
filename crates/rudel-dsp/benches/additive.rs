@@ -16,9 +16,8 @@
 //!
 //! Dependency-free `harness = false` main, matching the other rudel benches.
 
-use rudel_core::Value;
+use rudel_core::{Value, ValueMap};
 use rudel_dsp::VoiceParams;
-use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -27,8 +26,8 @@ use std::time::Instant;
 const PARTIALS: &[usize] = &[4, 7, 16, 32, 64, 100, 256];
 
 /// A control map selecting a sawtooth additive base with `n` unit partials.
-fn partials_map(n: usize) -> BTreeMap<String, Value> {
-    let mut m = BTreeMap::new();
+fn partials_map(n: usize) -> ValueMap {
+    let mut m = ValueMap::new();
     m.insert("s".to_string(), Value::Str("sawtooth".into()));
     m.insert("note".to_string(), Value::Str("c3".into()));
     m.insert(
@@ -49,10 +48,7 @@ fn time(label: &str, iters: u32, mut f: impl FnMut() -> usize) {
     }
     let elapsed = start.elapsed();
     let per = elapsed.as_secs_f64() / f64::from(iters);
-    println!(
-        "{label:<16} {:>10.2} µs/build   (work={sink})",
-        per * 1e6,
-    );
+    println!("{label:<16} {:>10.2} µs/build   (work={sink})", per * 1e6,);
 }
 
 fn main() {

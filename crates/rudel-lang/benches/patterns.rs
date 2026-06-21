@@ -28,7 +28,10 @@ const PATTERNS: &[(&str, &str)] = &[
         r#"stack(s("bd*4"), s("hh*8"), s("~ cp"), note("c e g").slow(2), n("0 2 4 7"), s("rim*3"), s("oh*2"), s("mt lt ht"))"#,
     ),
     ("rand.segment128", r#"rand.segment(128)"#),
-    ("drums.euclid", r#"s("bd(3,8) sd(5,8,2) hh*8").gain("0.8 0.6")"#),
+    (
+        "drums.euclid",
+        r#"s("bd(3,8) sd(5,8,2) hh*8").gain("0.8 0.6")"#,
+    ),
     (
         "melody.hof",
         r#"note("c e g b").fast(2).every(3, |x| x.rev()).add(note("<0 12>")).lpf(800)"#,

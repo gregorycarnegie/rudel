@@ -6,6 +6,7 @@
 
 use super::KPattern;
 use super::args::{method_arg, with_instance};
+use super::callback::Callback;
 use super::convert::koto_to_value;
 use koto::prelude::*;
 use koto::runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error};
@@ -13,35 +14,101 @@ use rudel_core::{Pattern, Value, pure, silence, stack};
 use std::cell::{Cell, RefCell};
 
 thread_local! {
-    /// Patterns registered via `p`/`d1`/`p1` during the current evaluation, in
-    /// registration order. Reset per eval, like Strudel's `pPatterns`.
-    static P_SLOTS: RefCell<Vec<Pattern>> = const { RefCell::new(Vec::new()) };
+    /// Patterns registered via `p`/`d1`/`p1`/`$:` during the current evaluation,
+    /// in registration order, each with its slot `key`. Reset per eval, like
+    /// Strudel's `pPatterns`. The key drives solo detection (an `S`-prefixed key
+    /// longer than one char solos, mirroring `S$:`).
+    static P_SLOTS: RefCell<Vec<(String, Pattern)>> = const { RefCell::new(Vec::new()) };
     /// Counter for anonymous (`$`) slots, matching Strudel's `anonymousIndex`.
     static ANON: Cell<usize> = const { Cell::new(0) };
+    /// Transform set by `each(f)`: applied to every registered pattern (or the
+    /// script's own pattern when none are registered). Strudel's `eachTransform`.
+    static EACH: RefCell<Option<Callback>> = const { RefCell::new(None) };
+    /// Transforms pushed by `all(f)`: applied in order to the final stacked
+    /// pattern. Strudel's `allTransforms`.
+    static ALL: RefCell<Vec<Callback>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Clear the slot registry. Called at the start of every evaluation (and by
-/// `hush`), so slots from a previous eval don't leak into the next.
+/// Clear the slot registry and the `each`/`all` transforms. Called at the start
+/// of every evaluation (and by `hush`), so state from a previous eval doesn't
+/// leak into the next. Mirrors `hush()` in `core/repl.mjs`.
 pub(crate) fn reset_slots() {
     P_SLOTS.with(|s| s.borrow_mut().clear());
     ANON.with(|a| a.set(0));
+    EACH.with(|e| *e.borrow_mut() = None);
+    ALL.with(|a| a.borrow_mut().clear());
 }
 
-/// The stack of all registered slots, or `None` if none were registered (in
-/// which case the evaluator keeps the script's own return value). Mirrors
-/// `applyPatternTransforms`: when any slot is set, the result is their stack.
-pub(crate) fn collected_stack() -> Option<Pattern> {
-    P_SLOTS.with(|s| {
-        let slots = s.borrow();
-        (!slots.is_empty()).then(|| stack(&slots))
-    })
+/// Store the `each(f)` transform (the last call wins, matching Strudel).
+pub(crate) fn set_each(ctx: &CallContext, func: KValue) {
+    let cb = Callback::from_call_ctx(ctx, func);
+    EACH.with(|e| *e.borrow_mut() = Some(cb));
 }
 
-/// Register `pat` under slot `id` (`Pattern.prototype.p`). A `_x`/`x_` id mutes
-/// (returns silence without registering); a `$` id gets a per-eval anonymous
-/// suffix. The pattern is tagged with its id (like Strudel's
-/// `withState(setControls({id}))`) and recorded for stacking.
-fn register_slot(id: &str, pat: Pattern) -> Pattern {
+/// Append an `all(f)` transform (applied in registration order).
+pub(crate) fn push_all(ctx: &CallContext, func: KValue) {
+    let cb = Callback::from_call_ctx(ctx, func);
+    ALL.with(|a| a.borrow_mut().push(cb));
+}
+
+/// Combine the evaluated patterns the way Strudel's `applyPatternTransforms`
+/// does: when slots/labels were registered, stack them (honouring `S`-prefixed
+/// soloing and the per-pattern `each` transform); otherwise fall back to the
+/// script's own `pattern`, still applying `each`. Finally run every `all`
+/// transform over the result. Returns `None` only when there is nothing to play
+/// (no slots, no script pattern, no transforms) so the caller can report the
+/// "script did not return a pattern" error.
+pub(crate) fn apply_pattern_transforms(script: Option<Pattern>) -> Option<Pattern> {
+    let slots = P_SLOTS.with(|s| s.borrow().clone());
+
+    let mut pattern = if !slots.is_empty() {
+        // Soloing: once an `S`-prefixed key (longer than one char) appears, drop
+        // every previously collected pattern and keep only soloed ones.
+        let mut patterns: Vec<Pattern> = Vec::new();
+        let mut solo_active = false;
+        for (key, pat) in &slots {
+            let is_solod = key.len() > 1 && key.starts_with('S');
+            if is_solod && !solo_active {
+                patterns.clear();
+                solo_active = true;
+            }
+            if !solo_active || is_solod {
+                patterns.push(pat.clone());
+            }
+        }
+        EACH.with(|e| {
+            if let Some(cb) = e.borrow().as_ref() {
+                patterns = patterns.iter().map(|p| cb.apply(p)).collect();
+            }
+        });
+        stack(&patterns)
+    } else {
+        match script {
+            Some(p) => EACH.with(|e| match e.borrow().as_ref() {
+                Some(cb) => cb.apply(&p),
+                None => p,
+            }),
+            // No slots and no script pattern: only meaningful if `all` was used
+            // (it then transforms silence); otherwise there is nothing to play.
+            None if ALL.with(|a| a.borrow().is_empty()) => return None,
+            None => silence(),
+        }
+    };
+
+    ALL.with(|a| {
+        for cb in a.borrow().iter() {
+            pattern = cb.apply(&pattern);
+        }
+    });
+    Some(pattern)
+}
+
+/// Register `pat` under slot `id` (`Pattern.prototype.p` and the `$:` labels). A
+/// `_x`/`x_` id mutes (returns silence without registering); a `$` id gets a
+/// per-eval anonymous suffix. The pattern is tagged with its id (like Strudel's
+/// `withState(setControls({id}))`) and recorded with its key for stacking and
+/// solo detection.
+pub(crate) fn register_slot(id: &str, pat: Pattern) -> Pattern {
     if id.starts_with('_') || id.ends_with('_') {
         return silence();
     }
@@ -55,8 +122,8 @@ fn register_slot(id: &str, pat: Pattern) -> Pattern {
     } else {
         id.to_string()
     };
-    let tagged = pat.ctrl("id", pure(Value::Str(key)));
-    P_SLOTS.with(|s| s.borrow_mut().push(tagged.clone()));
+    let tagged = pat.ctrl("id", pure(Value::Str(key.clone())));
+    P_SLOTS.with(|s| s.borrow_mut().push((key, tagged.clone())));
     tagged
 }
 

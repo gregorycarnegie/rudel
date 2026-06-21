@@ -84,3 +84,69 @@ fn slots_do_not_leak_between_evaluations() {
     assert_eq!(vals.len(), 1);
     assert_eq!(id_of(&vals[0]), None, "no slot id should carry over");
 }
+
+#[test]
+fn all_transforms_the_stacked_patterns() {
+    // `all(f)` applies `f` to the whole stack: two one-event slots stacked and
+    // fast(2)'d yield four events per cycle.
+    let src = "note(\"c\").d1()\nnote(\"e\").d2()\nall(|x| x.fast(2))";
+    let pat = eval(src).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4);
+}
+
+#[test]
+fn all_on_labels_transforms_the_stack() {
+    // `$:` labels are picked up by `all`, just like slots.
+    let src = "$: note(\"c\")\n$: note(\"e\")\nall(|x| x.fast(2))";
+    let pat = eval(src).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4);
+}
+
+#[test]
+fn each_transforms_every_pattern_separately() {
+    // `each(f)` applies `f` to each registered pattern before stacking: two
+    // slots, each fast(2)'d, give four events.
+    let src = "note(\"c\").d1()\nnote(\"e\").d2()\neach(|x| x.fast(2))";
+    let pat = eval(src).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4);
+}
+
+#[test]
+fn each_without_slots_transforms_the_script_pattern() {
+    // With no registered slots, `each` applies to the script's own pattern.
+    let src = "each(|x| x.fast(2))\nnote(\"c\")";
+    let pat = eval(src).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+}
+
+#[test]
+fn solo_slot_silences_the_others() {
+    // An `S`-prefixed key solos: only that pattern plays. `p("S1")` solos over a
+    // plain `d2` slot.
+    let src = "note(\"c\").d2()\nnote(\"e\").p(\"S1\")";
+    let pat = eval(src).expect("eval");
+    let ids: Vec<String> = values(&pat, 0, 1).iter().filter_map(id_of).collect();
+    assert_eq!(ids, vec!["S1".to_string()], "only the soloed slot plays");
+}
+
+#[test]
+fn solo_keeps_all_soloed_patterns() {
+    // Multiple soloed slots all play; non-soloed ones drop out.
+    let src = "note(\"c\").d1()\nnote(\"e\").p(\"S2\")\nnote(\"g\").p(\"S3\")";
+    let pat = eval(src).expect("eval");
+    let ids: std::collections::BTreeSet<String> =
+        values(&pat, 0, 1).iter().filter_map(id_of).collect();
+    assert_eq!(
+        ids,
+        ["S2", "S3"].iter().map(|s| s.to_string()).collect(),
+        "both soloed slots play, the plain one is dropped"
+    );
+}
+
+#[test]
+fn combiners_do_not_leak_between_evaluations() {
+    // An `all` transform set in one eval must not affect the next.
+    let _ = eval("note(\"c\").d1()\nall(|x| x.fast(4))").expect("eval");
+    let pat = eval(r#"note("e")"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 1, "all() must not carry over");
+}

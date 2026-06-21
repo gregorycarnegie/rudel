@@ -6,8 +6,7 @@
 
 use crate::envelope::Adsr;
 use crate::oscillator::Waveform;
-use rudel_core::Value;
-use std::collections::BTreeMap;
+use rudel_core::ValueMap;
 
 /// Number of FM operators (1..=`FM_OPS`); index 0 is the carrier target.
 pub const FM_OPS: usize = 8;
@@ -73,7 +72,7 @@ impl FmSpec {
     }
 
     /// Build the matrix from a control map.
-    pub fn from_controls(map: &BTreeMap<String, Value>) -> FmSpec {
+    pub fn from_controls(map: &ValueMap) -> FmSpec {
         let f = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
         let mut spec = FmSpec::default();
 

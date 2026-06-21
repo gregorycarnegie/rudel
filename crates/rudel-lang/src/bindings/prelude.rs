@@ -3,7 +3,7 @@ use super::pattern::{
     arg_to_value, arg_to_weighted_pair, arg0, koto_to_value, pick_args,
 };
 use koto::prelude::*;
-use rudel_core::{Frac, Pattern, PickJoin, Value};
+use rudel_core::{Frac, Pattern, PickJoin};
 
 macro_rules! register_unary_pattern_fns {
     ($p:expr; $($name:literal => $f:path),* $(,)?) => {
@@ -223,6 +223,9 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("chord", |ctx| {
         Ok(KPattern(rudel_core::control_dyn("chord", arg_to_pattern(&arg0(ctx)))).into())
     });
+    // `$:`/`name:` labels: register the pattern into the slot registry so it is
+    // picked up by `applyPatternTransforms` (stacking, `each`/`all`, soloing),
+    // exactly like Strudel's transpiler-injected `.p(label)`.
     prelude.add_fn("rudel_label", |ctx| {
         let name = match ctx.args().first() {
             Some(KValue::Str(s)) => s.to_string(),
@@ -233,7 +236,22 @@ pub(crate) fn register(prelude: &KMap) {
             .get(1)
             .map(arg_to_pattern)
             .unwrap_or_else(rudel_core::silence);
-        Ok(KPattern(pat.ctrl("id", rudel_core::pure(Value::Str(name)))).into())
+        Ok(KPattern(super::pattern::register_slot(&name, pat)).into())
+    });
+    // all(f): apply `f` to all running patterns stacked together (core/repl.mjs).
+    // each(f): apply `f` to each running pattern separately. Both take a function
+    // value (`rev`, `|x| x.fast(2)`) since Koto has no partial application, and
+    // return silence so they can sit on their own line. Patterns must be labeled
+    // (`$:`) or slotted (`.d1()`) to be picked up.
+    prelude.add_fn("all", |ctx| {
+        let func = ctx.args().first().cloned().unwrap_or(KValue::Null);
+        super::pattern::push_all(ctx, func);
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+    prelude.add_fn("each", |ctx| {
+        let func = ctx.args().first().cloned().unwrap_or(KValue::Null);
+        super::pattern::set_each(ctx, func);
+        Ok(KPattern(rudel_core::silence()).into())
     });
     register_pattern_list_fns!(prelude;
         "stack" => rudel_core::stack,
@@ -539,6 +557,8 @@ pub(crate) fn register(prelude: &KMap) {
     // registered above. The function-callback combinators are registered
     // separately since their `Callback` plumbing lives in the pattern module.
     super::pattern::register_standalone_callbacks(prelude);
+    // Standalone `lfo`/`env`/`bmod` modulator factories (build on an empty map).
+    super::pattern::register_modulate_fns(prelude);
 
     // euclid morph / tuple-euclid standalone forms (pattern last); their
     // signatures don't fit the `register_pattern_fns!` arg groups.

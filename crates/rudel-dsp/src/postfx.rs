@@ -1,7 +1,6 @@
 use crate::filter::Biquad;
 use crate::voice::VoiceLike;
-use rudel_core::Value;
-use std::collections::BTreeMap;
+use rudel_core::{Value, ValueMap};
 use std::f32::consts::TAU;
 use wide::f32x8;
 
@@ -88,11 +87,16 @@ struct Formant {
 impl Formant {
     fn new(vowel: Vowel, sample_rate: f32) -> Formant {
         let f = vowel.formants();
-        let (mut b0, mut b1, mut b2, mut a1, mut a2, mut gains) =
-            ([0.0f32; 8], [0.0; 8], [0.0; 8], [0.0; 8], [0.0; 8], [0.0; 8]);
+        let (mut b0, mut b1, mut b2, mut a1, mut a2, mut gains) = (
+            [0.0f32; 8],
+            [0.0; 8],
+            [0.0; 8],
+            [0.0; 8],
+            [0.0; 8],
+            [0.0; 8],
+        );
         for i in 0..5 {
-            let (cb0, cb1, cb2, ca1, ca2) =
-                Biquad::bandpass(sample_rate, f[i].0, f[i].2).coeffs();
+            let (cb0, cb1, cb2, ca1, ca2) = Biquad::bandpass(sample_rate, f[i].0, f[i].2).coeffs();
             (b0[i], b1[i], b2[i], a1[i], a2[i], gains[i]) = (cb0, cb1, cb2, ca1, ca2, f[i].1);
         }
         Formant {
@@ -340,7 +344,7 @@ impl Default for PostFx {
 }
 
 impl PostFx {
-    pub fn from_controls(map: &BTreeMap<String, Value>) -> PostFx {
+    pub fn from_controls(map: &ValueMap) -> PostFx {
         let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
         PostFx {
             crush: get("crush"),
@@ -505,7 +509,8 @@ impl MemorylessFx {
                 * f32x8::splat(pg);
         }
         if let Some((rate, depth)) = self.tremolo {
-            let uni = f32x8::splat(0.5) * (f32x8::splat(1.0) - (f32x8::splat(TAU * rate) * t).cos());
+            let uni =
+                f32x8::splat(0.5) * (f32x8::splat(1.0) - (f32x8::splat(TAU * rate) * t).cos());
             v *= f32x8::splat(1.0 - depth) + f32x8::splat(depth) * uni;
         }
         if self.postgain != 1.0 {
@@ -666,9 +671,17 @@ impl VoiceLike for PostFxVoice {
 
         let mut i = 0;
         while i + 8 <= n {
-            let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| t0 + (i + l) as f32 * inv_sr));
-            let l = fx.apply8(f32x8::from(<[f32; 8]>::try_from(&out_l[i..i + 8]).unwrap()), t);
-            let r = fx.apply8(f32x8::from(<[f32; 8]>::try_from(&out_r[i..i + 8]).unwrap()), t);
+            let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| {
+                t0 + (i + l) as f32 * inv_sr
+            }));
+            let l = fx.apply8(
+                f32x8::from(<[f32; 8]>::try_from(&out_l[i..i + 8]).unwrap()),
+                t,
+            );
+            let r = fx.apply8(
+                f32x8::from(<[f32; 8]>::try_from(&out_r[i..i + 8]).unwrap()),
+                t,
+            );
             out_l[i..i + 8].copy_from_slice(&l.to_array());
             out_r[i..i + 8].copy_from_slice(&r.to_array());
             i += 8;

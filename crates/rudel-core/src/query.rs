@@ -7,8 +7,7 @@ use crate::fraction::Frac;
 use crate::pattern::Pattern;
 use crate::state::State;
 use crate::timespan::TimeSpan;
-use crate::value::Value;
-use std::collections::BTreeMap;
+use crate::value::{Value, ValueMap};
 
 /// A discrete onset with its control map and timing, in seconds on the caller's
 /// clock (derived from `cps`).
@@ -21,24 +20,24 @@ pub struct ControlEvent {
     /// Onset time in cycles.
     pub onset_cycle: f64,
     /// The resolved control map (`note`, `s`, `gain`, ...).
-    pub controls: BTreeMap<String, Value>,
+    pub controls: ValueMap,
 }
 
 /// Normalize a hap value into a control map: maps pass through; bare strings
 /// become `{s}`; `name:index` lists become `{s, n}`; bare numbers become
 /// `{note}`.
-pub fn to_control_map(value: &Value) -> BTreeMap<String, Value> {
+pub fn to_control_map(value: &Value) -> ValueMap {
     match value {
         Value::Map(m) => m.clone(),
-        Value::Str(_) => BTreeMap::from([("s".to_string(), value.clone())]),
+        Value::Str(_) => ValueMap::from([("s".to_string(), value.clone())]),
         Value::List(items) if !items.is_empty() => {
-            let mut m = BTreeMap::from([("s".to_string(), items[0].clone())]);
+            let mut m = ValueMap::from([("s".to_string(), items[0].clone())]);
             if let Some(n) = items.get(1) {
                 m.insert("n".to_string(), n.clone());
             }
             m
         }
-        other => BTreeMap::from([("note".to_string(), other.clone())]),
+        other => ValueMap::from([("note".to_string(), other.clone())]),
     }
 }
 
@@ -59,7 +58,7 @@ pub fn query_controls(
     // `cyclist` marks this as a scheduler/trigger query (Strudel's cyclist sets
     // it too), so impure transforms like `timeline` know to advance their
     // persistent state here rather than on visualiser queries.
-    let controls = BTreeMap::from([
+    let controls = ValueMap::from([
         ("_cps".to_string(), Value::F64(cps)),
         ("cyclist".to_string(), Value::Str("cyclist".to_string())),
     ]);
@@ -121,7 +120,7 @@ mod tests {
     #[test]
     fn mtranspose_defaults_to_major_without_a_scale() {
         // No tagged scale -> C:major: note 60 (C4) up 1 step -> D4 (62).
-        let mut controls = BTreeMap::from([
+        let mut controls = ValueMap::from([
             ("note".to_string(), Value::Int(60)),
             ("mtranspose".to_string(), Value::Int(1)),
         ]);
@@ -132,7 +131,7 @@ mod tests {
     #[test]
     fn transpose_controls_left_when_no_note() {
         // Without a note (e.g. a bare sample), the controls are forwarded as-is.
-        let mut controls = BTreeMap::from([("ctranspose".to_string(), Value::Int(7))]);
+        let mut controls = ValueMap::from([("ctranspose".to_string(), Value::Int(7))]);
         crate::tonal::apply_transpose_controls(&mut controls, None);
         assert_eq!(controls.get("ctranspose"), Some(&Value::Int(7)));
     }

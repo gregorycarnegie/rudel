@@ -24,7 +24,7 @@ fn voice_produces_sound_then_finishes() {
 fn dry_control_parses_and_defaults_full() {
     // Default dry is full (1.0); `dry` parses into the param + voice accessor.
     assert_eq!(VoiceParams::default().dry, 1.0);
-    let map = BTreeMap::from([("dry".to_string(), Value::F64(0.25))]);
+    let map = ValueMap::from([("dry".to_string(), Value::F64(0.25))]);
     let p = VoiceParams::from_controls(&map, 0.1);
     assert_eq!(p.dry, 0.25);
     let v = Voice::new(p, 44100.0);
@@ -175,7 +175,7 @@ fn two_operator_fm_chain_changes_the_signal() {
     // op2 -> op1 -> carrier (fmi2 + fmi). The second operator modulating the
     // first should change the timbre vs. single-operator FM alone.
     let map = |extra: &[(&str, f64)]| {
-        let mut m = BTreeMap::new();
+        let mut m = ValueMap::new();
         m.insert("s".to_string(), Value::Str("sine".into()));
         m.insert("note".to_string(), Value::Str("c3".into()));
         m.insert("fm".to_string(), Value::F64(4.0)); // op1 -> carrier
@@ -205,7 +205,7 @@ fn two_operator_fm_chain_changes_the_signal() {
 #[test]
 fn additive_partials_build_a_custom_waveform() {
     let map = |partials: Vec<Value>| {
-        let mut m = BTreeMap::new();
+        let mut m = ValueMap::new();
         m.insert("s".to_string(), Value::Str("sawtooth".into()));
         m.insert("note".to_string(), Value::Str("c3".into()));
         m.insert("partials".to_string(), Value::List(partials));
@@ -244,7 +244,7 @@ fn additive_partials_build_a_custom_waveform() {
 
 #[test]
 fn partials_count_expands_to_equal_harmonics() {
-    let mut m = BTreeMap::new();
+    let mut m = ValueMap::new();
     m.insert("s".to_string(), Value::Str("user".into()));
     m.insert("partials".to_string(), Value::Int(6));
     let p = VoiceParams::from_controls(&m, 1.0);
@@ -287,7 +287,7 @@ proptest! {
 #[test]
 fn pulse_resolves_from_s_and_pw_changes_output() {
     let map = |pw: f32| {
-        let mut m = BTreeMap::new();
+        let mut m = ValueMap::new();
         m.insert("s".to_string(), Value::Str("pulse".into()));
         m.insert("pw".to_string(), Value::F64(pw as f64));
         m
@@ -400,7 +400,7 @@ fn vibrato_and_pitch_env_change_pitch() {
 
 #[test]
 fn adsr_shortcut_parses_list() {
-    let map = BTreeMap::from([(
+    let map = ValueMap::from([(
         "adsr".to_string(),
         Value::List(vec![
             Value::F64(0.1),
@@ -463,14 +463,26 @@ fn short_note_with_long_decay_renders_and_finishes() {
             finished = true;
             // a few extra ticks past the envelope should stay silent
             for _ in 0..64 {
-                assert!(v.tick().0.abs() < 1e-6, "output should be silent after done");
+                assert!(
+                    v.tick().0.abs() < 1e-6,
+                    "output should be silent after done"
+                );
             }
             let _ = i;
             break;
         }
     }
     assert!(peak > 0.0, "voice should produce non-silent output");
-    assert!(peak <= 1.0 + 1e-6, "amplitude envelope must not exceed unity");
-    assert!(tail < 0.2, "release should fade the tail toward silence, got {tail}");
-    assert!(finished, "voice should finish after the cut decay + release");
+    assert!(
+        peak <= 1.0 + 1e-6,
+        "amplitude envelope must not exceed unity"
+    );
+    assert!(
+        tail < 0.2,
+        "release should fade the tail toward silence, got {tail}"
+    );
+    assert!(
+        finished,
+        "voice should finish after the cut decay + release"
+    );
 }

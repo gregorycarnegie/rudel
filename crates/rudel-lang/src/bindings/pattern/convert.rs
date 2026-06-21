@@ -1,7 +1,6 @@
 use super::KPattern;
 use koto::prelude::*;
-use rudel_core::{Frac, Pattern, Value};
-use std::collections::BTreeMap;
+use rudel_core::{Frac, Pattern, Value, ValueMap};
 
 /// Convert a Koto argument into a pattern: numbers become `pure` values,
 /// strings parse as mini-notation, and patterns pass through.
@@ -134,7 +133,9 @@ pub(in crate::bindings) fn koto_to_value(value: &KValue) -> Value {
         KValue::List(l) => Value::List(l.data().iter().map(koto_to_value).collect()),
         KValue::Tuple(t) => Value::List(t.data().iter().map(koto_to_value).collect()),
         KValue::Map(m) => {
-            let mut out = BTreeMap::new();
+            // Preserve the Koto map's insertion order (it mirrors JS object key
+            // order, which Strudel-faithful behaviour like `modulate` relies on).
+            let mut out = ValueMap::new();
             for (k, v) in m.data().iter() {
                 if let KValue::Str(key) = k.value() {
                     out.insert(key.to_string(), koto_to_value(v));

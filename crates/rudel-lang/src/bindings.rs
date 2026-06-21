@@ -6,7 +6,7 @@ use koto::prelude::*;
 
 pub use pattern::KPattern;
 pub(crate) use pattern::{
-    arg_to_f64, arg_to_raw_str, arg0, collected_stack, method_names, reset_slots,
+    apply_pattern_transforms, arg_to_f64, arg_to_raw_str, arg0, method_names, reset_slots,
 };
 pub(crate) use prelude::register;
 pub use routing::{filter_output, output_targets};

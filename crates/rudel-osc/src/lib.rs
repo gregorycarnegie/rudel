@@ -3,8 +3,8 @@
 // real-time scheduler mirroring the MIDI back-end.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use rudel_core::ValueMap;
 use rudel_core::{Pattern, Value, note_to_midi, note_to_midi_with_octave, query_controls};
-use std::collections::BTreeMap;
 use std::net::{ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -94,20 +94,15 @@ fn parse_numeral(s: &str) -> Option<f64> {
 /// Build a SuperDirt `/dirt/play` message from a control map. Prepends
 /// `cps`, `cycle` and `delta` (seconds), adds `midinote` for note values, and
 /// undoes the `unit: 'c'` speed scaling (as SuperDirt re-applies it).
-pub fn superdirt_message(
-    controls: &BTreeMap<String, Value>,
-    cps: f64,
-    cycle: f64,
-    delta: f64,
-) -> OscMessage {
+pub fn superdirt_message(controls: &ValueMap, cps: f64, cycle: f64, delta: f64) -> OscMessage {
     let mut map = controls.clone();
     // `oschost`/`oscport` are client-side routing, not SuperDirt synth params.
-    map.remove("oschost");
-    map.remove("oscport");
+    map.shift_remove("oschost");
+    map.shift_remove("oscport");
     // An event-level `cps` control overrides the engine tempo, like Strudel's
     // `{ cps, cycle, delta, ...hap.value }` spread.
     let cps = map
-        .remove("cps")
+        .shift_remove("cps")
         .and_then(|v| v.as_f64())
         .filter(|c| *c > 0.0)
         .unwrap_or(cps);
@@ -137,7 +132,8 @@ pub fn superdirt_message(
     }
 
     // `bank` prepends the sample-set name to `s` (SuperDirt's `bank + s`).
-    if let (Some(Value::Str(bank)), Some(Value::Str(s))) = (map.get("bank").cloned(), map.get("s")) {
+    if let (Some(Value::Str(bank)), Some(Value::Str(s))) = (map.get("bank").cloned(), map.get("s"))
+    {
         map.insert("s".to_string(), Value::Str(format!("{bank}{s}")));
     }
 
@@ -156,7 +152,10 @@ pub fn superdirt_message(
                 None => "null".to_string(),
             })
             .collect();
-        map.insert("channels".to_string(), Value::Str(format!("[{}]", parts.join(","))));
+        map.insert(
+            "channels".to_string(),
+            Value::Str(format!("[{}]", parts.join(","))),
+        );
     }
 
     // SuperDirt re-applies cps to `unit: 'c'` speeds, so undo it here.
@@ -174,8 +173,12 @@ pub fn superdirt_message(
         OscArg::Str("delta".to_string()),
         OscArg::Float(delta as f32),
     ];
-    // Deterministic key order (BTreeMap iterates sorted).
-    for (k, v) in &map {
+    // Deterministic key order: the control map preserves insertion order, but
+    // SuperDirt treats the args as an unordered key/value list, so emit sorted
+    // for stable, reproducible packets.
+    let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    for (k, v) in entries {
         if let Some(arg) = value_to_arg(v) {
             args.push(OscArg::Str(k.clone()));
             args.push(arg);
@@ -190,7 +193,7 @@ pub fn superdirt_message(
 /// Resolve a per-event OSC destination from `oschost`/`oscport` controls, or
 /// `None` to use the engine's default target. `oschost` defaults to
 /// `127.0.0.1`, `oscport` to [`SUPERDIRT_PORT`] when only one is given.
-pub fn osc_target(controls: &BTreeMap<String, Value>) -> Option<String> {
+pub fn osc_target(controls: &ValueMap) -> Option<String> {
     let host = controls.get("oschost").map(|v| match v {
         Value::Str(s) => s.clone(),
         other => other.as_f64().map(|f| f.to_string()).unwrap_or_default(),
@@ -431,7 +434,7 @@ mod tests {
 
     #[test]
     fn superdirt_prefixes_and_midinote() {
-        let controls = BTreeMap::from([
+        let controls = ValueMap::from([
             ("s".to_string(), Value::Str("piano".into())),
             ("note".to_string(), Value::Str("a4".into())),
         ]);
@@ -462,7 +465,7 @@ mod tests {
     fn superdirt_applies_parse_controls_transforms() {
         // bank prepends to s; roomsize -> size; channels -> JSON string;
         // n numeral-coerced; note name uses the octave control.
-        let controls = BTreeMap::from([
+        let controls = ValueMap::from([
             ("s".to_string(), Value::Str("bd".into())),
             ("bank".to_string(), Value::Str("RolandTR909".into())),
             ("roomsize".to_string(), Value::F64(0.8)),
@@ -491,7 +494,7 @@ mod tests {
     #[test]
     fn superdirt_note_uses_octave_control() {
         // "c" with octave 5 -> MIDI 72 (vs the default-octave 60).
-        let controls = BTreeMap::from([
+        let controls = ValueMap::from([
             ("note".to_string(), Value::Str("c".into())),
             ("octave".to_string(), Value::F64(5.0)),
         ]);
@@ -506,7 +509,7 @@ mod tests {
 
     #[test]
     fn event_cps_control_overrides_engine_cps() {
-        let controls = BTreeMap::from([
+        let controls = ValueMap::from([
             ("s".to_string(), Value::Str("bd".into())),
             ("cps".to_string(), Value::F64(1.5)),
         ]);
@@ -526,18 +529,18 @@ mod tests {
     fn oscport_and_oschost_resolve_a_target_and_are_stripped() {
         // Only a port -> default host; both -> host:port; neither -> None.
         assert_eq!(
-            osc_target(&BTreeMap::from([("oscport".to_string(), Value::Int(9000))])),
+            osc_target(&ValueMap::from([("oscport".to_string(), Value::Int(9000))])),
             Some("127.0.0.1:9000".to_string())
         );
         assert_eq!(
-            osc_target(&BTreeMap::from([
+            osc_target(&ValueMap::from([
                 ("oschost".to_string(), Value::Str("10.0.0.2".into())),
                 ("oscport".to_string(), Value::Int(7000)),
             ])),
             Some("10.0.0.2:7000".to_string())
         );
         assert_eq!(
-            osc_target(&BTreeMap::from([(
+            osc_target(&ValueMap::from([(
                 "s".to_string(),
                 Value::Str("bd".into())
             )])),
@@ -545,7 +548,7 @@ mod tests {
         );
         // The routing keys are not emitted as SuperDirt params.
         let msg = superdirt_message(
-            &BTreeMap::from([
+            &ValueMap::from([
                 ("s".to_string(), Value::Str("bd".into())),
                 ("oscport".to_string(), Value::Int(9000)),
                 ("oschost".to_string(), Value::Str("10.0.0.2".into())),
@@ -580,7 +583,7 @@ mod tests {
             .unwrap();
         let out = OscOut::connect(&default_recv.local_addr().unwrap().to_string()).unwrap();
         let msg = superdirt_message(
-            &BTreeMap::from([("note".to_string(), Value::Int(60))]),
+            &ValueMap::from([("note".to_string(), Value::Int(60))]),
             0.5,
             0.0,
             1.0,
@@ -613,7 +616,7 @@ mod tests {
         let addr = recv.local_addr().unwrap().to_string();
         let out = OscOut::connect(&addr).unwrap();
         let msg = superdirt_message(
-            &BTreeMap::from([("note".to_string(), Value::Int(60))]),
+            &ValueMap::from([("note".to_string(), Value::Int(60))]),
             0.5,
             0.0,
             1.0,
@@ -647,7 +650,10 @@ mod tests {
         let (tags, _) = read_osc_string(&buf[..n], off).expect("type tags");
         assert!(tags.starts_with(','));
         // header keys are sent as strings: ",s f s f s f ..." -> at least cps.
-        assert!(buf[..n].windows(3).any(|w| w == b"cps"), "missing cps header");
+        assert!(
+            buf[..n].windows(3).any(|w| w == b"cps"),
+            "missing cps header"
+        );
     }
 
     proptest! {

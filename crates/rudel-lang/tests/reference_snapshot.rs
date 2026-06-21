@@ -16,7 +16,9 @@ fn render() -> String {
     let mut out = String::new();
     out.push_str("# Rudel reference / autocomplete surface snapshot\n");
     out.push_str("# Generated from rudel_lang::reference(); do not edit by hand.\n");
-    out.push_str("# Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot\n");
+    out.push_str(
+        "# Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot\n",
+    );
     out.push_str(&format!(
         "# functions={} methods={} controls={}\n",
         r.functions.len(),

@@ -5,9 +5,18 @@
 
 use crate::fraction::Frac;
 use crate::pattern::Pattern;
+use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
+
+/// A control map value. An [`IndexMap`] (insertion-ordered) rather than a plain
+/// sorted map so that key *insertion* order is preserved — mirroring JS object
+/// key order, which Strudel relies on (e.g. `modulate`'s "default to the control
+/// applied just before" rule reads `Object.keys(v).at(-1)`). Equality is
+/// order-independent (`IndexMap`'s `PartialEq` ignores order), and the `Debug`
+/// impl renders keys sorted so snapshot output stays deterministic.
+pub type ValueMap = IndexMap<String, Value>;
 
 /// A boxed value-transforming function, used as a hap value during the
 /// applicative steps (`appLeft`/`appRight`/`appBoth`) of patternification.
@@ -17,7 +26,8 @@ pub type ValueFn = Arc<dyn Fn(Value) -> Value + Send + Sync>;
 ///
 /// Strudel haps carry plain JS values (numbers, strings, control objects, and —
 /// transiently — functions and patterns). We model that with an enum. `Map`
-/// uses a `BTreeMap` for deterministic ordering in snapshot output.
+/// uses an insertion-ordered [`ValueMap`] to mirror JS object key order, while
+/// `Debug` renders sorted for deterministic snapshot output.
 #[derive(Clone)]
 pub enum Value {
     Null,
@@ -29,7 +39,7 @@ pub enum Value {
     Frac(Frac),
     Str(String),
     List(Vec<Value>),
-    Map(BTreeMap<String, Value>),
+    Map(ValueMap),
     /// A function value (pattern of functions during applicative application).
     Func(ValueFn),
     /// A pattern value (used by `squeezeJoin`, `inhabit`, mini-notation, ...).
@@ -158,7 +168,12 @@ impl fmt::Debug for Value {
             Value::Frac(x) => write!(f, "{x}"),
             Value::Str(s) => write!(f, "{s:?}"),
             Value::List(l) => write!(f, "{l:?}"),
-            Value::Map(m) => write!(f, "{m:?}"),
+            // Render keys sorted so Debug/snapshot output stays deterministic
+            // even though the map preserves insertion order internally.
+            Value::Map(m) => {
+                let sorted: BTreeMap<&String, &Value> = m.iter().collect();
+                write!(f, "{sorted:?}")
+            }
             Value::Func(_) => write!(f, "<func>"),
             Value::Pat(_) => write!(f, "<pattern>"),
         }

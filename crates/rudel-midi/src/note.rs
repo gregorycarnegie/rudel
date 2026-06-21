@@ -2,8 +2,8 @@ use crate::{
     CHANNEL_AFTERTOUCH, CONTROL_CHANGE, DEFAULT_BEND_RANGE, NOTE_OFF, NOTE_ON, PITCH_BEND,
     PROGRAM_CHANGE, SYSEX_END, SYSEX_START,
 };
+use rudel_core::ValueMap;
 use rudel_core::{Value, freq_to_midi, note_to_midi};
-use std::collections::BTreeMap;
 
 /// Clamp a float to a 0..=127 MIDI data byte.
 pub(crate) fn clamp7(x: f64) -> u8 {
@@ -54,11 +54,11 @@ impl MidiNote {
     }
 }
 
-fn get_f64(m: &BTreeMap<String, Value>, key: &str) -> Option<f64> {
+fn get_f64(m: &ValueMap, key: &str) -> Option<f64> {
     m.get(key).and_then(|v| v.as_f64())
 }
 
-fn get_bool(m: &BTreeMap<String, Value>, key: &str) -> Option<bool> {
+fn get_bool(m: &ValueMap, key: &str) -> Option<bool> {
     m.get(key).map(Value::truthy)
 }
 
@@ -110,7 +110,7 @@ pub fn reset_messages() -> Vec<Vec<u8>> {
 /// - channel from `midichan`/`channel` (1-based), else 1
 /// - control-change from `ccn` + `ccv` (value 0..1)
 /// - program change from `progNum`
-pub fn control_to_midi(controls: &BTreeMap<String, Value>) -> Option<MidiNote> {
+pub fn control_to_midi(controls: &ValueMap) -> Option<MidiNote> {
     let freq_pitch = controls
         .get("freq")
         .and_then(Value::as_f64)
@@ -158,7 +158,7 @@ pub fn control_to_midi(controls: &BTreeMap<String, Value>) -> Option<MidiNote> {
 }
 
 /// 0-based MIDI channel from `midichan`/`channel` (1-based), defaulting to 1.
-pub(crate) fn channel_of(controls: &BTreeMap<String, Value>) -> u8 {
+pub(crate) fn channel_of(controls: &ValueMap) -> u8 {
     let chan = get_f64(controls, "midichan")
         .or_else(|| get_f64(controls, "channel"))
         .unwrap_or(1.0);
@@ -169,7 +169,11 @@ pub(crate) fn channel_of(controls: &BTreeMap<String, Value>) -> u8 {
 fn bytes_from_value(v: &Value) -> Vec<u8> {
     let to_byte = |x: f64| x.round().clamp(0.0, 255.0) as u8;
     match v {
-        Value::List(items) => items.iter().filter_map(Value::as_f64).map(to_byte).collect(),
+        Value::List(items) => items
+            .iter()
+            .filter_map(Value::as_f64)
+            .map(to_byte)
+            .collect(),
         other => other.as_f64().map(to_byte).into_iter().collect(),
     }
 }
@@ -178,8 +182,16 @@ fn bytes_from_value(v: &Value) -> Vec<u8> {
 fn split14(v: &Value) -> (u8, u8) {
     match v {
         Value::List(items) => {
-            let msb = items.first().and_then(Value::as_f64).map(clamp7).unwrap_or(0);
-            let lsb = items.get(1).and_then(Value::as_f64).map(clamp7).unwrap_or(0);
+            let msb = items
+                .first()
+                .and_then(Value::as_f64)
+                .map(clamp7)
+                .unwrap_or(0);
+            let lsb = items
+                .get(1)
+                .and_then(Value::as_f64)
+                .map(clamp7)
+                .unwrap_or(0);
             (msb, lsb)
         }
         other => {
@@ -211,7 +223,7 @@ fn nrpn_messages(channel: u8, param: &Value, value: &Value) -> Vec<Vec<u8>> {
 /// order: channel aftertouch (`miditouch`), system exclusive (`sysexid` +
 /// `sysexdata`), NRPN (`nrpnn` + `nrpv`), and raw pitch bend (`midibend`). These
 /// fire whether or not the hap carries a note, matching `Pattern.prototype.midi`.
-pub(crate) fn aux_messages(controls: &BTreeMap<String, Value>) -> Vec<Vec<u8>> {
+pub(crate) fn aux_messages(controls: &ValueMap) -> Vec<Vec<u8>> {
     let channel = channel_of(controls);
     let mut out = Vec::new();
 
