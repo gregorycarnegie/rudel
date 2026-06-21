@@ -154,3 +154,21 @@ front-ends (Tidal/Haskell, Mondo Lisp) is **intentionally out of scope**:
 they are parallel language choices, not additional musical capability, and the
 Koto + mini-notation combination is Rudel's deliberate single authoring surface.
 There is no native equivalent surface for these alternative languages.
+
+## Web embedding
+
+### `@strudel/web` and `@strudel/embed` — intentionally unsupported (no equivalent surface)
+
+`@strudel/web` is an opinionated browser bundle of Strudel, and
+`@strudel/embed` is an embeddable Web Component (`<strudel-editor>`) that loads a
+Strudel REPL into an `<iframe>` on any web page. Both exist purely to put the
+Strudel REPL on the web: they assume a DOM, a `<script>`/custom-element host
+page, and an iframe sandbox.
+
+Rudel is a **native desktop application** (`crates/rudel-app`, an `egui`
+binary). It has no web page, no DOM, no custom element, and no iframe — so there
+is no equivalent user-visible surface to match. Embedding Rudel in a web page is
+**intentionally unsupported**; embed Strudel's web build if you need an
+in-browser/iframe REPL. (Rudel can be run as a normal desktop process and driven
+via its native output paths — MIDI/OSC — but it is not a web-embeddable
+component.)
