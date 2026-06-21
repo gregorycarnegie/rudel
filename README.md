@@ -1,8 +1,10 @@
 # rudel
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](https://www.gnu.org/licenses/agpl-3.0.en.html)
+[![CI](https://github.com/gregorycarnegie/rudel/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/gregorycarnegie/rudel/actions/workflows/ci.yml)
 [![Rust edition: 2024](https://img.shields.io/badge/rust%20edition-2024-orange)](Cargo.toml)
-[![MSRV: 1.92](https://img.shields.io/badge/MSRV-1.92-orange)](Cargo.toml)
+[![MSRV: 1.96](https://img.shields.io/badge/MSRV-1.96-orange)](Cargo.toml)
+[![Koto: 0.16.1](https://img.shields.io/badge/Koto-0.16.1-blue)](https://koto.dev)
 [![Workspace: 8 crates](https://img.shields.io/badge/workspace-8%20crates-informational)](#workspace)
 [![Checks: test + clippy](https://img.shields.io/badge/checks-test%20%2B%20clippy-brightgreen)](#tests)
 
