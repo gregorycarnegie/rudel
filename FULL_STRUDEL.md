@@ -20,7 +20,7 @@ These apply to every checklist item in this document:
 
 ## Definition of Done
 
-- [ ] Pin the exact Strudel source of truth used for parity: package versions, git commit if available, and any local patches under `strudel/`.
+- [x] Pin the exact Strudel source of truth used for parity: package versions, git commit if available, and any local patches under `strudel/`. — Recorded in [`docs/STRUDEL_SOURCE.md`](docs/STRUDEL_SOURCE.md): upstream `https://codeberg.org/uzu/strudel.git` at commit `0c61cd767031cb377d63b4f290a0645c45e457c5` (2026-05-27, `git describe` = `@strudel/codemirror@1.3.0-288-g0c61cd76`), key package versions (root `strudel` 0.5.0, `@strudel/core` 1.2.6, `@strudel/codemirror` 1.3.0, `@strudel/reference` 1.2.2), and the fact that the vendored checkout carries **no local patches** (Rudel-side differences are documented as intentionally different instead). The doc also gives the re-vendoring procedure.
 - [ ] Build an automated API inventory for every Strudel package under `strudel/packages`.
 - [ ] For every exported function, registered pattern function, `Pattern.prototype` method, control, alias, top-level REPL helper, and editor command, mark one of: implemented, intentionally different, not applicable, or missing.
 - [ ] For every implemented item, add parity tests against Strudel behavior or a documented golden output.
@@ -32,7 +32,7 @@ These apply to every checklist item in this document:
 ## Source Packages to Audit
 
 - [ ] `strudel/packages/core`
-- [ ] `strudel/packages/mini`
+- [x] `strudel/packages/mini`
 - [ ] `strudel/packages/transpiler`
 - [ ] `strudel/packages/codemirror`
 - [ ] `strudel/packages/repl`
@@ -49,17 +49,17 @@ These apply to every checklist item in this document:
 - [ ] `strudel/packages/osc`
 - [ ] `strudel/packages/desktopbridge`
 - [ ] `strudel/packages/draw`
-- [ ] `strudel/packages/motion`
-- [ ] `strudel/packages/gamepad`
-- [ ] `strudel/packages/serial`
-- [ ] `strudel/packages/mqtt`
-- [ ] `strudel/packages/csound`
-- [ ] `strudel/packages/hydra`
-- [ ] `strudel/packages/tidal`
-- [ ] `strudel/packages/mondo`
-- [ ] `strudel/packages/mondough`
-- [ ] `strudel/packages/web`
-- [ ] `strudel/packages/embed`
+- [x] `strudel/packages/motion`
+- [x] `strudel/packages/gamepad`
+- [x] `strudel/packages/serial`
+- [x] `strudel/packages/mqtt`
+- [x] `strudel/packages/csound`
+- [x] `strudel/packages/hydra`
+- [x] `strudel/packages/tidal`
+- [x] `strudel/packages/mondo`
+- [x] `strudel/packages/mondough`
+- [x] `strudel/packages/web`
+- [x] `strudel/packages/embed`
 
 ## Core Pattern Engine
 
@@ -652,7 +652,7 @@ Rule for every item in this subsection: inspect the corresponding Strudel source
 
 ## Reference, Docs, and Examples
 
-- [~] Generate a complete reference table from Strudel's `reference` package and compare it with Rudel's exposed names. — Rudel's side is generated and introspectable via `rudel_lang::reference()` (functions, methods, controls). Strudel's side is its `reference` package, which re-exports the jsdoc `doc.json` built by Node tooling; that table is not checked in, so the automated diff still needs a build step (or a source-scan of `registerControl`/`register` calls) to produce the comparison.
+- [x] Generate a complete reference table from Strudel's `reference` package and compare it with Rudel's exposed names. — Both sides are now generated and diffed automatically. Rudel's side is introspected from the live runtime via `rudel_lang::reference()` (functions, methods, controls). Strudel's side is reconstructed by `tools/oracle/gen_reference_oracle.mjs`, which source-scans the vendored `strudel/packages` for the jsdoc `@name`/`@synonyms` tags plus `register`/`registerControl` calls — the same name surface its `reference` package's `doc.json` keys on — so no jsdoc build is required (the build-step/source-scan the previous note called for). The committed table is `tools/oracle/reference_golden.json` (709 names, 376 controls). `crates/rudel-lang/tests/reference_parity.rs` embeds it and compares: the combined Rudel surface covers all but 115 documented Strudel names, and **every** one of those is accounted for in `tools/oracle/reference_allowlist.json` with a category and reason (motion/browser-input/draw-runtime/theme/unsupported-package as intentional; modulator/alias-casing/control-gap/pattern-fn-gap/query-path-callback/span-arg-internal as deferred, cross-referenced to their owning items). The test asserts the missing set equals the allowlist exactly (no undocumented gaps, no stale entries) and that every Strudel control is reachable or allowlisted, so a Strudel bump (after regenerating the golden) or any Rudel name added/removed fails the test until the allowlist is reconciled — keeping the comparison honest by construction.
 - [ ] Port or execute every runnable example from Strudel docs against Rudel.
 - [ ] Add a parity example suite covering first sounds, notes, effects, pattern effects, mini-notation, tonal, xen, MIDI, OSC, samples, synths, and visual feedback.
 - [ ] Keep `FULL_STRUDEL.md` in sync with generated API inventories so manual drift is obvious.
@@ -660,18 +660,18 @@ Rule for every item in this subsection: inspect the corresponding Strudel source
 
 ## Test Strategy
 
-- [ ] Add a Strudel differential harness that can query local Strudel patterns through Node and compare Rudel haps for deterministic examples.
-- [ ] Add golden tests for mini-notation ASTs, event spans, values, controls, and source locations.
-- [ ] Add property tests for core time transforms where exact Strudel behavior can be expressed generically.
+- [x] Add a Strudel differential harness that can query local Strudel patterns through Node and compare Rudel haps for deterministic examples. — This is the [`tools/oracle`](tools/oracle) infrastructure: the `gen_*_oracle.mjs` generators run the real Strudel engine under Node and dump golden haps/values, and the `*_parity.rs` integration tests rebuild each case with Rudel and compare hap-for-hap (mini, core transforms, tonal/xen, tune-table, RNG/signal, plus the audio goldens). See [`tools/oracle/README.md`](tools/oracle/README.md).
+- [x] Add golden tests for mini-notation ASTs, event spans, values, controls, and source locations. — `crates/rudel-mini/tests` compares Rudel against `mini_golden.json` (every deterministic upstream mini test, hap-for-hap incl. `_steps`, whole/part spans, values, and controls) and source locations are golden-tested per-hap against Strudel across the whole mini oracle (the mini source-locations item above).
+- [x] Add property tests for core time transforms where exact Strudel behavior can be expressed generically. — `TimeSpan` (`span_cycles`/intersection edge cases), `Fraction`, the Bjorklund euclid (length/pulse-count/inversion invariants), and the RNG/signal parity oracle are proptested (the data-model, euclid, and signal items above).
 - [ ] Add snapshot tests for reference docs/autocomplete output.
-- [ ] Add audio smoke tests for WebAudio/superdough-equivalent paths.
-- [ ] Add MIDI/OSC loopback tests.
+- [x] Add audio smoke tests for WebAudio/superdough-equivalent paths. — Delivered by the audio test item above: `rudel-dsp` `tests/voice.rs` and `tests/postfx.rs` plus the `rudel-audio` mixer tests behaviorally smoke-test every Web Audio-rendered path (oscillators, biquads, drums, reverb, delay, phaser, vowel) that cannot be sample-matched in Node, alongside the deterministic node→Rust goldens for the pure-JS DSP paths.
+- [x] Add MIDI/OSC loopback tests. — Delivered by the MIDI/OSC integration-test item above: the MIDI engine drives a fake `MidiSink` recorder (note-on + sysex/aux byte assertions) and OSC uses real UDP loopback sockets (`sends_over_udp_loopback`, `send_to_routes_to_an_explicit_port`, full `OscEngine` `/dirt/play` decode), with MIDI input exercised end-to-end against the core bus.
 - [ ] Add editor automation tests for syntax highlighting, widgets, shortcuts, active highlights, and live-code updates.
 - [ ] Add performance benchmarks against representative Strudel patterns.
-- [ ] Add regression tests for every bug found while working through this checklist.
+- [x] Add regression tests for every bug found while working through this checklist. — Established practice, followed throughout: each parity bug uncovered during this work was pinned with a test before moving on — the `tri`/`itri` fastcat order (signal item), `legato` registered as a `clip` alias (query/clipping item), the phaser `sine`→`tri` LFO + `phaserdepth` default (Web Audio oracle item), the `_getNearestScaleNote` tie/octave quantisation (tonal item), `base_url_of` authority-only URLs and `n` nearest-index rounding (sample-resolution item), and the issue #1026 control-vs-scalar arithmetic guard (`core/value.mjs` item), among others.
 
 ## Migration and Maintenance
 
 - [ ] Add a script to regenerate the controls/API checklist from `strudel/packages` so `FULL_STRUDEL.md` can be audited after Strudel updates.
-- [ ] Add a documented process for updating Rudel when the vendored Strudel version changes.
-- [ ] Check licensing requirements for any code, data, samples, or generated tables ported from Strudel.
+- [x] Add a documented process for updating Rudel when the vendored Strudel version changes. — The "Refreshing the pin" section of [`docs/STRUDEL_SOURCE.md`](docs/STRUDEL_SOURCE.md) documents it: check out the new upstream commit under `strudel/`, regenerate the parity oracles (per [`tools/oracle/README.md`](tools/oracle/README.md)), update the pinned revision table, and re-run `cargo test --workspace` — where the reference-surface guard (`crates/rudel-lang/tests/reference_parity.rs`) fails on any upstream name-surface change and points at exactly what to reconcile.
+- [x] Check licensing requirements for any code, data, samples, or generated tables ported from Strudel. — Checked: Rudel is licensed **AGPL-3.0-or-later** workspace-wide (`Cargo.toml` `license` field + the `LICENSE` file = GNU AGPL v3), the same copyleft as Strudel, so all code and generated data tables ported from Strudel (the inlined `tune_table.rs` from tune.js, the iReal voicing dictionaries, the `color.rs` CSS table, scale/chord/interval tables, etc.) are license-compatible under one umbrella. No sample audio is redistributed by Rudel — none is committed to the repo; sound banks are fetched from their own sources at runtime and their licensing follows those sources (noted in the README). The vendored `strudel/` checkout is git-ignored and not part of Rudel's distributed artifact.

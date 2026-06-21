@@ -103,3 +103,23 @@ by `biquad_impulse_response_matches_webaudio`,
 `phaser_swept_notch_impulse_response_matches_webaudio` in `rudel-dsp`.
 
 Then run `cargo test -p rudel-mini`.
+
+### Reference-surface oracle (no deps)
+
+`gen_reference_oracle.mjs` reconstructs Strudel's `@strudel/reference` name
+surface without a jsdoc build: it source-scans the vendored `strudel/packages`
+for jsdoc `@name`/`@synonyms` tags and `register`/`registerControl` calls (the
+same names `doc.json` keys on). It needs no `@strudel` symlinks or npm deps.
+
+```sh
+node gen_reference_oracle.mjs   # -> reference_golden.json  (Strudel name surface)
+```
+
+The golden stays in `tools/oracle/` and is embedded directly by
+`crates/rudel-lang/tests/reference_parity.rs`, which compares it against
+`rudel_lang::reference()` (the live-introspected Rudel surface). Every
+Strudel-documented name Rudel does not expose is accounted for in
+`tools/oracle/reference_allowlist.json` (category + reason); the test asserts the
+diff equals that allowlist exactly, so regenerating the golden after a Strudel
+bump — or adding/removing a Rudel name — fails the test until the allowlist is
+updated. Run `cargo test -p rudel-lang --test reference_parity`.
