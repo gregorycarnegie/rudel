@@ -132,3 +132,25 @@ synth oscillators, noise, drums, sampler, filters, envelopes, effects) and does
 not embed Csound, so the `csound` output is **intentionally unsupported**.
 Use Rudel's native synths/samples, or route to an external Csound instance via
 MIDI/OSC.
+
+## Alternative language front-ends
+
+### Tidal, Mondo, Mondough (`@strudel/tidal`, `@strudel/mondo`, `@strudel/mondough`) — intentionally unsupported
+
+These packages provide *alternative source languages* that compile down to the
+same Strudel pattern engine:
+
+- `@strudel/tidal` (`initTidal`, `tidal`) — an experimental interpreter for
+  Haskell-flavoured TidalCycles code.
+- `@strudel/mondo` (`mondo`, `mondolang`) — a small Lisp-like functional
+  composition language that translates to JS.
+- `@strudel/mondough` (`mondo`, `mondi`, `mondolang`) — the Mondo notation
+  wired into Strudel.
+
+Rudel's authoring surface is **Koto** (its scripting layer) plus Strudel-style
+**mini-notation** (`crates/rudel-mini`). These provide the same underlying
+pattern engine through a different, native front-end. Porting additional parser
+front-ends (Tidal/Haskell, Mondo Lisp) is **intentionally out of scope**:
+they are parallel language choices, not additional musical capability, and the
+Koto + mini-notation combination is Rudel's deliberate single authoring surface.
+There is no native equivalent surface for these alternative languages.
