@@ -14,7 +14,32 @@ pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
     "_pitchwheel",
     "_spectrum",
     "_wordfall",
+    // Public (non-underscore) visualizer names render the same inline widget as
+    // their `_`-prefixed variants. `canonical_widget_type` maps them back to the
+    // `_`-prefixed type the painter/host key on. (`scope`/`spectrum` are omitted:
+    // their widgets need an audio analyzer tap and are not yet rendered.)
+    "pianoroll",
+    "punchcard",
+    "spiral",
+    "pitchwheel",
+    "wordfall",
 ];
+
+/// Normalize a matched widget method name to the `_`-prefixed widget type that
+/// the native painter (`widgets/visual.rs`) and host key on. Public spellings
+/// (`pianoroll`) map to the same type as their inline variant (`_pianoroll`).
+fn canonical_widget_type(method: &str) -> &'static str {
+    match method {
+        "pianoroll" | "_pianoroll" => "_pianoroll",
+        "punchcard" | "_punchcard" => "_punchcard",
+        "spiral" | "_spiral" => "_spiral",
+        "scope" | "_scope" => "_scope",
+        "pitchwheel" | "_pitchwheel" => "_pitchwheel",
+        "spectrum" | "_spectrum" => "_spectrum",
+        "wordfall" | "_wordfall" => "_wordfall",
+        _ => "_pianoroll",
+    }
+}
 
 fn numeric_arg(src: &str, range: Option<&(usize, usize)>) -> Option<f64> {
     let (start, end) = *range?;
@@ -195,13 +220,16 @@ pub(super) fn rewrite_editor_widgets_with_context(
             let local_to = next_byte(&chars, call.close_char, src.len());
             let from = local_from + node_offset;
             let to = local_to + node_offset;
+            // Public spellings (`pianoroll`) share the inline variant's type so
+            // both feed the same painter/host and one widget-index counter.
+            let widget_type = canonical_widget_type(method);
             let index = widgets
                 .iter()
-                .filter(|widget| widget.widget_type == method)
+                .filter(|widget| widget.widget_type == widget_type)
                 .count();
-            let id = widget_id(widget_base_id, method, index, from, to);
+            let id = widget_id(widget_base_id, widget_type, index, from, to);
             widgets.push(PreprocessWidget {
-                widget_type: method.to_string(),
+                widget_type: widget_type.to_string(),
                 id: id.clone(),
                 from,
                 to,
@@ -214,7 +242,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
             let close_byte = chars[call.close_char].0;
             anchors.push((out.len(), last));
             out.push_str(&src[last..dot_byte + 1]);
-            out.push_str(koto_widget_method(method));
+            out.push_str(koto_widget_method(widget_type));
             out.push('(');
             out.push_str(&format!("{id:?}"));
             let args = src[open_byte + 1..close_byte].trim();

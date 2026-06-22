@@ -55,6 +55,7 @@ macro_rules! kpattern_methods {
         ],
         // CamelCase alias groups: each maps Camel => snake
         camel_pattern: [$($camel_pattern:ident => $snake_pattern:ident),* $(,)?],
+        camel_pattern_pattern: [$($camel_pattern_pattern:ident => $snake_pattern_pattern:ident),* $(,)?],
         camel_literal_or_pattern: [$($camel_literal_or_pattern:ident => $snake_literal_or_pattern:ident),* $(,)?],
         camel_no_arg: [$($camel_no_arg:ident => $snake_no_arg:ident),* $(,)?],
         camel_noarg_fn: [$($camel_noarg_fn:ident => $snake_noarg_fn:ident),* $(,)?],
@@ -246,6 +247,14 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 #[allow(non_snake_case)]
+                fn $camel_pattern_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    with_pattern_pattern_args(&ctx, |pat, a, b| pat.$snake_pattern_pattern(a, b))
+                }
+            )*
+
+            $(
+                #[koto_method]
+                #[allow(non_snake_case)]
                 fn $camel_literal_or_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                     with_literal_or_pattern_arg(&ctx, |pat, arg| pat.$snake_literal_or_pattern(arg))
                 }
@@ -367,6 +376,9 @@ kpattern_methods! {
         // release, `control` sets ccn/ccv, `sysex` sets sysexid/sysexdata)
         // and sample scrubbing
         adsr, ad, ds, ar, control, sysex, scrub,
+        // @strudel/draw animate transforms over the x/y/w/h visual params
+        // (no `animate` runtime in Rudel; these set the params for parity).
+        rescale, zoom_in,
     ],
     no_arg: [
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil, log2,
@@ -378,7 +390,7 @@ kpattern_methods! {
     ],
     f64_arg: [degrade_by, undegrade_by, cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
-    pattern_pattern_arg: [slice, splice, bite, beat, xfade],
+    pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
     i64_i64_arg: [euclid, euclid_legato],
@@ -453,19 +465,24 @@ kpattern_methods! {
         osc => kpattern_osc,
         #[koto_method]
         chord => kpattern_chord,
-        #[koto_method]
+        // The public (non-underscore) visualizer names are Strudel's global
+        // full-screen painters; Rudel has no global draw canvas, so they expose
+        // the same inline editor widget as their `_`-prefixed variants (the
+        // preprocess rewrites either spelling to the same widget host). `_scope`
+        // / `_spectrum` need an audio analyzer tap and stay deferred.
+        #[koto_method(alias = "pianoroll")]
         _pianoroll => kpattern_visual_widget,
-        #[koto_method]
+        #[koto_method(alias = "punchcard")]
         _punchcard => kpattern_visual_widget,
-        #[koto_method]
+        #[koto_method(alias = "spiral")]
         _spiral => kpattern_visual_widget,
         #[koto_method]
         _scope => kpattern_visual_widget,
-        #[koto_method]
+        #[koto_method(alias = "pitchwheel")]
         _pitchwheel => kpattern_visual_widget,
         #[koto_method]
         _spectrum => kpattern_visual_widget,
-        #[koto_method]
+        #[koto_method(alias = "wordfall")]
         _wordfall => kpattern_visual_widget,
         #[koto_method]
         rudel_widget_pianoroll => kpattern_visual_widget,
@@ -565,7 +582,10 @@ kpattern_methods! {
         add_squeezein => add_squeeze, sub_squeezein => sub_squeeze,
         mul_squeezein => mul_squeeze, div_squeezein => div_squeeze,
         set_squeezein => set_squeeze, keep_squeezein => keep_squeeze,
+        // @strudel/draw animate transform (zoomIn over x/y/w/h params)
+        zoomIn => zoom_in,
     ],
+    camel_pattern_pattern: [moveXY => move_xy],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
     camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert],
     camel_noarg_fn: [

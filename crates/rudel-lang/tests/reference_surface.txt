@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=309 methods=1052 controls=663
+# functions=309 methods=1062 controls=663
 
 [functions]
 Math
@@ -1002,6 +1002,8 @@ modulo_reset
 modulo_restart
 modulo_squeeze
 modulo_squeezeout
+moveXY
+move_xy
 mpe
 mtranspose
 mul
@@ -1080,6 +1082,7 @@ phc
 phd
 phs
 piano
+pianoroll
 pick
 pickF
 pickOut
@@ -1104,6 +1107,7 @@ pickmod_restart
 pickmod_squeeze
 pitchJump
 pitchJumpTime
+pitchwheel
 ply
 plyForEach
 plyWith
@@ -1130,6 +1134,7 @@ press_by
 progNum
 psus
 psustain
+punchcard
 pw
 pwr
 pwrate
@@ -1157,6 +1162,7 @@ release
 repeatCycles
 repeat_cycles
 replicate
+rescale
 reset
 resonance
 restart
@@ -1231,6 +1237,7 @@ sound
 source
 sparsity
 speed
+spiral
 splice
 spread
 squeeze
@@ -1340,6 +1347,7 @@ when
 withBase
 with_base
 within
+wordfall
 wt
 wtatt
 wtattack
@@ -1365,6 +1373,8 @@ zdelay
 zmod
 znoise
 zoom
+zoomIn
+zoom_in
 zrand
 zzfx
 

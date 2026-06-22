@@ -25,10 +25,10 @@
     },
     "draw_runtime": {
       "status": "deferred",
-      "reason": "Non-inline @strudel/draw painters, label/scope helpers, and animate transforms; the realtime draw path never runs the Koto VM, so only built-in inline widgets exist (FULL_STRUDEL.md draw items, docs/UNSUPPORTED.md).",
+      "reason": "Audio-analyzer scope/spectrum widgets and the label/scope/draw-lifecycle helpers; the realtime draw path never runs the Koto VM, and there is no analyzer tap yet (FULL_STRUDEL.md draw items, docs/UNSUPPORTED.md). The pianoroll/punchcard/spiral/pitchwheel/wordfall visualizers and the rescale/moveXY/zoomIn animate transforms are now exposed (inline widgets + x/y/w/h param transforms).",
       "names": [
-        "pianoroll", "punchcard", "spiral", "scope", "tscope", "fscope", "spectrum",
-        "pitchwheel", "wordfall", "rescale", "moveXY", "zoomIn", "label", "activeLabel",
+        "scope", "tscope", "fscope", "spectrum",
+        "label", "activeLabel",
         "markcss", "logValues", "clearScope", "getDuration", "onTriggerTime", "tables"
       ]
     },

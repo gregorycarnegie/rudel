@@ -7,6 +7,7 @@
 
 pub mod color;
 pub mod controls;
+pub mod draw;
 pub mod edo;
 pub mod euclid;
 pub mod fraction;

@@ -128,6 +128,21 @@ s("bd sd")"#,
         "punchcard widget",
         r#"n("0 2 4 7").s("piano")._punchcard()"#,
     ),
+    (
+        "visual",
+        "public pianoroll name",
+        r#"s("bd sd hh oh").pianoroll()"#,
+    ),
+    (
+        "visual",
+        "spiral / pitchwheel / wordfall names",
+        r#"note("c e g").spiral().pitchwheel().wordfall()"#,
+    ),
+    (
+        "visual",
+        "animate param transforms",
+        r#"s("bd sd").rescale(0.5).moveXY(0.1, 0.2).zoomIn(0.8)"#,
+    ),
 ];
 
 #[test]

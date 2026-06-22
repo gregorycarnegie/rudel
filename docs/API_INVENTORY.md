@@ -16,7 +16,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `codemirror` | 3 | 1 | 0 | 2 | 0 |
 | `core` | 618 | 590 | 23 | 5 | 0 |
 | `csound` | 2 | 0 | 2 | 0 | 0 |
-| `draw` | 8 | 0 | 0 | 8 | 0 |
+| `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
 | `midi` | 2 | 0 | 2 | 0 | 0 |
 | `motion` | 48 | 0 | 48 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 0 | 0 | 4 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **610** | **78** | **21** | **0** |
+| **Total** | **709** | **618** | **78** | **13** | **0** |
 
 ## `codemirror`
 
@@ -669,14 +669,14 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `moveXY` | deferred | draw runtime |
-| `pianoroll` | deferred | draw runtime |
-| `pitchwheel` | deferred | draw runtime |
-| `punchcard` | deferred | draw runtime |
-| `rescale` | deferred | draw runtime |
-| `spiral` | deferred | draw runtime |
-| `wordfall` | deferred | draw runtime |
-| `zoomIn` | deferred | draw runtime |
+| `moveXY` | implemented |  |
+| `pianoroll` | implemented |  |
+| `pitchwheel` | implemented |  |
+| `punchcard` | implemented |  |
+| `rescale` | implemented |  |
+| `spiral` | implemented |  |
+| `wordfall` | implemented |  |
+| `zoomIn` | implemented |  |
 
 ## `edo`
 

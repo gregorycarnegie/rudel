@@ -50,11 +50,19 @@ JavaScript painter that draws arbitrary shapes from patterned visual params
 (`x`, `y`, `w`, `h`, `angle`, `r`, `fill`, `smear`) onto the global canvas, plus
 helpers (`rescale`, `moveXY`, `zoomIn`) and a `smear`/clear toggle, and reports a
 "sync mode" status. Because it depends on the arbitrary-callback draw runtime
-described above — running user-driven drawing every animation frame — it is
-**intentionally unsupported** in Rudel. There is no native equivalent surface;
-patterns that call `animate` will not produce visuals. The supported way to get
-scheduler-time visuals in Rudel is the inline editor widgets (`_pianoroll`,
-`_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`).
+described above — running user-driven drawing every animation frame — the
+`animate` painter is **intentionally unsupported** in Rudel. There is no native
+equivalent surface; patterns that call `animate` will not produce visuals. The
+supported way to get scheduler-time visuals in Rudel is the inline editor widgets
+(`_pianoroll`, `_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`).
+
+The `register`-based param transforms themselves — `rescale`, `moveXY`, `zoomIn`
+— **are** implemented (`crates/rudel-core/src/draw.rs`), since they are pure
+pattern transforms over the `x`/`y`/`w`/`h` params rather than painters. They
+evaluate and emit the same control maps as Strudel, so `.rescale(2)` /
+`.moveXY(0.1, 0.1)` / `.zoomIn(0.5)` are chainable and queryable for parity — but
+with no `animate` painter to consume `x`/`y`/`w`/`h`, they produce no visual on
+their own.
 
 ### Audio analyzer visuals — `scope`/`spectrum` (`@strudel/webaudio`) — deferred
 

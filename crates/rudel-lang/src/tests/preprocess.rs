@@ -92,6 +92,25 @@ slider(0.4)
 }
 
 #[test]
+fn public_visualizer_names_rewrite_to_inline_widget() {
+    // The public `pianoroll` / `pitchwheel` / `wordfall` spellings create the
+    // same widget (canonical `_`-prefixed type, rewritten to the same koto host
+    // call) as their `_`-prefixed inline variants.
+    for (call, widget_type, host) in [
+        ("pianoroll", "_pianoroll", "rudel_widget_pianoroll"),
+        ("punchcard", "_punchcard", "rudel_widget_punchcard"),
+        ("spiral", "_spiral", "rudel_widget_spiral"),
+        ("pitchwheel", "_pitchwheel", "rudel_widget_pitchwheel"),
+        ("wordfall", "_wordfall", "rudel_widget_wordfall"),
+    ] {
+        let result = preprocess_strudel_with_meta(&format!(r#"s("bd sd").{call}()"#));
+        assert_eq!(result.meta.widgets.len(), 1, "{call}");
+        assert_eq!(result.meta.widgets[0].widget_type, widget_type, "{call}");
+        assert!(result.source.contains(host), "{call}: {}", result.source);
+    }
+}
+
+#[test]
 fn eval_result_carries_slider_widget_metadata() {
     let result = eval_result("slider(0.5, 0, 1)").expect("eval");
 
