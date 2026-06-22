@@ -145,7 +145,12 @@ pub(crate) fn code_editor(
         ui.horizontal_top(|ui| {
             draw_line_number_gutter(ui, code, active_line, settings);
             egui::TextEdit::multiline(code)
-                .id_salt(CODE_EDITOR_ID)
+                // Pin an absolute id (not `id_salt`) so the widget keeps the
+                // same id whether it sits in the outer `ui` or inside this
+                // `horizontal_top` child `ui`. The shortcut focus gate matches
+                // on `editor_id`, so a layout-dependent id silently disables
+                // Ctrl+/ (and Tab/Alt+W) when the line-number gutter is on.
+                .id(editor_id)
                 .code_editor()
                 .background_color(editor_bg)
                 .layouter(&mut layouter)
@@ -156,7 +161,7 @@ pub(crate) fn code_editor(
         .inner
     } else {
         egui::TextEdit::multiline(code)
-            .id_salt(CODE_EDITOR_ID)
+            .id(editor_id)
             .code_editor()
             .background_color(editor_bg)
             .layouter(&mut layouter)
