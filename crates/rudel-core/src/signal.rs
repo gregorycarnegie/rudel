@@ -3,10 +3,12 @@
 // Copyright (C) 2024 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::hap::Hap;
-use crate::pattern::{Pattern, fastcat, pure};
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    hap::Hap,
+    pattern::{Pattern, fastcat, pure},
+    value::Value,
+};
 use std::f64::consts::TAU;
 
 /// A continuous pattern sampling `f` at the start of the query span.

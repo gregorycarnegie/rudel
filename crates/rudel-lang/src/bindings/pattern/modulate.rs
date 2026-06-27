@@ -4,11 +4,15 @@
 // order is preserved into `rudel_core::modulate`.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use super::KPattern;
-use super::args::{method_arg, with_instance};
-use super::convert::arg_to_pattern;
-use koto::prelude::*;
-use koto::runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error};
+use super::{
+    KPattern,
+    args::{method_arg, with_instance},
+    convert::arg_to_pattern,
+};
+use koto::{
+    prelude::*,
+    runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error},
+};
 use rudel_core::{Pattern, Value, modulate, pure};
 
 /// Ordered `(rawKey, valuePattern)` pairs from a Koto config-map argument. A

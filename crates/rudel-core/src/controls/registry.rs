@@ -1,8 +1,10 @@
-use super::aliases::{ALIAS_CONTROL_BUILDERS, ALIAS_CONTROL_KEYS};
-use super::multi::distort;
-use super::named::{NAMED_CONTROL_BUILDERS, fade_time, fx_release, loop_begin, loop_end};
-use super::plain::{PLAIN_CONTROL_BUILDERS, bend_range, warp, warpmode, wt, wtphaserand};
-use super::special::{mode, s, sound};
+use super::{
+    aliases::{ALIAS_CONTROL_BUILDERS, ALIAS_CONTROL_KEYS},
+    multi::distort,
+    named::{NAMED_CONTROL_BUILDERS, fade_time, fx_release, loop_begin, loop_end},
+    plain::{PLAIN_CONTROL_BUILDERS, bend_range, warp, warpmode, wt, wtphaserand},
+    special::{mode, s, sound},
+};
 use crate::pattern::Pattern;
 
 type ControlBuilder = fn(Pattern) -> Pattern;

@@ -4,12 +4,16 @@
 // patterns, mirroring Strudel's `pPatterns` + `applyPatternTransforms`.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use super::KPattern;
-use super::args::{method_arg, with_instance};
-use super::callback::Callback;
-use super::convert::koto_to_value;
-use koto::prelude::*;
-use koto::runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error};
+use super::{
+    KPattern,
+    args::{method_arg, with_instance},
+    callback::Callback,
+    convert::koto_to_value,
+};
+use koto::{
+    prelude::*,
+    runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error},
+};
 use rudel_core::{Pattern, Value, pure, silence, stack};
 use std::cell::{Cell, RefCell};
 

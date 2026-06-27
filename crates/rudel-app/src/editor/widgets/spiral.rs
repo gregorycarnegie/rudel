@@ -1,6 +1,8 @@
-use super::options::{DRAW_LOOKBEHIND, VisualWidgetOptions};
-use super::query::hap_is_active;
-use super::style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color};
+use super::{
+    options::{DRAW_LOOKBEHIND, VisualWidgetOptions},
+    query::hap_is_active,
+    style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
+};
 use eframe::egui;
 use rudel_core::Hap;
 

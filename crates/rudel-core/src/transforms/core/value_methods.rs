@@ -1,12 +1,12 @@
-use super::Align;
-use super::IntoPattern;
-use super::value_ops::{
-    bit_and, bit_lshift, bit_or, bit_rshift, bit_xor, cmp_eq, cmp_eqt, cmp_gt, cmp_gte, cmp_lt,
-    cmp_lte, cmp_ne, cmp_net, logic_and, logic_or, num_add, num_div, num_mod, num_mul, num_pow,
-    num_sub,
+use super::{
+    Align, IntoPattern,
+    value_ops::{
+        bit_and, bit_lshift, bit_or, bit_rshift, bit_xor, cmp_eq, cmp_eqt, cmp_gt, cmp_gte, cmp_lt,
+        cmp_lte, cmp_ne, cmp_net, logic_and, logic_or, num_add, num_div, num_mod, num_mul, num_pow,
+        num_sub,
+    },
 };
-use crate::pattern::Pattern;
-use crate::value::Value;
+use crate::{pattern::Pattern, value::Value};
 
 /// Generate the six non-default alignment methods for one operator, e.g.
 /// `add_out`, `add_squeeze`, ... The default (`in`) variant stays as the plain

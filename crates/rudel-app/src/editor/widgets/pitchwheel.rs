@@ -1,6 +1,8 @@
-use super::options::VisualWidgetOptions;
-use super::style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color};
-use super::values::value_to_midi;
+use super::{
+    options::VisualWidgetOptions,
+    style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
+    values::value_to_midi,
+};
 use eframe::egui;
 use rudel_core::{Hap, Value};
 

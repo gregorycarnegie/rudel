@@ -1,7 +1,9 @@
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, fastcat, pure};
-use crate::signal::rand;
-use crate::value::{Value, ValueMap};
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, fastcat, pure},
+    signal::rand,
+    value::{Value, ValueMap},
+};
 
 fn vals(pat: &Pattern) -> Vec<Value> {
     let mut haps = pat.query_arc(Frac::zero(), Frac::one());

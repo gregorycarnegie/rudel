@@ -1,7 +1,9 @@
 use crate::{CLOCK, CONTINUE, CONTROL_CHANGE, START, STOP};
 use midir::{Ignore, MidiInput, MidiInputConnection};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 /// Estimates tempo from incoming MIDI clock pulses (24 per quarter note),
 /// smoothing the inter-pulse interval with an EWMA so the BPM is stable.

@@ -1,6 +1,8 @@
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    pattern::Pattern,
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 pub(super) fn single(name: &str, v: Value) -> Value {
     let mut m = ValueMap::new();

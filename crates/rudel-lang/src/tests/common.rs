@@ -1,7 +1,8 @@
-pub(super) use super::super::preprocess::{preprocess_strudel, preprocess_strudel_with_meta};
 pub(super) use super::super::{
     eval, eval_result, eval_result_with_source_range, eval_with_samples, filter_output,
-    output_targets, set_slider_value, slider_value,
+    output_targets,
+    preprocess::{preprocess_strudel, preprocess_strudel_with_meta},
+    set_slider_value, slider_value,
 };
 pub(super) use rudel_core::{Frac, Pattern, Value};
 

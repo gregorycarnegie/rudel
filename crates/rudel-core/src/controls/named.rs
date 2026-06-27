@@ -1,6 +1,5 @@
 use super::base::control;
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
+use crate::{pattern::Pattern, transforms::IntoPattern};
 
 // Controls whose Strudel key can't be a Rust fn name (keywords like `loop`,
 // camelCase keys like `loopBegin`). The builder fn is snake_case while still

@@ -15,8 +15,7 @@
 //! µs/block and ns/frame per case.
 
 use rudel_dsp::{Voice, VoiceParams};
-use std::hint::black_box;
-use std::time::Instant;
+use std::{hint::black_box, time::Instant};
 
 const SAMPLE_RATE: f32 = 48_000.0;
 /// Frames rendered per timed iteration (one ~10ms audio block).

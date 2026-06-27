@@ -8,8 +8,7 @@
 // MIDI numbers; Strudel emits enharmonic note names — an intentional difference).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use rudel_core::ValueMap;
-use rudel_core::{Frac, Pattern, Value, freq, i, n, note, note_to_midi};
+use rudel_core::{Frac, Pattern, Value, ValueMap, freq, i, n, note, note_to_midi};
 use rudel_mini::parse;
 
 fn p(code: &str) -> Pattern {

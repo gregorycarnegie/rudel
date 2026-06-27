@@ -10,10 +10,12 @@
 // originals do, so `.rescale(2)` / `.moveXY(0.1, 0.1)` / `.zoomIn(0.5)` are
 // chainable and queryable like any other transform.
 
-use crate::hap::Context;
-use crate::pattern::{Pattern, pure};
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    hap::Context,
+    pattern::{Pattern, pure},
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 use std::sync::Arc;
 
 /// A pure pattern of `{ key: value, ... }` for the given draw params.
@@ -112,8 +114,7 @@ impl Pattern {
 
 #[cfg(test)]
 mod tests {
-    use crate::pattern::pure;
-    use crate::value::Value;
+    use crate::{pattern::pure, value::Value};
 
     fn map_of(pat: &crate::Pattern) -> std::collections::BTreeMap<String, f64> {
         let haps = pat.query_arc(crate::Frac::zero(), crate::Frac::one());

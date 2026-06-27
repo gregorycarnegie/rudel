@@ -1,5 +1,7 @@
-use crate::pattern::{Pattern, stack};
-use crate::value::{Value, ValueMap};
+use crate::{
+    pattern::{Pattern, stack},
+    value::{Value, ValueMap},
+};
 
 /// Strudel's plateau cross-fade gain curve: full until the midpoint, then
 /// ramps to zero (`fadeGain`).

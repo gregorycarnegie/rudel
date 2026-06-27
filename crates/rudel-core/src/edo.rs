@@ -10,9 +10,11 @@
 // `edoScale` actually uses is here.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::pattern::{Pattern, silence};
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    pattern::{Pattern, silence},
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 const TUNING: f64 = 440.0;
 

@@ -2,8 +2,7 @@ use crate::{
     CHANNEL_AFTERTOUCH, CONTROL_CHANGE, DEFAULT_BEND_RANGE, NOTE_OFF, NOTE_ON, PITCH_BEND,
     PROGRAM_CHANGE, SYSEX_END, SYSEX_START,
 };
-use rudel_core::ValueMap;
-use rudel_core::{Value, freq_to_midi, note_to_midi};
+use rudel_core::{Value, ValueMap, freq_to_midi, note_to_midi};
 
 /// Clamp a float to a 0..=127 MIDI data byte.
 pub(crate) fn clamp7(x: f64) -> u8 {

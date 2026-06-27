@@ -1,9 +1,11 @@
-use crate::fraction::Frac;
-use crate::hap::Hap;
-use crate::pattern::{Pattern, silence};
-use crate::timespan::TimeSpan;
-use crate::transforms::IntoPattern;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    hap::Hap,
+    pattern::{Pattern, silence},
+    timespan::TimeSpan,
+    transforms::IntoPattern,
+    value::Value,
+};
 
 /// Truthy entries of a binary rhythm list as `(position, value)`, where the
 /// position is the index normalized to `[0, 1)`.

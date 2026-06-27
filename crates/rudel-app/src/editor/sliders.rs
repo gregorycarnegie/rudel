@@ -1,6 +1,8 @@
-use super::decorations::{SliderDecoration, SourceRange, TextChange};
-use super::settings::DrawTheme;
-use super::text::char_index_at_byte;
+use super::{
+    decorations::{SliderDecoration, SourceRange, TextChange},
+    settings::DrawTheme,
+    text::char_index_at_byte,
+};
 use eframe::egui;
 
 const SLIDER_WIDTH: f32 = 64.0;

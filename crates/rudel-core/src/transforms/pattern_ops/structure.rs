@@ -1,9 +1,11 @@
-use crate::fraction::Frac;
-use crate::hap::{Context, Hap};
-use crate::pattern::{Pattern, fastcat, pure, silence, slowcat};
-use crate::timespan::TimeSpan;
-use crate::transforms::IntoPattern;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    hap::{Context, Hap},
+    pattern::{Pattern, fastcat, pure, silence, slowcat},
+    timespan::TimeSpan,
+    transforms::IntoPattern,
+    value::Value,
+};
 use std::sync::Arc;
 
 impl Pattern {

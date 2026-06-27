@@ -1,10 +1,12 @@
 use super::helpers::set_key;
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, silence, stack};
-use crate::signal::rand;
-use crate::state::State;
-use crate::transforms::IntoPattern;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, silence, stack},
+    signal::rand,
+    state::State,
+    transforms::IntoPattern,
+    value::Value,
+};
 
 impl Pattern {
     // -- Jux ---------------------------------------------------------------

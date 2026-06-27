@@ -1,12 +1,18 @@
-use crate::note::reset_messages;
-use crate::schedule::{MpeState, TimedMidi, schedule_window_with_state};
-use crate::{CLOCK, CONTINUE, START, STOP};
+use crate::{
+    CLOCK, CONTINUE, START, STOP,
+    note::reset_messages,
+    schedule::{MpeState, TimedMidi, schedule_window_with_state},
+};
 use midir::{MidiOutput, MidiOutputConnection};
 use rudel_core::Pattern;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::{Duration, Instant},
+};
 
 /// Anything that can receive raw MIDI bytes. Implemented by [`MidiOut`]; a
 /// recording sink is used in tests.

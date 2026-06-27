@@ -2,9 +2,7 @@
 // Copyright (C) 2022 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::timespan::TimeSpan;
-use crate::value::Value;
+use crate::{fraction::Frac, timespan::TimeSpan, value::Value};
 
 /// Source-location/context metadata carried by a hap. Kept minimal for now;
 /// `locations` accumulates as haps combine (used later for editor highlighting).

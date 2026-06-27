@@ -16,9 +16,11 @@
 // Copyright (C) 2022 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::controls::control_name;
-use crate::pattern::{Pattern, pure};
-use crate::value::{Value, ValueMap};
+use crate::{
+    controls::control_name,
+    pattern::{Pattern, pure},
+    value::{Value, ValueMap},
+};
 
 const MODULATOR_KEYS: [&str; 3] = ["lfo", "env", "bmod"];
 

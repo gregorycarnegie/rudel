@@ -1,9 +1,11 @@
 use super::helpers::{frac, seq2};
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, fastcat, pure, silence, slowcat, stack};
-use crate::timespan::TimeSpan;
-use crate::transforms::IntoPattern;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, fastcat, pure, silence, slowcat, stack},
+    timespan::TimeSpan,
+    transforms::IntoPattern,
+    value::Value,
+};
 
 impl Pattern {
     // -- Raw helpers used below --------------------------------------------

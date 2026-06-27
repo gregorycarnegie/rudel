@@ -1,6 +1,6 @@
-use crate::note::{aux_messages, control_to_midi};
 use crate::{
     CONTROL_CHANGE, DEFAULT_BEND_RANGE, MPE_FIRST_MEMBER, MPE_LAST_MEMBER, MPE_MASTER_CHANNEL,
+    note::{aux_messages, control_to_midi},
 };
 use rudel_core::{Pattern, query_controls};
 

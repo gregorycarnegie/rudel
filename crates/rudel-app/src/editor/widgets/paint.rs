@@ -1,9 +1,10 @@
-use super::geometry::{WIDGET_GAP_PADDING, WidgetLayout, line_column_at_byte, widget_rect};
-use super::host::{WidgetHostState, WidgetSurface};
-use super::style::{WidgetDrawColors, widget_draw_colors};
-use super::visual::paint_pattern_widget;
-use crate::editor::decorations::WidgetDecoration;
-use crate::editor::settings::DrawTheme;
+use super::{
+    geometry::{WIDGET_GAP_PADDING, WidgetLayout, line_column_at_byte, widget_rect},
+    host::{WidgetHostState, WidgetSurface},
+    style::{WidgetDrawColors, widget_draw_colors},
+    visual::paint_pattern_widget,
+};
+use crate::editor::{decorations::WidgetDecoration, settings::DrawTheme};
 use eframe::egui;
 use rudel_core::Pattern;
 

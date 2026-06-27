@@ -1,9 +1,10 @@
 use super::*;
 use crate::note::{aux_messages, bend_value, clamp7, pitch_bend_bytes};
-use rudel_core::ValueMap;
-use rudel_core::{Frac, Pattern, Value, note, pure, sequence, silence};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use rudel_core::{Frac, Pattern, Value, ValueMap, note, pure, sequence, silence};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 fn map(pairs: &[(&str, Value)]) -> ValueMap {
     pairs

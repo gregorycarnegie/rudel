@@ -3,13 +3,18 @@
 // real-time scheduler mirroring the MIDI back-end.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use rudel_core::ValueMap;
-use rudel_core::{Pattern, Value, note_to_midi, note_to_midi_with_octave, query_controls};
-use std::net::{ToSocketAddrs, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use rudel_core::{
+    Pattern, Value, ValueMap, note_to_midi, note_to_midi_with_octave, query_controls,
+};
+use std::{
+    net::{ToSocketAddrs, UdpSocket},
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::{Duration, Instant},
+};
 
 /// The default SuperDirt OSC address.
 pub const DIRT_PLAY: &str = "/dirt/play";

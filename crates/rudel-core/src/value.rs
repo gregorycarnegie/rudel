@@ -3,12 +3,9 @@
 // Copyright (C) 2022 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::pattern::Pattern;
+use crate::{fraction::Frac, pattern::Pattern};
 use indexmap::IndexMap;
-use std::collections::BTreeMap;
-use std::fmt;
-use std::sync::Arc;
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 /// A control map value. An [`IndexMap`] (insertion-ordered) rather than a plain
 /// sorted map so that key *insertion* order is preserved — mirroring JS object

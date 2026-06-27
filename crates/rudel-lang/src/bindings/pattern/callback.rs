@@ -1,13 +1,15 @@
-use super::KPattern;
-use super::args::method_arg;
-use super::convert::{arg_to_f64, arg_to_pattern, arg_to_value, koto_to_value, value_to_koto};
-use super::methods::value_sig;
-use koto::prelude::*;
-use koto::runtime::{Error as KotoError, Result as KotoResult};
+use super::{
+    KPattern,
+    args::method_arg,
+    convert::{arg_to_f64, arg_to_pattern, arg_to_value, koto_to_value, value_to_koto},
+    methods::value_sig,
+};
+use koto::{
+    prelude::*,
+    runtime::{Error as KotoError, Result as KotoResult},
+};
 use rudel_core::{Frac, Pattern, Value};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 /// Patternify a callback combinator's leading argument when it is a pattern
 /// rather than a scalar (`chunk("<2 4>", f)`, `inside("<2 3>", f)`). The Koto

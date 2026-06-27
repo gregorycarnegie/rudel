@@ -1,7 +1,9 @@
 use super::base::single;
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    pattern::Pattern,
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 /// The `s`/`sound` control, with `"name:index"` splitting into `{ s, n }`.
 pub fn s(pat: impl IntoPattern) -> Pattern {

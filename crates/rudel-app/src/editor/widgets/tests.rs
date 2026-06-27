@@ -1,17 +1,20 @@
-use super::geometry::WIDGET_GAP_PADDING;
-use super::options::VisualWidgetOptions;
-use super::pianoroll::{RollRectInput, RollValue, horizontal_roll_rect, pianoroll_value};
-use super::pitchwheel::freq_to_angle;
-use super::query::hap_matches_widget;
-use super::size::{default_surface_size, surface_size};
-use super::spiral::spiral_point;
-use super::style::{color_with_alpha, parse_hex_color, resolve_color, widget_draw_colors};
-use super::*;
-use crate::editor::decorations::{SourceRange, WidgetDecoration};
-use crate::editor::settings::EditorTheme;
+use super::{
+    geometry::WIDGET_GAP_PADDING,
+    options::VisualWidgetOptions,
+    pianoroll::{RollRectInput, RollValue, horizontal_roll_rect, pianoroll_value},
+    pitchwheel::freq_to_angle,
+    query::hap_matches_widget,
+    size::{default_surface_size, surface_size},
+    spiral::spiral_point,
+    style::{color_with_alpha, parse_hex_color, resolve_color, widget_draw_colors},
+    *,
+};
+use crate::editor::{
+    decorations::{SourceRange, WidgetDecoration},
+    settings::EditorTheme,
+};
 use eframe::egui;
-use rudel_core::ValueMap;
-use rudel_core::{Frac, Hap, Value};
+use rudel_core::{Frac, Hap, Value, ValueMap};
 use std::collections::BTreeMap;
 
 fn widget(widget_type: &str, id: &str, from: usize, to: usize) -> WidgetDecoration {

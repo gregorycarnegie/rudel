@@ -2,12 +2,14 @@
 // Ported from strudel/packages/core/euclid.mjs (itself after Rohan Drape's hmt).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::hap::Hap;
-use crate::pattern::{Pattern, fastcat, pure, silence, timecat};
-use crate::timespan::TimeSpan;
-use crate::transforms::IntoPattern;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    hap::Hap,
+    pattern::{Pattern, fastcat, pure, silence, timecat},
+    timespan::TimeSpan,
+    transforms::IntoPattern,
+    value::Value,
+};
 
 fn split_at(n: usize, v: &[Vec<i32>]) -> (Vec<Vec<i32>>, Vec<Vec<i32>>) {
     let n = n.min(v.len());

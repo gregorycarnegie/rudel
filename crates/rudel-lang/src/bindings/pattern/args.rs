@@ -1,7 +1,8 @@
-use super::KPattern;
-use super::convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value};
-use koto::prelude::*;
-use koto::runtime::Result as KotoResult;
+use super::{
+    KPattern,
+    convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value},
+};
+use koto::{prelude::*, runtime::Result as KotoResult};
 use rudel_core::{Frac, Pattern, Value};
 
 pub(super) fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {

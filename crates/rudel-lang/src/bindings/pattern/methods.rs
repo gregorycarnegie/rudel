@@ -1,16 +1,17 @@
-use super::KPattern;
-use super::args::{
-    method_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg, with_pattern_arg,
+use super::{
+    KPattern,
+    args::{
+        method_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg,
+        with_pattern_arg,
+    },
+    callback::{Callback, static_period_pattern},
+    convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value},
+    pick::{is_lookup, lookup_from_koto, pick_from_lookup},
 };
-use super::callback::{Callback, static_period_pattern};
-use super::convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value};
-use super::pick::{is_lookup, lookup_from_koto, pick_from_lookup};
 use crate::bindings::routing::IO_KEY;
-use koto::prelude::*;
-use koto::runtime::Result as KotoResult;
+use koto::{prelude::*, runtime::Result as KotoResult};
 use rudel_core::{Frac, Pattern, PickJoin, Value};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 /// A stable string key for a chord value, used to memoise `arp_with` callback
 /// results so the (non-`Send`) Koto VM is only touched at construction time.

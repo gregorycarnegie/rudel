@@ -1,7 +1,9 @@
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, silence, value_to_pattern};
-use crate::signal::rand;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, silence, value_to_pattern},
+    signal::rand,
+    value::Value,
+};
 use std::sync::Arc;
 
 /// Pick one of the patterns at random each cycle (`randcat`/`chooseCycles`).

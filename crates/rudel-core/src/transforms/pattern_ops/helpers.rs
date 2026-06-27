@@ -1,6 +1,8 @@
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, fastcat, pure};
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, fastcat, pure},
+    value::Value,
+};
 
 /// Set `key` to `value` on a map value, leaving non-maps untouched (used by
 /// `jux`/`hurry`).

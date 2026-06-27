@@ -1,6 +1,5 @@
 use super::IntoPattern;
-use crate::pattern::Pattern;
-use crate::value::Value;
+use crate::{pattern::Pattern, value::Value};
 
 impl Pattern {
     // -- Higher-order combinators ------------------------------------------

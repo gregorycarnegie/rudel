@@ -1,6 +1,4 @@
-use crate::pattern::Pattern;
-use crate::signal::rand;
-use crate::value::Value;
+use crate::{pattern::Pattern, signal::rand, value::Value};
 
 impl Pattern {
     // -- Randomness --------------------------------------------------------

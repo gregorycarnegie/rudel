@@ -1,6 +1,4 @@
-use crate::fraction::Frac;
-use crate::pattern::Pattern;
-use crate::value::Value;
+use crate::{fraction::Frac, pattern::Pattern, value::Value};
 use std::sync::Arc;
 
 /// Patternify a single `Frac`-valued argument, applying raw op `f(pat, frac)`.

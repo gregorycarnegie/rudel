@@ -1,6 +1,5 @@
 use super::size::surface_size;
-use crate::editor::decorations::WidgetDecoration;
-use crate::editor::text::char_index_at_byte;
+use crate::editor::{decorations::WidgetDecoration, text::char_index_at_byte};
 use eframe::egui;
 use std::collections::HashMap;
 

@@ -1,6 +1,5 @@
 use super::value_ops::{ValueOp, compose_op};
-use crate::pattern::Pattern;
-use crate::value::Value;
+use crate::{pattern::Pattern, value::Value};
 use std::sync::Arc;
 
 /// The eight pattern alignments Strudel exposes on each operator

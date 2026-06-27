@@ -7,8 +7,7 @@ mod atom;
 mod build;
 
 use build::Ctx;
-use pest::Parser;
-use pest::iterators::Pair;
+use pest::{Parser, iterators::Pair};
 use rudel_core::{Pattern, silence};
 
 /// The Pest-based parser for Rudel's mini-notation.

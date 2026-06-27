@@ -8,9 +8,11 @@
 
 use crate::voice::VoiceLike;
 use rudel_core::{Value, ValueMap};
-use std::f32::consts::FRAC_PI_2;
-use std::f64::consts::TAU;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::{
+    f32::consts::FRAC_PI_2,
+    f64::consts::TAU,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 /// The 20 ZzFX synthesis parameters (the `buildSamples` argument list).
 #[derive(Clone, Debug)]

@@ -1,5 +1,4 @@
-use crate::filter::Biquad;
-use crate::voice::VoiceLike;
+use crate::{filter::Biquad, voice::VoiceLike};
 use rudel_core::{Value, ValueMap};
 use std::f32::consts::TAU;
 use wide::f32x8;

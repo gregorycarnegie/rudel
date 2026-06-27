@@ -1,6 +1,5 @@
 use super::base::control;
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
+use crate::{pattern::Pattern, transforms::IntoPattern};
 
 macro_rules! controls {
     ($($name:ident),* $(,)?) => {

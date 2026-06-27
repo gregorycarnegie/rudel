@@ -1,9 +1,11 @@
-use super::options::{DrawWindow, VisualWidgetOptions};
-use super::pianoroll::paint_pianoroll;
-use super::pitchwheel::paint_pitchwheel;
-use super::query::{hap_is_active, widget_haps};
-use super::spiral::paint_spiral;
-use super::style::WidgetDrawColors;
+use super::{
+    options::{DrawWindow, VisualWidgetOptions},
+    pianoroll::paint_pianoroll,
+    pitchwheel::paint_pitchwheel,
+    query::{hap_is_active, widget_haps},
+    spiral::paint_spiral,
+    style::WidgetDrawColors,
+};
 use crate::editor::decorations::WidgetDecoration;
 use eframe::egui;
 use rudel_core::Pattern;

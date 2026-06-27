@@ -4,8 +4,7 @@
 // routed by an `fmiIJ` matrix into each other and the carrier (target 0).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::envelope::Adsr;
-use crate::oscillator::Waveform;
+use crate::{envelope::Adsr, oscillator::Waveform};
 use rudel_core::ValueMap;
 
 /// Number of FM operators (1..=`FM_OPS`); index 0 is the carrier target.

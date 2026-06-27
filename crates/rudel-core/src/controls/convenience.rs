@@ -1,7 +1,9 @@
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
-use crate::xen::freq_to_midi;
+use crate::{
+    pattern::Pattern,
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+    xen::freq_to_midi,
+};
 
 impl Pattern {
     /// `hsl(h, s, l)`: set the `color` control to a CSS `hsl(...)` string built

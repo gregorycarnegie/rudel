@@ -2,10 +2,8 @@
 // This is the pure, testable core of the scheduler (no audio device needed).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::clock::Clock;
-use crate::samples::SampleBank;
-use rudel_core::ValueMap;
-use rudel_core::{Pattern, Value, query_controls};
+use crate::{clock::Clock, samples::SampleBank};
+use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams};
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.

@@ -1,7 +1,9 @@
-use super::options::VisualWidgetOptions;
-use super::query::hap_is_active;
-use super::style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color};
-use super::values::{value_short, value_to_midi};
+use super::{
+    options::VisualWidgetOptions,
+    query::hap_is_active,
+    style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
+    values::{value_short, value_to_midi},
+};
 use eframe::egui;
 use rudel_core::{Frac, Hap, Value};
 

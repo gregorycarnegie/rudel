@@ -4,11 +4,13 @@
 // audio layer (rudel-dsp `SamplerVoice`) interprets them.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, fastcat, pure, slowcat};
-use crate::state::State;
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, fastcat, pure, slowcat},
+    state::State,
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 /// Strudel's default cycles-per-second, used when the query state carries no
 /// `_cps` control (the cps-dependent transforms read it from there).

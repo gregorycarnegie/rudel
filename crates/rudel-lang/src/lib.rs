@@ -10,11 +10,12 @@ mod sliders;
 
 use koto::prelude::*;
 use rudel_core::Pattern;
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
-use bindings::register;
-use bindings::{apply_pattern_transforms, function_names, method_names, reset_slots};
+use bindings::{apply_pattern_transforms, function_names, method_names, register, reset_slots};
 use preprocess::{preprocess_strudel_with_meta, preprocess_strudel_with_meta_in_range};
 use samples::register_samples;
 

@@ -1,8 +1,12 @@
-use super::base::{spread_control, value_parts};
-use super::registry::control_name;
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use super::{
+    base::{spread_control, value_parts},
+    registry::control_name,
+};
+use crate::{
+    pattern::Pattern,
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 /// Strudel's `distort` multi-control: a `:`-list (`"3:0.5:diode"`) spreads into
 /// `distort`/`distortvol`/`distorttype` (waveshape amount, postgain, algorithm).

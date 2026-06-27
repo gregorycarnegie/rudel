@@ -18,8 +18,7 @@
 
 use rudel_core::{Value, ValueMap};
 use rudel_dsp::VoiceParams;
-use std::hint::black_box;
-use std::time::Instant;
+use std::{hint::black_box, time::Instant};
 
 /// Partial counts to sweep (non-multiples of 8 included to exercise the loop's
 /// tail handling, large counts where the trig sum dominates).

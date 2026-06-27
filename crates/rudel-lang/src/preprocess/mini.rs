@@ -1,5 +1,4 @@
-use super::scanner::is_ident_char;
-use super::widgets::VISUAL_WIDGET_METHODS;
+use super::{scanner::is_ident_char, widgets::VISUAL_WIDGET_METHODS};
 
 /// Map a byte position in the widget-rewritten source back to the original
 /// editor source using the verbatim-copy anchors gathered during the widget

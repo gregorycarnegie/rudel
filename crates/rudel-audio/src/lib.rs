@@ -23,10 +23,14 @@ use crossbeam_channel::{Receiver, Sender};
 use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
 use rudel_dsp::VoiceLike;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::JoinHandle;
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    thread::JoinHandle,
+    time::Duration,
+};
 
 /// A simple stereo feedback delay line for the `delay` send bus.
 struct StereoDelay {

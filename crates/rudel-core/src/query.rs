@@ -3,11 +3,13 @@
 // onsets, timing and control maps.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::pattern::Pattern;
-use crate::state::State;
-use crate::timespan::TimeSpan;
-use crate::value::{Value, ValueMap};
+use crate::{
+    fraction::Frac,
+    pattern::Pattern,
+    state::State,
+    timespan::TimeSpan,
+    value::{Value, ValueMap},
+};
 
 /// A discrete onset with its control map and timing, in seconds on the caller's
 /// clock (derived from `cps`).

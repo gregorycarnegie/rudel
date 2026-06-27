@@ -13,8 +13,7 @@
 
 use rudel_audio::{NoteEvent, OfflineMixer};
 use rudel_dsp::{FilterParams, PostFx, VoiceParams, VoiceSpec, Waveform};
-use std::hint::black_box;
-use std::time::Instant;
+use std::{hint::black_box, time::Instant};
 
 const SAMPLE_RATE: f32 = 48_000.0;
 const BLOCK: usize = 512;

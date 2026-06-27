@@ -4,10 +4,12 @@
 // external music-theory dependency.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::hap::Hap;
-use crate::pattern::{Pattern, pure, silence, stack};
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    hap::Hap,
+    pattern::{Pattern, pure, silence, stack},
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 /// Semitone offsets for the seven note letters from C.
 pub(crate) fn letter_semitone(letter: char) -> Option<i32> {

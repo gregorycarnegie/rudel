@@ -1,6 +1,8 @@
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, pure};
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, pure},
+    value::Value,
+};
 
 /// Anything that can be lifted into a pattern argument.
 pub trait IntoPattern {

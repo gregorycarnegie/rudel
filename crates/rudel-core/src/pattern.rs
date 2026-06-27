@@ -2,11 +2,13 @@
 // Copyright (C) 2025 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::{Frac, lcm_opt};
-use crate::hap::{Context, Hap};
-use crate::state::State;
-use crate::timespan::TimeSpan;
-use crate::value::Value;
+use crate::{
+    fraction::{Frac, lcm_opt},
+    hap::{Context, Hap},
+    state::State,
+    timespan::TimeSpan,
+    value::Value,
+};
 use std::sync::Arc;
 
 type QueryFn = Arc<dyn Fn(&State) -> Vec<Hap> + Send + Sync>;

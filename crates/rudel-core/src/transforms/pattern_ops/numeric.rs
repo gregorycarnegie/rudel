@@ -1,8 +1,10 @@
 use super::helpers::frac;
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, pure};
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, pure},
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 
 impl Pattern {
     // -- Numeric value transforms ------------------------------------------

@@ -2,19 +2,21 @@ mod panels;
 mod routing;
 mod samples;
 
-use crate::editor::blocks::block_at_byte;
-use crate::editor::decorations::{EditorDecorationState, SourceRange};
-use crate::editor::settings::EditorSettings;
-use crate::editor::widgets::WidgetHostState;
-use crate::volume::DEFAULT_VOLUME_PERCENT;
+use crate::{
+    editor::{
+        blocks::block_at_byte,
+        decorations::{EditorDecorationState, SourceRange},
+        settings::EditorSettings,
+        widgets::WidgetHostState,
+    },
+    volume::DEFAULT_VOLUME_PERCENT,
+};
 use eframe::egui;
 use rudel_audio::Engine;
 use rudel_core::Pattern;
 use rudel_midi::{MidiEngine, MidiIn, MidiOut};
 use rudel_osc::OscEngine;
-use std::collections::HashSet;
-use std::thread::JoinHandle;
-use std::time::Instant;
+use std::{collections::HashSet, thread::JoinHandle, time::Instant};
 
 const DEFAULT_CODE: &str = r#"stack(
   s("bd ~ bd bd").gain(0.9),

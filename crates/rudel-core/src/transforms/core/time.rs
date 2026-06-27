@@ -1,5 +1,4 @@
-use super::IntoPattern;
-use super::patternify::patternify_frac;
+use super::{IntoPattern, patternify::patternify_frac};
 use crate::pattern::Pattern;
 
 impl Pattern {

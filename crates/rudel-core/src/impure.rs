@@ -3,11 +3,11 @@
 // cross-query state used to align live-coded patterns to cue points.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::fraction::Frac;
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
-use std::collections::HashMap;
-use std::sync::{LazyLock, RwLock};
+use crate::{fraction::Frac, pattern::Pattern, transforms::IntoPattern};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, RwLock},
+};
 
 /// Per-timeline cycle offsets, keyed by timeline id. Process-global and
 /// long-lived, mirroring Strudel's module-level `timelines` singleton: once a
@@ -80,11 +80,12 @@ impl Pattern {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::State;
-    use crate::timespan::TimeSpan;
-    use crate::value::Value;
-    use crate::value::ValueMap;
-    use crate::{pure, sequence};
+    use crate::{
+        pure, sequence,
+        state::State,
+        timespan::TimeSpan,
+        value::{Value, ValueMap},
+    };
 
     fn cycle(n: i64) -> TimeSpan {
         TimeSpan::new(Frac::int(n), Frac::int(n + 1))

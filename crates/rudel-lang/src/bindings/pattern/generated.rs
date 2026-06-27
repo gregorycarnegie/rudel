@@ -1,12 +1,12 @@
 #![allow(non_snake_case)]
 
-use super::KPattern;
-use super::args::*;
-use super::callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64};
-use super::methods::*;
-use koto::derive::*;
-use koto::prelude::*;
-use koto::runtime::Result as KotoResult;
+use super::{
+    KPattern,
+    args::*,
+    callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64},
+    methods::*,
+};
+use koto::{derive::*, prelude::*, runtime::Result as KotoResult};
 use rudel_core::PickJoin;
 
 macro_rules! kpattern_methods {

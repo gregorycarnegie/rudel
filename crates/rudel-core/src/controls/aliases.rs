@@ -1,8 +1,5 @@
-use super::multi::distort;
-use super::named::*;
-use super::plain::*;
-use crate::pattern::Pattern;
-use crate::transforms::IntoPattern;
+use super::{multi::distort, named::*, plain::*};
+use crate::{pattern::Pattern, transforms::IntoPattern};
 
 // Common aliases (Strudel exposes these via `registerControl(names, ...aliases)`).
 macro_rules! control_aliases {

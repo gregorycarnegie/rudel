@@ -1,5 +1,7 @@
-use crate::Rule;
-use crate::atom::{atom_value, num_value};
+use crate::{
+    Rule,
+    atom::{atom_value, num_value},
+};
 use pest::iterators::Pair;
 use rudel_core::{Frac, Pattern, Value, fastcat, pure, rand, silence, stack, timecat};
 use std::sync::Arc;

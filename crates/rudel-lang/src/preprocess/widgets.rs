@@ -1,7 +1,9 @@
-use super::PreprocessWidget;
-use super::scanner::{
-    is_ident_char, next_byte, parse_call, previous_non_ws, skip_block_comment, skip_line_comment,
-    skip_string, top_level_ranges, top_level_split, trim_range,
+use super::{
+    PreprocessWidget,
+    scanner::{
+        is_ident_char, next_byte, parse_call, previous_non_ws, skip_block_comment,
+        skip_line_comment, skip_string, top_level_ranges, top_level_split, trim_range,
+    },
 };
 use crate::WidgetOption;
 use std::collections::BTreeMap;

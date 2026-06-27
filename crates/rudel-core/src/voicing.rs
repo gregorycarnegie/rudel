@@ -9,11 +9,11 @@
 // named dictionary (no smoothest-voice-leading state).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::pattern::{Pattern, pure, silence, stack};
-use crate::tonal::{
-    chord_symbol, interval_to_semitones, letter_semitone, note_to_midi_with_octave,
+use crate::{
+    pattern::{Pattern, pure, silence, stack},
+    tonal::{chord_symbol, interval_to_semitones, letter_semitone, note_to_midi_with_octave},
+    value::{Value, ValueMap},
 };
-use crate::value::{Value, ValueMap};
 
 type VoicingTable = phf::OrderedMap<&'static str, &'static [&'static str]>;
 

@@ -1,8 +1,6 @@
-use crate::filter::Biquad;
-use crate::voice::VoiceLike;
+use crate::{filter::Biquad, voice::VoiceLike};
 use rudel_core::{Value, ValueMap};
-use std::f32::consts::FRAC_PI_2;
-use std::sync::Arc;
+use std::{f32::consts::FRAC_PI_2, sync::Arc};
 
 pub struct Sample {
     pub data: Vec<f32>,

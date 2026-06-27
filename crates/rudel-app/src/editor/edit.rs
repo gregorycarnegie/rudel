@@ -1,7 +1,9 @@
-use super::settings::EditorSettings;
-use super::text::{
-    char_at, char_slice, insert_text_at_char, line_end_at, line_start_at, next_line_start_after,
-    replace_char_range,
+use super::{
+    settings::EditorSettings,
+    text::{
+        char_at, char_slice, insert_text_at_char, line_end_at, line_start_at,
+        next_line_start_after, replace_char_range,
+    },
 };
 use eframe::egui;
 

@@ -8,8 +8,10 @@
 // matching strudel.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::pattern::{Pattern, silence};
-use crate::value::Value;
+use crate::{
+    pattern::{Pattern, silence},
+    value::Value,
+};
 use std::collections::HashMap;
 
 /// Which join flattens the picked pattern-of-patterns.

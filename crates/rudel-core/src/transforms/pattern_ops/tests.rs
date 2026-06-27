@@ -1,9 +1,11 @@
 use super::*;
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, pure, slowcat, stack};
-use crate::seq;
-use crate::signal::rand;
-use crate::value::Value;
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, pure, slowcat, stack},
+    seq,
+    signal::rand,
+    value::Value,
+};
 
 fn values(pat: &Pattern, b: i64, e: i64) -> Vec<Value> {
     let mut haps = pat.query_arc(Frac::int(b), Frac::int(e));

@@ -2,8 +2,7 @@
 // Copyright (C) 2022 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::timespan::TimeSpan;
-use crate::value::ValueMap;
+use crate::{timespan::TimeSpan, value::ValueMap};
 
 /// Query state: the span being queried plus ambient controls.
 #[derive(Clone, Debug)]

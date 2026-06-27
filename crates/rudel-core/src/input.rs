@@ -6,11 +6,11 @@
 // the latest CC value as a `ref()` signal.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::pattern::Pattern;
-use crate::signal::signal;
-use crate::value::Value;
-use std::collections::HashMap;
-use std::sync::{LazyLock, RwLock};
+use crate::{pattern::Pattern, signal::signal, value::Value};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, RwLock},
+};
 
 /// Global MIDI-input CC bus: the latest value (0..1) keyed by `(channel, cc)`,
 /// where channel `0` means "any channel" (the most recent value seen on any

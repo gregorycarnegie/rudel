@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![allow(non_snake_case)]
 
-use crate::hap::Hap;
-use crate::pattern::{Pattern, silence};
-use crate::transforms::IntoPattern;
-use crate::value::{Value, ValueMap};
+use crate::{
+    hap::Hap,
+    pattern::{Pattern, silence},
+    transforms::IntoPattern,
+    value::{Value, ValueMap},
+};
 use std::borrow::Cow;
 
 const DEFAULT_BASE: f64 = 220.0;

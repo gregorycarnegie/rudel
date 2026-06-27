@@ -1,7 +1,5 @@
 use super::IntoPattern;
-use crate::fraction::Frac;
-use crate::pattern::Pattern;
-use crate::value::Value;
+use crate::{fraction::Frac, pattern::Pattern, value::Value};
 
 impl Pattern {
     /// `keep`: keep this pattern's values, taking only keys from `other` that

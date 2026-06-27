@@ -1,9 +1,11 @@
-use crate::envelope::{Adsr, adsr_value};
-use crate::filter::{FilterKind, VoiceFilter};
-use crate::fm::FM_OPS;
-use crate::oscillator::{NoiseGen, NoiseKind, Waveform, sample_table};
-use crate::params::VoiceParams;
-use crate::voice::VoiceLike;
+use crate::{
+    envelope::{Adsr, adsr_value},
+    filter::{FilterKind, VoiceFilter},
+    fm::FM_OPS,
+    oscillator::{NoiseGen, NoiseKind, Waveform, sample_table},
+    params::VoiceParams,
+    voice::VoiceLike,
+};
 use std::f32::consts::{FRAC_PI_2, TAU};
 use wide::f32x8;
 

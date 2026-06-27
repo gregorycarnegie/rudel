@@ -1,10 +1,12 @@
-use crate::drum::{DrumParams, DrumVoice};
-use crate::params::VoiceParams;
-use crate::postfx::{PostFx, PostFxVoice};
-use crate::sampler::{SamplerParams, SamplerVoice};
-use crate::synth::Voice;
-use crate::voice::VoiceLike;
-use crate::zzfx::{ZzfxParams, ZzfxVoice};
+use crate::{
+    drum::{DrumParams, DrumVoice},
+    params::VoiceParams,
+    postfx::{PostFx, PostFxVoice},
+    sampler::{SamplerParams, SamplerVoice},
+    synth::Voice,
+    voice::VoiceLike,
+    zzfx::{ZzfxParams, ZzfxVoice},
+};
 
 pub enum VoiceSpec {
     Synth(Box<VoiceParams>),

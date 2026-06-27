@@ -5,9 +5,11 @@
 use crate::sample_map;
 use fundsp::wave::Wave;
 use rudel_dsp::Sample;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 /// A group of samples sharing one tuning. Flat (drum-machine) sounds use a
 /// single group with `note: None`; pitched (note-keyed) maps have one group per

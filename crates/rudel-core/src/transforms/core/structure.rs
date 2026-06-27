@@ -1,8 +1,9 @@
-use super::IntoPattern;
-use super::patternify::patternify_frac;
-use crate::fraction::Frac;
-use crate::pattern::{Pattern, pure};
-use crate::value::Value;
+use super::{IntoPattern, patternify::patternify_frac};
+use crate::{
+    fraction::Frac,
+    pattern::{Pattern, pure},
+    value::Value,
+};
 
 impl Pattern {
     // -- Structure ---------------------------------------------------------

@@ -1,8 +1,12 @@
 use super::{Output, RudelApp};
-use crate::editor::settings::{EditorFontFamily, EditorTheme};
-use crate::editor::{CodeEditorInput, code_editor};
-use crate::reference::{CONTROLS, DRUMS, FACTORIES, SIGNALS, WAVEFORMS};
-use crate::volume::vlc_volume_slider;
+use crate::{
+    editor::{
+        CodeEditorInput, code_editor,
+        settings::{EditorFontFamily, EditorTheme},
+    },
+    reference::{CONTROLS, DRUMS, FACTORIES, SIGNALS, WAVEFORMS},
+    volume::vlc_volume_slider,
+};
 use eframe::egui;
 
 impl eframe::App for RudelApp {

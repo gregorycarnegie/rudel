@@ -1,6 +1,8 @@
 use rudel_core::{Pattern, Value};
-use std::collections::HashMap;
-use std::sync::{LazyLock, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, RwLock},
+};
 
 static SLIDER_VALUES: LazyLock<RwLock<HashMap<String, Value>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));

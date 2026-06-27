@@ -5,8 +5,10 @@
 use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::{
+    fmt,
+    ops::{Add, Div, Mul, Neg, Rem, Sub},
+};
 
 /// The integer backing [`Frac`]. `i128` gives ample headroom so deep
 /// `lcm`/`compress` arithmetic doesn't overflow (the `Rational64` version did).

@@ -12,9 +12,11 @@ mod modulate;
 mod pick;
 mod repl;
 
-use koto::derive::*;
-use koto::prelude::*;
-use koto::runtime::{KotoEntries, KotoObject};
+use koto::{
+    derive::*,
+    prelude::*,
+    runtime::{KotoEntries, KotoObject},
+};
 use rudel_core::Pattern;
 
 pub(crate) use callback::register_standalone_callbacks;

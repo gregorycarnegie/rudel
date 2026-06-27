@@ -1,8 +1,10 @@
-use crate::envelope::Adsr;
-use crate::filter::FilterParams;
-use crate::fm::FmSpec;
-use crate::oscillator::{AdditiveType, NoiseKind, Waveform, build_additive};
-use crate::pitch::note_to_freq;
+use crate::{
+    envelope::Adsr,
+    filter::FilterParams,
+    fm::FmSpec,
+    oscillator::{AdditiveType, NoiseKind, Waveform, build_additive},
+    pitch::note_to_freq,
+};
 use rudel_core::{Value, ValueMap};
 
 pub struct VoiceParams {
