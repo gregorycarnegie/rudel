@@ -1,5 +1,2 @@
 # npm deps + junctions to strudel packages (set up by the README steps)
 node_modules/
-# generated golden values — the committed copies live in crates/rudel-mini/tests/
-mini_golden.json
-core_golden.json
