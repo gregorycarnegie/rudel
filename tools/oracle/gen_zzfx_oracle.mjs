@@ -9,7 +9,7 @@
 // deterministic. crates/rudel-dsp/src/tests/zzfx.rs rebuilds each with rudel's
 // `build_samples` and compares sample-for-sample.
 
-import { writeFileSync } from 'node:fs';
+import { writeJson } from './lib.mjs';
 
 const SAMPLE_RATE = 44100;
 
@@ -141,5 +141,5 @@ const out = {};
 for (const [label, params] of Object.entries(CASES)) {
   out[label] = { params, samples: buildSamples(...params) };
 }
-writeFileSync(new URL('./zzfx_golden.json', import.meta.url), JSON.stringify(out));
+writeJson('./zzfx_golden.json', out);
 console.error(`wrote zzfx_golden.json (${Object.keys(out).length} cases)`);

@@ -14,13 +14,13 @@
 //   npm install --no-save @tonaljs/tonal chord-voicings
 // (re-create the strudel symlinks afterwards — npm install prunes them).
 
-import { writeFileSync } from 'node:fs';
 import { mini } from '@strudel/mini';
 import { note, n, i, freq, chord, noteToMidi } from '@strudel/core';
 import { scale, transpose, scaleTranspose, voicing, rootNotes } from '@strudel/tonal';
 import { xen, withBase, ftrans } from '@strudel/xen';
 import { tune } from '@strudel/xen/tune.mjs';
 import { edoScale } from '@strudel/edo';
+import { fracStr, writeJson } from './lib.mjs';
 
 // label -> Pattern. String scale/interval args are passed raw (reify -> pure),
 // matching how rudel reconstructs them from Value::Str; only the *base* step
@@ -116,10 +116,6 @@ const CASES = {
 
 const CYCLES = 2;
 
-function fracStr(f) {
-  return `${f.s < 0 ? '-' : ''}${f.n}/${f.d}`;
-}
-
 function toMidi(x) {
   return typeof x === 'number' ? x : noteToMidi(x);
 }
@@ -157,5 +153,5 @@ const out = {};
 for (const [label, pat] of Object.entries(CASES)) {
   out[label] = dump(pat);
 }
-writeFileSync(new URL('./tonal_golden.json', import.meta.url), JSON.stringify(out, null, 1));
+writeJson('./tonal_golden.json', out, 1);
 console.error(`wrote tonal_golden.json (${Object.keys(out).length} cases)`);

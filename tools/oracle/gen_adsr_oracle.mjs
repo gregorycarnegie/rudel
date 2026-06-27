@@ -13,7 +13,7 @@
 // times and compares the two curves.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { writeFileSync } from 'node:fs';
+import { writeJson } from './lib.mjs';
 
 const SAMPLE_RATE = 44100;
 
@@ -168,8 +168,5 @@ const out = cases.map(({ name, a, d, s, r, dur }) => {
   return { name, attack: a, decay: d, sustain: s, release: r, duration: dur, samples };
 });
 
-writeFileSync(
-  new URL('./adsr_golden.json', import.meta.url),
-  JSON.stringify({ sampleRate: SAMPLE_RATE, cases: out }),
-);
+writeJson('./adsr_golden.json', { sampleRate: SAMPLE_RATE, cases: out });
 console.log(`wrote adsr_golden.json: ${out.length} cases`);

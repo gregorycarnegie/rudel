@@ -1341,14 +1341,10 @@ fn normalize_symbol(s: &str) -> &str {
     }
 }
 
-fn floor_div(a: i32, b: i32) -> i32 {
-    (a as f64 / b as f64).floor() as i32
-}
-
 /// `scaleStep`: index into `notes` like a scale, octaving overshoots.
 fn scale_step_in(notes: &[i32], offset: i32, octaves: i32) -> i32 {
     let len = notes.len() as i32;
-    let oct_offset = floor_div(offset, len) * octaves * 12;
+    let oct_offset = offset.div_euclid(len) * octaves * 12;
     notes[offset.rem_euclid(len) as usize] + oct_offset
 }
 

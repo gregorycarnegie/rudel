@@ -1,13 +1,13 @@
-use super::aliases::ALIAS_CONTROL_BUILDERS;
+use super::aliases::{ALIAS_CONTROL_BUILDERS, ALIAS_CONTROL_KEYS};
 use super::multi::distort;
 use super::named::{NAMED_CONTROL_BUILDERS, fade_time, fx_release, loop_begin, loop_end};
 use super::plain::{PLAIN_CONTROL_BUILDERS, bend_range, warp, warpmode, wt, wtphaserand};
 use super::special::{mode, s, sound};
 use crate::pattern::Pattern;
-use crate::value::Value;
 
 type ControlBuilder = fn(Pattern) -> Pattern;
 type ControlBuilderEntry = (&'static str, ControlBuilder);
+type ControlKeyEntry = (&'static str, &'static str);
 
 /// Control spellings without a same-named Rust builder fn: bespoke controls
 /// (`s` splits `name:index`, `mode` also sets `anchor`) and camelCase /
@@ -29,6 +29,23 @@ static EXTRA_CONTROL_BUILDERS: &[ControlBuilderEntry] = &[
     ("loope", |p| loop_end(p)),
 ];
 
+static EXTRA_CONTROL_KEYS: &[ControlKeyEntry] = &[
+    ("s", "s"),
+    ("sound", "s"),
+    ("mode", "mode"),
+    ("distort", "distort"),
+    ("bendRange", "bendRange"),
+    ("wavetablePosition", "wt"),
+    ("wavetableWarp", "warp"),
+    ("wavetableWarpMode", "warpmode"),
+    ("wavetablePhaseRand", "wtphaserand"),
+    ("fadeOutTime", "fadeTime"),
+    ("FXrel", "FXrelease"),
+    ("FXr", "FXrelease"),
+    ("loopb", "loopBegin"),
+    ("loope", "loopEnd"),
+];
+
 /// Every `(name, builder)` control pair: plain controls, aliases,
 /// literal-key controls, and binding-layer spellings. Each builder wraps a
 /// value pattern into the control's map; the language bindings use this to
@@ -40,6 +57,15 @@ pub fn control_builders() -> impl Iterator<Item = ControlBuilderEntry> {
         .chain(NAMED_CONTROL_BUILDERS)
         .chain(EXTRA_CONTROL_BUILDERS)
         .copied()
+}
+
+fn builder_key(name: &'static str) -> &'static str {
+    match name {
+        "byte_beat_expression" => "byteBeatExpression",
+        "byte_beat_start_time" => "byteBeatStartTime",
+        "fx_release" => "FXrelease",
+        _ => name,
+    }
 }
 
 /// `(name, canonical key)` pairs for the numbered FM controls, mirroring
@@ -98,19 +124,17 @@ pub fn numbered_control_names() -> Vec<(String, String)> {
 /// Resolve a control or alias name to the canonical key it writes, mirroring
 /// Strudel's `getControlName`. Unknown names resolve to themselves.
 pub fn control_name(name: &str) -> String {
-    // Probe the builder with a scalar and read back the key it writes. This
-    // keeps the alias -> key mapping in one place (the registries above)
-    // instead of a second hand-maintained table that could drift.
-    if let Some((_, f)) = control_builders().find(|(n, _)| *n == name) {
-        let probe = f(crate::pure(Value::Int(0)));
-        if let Some(hap) = probe
-            .query_arc(crate::Frac::zero(), crate::Frac::one())
-            .first()
-            && let Value::Map(m) = &hap.value
-            && let Some(k) = m.keys().next()
-        {
-            return k.clone();
-        }
+    if PLAIN_CONTROL_BUILDERS.iter().any(|(n, _)| *n == name) {
+        return name.to_string();
+    }
+    if let Some((_, key)) = ALIAS_CONTROL_KEYS.iter().find(|(n, _)| *n == name) {
+        return builder_key(key).to_string();
+    }
+    if let Some((key, _)) = NAMED_CONTROL_BUILDERS.iter().find(|(n, _)| *n == name) {
+        return (*key).to_string();
+    }
+    if let Some((_, key)) = EXTRA_CONTROL_KEYS.iter().find(|(n, _)| *n == name) {
+        return (*key).to_string();
     }
     if let Some((_, key)) = numbered_control_names()
         .into_iter()

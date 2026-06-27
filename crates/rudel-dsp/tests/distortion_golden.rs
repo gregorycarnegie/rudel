@@ -22,7 +22,8 @@ const EPS: f64 = 5e-4;
 #[test]
 fn distort_algorithms_match_superdough() {
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("distortion_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../tools/oracle/distortion_golden.json"))
+            .expect("parse golden");
     let xs: Vec<f64> = golden["xs"]
         .as_array()
         .unwrap()

@@ -4,7 +4,6 @@
 
 use crate::sample_map;
 use fundsp::wave::Wave;
-use rayon::prelude::*;
 use rudel_dsp::Sample;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -187,7 +186,7 @@ impl SampleBank {
         }
 
         let mut loaded: Vec<_> = jobs
-            .into_par_iter()
+            .into_iter()
             .enumerate()
             .filter_map(|(index, (name, file))| {
                 load_sample(&file).ok().map(|sample| {
@@ -309,7 +308,7 @@ impl SampleBank {
 
         // Fetch + decode in parallel (order preserved by collect).
         let decoded: Vec<(Job, Result<Sample, String>)> = jobs
-            .into_par_iter()
+            .into_iter()
             .map(|job| {
                 let sample = fetch_and_decode(&job.2);
                 (job, sample)

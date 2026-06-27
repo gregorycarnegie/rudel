@@ -248,7 +248,8 @@ fn golden_rows(rows: &[serde_json::Value]) -> Vec<(String, f64)> {
 #[test]
 fn tonal_and_xen_match_strudel() {
     let golden: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(include_str!("tonal_golden.json")).expect("parse golden json");
+        serde_json::from_str(include_str!("../../../tools/oracle/tonal_golden.json"))
+            .expect("parse golden json");
 
     let mut failures = Vec::new();
     for (label, rows) in &golden {

@@ -22,7 +22,8 @@ const EPS: f64 = 5e-5;
 #[test]
 fn adsr_value_matches_superdough() {
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("adsr_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../tools/oracle/adsr_golden.json"))
+            .expect("parse golden");
     let cases = golden["cases"].as_array().expect("cases array");
 
     let mut failures = Vec::new();

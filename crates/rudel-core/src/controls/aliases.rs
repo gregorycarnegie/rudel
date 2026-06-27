@@ -28,6 +28,10 @@ macro_rules! control_aliases {
         pub(super) static ALIAS_CONTROL_BUILDERS: &[(&str, fn(Pattern) -> Pattern)] = &[
             $( (stringify!($alias), |p: Pattern| $target(p)) ),*
         ];
+
+        pub(super) static ALIAS_CONTROL_KEYS: &[(&str, &str)] = &[
+            $( (stringify!($alias), stringify!($target)) ),*
+        ];
     };
 }
 

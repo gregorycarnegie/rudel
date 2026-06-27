@@ -9,8 +9,8 @@
 // generated `tune_table.rs` data and rudel's ratio derivation against tune.js
 // for the whole archive.
 
-import { writeFileSync } from 'node:fs';
 import Tune from '@strudel/xen/tunejs.js';
+import { writeJson } from './lib.mjs';
 
 // All archive scale names. `search('')` matches every key in tune.js's private
 // TuningList (empty substring matches all).
@@ -30,5 +30,5 @@ for (const name of names) {
   out[name] = ratios;
 }
 
-writeFileSync(new URL('./tune_table_golden.json', import.meta.url), JSON.stringify(out));
+writeJson('./tune_table_golden.json', out);
 console.error(`wrote tune_table_golden.json (${Object.keys(out).length} scales)`);

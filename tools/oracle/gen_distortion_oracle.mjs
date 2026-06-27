@@ -11,7 +11,7 @@
 // (algorithm, x, k) grid and compares sample-for-sample.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { writeFileSync } from 'node:fs';
+import { writeJson } from './lib.mjs';
 
 // --- verbatim from superdough/util.mjs --------------------------------------
 const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
@@ -103,8 +103,5 @@ const cases = Object.keys(distortionAlgorithms).map((name) => {
   return { name, samples };
 });
 
-writeFileSync(
-  new URL('./distortion_golden.json', import.meta.url),
-  JSON.stringify({ xs, ks, cases }),
-);
+writeJson('./distortion_golden.json', { xs, ks, cases });
 console.log(`wrote distortion_golden.json: ${cases.length} algorithms, ${xs.length * ks.length} samples each`);

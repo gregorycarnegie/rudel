@@ -30,7 +30,8 @@ fn config_from_json(c: &serde_json::Value) -> LfoConfig {
 #[test]
 fn lfo_matches_superdough() {
     let golden: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(include_str!("lfo_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../tools/oracle/lfo_golden.json"))
+            .expect("parse golden");
 
     let mut failures = Vec::new();
     for (label, entry) in &golden {

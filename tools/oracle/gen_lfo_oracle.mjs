@@ -7,7 +7,7 @@
 // with `sampleRate` fixed. crates/rudel-dsp/src/tests/... rebuilds each with
 // rudel's `Lfo` and compares sample-for-sample.
 
-import { writeFileSync } from 'node:fs';
+import { writeJson } from './lib.mjs';
 
 const SAMPLE_RATE = 44100;
 const TWO_PI = 2 * Math.PI;
@@ -117,5 +117,5 @@ const out = {};
 for (const [label, cfg] of Object.entries(CASES)) {
   out[label] = { cfg, samples: renderLfo(cfg, N) };
 }
-writeFileSync(new URL('./lfo_golden.json', import.meta.url), JSON.stringify(out));
+writeJson('./lfo_golden.json', out);
 console.error(`wrote lfo_golden.json (${Object.keys(out).length} cases)`);

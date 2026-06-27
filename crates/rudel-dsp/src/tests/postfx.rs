@@ -50,7 +50,8 @@ fn vowel_formant_impulse_response_matches_webaudio() {
     // A `PostFxVoice` with only `vowel` set applies exactly that bank, so feeding
     // a unit impulse (`ImpulseVoice`) yields the vowel filter's impulse response.
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("../../tests/vowel_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../../tools/oracle/vowel_golden.json"))
+            .expect("parse golden");
     let sr = golden["sampleRate"].as_f64().unwrap() as f32;
     let n = golden["length"].as_u64().unwrap() as usize;
 
@@ -119,7 +120,8 @@ fn phaser_swept_notch_impulse_response_matches_webaudio() {
     // LFO-waveform correctness fix (triangle, not sine) and pins the swept-notch
     // rendering against WebAudio.
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("../../tests/phaser_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../../tools/oracle/phaser_golden.json"))
+            .expect("parse golden");
     let sr = golden["sampleRate"].as_f64().unwrap() as f32;
     let n = golden["length"].as_u64().unwrap() as usize;
     const EPS: f32 = 1e-3;

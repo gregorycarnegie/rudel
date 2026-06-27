@@ -14,7 +14,8 @@ use common::{canon_locs, golden_locs, golden_rows, rudel_rows};
 fn mini_notation_matches_strudel() {
     const CYCLES: i64 = 3;
     let golden: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(include_str!("mini_golden.json")).expect("parse golden json");
+        serde_json::from_str(include_str!("../../../tools/oracle/mini_golden.json"))
+            .expect("parse golden json");
 
     let mut failures = Vec::new();
     for (code, entry) in &golden {

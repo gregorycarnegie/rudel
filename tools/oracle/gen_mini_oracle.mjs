@@ -14,9 +14,9 @@
 // Strudel's locations are relative to the quoted code, so 1 is subtracted to
 // make them offsets into the bare pattern string (matching rudel's parse).
 
-import { writeFileSync } from 'node:fs';
 import { mini, getLeafLocations } from '@strudel/mini';
 import Fraction from '@strudel/core/fraction.mjs';
+import { fracStr, normValue, writeJson } from './lib.mjs';
 
 // Patterns exercising the mini-notation grammar, including the cases from
 // strudel/packages/mini/test/mini.test.mjs and tokenizer edge cases.
@@ -131,25 +131,8 @@ const PATTERNS = [
 ];
 const CYCLES = 3;
 
-function fracStr(f) {
-  // Fraction.js: s = sign (1/-1), n = numerator (>=0), d = denominator (>0).
-  const sign = f.s < 0 ? '-' : '';
-  return `${sign}${f.n}/${f.d}`;
-}
-
 function spanStr(span) {
   return span ? { b: fracStr(span.begin), e: fracStr(span.end) } : null;
-}
-
-function normValue(v) {
-  if (v === null || v === undefined) return null;
-  if (Array.isArray(v)) return v.map(normValue);
-  if (typeof v === 'object') {
-    const o = {};
-    for (const k of Object.keys(v).sort()) o[k] = normValue(v[k]);
-    return o;
-  }
-  return v; // number | string | boolean
 }
 
 const sortPairs = (locs) => locs.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
@@ -183,5 +166,5 @@ for (const code of PATTERNS) {
   out[code] = dump(code);
 }
 // Write directly to file: importing @strudel/core prints a banner to stdout.
-writeFileSync(new URL('./mini_golden.json', import.meta.url), JSON.stringify(out, null, 1));
+writeJson('./mini_golden.json', out, 1);
 console.error('wrote mini_golden.json');

@@ -39,7 +39,8 @@ fn synth_from_params(p: &[f64]) -> ZzfxSynth {
 #[test]
 fn build_samples_matches_superdough() {
     let golden: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(include_str!("zzfx_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../tools/oracle/zzfx_golden.json"))
+            .expect("parse golden");
 
     let mut failures = Vec::new();
     for (label, entry) in &golden {

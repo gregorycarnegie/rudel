@@ -27,7 +27,8 @@ fn rudel_ratios(name: &str, len: usize) -> Vec<f64> {
 #[test]
 fn tune_table_matches_tunejs_archive() {
     let golden: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(include_str!("tune_table_golden.json")).expect("parse golden json");
+        serde_json::from_str(include_str!("../../../tools/oracle/tune_table_golden.json"))
+            .expect("parse golden json");
 
     let mut failures = Vec::new();
     let mut checked = 0usize;

@@ -272,21 +272,13 @@ fn scale_name_token(v: &Value) -> String {
     }
 }
 
-fn floor_div(a: i32, b: i32) -> i32 {
-    (a as f64 / b as f64).floor() as i32
-}
-
-fn modulo(a: i32, b: i32) -> i32 {
-    a.rem_euclid(b)
-}
-
 /// Map a zero-indexed scale degree to a MIDI note (`scaleStep`). Degrees beyond
 /// the scale length wrap into higher/lower octaves.
 pub fn scale_step(step: i32, scale: &str) -> Option<i32> {
     let (root, intervals) = parse_scale(scale)?;
     let len = intervals.len() as i32;
-    let octave_offset = floor_div(step, len);
-    let idx = modulo(step, len) as usize;
+    let octave_offset = step.div_euclid(len);
+    let idx = step.rem_euclid(len) as usize;
     Some(root + intervals[idx] + 12 * octave_offset)
 }
 
@@ -296,8 +288,8 @@ pub fn scale_offset(scale: &str, offset: i32, note_midi: i32) -> Option<i32> {
     let (root, intervals) = parse_scale(scale)?;
     let len = intervals.len() as i32;
     let rel = note_midi - root;
-    let base_oct = floor_div(rel, 12);
-    let chroma = modulo(rel, 12);
+    let base_oct = rel.div_euclid(12);
+    let chroma = rel.rem_euclid(12);
     // Find the degree whose interval matches (or is nearest to) this chroma.
     let idx = intervals
         .iter()
@@ -311,8 +303,8 @@ pub fn scale_offset(scale: &str, offset: i32, note_midi: i32) -> Option<i32> {
                 .unwrap_or(0)
         }) as i32;
     let new_index = idx + offset;
-    let octave_offset = base_oct + floor_div(new_index, len);
-    let i = modulo(new_index, len) as usize;
+    let octave_offset = base_oct + new_index.div_euclid(len);
+    let i = new_index.rem_euclid(len) as usize;
     Some(root + intervals[i] + 12 * octave_offset)
 }
 
@@ -338,14 +330,14 @@ fn nearest_number_index(target: i32, numbers: &[i32], prefer_higher: bool) -> us
 pub fn step_in_named_scale(step: i32, scale: &str, anchor_midi: i32) -> Option<i32> {
     let (root, intervals) = parse_scale(scale)?;
     let len = intervals.len() as i32;
-    let root_chroma = modulo(root, 12);
-    let anchor_chroma = modulo(anchor_midi, 12);
-    let anchor_diff = modulo(anchor_chroma - root_chroma, 12);
+    let root_chroma = root.rem_euclid(12);
+    let anchor_chroma = anchor_midi.rem_euclid(12);
+    let anchor_diff = (anchor_chroma - root_chroma).rem_euclid(12);
     let zero_index = nearest_number_index(anchor_diff, intervals, false) as i32;
     let step = step + zero_index;
     let transpose = anchor_midi - anchor_diff;
-    let oct_offset = floor_div(step, len) * 12;
-    let idx = modulo(step, len) as usize;
+    let oct_offset = step.div_euclid(len) * 12;
+    let idx = step.rem_euclid(len) as usize;
     Some(intervals[idx] + transpose + oct_offset)
 }
 
@@ -660,10 +652,10 @@ fn nearest_scale_note(scale: &str, note_midi: i32) -> Option<i32> {
     let (root, intervals) = parse_scale(scale)?;
     // Strudel discards the scale root's octave here (`Note.get(tonic).pc + '0'`),
     // so candidates start from the tonic pitch class at octave 0.
-    let root_pc0 = modulo(root, 12) + 12;
+    let root_pc0 = root.rem_euclid(12) + 12;
     let mut candidates: Vec<i32> = intervals.iter().map(|&iv| root_pc0 + iv).collect();
     candidates.push(root_pc0 + 12); // the octave, for upward wrapping
-    let octave_diff = floor_div(note_midi - root_pc0, 12);
+    let octave_diff = (note_midi - root_pc0).div_euclid(12);
     let aligned: Vec<i32> = candidates.iter().map(|&m| m + 12 * octave_diff).collect();
     let idx = nearest_number_index(note_midi, &aligned, true);
     Some(aligned[idx])

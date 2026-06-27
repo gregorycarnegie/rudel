@@ -125,7 +125,8 @@ fn build(label: &str) -> Pattern {
 fn transforms_match_strudel() {
     const CYCLES: i64 = 4;
     let golden: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(include_str!("core_golden.json")).expect("parse golden json");
+        serde_json::from_str(include_str!("../../../tools/oracle/core_golden.json"))
+            .expect("parse golden json");
 
     let mut failures = Vec::new();
     for (label, rows) in &golden {

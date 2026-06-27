@@ -6,9 +6,9 @@
 // Each entry is a labelled Pattern built with the real Strudel engine; the Rust
 // test reconstructs the same pattern with rudel-core and compares hap-for-hap.
 
-import { writeFileSync } from 'node:fs';
 import { mini } from '@strudel/mini';
 import { rev, s, note, randrun, zip, fast, jux, squeeze } from '@strudel/core';
+import { fracStr, normValue, writeJson } from './lib.mjs';
 
 // label -> Pattern (built from the same mini strings the Rust side uses).
 const CASES = {
@@ -75,19 +75,6 @@ const CASES = {
 };
 const CYCLES = 4;
 
-function fracStr(f) {
-  return `${f.s < 0 ? '-' : ''}${f.n}/${f.d}`;
-}
-function normValue(v) {
-  if (v === null || v === undefined) return null;
-  if (Array.isArray(v)) return v.map(normValue);
-  if (typeof v === 'object') {
-    const o = {};
-    for (const k of Object.keys(v).sort()) o[k] = normValue(v[k]);
-    return o;
-  }
-  return v;
-}
 function dump(pat) {
   return pat.queryArc(0, CYCLES).map((h) => ({
     pb: fracStr(h.part.begin),
@@ -102,5 +89,5 @@ const out = {};
 for (const [label, pat] of Object.entries(CASES)) {
   out[label] = dump(pat);
 }
-writeFileSync(new URL('./core_golden.json', import.meta.url), JSON.stringify(out, null, 1));
+writeJson('./core_golden.json', out, 1);
 console.error('wrote core_golden.json');

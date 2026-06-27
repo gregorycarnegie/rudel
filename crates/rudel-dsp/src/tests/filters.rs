@@ -153,7 +153,8 @@ fn biquad_impulse_response_matches_webaudio() {
     use crate::filter::Biquad;
 
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("../../tests/biquad_golden.json")).expect("parse golden");
+        serde_json::from_str(include_str!("../../../../tools/oracle/biquad_golden.json"))
+            .expect("parse golden");
     let sr = golden["sampleRate"].as_f64().unwrap() as f32;
     let n = golden["length"].as_u64().unwrap() as usize;
 

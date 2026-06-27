@@ -1,10 +1,9 @@
 # Parity oracle generators
 
 These scripts dump golden reference values from Strudel's real engine so the
-Rust port can be checked against them. The committed goldens live in
-`crates/rudel-mini/tests/{mini_golden.json,core_golden.json,tonal_golden.json}`
-(mini-notation, core transforms, and tonal/xen) and are embedded by the
-`*_parity.rs` integration tests. `tools/gen_parity_oracle.mjs` (one level up)
+Rust port can be checked against them. The committed goldens live next to these
+generators in `tools/oracle/` and are embedded by the `*_parity.rs` integration
+tests. `tools/gen_parity_oracle.mjs` (one level up)
 generates the RNG/signal goldens for `crates/rudel-core/tests/parity_oracle.rs`
 and needs no setup.
 
@@ -56,8 +55,6 @@ node gen_mini_oracle.mjs        # -> mini_golden.json
 node gen_core_oracle.mjs        # -> core_golden.json
 node gen_tonal_oracle.mjs       # -> tonal_golden.json  (needs the tonal/xen/edo deps above)
 node gen_tune_table_oracle.mjs  # -> tune_table_golden.json  (whole tune.js archive)
-cp mini_golden.json core_golden.json tonal_golden.json tune_table_golden.json \
-  ../../crates/rudel-mini/tests/
 ```
 
 `gen_zzfx_oracle.mjs` is independent — it inlines superdough's `buildSamples`
@@ -69,7 +66,6 @@ node gen_zzfx_oracle.mjs        # -> zzfx_golden.json  (ZzFX audio golden)
 node gen_lfo_oracle.mjs         # -> lfo_golden.json   (LFO modulator-source golden)
 node gen_adsr_oracle.mjs        # -> adsr_golden.json  (linear ADSR gain-envelope golden)
 node gen_distortion_oracle.mjs  # -> distortion_golden.json  (waveshaping distortion golden)
-cp zzfx_golden.json lfo_golden.json adsr_golden.json distortion_golden.json ../../crates/rudel-dsp/tests/
 ```
 
 ### Web Audio graph oracle (`OfflineAudioContext`)
@@ -88,7 +84,6 @@ npm install                     # installs node-web-audio-api
 node gen_biquad_oracle.mjs      # -> biquad_golden.json  (BiquadFilterNode impulse responses)
 node gen_vowel_oracle.mjs       # -> vowel_golden.json   (VowelNode formant-bank impulse responses)
 node gen_phaser_oracle.mjs      # -> phaser_golden.json  (swept-notch phaser impulse responses)
-cp biquad_golden.json vowel_golden.json phaser_golden.json ../../crates/rudel-dsp/tests/
 ```
 
 For the biquad oracle only `bandpass`/`notch` are golden-tested (linear Q in both

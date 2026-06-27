@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { OfflineAudioContext } from 'node-web-audio-api';
-import { writeFileSync } from 'node:fs';
+import { writeJson } from './lib.mjs';
 
 const SAMPLE_RATE = 44100;
 const N = 128;
@@ -71,5 +71,5 @@ for (const s of specs) {
 }
 
 const out = { sampleRate: SAMPLE_RATE, length: N, cases };
-writeFileSync(new URL('./phaser_golden.json', import.meta.url), JSON.stringify(out, null, 2));
+writeJson('./phaser_golden.json', out, 2);
 console.log(`wrote phaser_golden.json (${cases.length} cases)`);
