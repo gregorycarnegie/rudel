@@ -534,6 +534,35 @@ fn camel_case_aliases_resolve() {
 }
 
 #[test]
+fn curried_standalone_transforms_as_callbacks() {
+    // A standalone transform missing its trailing pattern partially applies,
+    // so Strudel's `sometimes(ply("2"))` idiom works like `|x| x.ply("2")`.
+    let curried = shape(&eval(r#"seq(0, 1).always(fast(2))"#).expect("eval"), 1);
+    let lambda = shape(&eval(r#"seq(0, 1).always(|x| x.fast(2))"#).expect("eval"), 1);
+    assert_eq!(curried, lambda);
+    // The user-facing repro: `almostNever(ply("0"))` must eval, not raise
+    // "expected Function, found KPattern".
+    assert!(eval(r#"s("bd sd").almostNever(ply("0"))"#).is_ok());
+    // Fully applied standalone forms are unchanged.
+    let full = shape(&eval(r#"fast(2, seq(0, 1))"#).expect("eval"), 1);
+    let method = shape(&eval(r#"seq(0, 1).fast(2)"#).expect("eval"), 1);
+    assert_eq!(full, method);
+}
+
+#[test]
+fn curried_callback_combinators() {
+    // The callback combinators also partially apply: `every(2, rev)` without a
+    // pattern is a function, so Strudel's `.apply(every(2, rev))` idiom works.
+    let curried = shape(&eval(r#"seq(0, 1).apply(every(2, rev))"#).expect("eval"), 2);
+    let method = shape(&eval(r#"seq(0, 1).every(2, rev)"#).expect("eval"), 2);
+    assert_eq!(curried, method);
+    // Nested partials: a curried transform inside a curried combinator.
+    let nested = shape(&eval(r#"seq(0, 1).apply(off(0.25, fast(2)))"#).expect("eval"), 1);
+    let lambda = shape(&eval(r#"seq(0, 1).off(0.25, |x| x.fast(2))"#).expect("eval"), 1);
+    assert_eq!(nested, lambda);
+}
+
+#[test]
 fn step_count_transforms_via_koto() {
     // contract halves the step count; shrink/grow concatenate shrinking views.
     let pat = eval(r#"seq(0, 1, 2, 3).contract(2)"#).expect("eval");

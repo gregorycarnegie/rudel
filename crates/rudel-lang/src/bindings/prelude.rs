@@ -36,11 +36,38 @@ macro_rules! register_pick_fns {
     };
 }
 
+/// Register a standalone transform with Strudel-style partial application:
+/// called with fewer than `arity` arguments (i.e. without the trailing
+/// pattern), it returns a function holding those arguments and awaiting the
+/// rest, so `ply("0")` works as a transform argument (`x => x.ply("0")`)
+/// exactly like Strudel's curried `register` functions.
+fn add_curried_fn(
+    prelude: &KMap,
+    name: &str,
+    arity: usize,
+    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + 'static,
+) {
+    prelude.add_fn(name, move |ctx| {
+        let args = ctx.args();
+        if args.len() < arity {
+            let held = args.to_vec();
+            let f = f.clone();
+            // ponytail: one level of currying; `fast()(2)(pat)` is not re-curried
+            return Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+                let mut all = held.clone();
+                all.extend_from_slice(ctx.args());
+                f(&all)
+            })));
+        }
+        f(args)
+    });
+}
+
 /// Register the standalone (curried-style) form of pattern transforms that are
 /// also methods, taking the pattern as the *last* argument to mirror Strudel's
 /// `register`ed functions (`fast(2, pat)` == `pat.fast(2)`). Each group matches
-/// the argument types in `generated.rs`'s `kpattern_methods!`. Koto has no
-/// partial application, so only the fully-applied form is provided.
+/// the argument types in `generated.rs`'s `kpattern_methods!`. Calls missing
+/// the trailing pattern partially apply via [`add_curried_fn`].
 macro_rules! register_pattern_fns {
     ($p:expr;
      pattern1: [$($n_a1:literal => $a1:ident),* $(,)?];
@@ -57,9 +84,9 @@ macro_rules! register_pattern_fns {
      pat2:     [$($n_g2:literal => $g2:ident),* $(,)?];
     ) => {{
         // The pattern is the last argument; leading arg `i` exists only when
-        // `i < last` (otherwise it would be the pattern itself).
-        $($p.add_fn($n_a1, |ctx| {
-            let a = ctx.args();
+        // `i < last` (otherwise it would be the pattern itself). Each arity is
+        // the full argument count; shorter calls curry via `add_curried_fn`.
+        $(add_curried_fn($p, $n_a1, 2, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
@@ -70,53 +97,46 @@ macro_rules! register_pattern_fns {
             let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$a0()).into())
         });)*
-        $($p.add_fn($n_b1, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_b1, 2, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
             Ok(KPattern(pat.$b1(n)).into())
         });)*
-        $($p.add_fn($n_h1, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_h1, 2, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$h1(n)).into())
         });)*
-        $($p.add_fn($n_c1, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_c1, 2, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let n = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
             Ok(KPattern(pat.$c1(n)).into())
         });)*
-        $($p.add_fn($n_d2, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_d2, 3, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
             let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$d2(x, y)).into())
         });)*
-        $($p.add_fn($n_e2, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_e2, 3, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
             let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
             Ok(KPattern(pat.$e2(x, y)).into())
         });)*
-        $($p.add_fn($n_f2, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_f2, 3, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
             let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)) as i64;
             Ok(KPattern(pat.$f2(x, y)).into())
         });)*
-        $($p.add_fn($n_i3, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_i3, 4, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
@@ -124,8 +144,7 @@ macro_rules! register_pattern_fns {
             let z = arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null)) as i64;
             Ok(KPattern(pat.$i3(x, y, z)).into())
         });)*
-        $($p.add_fn($n_ja, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_ja, 4, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
@@ -133,8 +152,7 @@ macro_rules! register_pattern_fns {
             let z = arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$ja(x, y, z)).into())
         });)*
-        $($p.add_fn($n_jb, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_jb, 4, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
@@ -142,8 +160,7 @@ macro_rules! register_pattern_fns {
             let z = Frac::from_f64(arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null)));
             Ok(KPattern(pat.$jb(x, y, z)).into())
         });)*
-        $($p.add_fn($n_g2, |ctx| {
-            let a = ctx.args();
+        $(add_curried_fn($p, $n_g2, 3, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
             let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
             let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
