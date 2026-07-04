@@ -136,10 +136,10 @@ impl Default for EditorSettings {
             bracket_closing: true,
             line_numbers: true,
             active_line: false,
-            autocomplete: false,
+            autocomplete: true,
             pattern_highlighting: true,
             flash: true,
-            tooltips: false,
+            tooltips: true,
             tab_indentation: false,
             multi_cursor: false,
             block_based_eval: false,
@@ -220,9 +220,10 @@ mod tests {
         assert!(!settings.bracket_matching);
         assert!(settings.bracket_closing);
         assert!(settings.line_numbers);
-        assert!(!settings.autocomplete);
+        assert!(settings.autocomplete);
         assert!(settings.pattern_highlighting);
         assert!(settings.flash);
+        assert!(settings.tooltips);
         assert!(!settings.tab_indentation);
         assert_eq!(settings.theme, EditorTheme::StrudelDark);
         assert_eq!(settings.font_size, 18.0);

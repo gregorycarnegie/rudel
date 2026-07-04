@@ -302,7 +302,7 @@ Function-by-function audit against the Strudel learn pages
 ## learn/code (REPL ergonomics)
 
 - [x] live eval + hot-swap, error surfacing, cps slider, reference pane
-- [ ] autocomplete / sound+control hints in the editor
+- [x] autocomplete / sound+control hints in the editor
 - [x] per-pattern naming: `$:` anonymous labels, `name:` labels, and the `.p(name)`
       method all tag patterns with an `id` and stack into the result;
       comments-as-mute works (a commented label line drops out of the stack).

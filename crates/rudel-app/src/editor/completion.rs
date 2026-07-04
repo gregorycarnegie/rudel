@@ -193,6 +193,9 @@ fn completion_at_bytes(
     if let Some(result) = bank_completion(code, cursor, catalog) {
         return result;
     }
+    if let Some(result) = control_completion(code, cursor, catalog) {
+        return result;
+    }
     if let Some(result) = chord_completion(code, cursor) {
         return result;
     }
@@ -225,7 +228,7 @@ fn sound_completion(
     let items = sound_names(catalog)
         .into_iter()
         .filter(|name| name.contains(fragment))
-        .map(|name| CompletionItem::new(name, CompletionKind::Sound))
+        .map(sound_item)
         .collect();
     Some(non_empty_result(
         ctx.absolute_inside_start + start,
@@ -244,9 +247,31 @@ fn bank_completion(
     let items = bank_names(catalog)
         .into_iter()
         .filter(|name| name.starts_with(fragment))
-        .map(|name| CompletionItem::new(name, CompletionKind::Bank))
+        .map(|name| {
+            CompletionItem::new(name, CompletionKind::Bank)
+                .with_detail("sample bank prefix from loaded samples")
+        })
         .collect();
     Some(non_empty_result(ctx.absolute_inside_start, cursor, items))
+}
+
+fn control_completion(
+    code: &str,
+    cursor: usize,
+    catalog: &CompletionCatalog<'_>,
+) -> Option<Option<(usize, usize, Vec<CompletionItem>)>> {
+    let ctx = quoted_arg_context(code, cursor, &["ctrl", "as"])?;
+    let start = fragment_start(&ctx.inside, |ch| ch.is_ascii_alphanumeric() || ch == '_');
+    let fragment = &ctx.inside[start..];
+    let items = control_items(catalog)
+        .into_iter()
+        .filter(|item| item.label.starts_with(fragment))
+        .collect();
+    Some(non_empty_result(
+        ctx.absolute_inside_start + start,
+        cursor,
+        items,
+    ))
 }
 
 fn chord_completion(
@@ -524,11 +549,11 @@ fn fallback_items(catalog: &CompletionCatalog<'_>) -> Vec<CompletionItem> {
             "runtime function or value",
         );
     }
+    for name in &catalog.reference.controls {
+        insert_control_item(&mut items, name);
+    }
     for name in &catalog.reference.methods {
         insert_item(&mut items, name, CompletionKind::Method, "pattern method");
-    }
-    for name in &catalog.reference.controls {
-        insert_item(&mut items, name, CompletionKind::Control, "control name");
     }
     for name in LANGUAGE_KEYWORDS {
         insert_item(
@@ -555,6 +580,58 @@ fn insert_item(
         .or_insert_with(|| CompletionItem::new(name, kind).with_detail(detail));
 }
 
+fn insert_control_item(items: &mut BTreeMap<String, CompletionItem>, name: &str) {
+    if is_hidden_completion_name(name) {
+        return;
+    }
+    items
+        .entry(name.to_string())
+        .or_insert_with(|| control_item(name));
+}
+
+fn control_items(catalog: &CompletionCatalog<'_>) -> Vec<CompletionItem> {
+    catalog
+        .reference
+        .controls
+        .iter()
+        .filter(|name| !is_hidden_completion_name(name))
+        .map(|name| control_item(name))
+        .collect()
+}
+
+fn control_item(name: &str) -> CompletionItem {
+    CompletionItem::new(name, CompletionKind::Control).with_detail(control_detail(name))
+}
+
+fn control_detail(name: &str) -> String {
+    let key = rudel_core::control_name(name);
+    if key != name {
+        return format!("alias for `{key}` control");
+    }
+    match name {
+        "s" => "sound selector; supports name:index".to_string(),
+        "n" => "sample index / numeric value".to_string(),
+        "note" => "pitch name or MIDI note".to_string(),
+        "gain" => "amplitude multiplier".to_string(),
+        "pan" => "stereo position".to_string(),
+        "speed" => "sample playback-rate multiplier".to_string(),
+        "bank" => "sample bank prefix".to_string(),
+        _ => format!("sets `{name}` control"),
+    }
+}
+
+fn sound_item(name: impl Into<String>) -> CompletionItem {
+    let name = name.into();
+    let detail = if WAVEFORMS.contains(&name.as_str()) {
+        "built-in synth/noise waveform"
+    } else if DRUMS.contains(&name.as_str()) {
+        "built-in drum synth"
+    } else {
+        "loaded sample sound"
+    };
+    CompletionItem::new(name, CompletionKind::Sound).with_detail(detail)
+}
+
 fn item_for_word(word: &str, catalog: &CompletionCatalog<'_>) -> Option<CompletionItem> {
     fallback_items(catalog)
         .into_iter()
@@ -563,9 +640,7 @@ fn item_for_word(word: &str, catalog: &CompletionCatalog<'_>) -> Option<Completi
             sound_names(catalog)
                 .into_iter()
                 .find(|name| name == word)
-                .map(|name| {
-                    CompletionItem::new(name, CompletionKind::Sound).with_detail("sound name")
-                })
+                .map(sound_item)
         })
 }
 
@@ -682,6 +757,38 @@ mod tests {
 
         let (_, _, items) = completion_at_bytes(r#"sound("[b"#, 9, &catalog).unwrap();
         assert!(labels(items).contains(&"bd".to_string()));
+    }
+
+    #[test]
+    fn sound_and_control_completions_include_useful_hints() {
+        let reference = rudel_lang::Reference {
+            functions: vec![],
+            methods: vec!["gain".to_string()],
+            controls: vec!["gain".to_string(), "lpf".to_string(), "clip".to_string()],
+        };
+        let idents = HashSet::new();
+        let sample_names = vec!["tabla".to_string()];
+        let catalog = catalog(&reference, &idents, &sample_names);
+
+        let (_, _, items) = completion_at_bytes(r#"s("tab"#, 6, &catalog).unwrap();
+        assert_eq!(items[0].label, "tabla");
+        assert_eq!(items[0].detail.as_deref(), Some("loaded sample sound"));
+
+        let (_, _, items) = completion_at_bytes(r#"note("c").ctrl("lp"#, 18, &catalog).unwrap();
+        assert_eq!(items[0].label, "lpf");
+        assert_eq!(
+            items[0].detail.as_deref(),
+            Some("alias for `cutoff` control")
+        );
+
+        let (_, _, items) =
+            completion_at_bytes(r#"pat("c:.5").as("note:cl"#, 23, &catalog).unwrap();
+        assert_eq!(items[0].label, "clip");
+        assert_eq!(items[0].detail.as_deref(), Some("sets `clip` control"));
+
+        let (_, _, items) = completion_at_bytes("ga", 2, &catalog).unwrap();
+        assert_eq!(items[0].kind, CompletionKind::Control);
+        assert_eq!(items[0].detail.as_deref(), Some("amplitude multiplier"));
     }
 
     #[test]
