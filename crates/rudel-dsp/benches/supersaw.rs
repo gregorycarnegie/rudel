@@ -32,8 +32,8 @@ fn make_voice(unison: usize) -> Voice {
     let p = VoiceParams {
         supersaw: true,
         unison,
-        spread: 0.8,
-        detune: 12.0,
+        panspread: 0.8,
+        freqspread: 12.0,
         duration: 1.0e9,
         ..VoiceParams::default()
     };
