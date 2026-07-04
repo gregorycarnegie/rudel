@@ -51,6 +51,8 @@ pub(crate) struct RudelApp {
     /// live runtime via `rudel_lang::reference()` so it can't drift.
     reference: rudel_lang::Reference,
     highlight_idents: HashSet<String>,
+    /// Case-insensitive substring filter for the reference side panel.
+    reference_filter: String,
     playing: bool,
     /// When playback started, used as a wall-clock position source for
     /// active-event highlighting when there is no audio device to clock from.
@@ -117,6 +119,7 @@ impl RudelApp {
             volume_percent: DEFAULT_VOLUME_PERCENT,
             reference,
             highlight_idents,
+            reference_filter: String::new(),
             playing: false,
             play_start: None,
             current: None,
@@ -245,6 +248,7 @@ mod tests {
             volume_percent: DEFAULT_VOLUME_PERCENT,
             reference,
             highlight_idents,
+            reference_filter: String::new(),
             playing: false,
             play_start: None,
             current: None,

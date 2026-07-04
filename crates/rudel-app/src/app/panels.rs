@@ -83,7 +83,11 @@ impl RudelApp {
                 }
                 let ((primary_label, primary_tip), (secondary_label, secondary_tip)) =
                     eval_button_labels(self.editor_settings.block_based_eval);
-                if ui.button(primary_label).on_hover_text(primary_tip).clicked() {
+                if ui
+                    .button(primary_label)
+                    .on_hover_text(primary_tip)
+                    .clicked()
+                {
                     self.primary_eval();
                 }
                 if ui
@@ -224,48 +228,61 @@ impl RudelApp {
             .default_size(170.0)
             .show(ui, |ui| {
                 ui.heading("reference");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.reference_filter)
+                        .hint_text("filter…")
+                        .desired_width(f32::INFINITY),
+                );
+                let query = self.reference_filter.trim();
+                let filtering = !query.is_empty();
+                // Force sections open while filtering so matches are visible.
+                let force_open = filtering.then_some(true);
+
+                let synths = fuzzy_filter(WAVEFORMS.iter().copied(), query);
+                let drums = fuzzy_filter(DRUMS.iter().copied(), query);
+                let samples = fuzzy_filter(self.sample_names.iter().map(String::as_str), query);
+                let sound_groups = [("synths", synths), ("drums", drums), ("samples", samples)];
+
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::CollapsingHeader::new("sounds")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            ui.weak("synths");
-                            for w in WAVEFORMS {
-                                ui.monospace(*w);
-                            }
-                            ui.separator();
-                            ui.weak("drums");
-                            for d in DRUMS {
-                                ui.monospace(*d);
-                            }
-                            if !self.sample_names.is_empty() {
-                                ui.separator();
-                                ui.weak("samples");
-                                for name in &self.sample_names {
-                                    ui.monospace(name);
+                    if sound_groups.iter().any(|(_, items)| !items.is_empty()) {
+                        egui::CollapsingHeader::new("sounds")
+                            .default_open(true)
+                            .open(force_open)
+                            .show(ui, |ui| {
+                                let mut first = true;
+                                for (label, items) in &sound_groups {
+                                    if items.is_empty() {
+                                        continue;
+                                    }
+                                    if !first {
+                                        ui.separator();
+                                    }
+                                    first = false;
+                                    ui.weak(*label);
+                                    for (item, hits) in items {
+                                        fuzzy_label(ui, item, hits);
+                                    }
                                 }
-                            }
-                        });
-                    egui::CollapsingHeader::new("controls")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            for c in CONTROLS {
-                                ui.monospace(*c);
-                            }
-                        });
-                    egui::CollapsingHeader::new("signals")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            for s in SIGNALS {
-                                ui.monospace(*s);
-                            }
-                        });
-                    egui::CollapsingHeader::new("factories")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            for f in FACTORIES {
-                                ui.monospace(*f);
-                            }
-                        });
+                            });
+                    }
+                    for (title, all, default_open) in [
+                        ("controls", CONTROLS, true),
+                        ("signals", SIGNALS, false),
+                        ("factories", FACTORIES, false),
+                    ] {
+                        let items = fuzzy_filter(all.iter().copied(), query);
+                        if items.is_empty() {
+                            continue;
+                        }
+                        egui::CollapsingHeader::new(title)
+                            .default_open(default_open)
+                            .open(force_open)
+                            .show(ui, |ui| {
+                                for (item, hits) in &items {
+                                    fuzzy_label(ui, item, hits);
+                                }
+                            });
+                    }
                 });
             });
     }
@@ -460,6 +477,66 @@ fn eval_button_labels(block_based_eval: bool) -> (ButtonLabel, ButtonLabel) {
     }
 }
 
+/// Byte indices in `name` of `query`'s chars matched in order
+/// (case-insensitive subsequence), or `None` when `query` doesn't match.
+/// An empty query never matches; callers treat that as "not filtering".
+fn fuzzy_match(name: &str, query: &str) -> Option<Vec<usize>> {
+    let mut hits = Vec::new();
+    // ponytail: ASCII case folding only — reference names are ASCII.
+    let mut wanted = query.chars().map(|c| c.to_ascii_lowercase());
+    let mut want = wanted.next()?;
+    for (i, ch) in name.char_indices() {
+        if ch.to_ascii_lowercase() == want {
+            hits.push(i);
+            match wanted.next() {
+                Some(next) => want = next,
+                None => return Some(hits),
+            }
+        }
+    }
+    None
+}
+
+/// Filter `items` by [`fuzzy_match`] against `query`, keeping list order. An
+/// empty query keeps everything with no hit indices (rendered unhighlighted).
+fn fuzzy_filter<'a>(
+    items: impl IntoIterator<Item = &'a str>,
+    query: &str,
+) -> Vec<(&'a str, Vec<usize>)> {
+    let items = items.into_iter();
+    if query.is_empty() {
+        return items.map(|item| (item, Vec::new())).collect();
+    }
+    items
+        .filter_map(|item| fuzzy_match(item, query).map(|hits| (item, hits)))
+        .collect()
+}
+
+/// A monospace label with the fuzzy-matched chars tinted like a hyperlink.
+fn fuzzy_label(ui: &mut egui::Ui, name: &str, hits: &[usize]) {
+    if hits.is_empty() {
+        ui.monospace(name);
+        return;
+    }
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let normal = egui::text::TextFormat::simple(font.clone(), ui.visuals().text_color());
+    let hit = egui::text::TextFormat::simple(font, ui.visuals().hyperlink_color);
+    let mut job = egui::text::LayoutJob::default();
+    let mut last = 0;
+    for &start in hits {
+        if start > last {
+            job.append(&name[last..start], 0.0, normal.clone());
+        }
+        let end = start + name[start..].chars().next().map_or(1, char::len_utf8);
+        job.append(&name[start..end], 0.0, hit.clone());
+        last = end;
+    }
+    if last < name.len() {
+        job.append(&name[last..], 0.0, normal);
+    }
+    ui.label(job);
+}
+
 /// The deduped source byte ranges of the discrete events sounding at cycle
 /// position `pos`. Factored out of [`RudelApp::active_source_spans`] so it can
 /// be tested without a running engine.
@@ -486,7 +563,30 @@ fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<(usize, us
 
 #[cfg(test)]
 mod tests {
-    use super::{active_source_spans_at, eval_button_labels};
+    use super::{active_source_spans_at, eval_button_labels, fuzzy_filter, fuzzy_match};
+
+    #[test]
+    fn fuzzy_match_finds_case_insensitive_subsequences() {
+        // contiguous and gapped subsequences, with byte indices of the hits
+        assert_eq!(fuzzy_match("supersaw", "saw"), Some(vec![0, 6, 7]));
+        assert_eq!(fuzzy_match("RolandTR909", "rtr9"), Some(vec![0, 6, 7, 8]));
+        // chars must appear in order
+        assert_eq!(fuzzy_match("saw", "was"), None);
+        assert_eq!(fuzzy_match("bd", "bdx"), None);
+        // empty query never matches (callers treat empty as "not filtering")
+        assert_eq!(fuzzy_match("bd", ""), None);
+    }
+
+    #[test]
+    fn fuzzy_filter_keeps_order_and_passes_everything_on_empty_query() {
+        let items = ["bd", "sd", "hh"];
+        let all = fuzzy_filter(items, "");
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().all(|(_, hits)| hits.is_empty()));
+
+        let filtered = fuzzy_filter(items, "d");
+        assert_eq!(filtered, vec![("bd", vec![1]), ("sd", vec![1])]);
+    }
 
     #[test]
     fn active_spans_flash_discrete_events_at_position() {
