@@ -563,6 +563,21 @@ fn curried_callback_combinators() {
 }
 
 #[test]
+fn chained_recurrying() {
+    // Partial applications re-curry until the full arity is reached, like
+    // Strudel's `curry`: each call may supply any prefix of the missing args.
+    let method = shape(&eval(r#"seq(0, 1).fast(2)"#).expect("eval"), 1);
+    for src in [
+        r#"fast(2)(seq(0, 1))"#,
+        r#"fast()(2)(seq(0, 1))"#,
+        r#"every(1)(fast(2))(seq(0, 1))"#,
+        r#"every(1, fast(2))(seq(0, 1))"#,
+    ] {
+        assert_eq!(shape(&eval(src).expect(src), 1), method, "{src}");
+    }
+}
+
+#[test]
 fn step_count_transforms_via_koto() {
     // contract halves the step count; shrink/grow concatenate shrinking views.
     let pat = eval(r#"seq(0, 1, 2, 3).contract(2)"#).expect("eval");

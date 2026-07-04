@@ -50,17 +50,28 @@ fn add_curried_fn(
     prelude.add_fn(name, move |ctx| {
         let args = ctx.args();
         if args.len() < arity {
-            let held = args.to_vec();
-            let f = f.clone();
-            // ponytail: one level of currying; `fast()(2)(pat)` is not re-curried
-            return Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                let mut all = held.clone();
-                all.extend_from_slice(ctx.args());
-                f(&all)
-            })));
+            return Ok(curried(args.to_vec(), arity, f.clone()));
         }
         f(args)
     });
+}
+
+/// A partial application holding `held`: each call appends its args, then
+/// either re-curries (still short of `arity`) or applies `f`, so chained
+/// partial calls (`every(4)(rev)(pat)`) work like Strudel's `curry`.
+fn curried(
+    held: Vec<KValue>,
+    arity: usize,
+    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + 'static,
+) -> KValue {
+    KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+        let mut all = held.clone();
+        all.extend_from_slice(ctx.args());
+        if all.len() < arity {
+            return Ok(curried(all, arity, f.clone()));
+        }
+        f(&all)
+    }))
 }
 
 /// Register the standalone (curried-style) form of pattern transforms that are

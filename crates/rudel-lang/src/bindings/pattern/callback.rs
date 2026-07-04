@@ -128,16 +128,28 @@ fn add_curried_cb_fn(
     prelude.add_fn(name, move |ctx| {
         let args = ctx.args().to_vec();
         if args.len() < arity {
-            let f = f.clone();
-            // ponytail: one level of currying, like the prelude transforms
-            return Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                let mut all = args.clone();
-                all.extend_from_slice(ctx.args());
-                f(ctx, &all)
-            })));
+            return Ok(cb_curried(args, arity, f.clone()));
         }
         f(ctx, &args)
     });
+}
+
+/// The [`Callback`]-flavoured twin of the prelude's `curried`: a partial
+/// application that appends each call's args and re-curries until `arity` is
+/// reached, so chained partial calls (`every(4)(rev)(pat)`) work.
+fn cb_curried(
+    held: Vec<KValue>,
+    arity: usize,
+    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + 'static,
+) -> KValue {
+    KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+        let mut all = held.clone();
+        all.extend_from_slice(ctx.args());
+        if all.len() < arity {
+            return Ok(cb_curried(all, arity, f.clone()));
+        }
+        f(ctx, &all)
+    }))
 }
 
 /// Register the standalone (curried-style) forms of the higher-order callback
