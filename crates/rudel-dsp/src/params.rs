@@ -19,12 +19,14 @@ pub struct VoiceParams {
     pub additive: Option<Vec<f32>>,
     /// When true, the source is a detuned super-saw.
     pub supersaw: bool,
-    /// Super-saw voice count (`unison`).
+    /// Super-saw voice count (`unison`, clamped 1..=100 like superdough).
     pub unison: usize,
-    /// Super-saw detune in cents (`detune`).
-    pub detune: f32,
-    /// Super-saw frequency spread in semitones (`spread`).
-    pub spread: f32,
+    /// Super-saw per-voice frequency spread in semitones (`detune`, falling
+    /// back to `n`, like superdough's `detune ?? n ?? 0.18`).
+    pub freqspread: f32,
+    /// Super-saw stereo width (`spread`, 0..1): voices alternate between an
+    /// L-weighted and R-weighted equal-power gain pair.
+    pub panspread: f32,
     /// Multi-operator FM matrix (`fm`/`fmi`/`fmh`/`fmwave`/`fm{adsr}` + the
     /// `fmiIJ` routing and per-operator `*N` variants).
     pub fm: FmSpec,
@@ -76,8 +78,8 @@ impl Default for VoiceParams {
             additive: None,
             supersaw: false,
             unison: 5,
-            detune: 0.0,
-            spread: 0.2,
+            freqspread: 0.18,
+            panspread: 0.6,
             fm: FmSpec::default(),
             vib: None,
             vibmod: 0.5,
@@ -153,13 +155,17 @@ impl VoiceParams {
             _ => {}
         }
         if let Some(u) = map.get("unison").and_then(|v| v.as_f64()) {
-            p.unison = (u as usize).max(1);
+            p.unison = (u as usize).clamp(1, 100);
         }
-        if let Some(d) = map.get("detune").and_then(|v| v.as_f64()) {
-            p.detune = d as f32;
+        if let Some(d) = map
+            .get("detune")
+            .or_else(|| map.get("n"))
+            .and_then(|v| v.as_f64())
+        {
+            p.freqspread = d as f32;
         }
         if let Some(s) = map.get("spread").and_then(|v| v.as_f64()) {
-            p.spread = s as f32;
+            p.panspread = (s as f32).clamp(0.0, 1.0);
         }
         // Pulse-wave duty cycle and oscillator noise-mix amount.
         if let Some(w) = map.get("pw").and_then(|v| v.as_f64()) {

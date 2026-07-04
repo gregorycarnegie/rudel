@@ -56,21 +56,54 @@ fn noise_names_and_sound() {
 }
 
 #[test]
-fn supersaw_produces_sound() {
+fn supersaw_produces_stereo_sound() {
     let p = VoiceParams {
         supersaw: true,
         unison: 5,
-        spread: 0.4,
+        freqspread: 0.4,
         freq: 220.0,
         duration: 0.2,
         ..Default::default()
     };
     let mut v = Voice::new(p, 44100.0);
     let mut peak = 0.0f32;
+    let mut spread = 0.0f32;
     for _ in 0..4000 {
-        peak = peak.max(v.tick().0.abs());
+        let (l, r) = v.tick();
+        peak = peak.max(l.abs());
+        spread = spread.max((l - r).abs());
     }
     assert!(peak > 0.0, "supersaw should produce sound");
+    // The alternating per-voice pan gains must make the channels differ.
+    assert!(spread > 0.0, "supersaw should be stereo-spread");
+}
+
+#[test]
+fn supersaw_controls_map_like_superdough() {
+    // superdough: `detune ?? n ?? 0.18` is the frequency spread (semitones)
+    // and `spread` is the stereo width, clamped to 0..1.
+    let mut map = ValueMap::new();
+    map.insert("s".into(), Value::from("supersaw"));
+    let p = VoiceParams::from_controls(&map, 0.25);
+    assert!(p.supersaw);
+    assert_eq!(p.unison, 5);
+    assert_eq!(p.freqspread, 0.18);
+    assert_eq!(p.panspread, 0.6);
+
+    map.insert("detune".into(), Value::from(0.5));
+    map.insert("spread".into(), Value::from(2.0));
+    map.insert("unison".into(), Value::from(400.0));
+    let p = VoiceParams::from_controls(&map, 0.25);
+    assert_eq!(p.freqspread, 0.5);
+    assert_eq!(p.panspread, 1.0); // clamped
+    assert_eq!(p.unison, 100); // clamped
+
+    // `n` is the detune fallback when `detune` is absent.
+    let mut map = ValueMap::new();
+    map.insert("s".into(), Value::from("supersaw"));
+    map.insert("n".into(), Value::from(0.3));
+    let p = VoiceParams::from_controls(&map, 0.25);
+    assert_eq!(p.freqspread, 0.3);
 }
 
 #[test]

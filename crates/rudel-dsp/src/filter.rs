@@ -136,6 +136,7 @@ impl FilterParams {
 }
 
 /// A voice filter slot: a biquad plus an optional cutoff envelope sweep.
+#[derive(Clone)]
 pub(crate) struct VoiceFilter {
     kind: FilterKind,
     q: f32,

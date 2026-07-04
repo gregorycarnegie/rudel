@@ -187,25 +187,19 @@ impl SampleBank {
             jobs.extend(files.into_iter().map(|file| (name.clone(), file)));
         }
 
-        let mut loaded: Vec<_> = jobs
+        // Decode in parallel (CPU-bound), one worker per core.
+        let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let decoded = parallel_map(jobs, workers, |(_, file)| load_sample(file));
+        Ok(decoded
             .into_iter()
-            .enumerate()
-            .filter_map(|(index, (name, file))| {
-                load_sample(&file).ok().map(|sample| {
-                    (
-                        index,
-                        LoadedSample {
-                            name,
-                            note: None,
-                            sample: Arc::new(sample),
-                        },
-                    )
+            .filter_map(|((name, _), sample)| {
+                sample.ok().map(|sample| LoadedSample {
+                    name,
+                    note: None,
+                    sample: Arc::new(sample),
                 })
             })
-            .collect();
-        loaded.sort_by_key(|(index, _)| *index);
-
-        Ok(loaded.into_iter().map(|(_, sample)| sample).collect())
+            .collect())
     }
 
     /// Merges loaded samples into this bank, returning the count of added samples.
@@ -308,14 +302,9 @@ impl SampleBank {
             }
         }
 
-        // Fetch + decode in parallel (order preserved by collect).
-        let decoded: Vec<(Job, Result<Sample, String>)> = jobs
-            .into_iter()
-            .map(|job| {
-                let sample = fetch_and_decode(&job.2);
-                (job, sample)
-            })
-            .collect();
+        // Fetch + decode in parallel; downloads are I/O-bound so the pool is
+        // wider than the CPU count.
+        let decoded = parallel_map(jobs, 16, |job| fetch_and_decode(&job.2));
 
         let mut loaded = Vec::new();
         for ((name, note, _), sample) in decoded {
@@ -335,6 +324,57 @@ impl SampleBank {
 /// Helper to determine if a URL scheme represents HTTP or HTTPS.
 fn is_http(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Run `work` over `jobs` on a small worker pool, returning `(job, result)`
+/// pairs in job order.
+fn parallel_map<J: Send + Sync, R: Send>(
+    jobs: Vec<J>,
+    workers: usize,
+    work: impl Fn(&J) -> R + Sync,
+) -> Vec<(J, R)> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let workers = workers.clamp(1, jobs.len().max(1));
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            let tx = tx.clone();
+            let (next, jobs, work) = (&next, &jobs, &work);
+            s.spawn(move || {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(job) = jobs.get(i) else { break };
+                    let _ = tx.send((i, work(job)));
+                }
+            });
+        }
+    });
+    drop(tx);
+    let mut results: Vec<(usize, R)> = rx.into_iter().collect();
+    results.sort_unstable_by_key(|(i, _)| *i);
+    jobs.into_iter()
+        .zip(results.into_iter().map(|(_, result)| result))
+        .collect()
+}
+
+/// On-disk cache location for a downloaded sample, keyed by URL hash — the
+/// native analogue of the browser HTTP cache that makes Strudel's repeat
+/// sample loads instant. Raw bytes are cached (not decoded audio) so format
+/// sniffing in `decode_sample_bytes` still applies. The sample-map JSON is
+/// deliberately *not* cached, so updated remote maps are always picked up.
+fn cache_path(url: &str) -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    // ponytail: DefaultHasher isn't stable across Rust releases; a toolchain
+    // bump just re-downloads the cache once.
+    let mut hasher = std::hash::DefaultHasher::new();
+    url.hash(&mut hasher);
+    let dir = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?
+        .join("rudel")
+        .join("sample-cache");
+    Some(dir.join(format!("{:016x}", hasher.finish())))
 }
 
 /// Wrap a (signed) sample index into `0..len`, euclidean-modulo, so negative
@@ -379,6 +419,12 @@ fn fetch_text(url: &str) -> Result<String, String> {
 /// Fetch a single sample file (http(s) URL or local path) and decode it.
 fn fetch_and_decode(url: &str) -> Result<Sample, String> {
     if is_http(url) {
+        let cache = cache_path(url);
+        if let Some(path) = &cache
+            && let Ok(bytes) = std::fs::read(path)
+        {
+            return decode_sample_bytes(bytes);
+        }
         use std::io::Read;
         let resp = ureq::get(url)
             .call()
@@ -389,6 +435,13 @@ fn fetch_and_decode(url: &str) -> Result<Sample, String> {
             .into_reader()
             .read_to_end(&mut bytes)
             .map_err(|e| format!("read {url}: {e}"))?;
+        // Best-effort cache write; a failed write just re-downloads next time.
+        if let Some(path) = &cache
+            && let Some(parent) = path.parent()
+            && std::fs::create_dir_all(parent).is_ok()
+        {
+            let _ = std::fs::write(path, &bytes);
+        }
         decode_sample_bytes(bytes)
     } else {
         load_sample(Path::new(url))
