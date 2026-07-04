@@ -73,6 +73,27 @@ fn preprocess_rewrites_slider_widgets_like_strudel() {
 }
 
 #[test]
+fn preprocess_keeps_sliders_from_every_statement() {
+    // Two sliders in two labeled statements (like a live-coding session with
+    // several patterns) must both survive preprocessing with distinct ids and
+    // ranges pointing at their own literals.
+    let src =
+        "bass: n(\"0\").lpf(slider(400, 300, 2000))\n\narp: n(\"1\").lpenv(slider(3.5, 1.25, 6))";
+    let result = preprocess_strudel_with_meta(src);
+
+    let sliders: Vec<_> = result
+        .meta
+        .widgets
+        .iter()
+        .filter(|w| w.widget_type == "slider")
+        .collect();
+    assert_eq!(sliders.len(), 2, "both sliders should be kept");
+    assert_ne!(sliders[0].id, sliders[1].id);
+    assert_eq!(&src[sliders[0].from..sliders[0].to], "400");
+    assert_eq!(&src[sliders[1].from..sliders[1].to], "3.5");
+}
+
+#[test]
 fn slider_scanner_ignores_strings_comments_and_method_calls() {
     let result = preprocess_strudel_with_meta(
         r#"

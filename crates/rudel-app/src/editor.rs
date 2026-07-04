@@ -116,7 +116,6 @@ pub(crate) fn code_editor(
     // top of the code (matching Strudel's block/inline CodeMirror widgets).
     let editor_font = settings.font_id();
     let base_row_height = ui.fonts_mut(|fonts| fonts.row_height(&editor_font));
-    let char_width = ui.fonts_mut(|fonts| fonts.glyph_width(&editor_font, 'm'));
     let line_heights = widgets::block_widget_line_heights(code, widgets, base_row_height);
     let slider_reservations = sliders::slider_reservations(sliders);
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
@@ -131,7 +130,6 @@ pub(crate) fn code_editor(
             highlight::LayoutReservations {
                 line_heights: &line_heights,
                 sliders: &slider_reservations,
-                char_width,
             },
         );
         ui.fonts_mut(|fonts| fonts.layout_job(job))

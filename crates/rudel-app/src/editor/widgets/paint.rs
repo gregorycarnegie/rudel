@@ -55,6 +55,13 @@ pub(crate) fn draw_widget_hosts(
         )))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
+        // Scroll-anchored overlay: don't clamp back into the screen when the
+        // anchor scrolls out of view (a constrained oversized surface would
+        // slide over the editor), and let pointer input — wheel scrolling in
+        // particular — fall through to the editor below; the visualizations
+        // are display-only.
+        .constrain(false)
+        .interactable(false)
         .show(ui.ctx(), |ui| {
             // Clip to the editor's visible area so the (foreground) overlay never
             // paints over the transport / errors / reference panels around it.

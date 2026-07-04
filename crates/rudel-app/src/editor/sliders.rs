@@ -7,6 +7,8 @@ use eframe::egui;
 
 const SLIDER_WIDTH: f32 = 64.0;
 const SLIDER_HEIGHT: f32 = 18.0;
+/// Breathing room between the slider and the text on either side.
+const SLIDER_PAD: f32 = 6.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SliderHostUpdate {
@@ -24,12 +26,18 @@ pub(crate) struct SliderLayout<'a> {
     pub(crate) base_row_height: f32,
 }
 
-/// `(from_byte, to_byte, target_width)` for each slider literal, so the layouter
-/// can stretch and hide the literal and reserve inline space for the slider.
+/// `(from_byte, to_byte, gap_width)` for each slider literal, so the layouter
+/// can open a gap just before the (still visible) literal for the slider.
 pub(crate) fn slider_reservations(sliders: &[SliderDecoration]) -> Vec<(usize, usize, f32)> {
     sliders
         .iter()
-        .map(|slider| (slider.range.from, slider.range.to, SLIDER_WIDTH))
+        .map(|slider| {
+            (
+                slider.range.from,
+                slider.range.to,
+                SLIDER_WIDTH + 2.0 * SLIDER_PAD,
+            )
+        })
         .collect()
 }
 
@@ -59,22 +67,30 @@ pub(crate) fn draw_slider_hosts(
         let area = egui::Area::new(egui::Id::new(("rudel-inline-slider", slider.id.as_str())))
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
+            // Scroll-anchored: never clamp back into the screen (the default
+            // `constrain` made the slider jump/vanish near the viewport edge).
+            .constrain(false)
             .show(ui.ctx(), |ui| {
                 // Clip to the editor's visible area so the foreground slider never
                 // paints over the surrounding panels.
                 ui.set_clip_rect(clip);
                 ui.set_min_size(rect.size());
                 ui.spacing_mut().slider_width = SLIDER_WIDTH;
-                ui.visuals_mut().widgets.inactive.bg_fill = draw_theme.line_background;
+                ui.spacing_mut().slider_rail_height = 4.0;
+                ui.visuals_mut().widgets.inactive.bg_fill = draw_theme.line_highlight;
                 ui.visuals_mut().widgets.hovered.bg_fill = draw_theme.line_highlight;
                 ui.visuals_mut().widgets.active.bg_fill = draw_theme.selection;
                 ui.visuals_mut().widgets.inactive.fg_stroke.color = draw_theme.foreground;
                 ui.visuals_mut().widgets.hovered.fg_stroke.color = draw_theme.foreground;
                 ui.visuals_mut().widgets.active.fg_stroke.color = draw_theme.foreground;
+                // Fill the covered part of the rail with the caret accent so the
+                // slider reads at a glance (like Strudel's range input).
+                ui.visuals_mut().selection.bg_fill = draw_theme.caret;
                 ui.add_sized(
                     rect.size(),
                     egui::Slider::new(&mut value, min..=max)
                         .step_by(step)
+                        .trailing_fill(true)
                         .show_value(false),
                 )
             });
@@ -106,16 +122,19 @@ fn apply_slider_drag_value(
 }
 
 fn slider_rect(layout: SliderLayout<'_>, code: &str, range: SourceRange) -> egui::Rect {
-    // Anchor to the literal's position in the real galley. The literal is hidden
-    // and stretched to the slider width by the layouter, so the slider sits over
-    // that reserved inline space and the rest of the line flows after it.
+    // Anchor to the literal's position in the real galley: the layouter opens a
+    // `SLIDER_WIDTH + 2·SLIDER_PAD` gap just before the literal, so the slider
+    // sits in that gap and the value stays visible right after it.
     let char_index = char_index_at_byte(code, egui::text::ByteIndex(range.from));
     let cursor = layout
         .galley
         .pos_from_cursor(egui::text::CCursor::new(char_index));
     let pos = layout.galley_pos
         + cursor.min.to_vec2()
-        + egui::vec2(0.0, (layout.base_row_height - SLIDER_HEIGHT).max(0.0) * 0.5);
+        + egui::vec2(
+            -(SLIDER_WIDTH + SLIDER_PAD),
+            (layout.base_row_height - SLIDER_HEIGHT).max(0.0) * 0.5,
+        );
     egui::Rect::from_min_size(pos, egui::vec2(SLIDER_WIDTH, SLIDER_HEIGHT))
 }
 
@@ -227,9 +246,12 @@ mod tests {
     }
 
     #[test]
-    fn slider_reservations_expose_literal_ranges_and_target_width() {
+    fn slider_reservations_expose_literal_ranges_and_gap_width() {
         let sliders = [slider(SourceRange::new(7, 10))];
-        assert_eq!(slider_reservations(&sliders), vec![(7, 10, SLIDER_WIDTH)]);
+        assert_eq!(
+            slider_reservations(&sliders),
+            vec![(7, 10, SLIDER_WIDTH + 2.0 * SLIDER_PAD)]
+        );
     }
 
     #[test]

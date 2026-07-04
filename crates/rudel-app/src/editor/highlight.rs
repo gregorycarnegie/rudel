@@ -11,12 +11,10 @@ pub(super) struct LayoutReservations<'a> {
     /// Source-line index -> full row height for that line (base row height plus
     /// the vertical gap reserved below it for block widgets).
     pub(super) line_heights: &'a HashMap<usize, f32>,
-    /// `(from_byte, to_byte, target_width)` for each slider literal: the literal
-    /// is hidden and stretched to `target_width` so the inline slider drawn over
-    /// it reserves horizontal space.
+    /// `(from_byte, to_byte, gap_width)` for each slider literal: a `gap_width`
+    /// gap is opened just before the literal (which stays visible) and the
+    /// inline slider is drawn in that gap, next to its value like Strudel.
     pub(super) sliders: &'a [(usize, usize, f32)],
-    /// Width of one monospace glyph, used to stretch slider literals.
-    pub(super) char_width: f32,
 }
 
 /// Highlight category for a contiguous byte span of editor text. Mirrors the
@@ -121,19 +119,23 @@ pub(super) fn highlighted_editor_job(
             format.line_height = Some(row_height);
             format.valign = egui::Align::TOP;
         }
-        // Reserve horizontal space for an inline slider: hide the literal and
-        // stretch it to the slider width so the rest of the line shifts right.
-        if let Some(&(_, _, target_width)) = reservations
+        // Reserve horizontal space for an inline slider: widen the advance of
+        // the glyph just before the value literal (the `(` of `slider(`) so a
+        // gap opens between it and the still-visible value, and the slider is
+        // drawn in that gap — next to its value, like Strudel's widget.
+        if let Some(&(_, _, gap)) = reservations
             .sliders
             .iter()
-            .find(|&&(from, to, _)| spans_overlap((start, end), (from, to)))
+            .find(|&&(from, _, _)| end == from && start < end)
         {
-            let glyphs = piece.chars().count().max(1) as f32;
-            let natural = glyphs * reservations.char_width;
-            format.extra_letter_spacing = ((target_width - natural) / glyphs).max(0.0);
-            format.color = egui::Color32::TRANSPARENT;
+            let split = piece.char_indices().next_back().map_or(0, |(i, _)| i);
+            let mut gap_format = format.clone();
+            gap_format.extra_letter_spacing = gap;
+            job.append(&piece[..split], 0.0, format);
+            job.append(&piece[split..], 0.0, gap_format);
+        } else {
+            job.append(piece, 0.0, format);
         }
-        job.append(piece, 0.0, format);
         line += piece.bytes().filter(|&b| b == b'\n').count();
     }
 
