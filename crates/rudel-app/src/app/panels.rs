@@ -69,7 +69,7 @@ impl eframe::App for RudelApp {
 
 impl RudelApp {
     fn transport_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("transport").show_inside(ui, |ui| {
+        egui::Panel::top("transport").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("rudel");
                 ui.separator();
@@ -81,18 +81,22 @@ impl RudelApp {
                     }
                     self.set_playing(now);
                 }
-                let (primary_eval_label, secondary_eval_label) =
+                let ((primary_label, primary_tip), (secondary_label, secondary_tip)) =
                     eval_button_labels(self.editor_settings.block_based_eval);
-                if ui.button(primary_eval_label).clicked() {
+                if ui.button(primary_label).on_hover_text(primary_tip).clicked() {
                     self.primary_eval();
                 }
-                if ui.button(secondary_eval_label).clicked() {
+                if ui
+                    .button(secondary_label)
+                    .on_hover_text(secondary_tip)
+                    .clicked()
+                {
                     self.secondary_eval();
                 }
-                if ui.button("Hush (Ctrl+.)").clicked() {
+                if ui.button("Hush").on_hover_text("Ctrl+.").clicked() {
                     self.hush();
                 }
-                if ui.button("Panic (Ctrl+Shift+.)").clicked() {
+                if ui.button("Panic").on_hover_text("Ctrl+Shift+.").clicked() {
                     self.panic();
                 }
                 ui.separator();
@@ -197,7 +201,7 @@ impl RudelApp {
     }
 
     fn errors_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::bottom("errors").show_inside(ui, |ui| {
+        egui::Panel::bottom("errors").show(ui, |ui| {
             if let Some(e) = &self.audio_error {
                 ui.colored_label(egui::Color32::from_rgb(220, 160, 60), format!("audio: {e}"));
             }
@@ -218,7 +222,7 @@ impl RudelApp {
         egui::Panel::right("reference")
             .resizable(true)
             .default_size(170.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.heading("reference");
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::CollapsingHeader::new("sounds")
@@ -274,7 +278,7 @@ impl RudelApp {
         let draw = self.editor_settings.draw_theme();
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(draw.background))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 *ui.visuals_mut() = if draw.light {
                     egui::Visuals::light()
                 } else {
@@ -444,11 +448,15 @@ impl RudelApp {
     }
 }
 
-fn eval_button_labels(block_based_eval: bool) -> (&'static str, &'static str) {
+/// `(label, shortcut-tooltip)` for the primary (Ctrl+Enter) and secondary
+/// (Ctrl+Shift+Enter) eval buttons. Which action each triggers swaps with the
+/// block-based-eval setting; the shortcut binding stays fixed.
+type ButtonLabel = (&'static str, &'static str);
+fn eval_button_labels(block_based_eval: bool) -> (ButtonLabel, ButtonLabel) {
     if block_based_eval {
-        ("Block (Ctrl+Enter)", "Eval (Ctrl+Shift+Enter)")
+        (("Block", "Ctrl+Enter"), ("Eval", "Ctrl+Shift+Enter"))
     } else {
-        ("Eval (Ctrl+Enter)", "Block (Ctrl+Shift+Enter)")
+        (("Eval", "Ctrl+Enter"), ("Block", "Ctrl+Shift+Enter"))
     }
 }
 
@@ -507,11 +515,11 @@ mod tests {
     fn eval_button_labels_follow_block_based_setting() {
         assert_eq!(
             eval_button_labels(false),
-            ("Eval (Ctrl+Enter)", "Block (Ctrl+Shift+Enter)")
+            (("Eval", "Ctrl+Enter"), ("Block", "Ctrl+Shift+Enter"))
         );
         assert_eq!(
             eval_button_labels(true),
-            ("Block (Ctrl+Enter)", "Eval (Ctrl+Shift+Enter)")
+            (("Block", "Ctrl+Enter"), ("Eval", "Ctrl+Shift+Enter"))
         );
     }
 }

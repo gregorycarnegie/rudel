@@ -105,7 +105,9 @@ pub(super) fn apply_editor_text_edits(
     settings: &EditorSettings,
 ) -> Option<egui::text::CCursorRange> {
     if shortcuts.jump_next || shortcuts.jump_prev {
-        if let Some(idx) = jump_to_marker(text, cursor_range.primary.index, shortcuts.jump_next) {
+        if let Some(idx) =
+            jump_to_marker(text, cursor_range.primary.index.into(), shortcuts.jump_next)
+        {
             return Some(egui::text::CCursorRange::one(egui::text::CCursor::new(idx)));
         }
         return None;
@@ -144,8 +146,8 @@ fn apply_char_changes(
         return cursor_range;
     }
 
-    let primary = map_index_after_changes(cursor_range.primary.index, &changes, true);
-    let secondary = map_index_after_changes(cursor_range.secondary.index, &changes, true);
+    let primary = map_index_after_changes(cursor_range.primary.index.into(), &changes, true);
+    let secondary = map_index_after_changes(cursor_range.secondary.index.into(), &changes, true);
 
     for change in changes.iter().rev() {
         replace_char_range(
@@ -221,7 +223,7 @@ fn apply_auto_pair(
 ) -> Option<egui::text::CCursorRange> {
     let cursor = cursor_range.single()?;
     let typed = typed.chars().next()?;
-    let idx = cursor.index;
+    let idx: usize = cursor.index.into();
     if idx == 0 || char_at(text, idx - 1) != Some(typed) {
         return None;
     }
@@ -247,7 +249,7 @@ fn auto_indent_after_enter(
     cursor_range: egui::text::CCursorRange,
 ) -> Option<egui::text::CCursorRange> {
     let cursor = cursor_range.single()?;
-    let idx = cursor.index;
+    let idx: usize = cursor.index.into();
     if idx == 0 || char_at(text, idx - 1) != Some('\n') {
         return None;
     }
@@ -368,8 +370,8 @@ fn indent_lines(
 
 fn selected_line_starts(text: &str, cursor_range: egui::text::CCursorRange) -> Vec<usize> {
     let [min, max] = cursor_range.sorted_cursors();
-    let start = min.index;
-    let mut end = max.index;
+    let start: usize = min.index.into();
+    let mut end: usize = max.index.into();
     if end > start && char_at(text, end - 1) == Some('\n') {
         end -= 1;
     }
@@ -442,6 +444,12 @@ mod tests {
         )
     }
 
+    // egui 0.35 returns `Range<CharIndex>`; flatten to `usize` for assertions.
+    fn char_range(range: &egui::text::CCursorRange) -> std::ops::Range<usize> {
+        let r = range.as_sorted_char_range();
+        r.start.into()..r.end.into()
+    }
+
     #[test]
     fn jump_moves_between_dollar_markers() {
         let text = "$: s(\"bd\")\n$: s(\"hh\")";
@@ -469,7 +477,7 @@ mod tests {
         let mut text = "stack(".to_string();
         let range = apply_auto_pair(&mut text, cursor(6), "(").unwrap();
         assert_eq!(text, "stack()");
-        assert_eq!(range.single().unwrap().index, 6);
+        assert_eq!(usize::from(range.single().unwrap().index), 6);
     }
 
     #[test]
@@ -477,7 +485,7 @@ mod tests {
         let mut text = "())".to_string();
         let range = apply_auto_pair(&mut text, cursor(2), ")").unwrap();
         assert_eq!(text, "()");
-        assert_eq!(range.single().unwrap().index, 2);
+        assert_eq!(usize::from(range.single().unwrap().index), 2);
     }
 
     #[test]
@@ -485,7 +493,7 @@ mod tests {
         let mut text = "  note(\n".to_string();
         let range = auto_indent_after_enter(&mut text, cursor(8)).unwrap();
         assert_eq!(text, "  note(\n    ");
-        assert_eq!(range.single().unwrap().index, 12);
+        assert_eq!(usize::from(range.single().unwrap().index), 12);
     }
 
     #[test]
@@ -493,7 +501,7 @@ mod tests {
         let mut text = "(\n)".to_string();
         let range = auto_indent_after_enter(&mut text, cursor(2)).unwrap();
         assert_eq!(text, "(\n  \n)");
-        assert_eq!(range.single().unwrap().index, 4);
+        assert_eq!(usize::from(range.single().unwrap().index), 4);
     }
 
     #[test]
@@ -501,11 +509,11 @@ mod tests {
         let mut text = "a\nb".to_string();
         let range = indent_lines(&mut text, selection(0, 3), true);
         assert_eq!(text, "  a\n  b");
-        assert_eq!(range.as_sorted_char_range(), 0..7);
+        assert_eq!(char_range(&range), 0..7);
 
         let range = indent_lines(&mut text, range, false);
         assert_eq!(text, "a\nb");
-        assert_eq!(range.as_sorted_char_range(), 0..3);
+        assert_eq!(char_range(&range), 0..3);
     }
 
     #[test]
@@ -516,7 +524,7 @@ mod tests {
 
         let range = toggle_line_comments(&mut text, range);
         assert_eq!(text, "  a\n  b");
-        assert_eq!(range.as_sorted_char_range(), 0..7);
+        assert_eq!(char_range(&range), 0..7);
     }
 
     #[test]

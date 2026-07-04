@@ -174,7 +174,9 @@ pub(crate) fn code_editor(
     if output.response.has_focus()
         && let Some(cursor_range) = output.cursor_range
     {
-        let mut cursor = cursor_range.primary.index;
+        // egui 0.35 makes `CCursor.index` a `CharIndex` newtype; the editor
+        // helpers all work in plain `usize` char indices, so normalize here.
+        let mut cursor: usize = cursor_range.primary.index.into();
         let mut handled = false;
 
         // Completion-popup interactions take priority over text editing.
@@ -213,7 +215,7 @@ pub(crate) fn code_editor(
                 enter_pressed,
                 settings,
             );
-            cursor = edited.map(|r| r.primary.index).unwrap_or(cursor);
+            cursor = edited.map(|r| r.primary.index.into()).unwrap_or(cursor);
             if let Some(new_range) = edited {
                 output.state.cursor.set_char_range(Some(new_range));
                 output.state.clone().store(ui.ctx(), output.response.id);

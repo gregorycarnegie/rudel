@@ -18,4 +18,7 @@ rudel-lang = { path = "../rudel-lang" }
 rudel-audio = { path = "../rudel-audio" }
 rudel-midi = { path = "../rudel-midi" }
 rudel-osc = { path = "../rudel-osc" }
-eframe = "0.34.3"
+eframe = "0.35.0"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1.31"

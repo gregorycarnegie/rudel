@@ -6,6 +6,7 @@
 
 mod app;
 mod editor;
+mod icon;
 mod reference;
 mod volume;
 
