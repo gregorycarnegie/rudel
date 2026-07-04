@@ -132,6 +132,38 @@ fn public_visualizer_names_rewrite_to_inline_widget() {
 }
 
 #[test]
+fn slider_drags_reach_already_evaluated_patterns() {
+    // The editor's slider drag calls `set_slider_value` without re-evaluating;
+    // the playing pattern's signal closure must read the new value on its next
+    // query (Strudel's realtime slider behavior).
+    let result = eval_result("s(\"bd\").lpf(slider(725, 300, 2000))").expect("eval");
+    let id = result.meta.widgets[0].id.clone();
+
+    let before: Vec<_> = result
+        .pattern
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .filter_map(|hap| match &hap.value {
+            Value::Map(map) => map.get("cutoff").cloned(),
+            _ => None,
+        })
+        .collect();
+    assert!(before.contains(&Value::F64(725.0)), "got {before:?}");
+
+    assert!(crate::set_slider_value(&id, 1400.0));
+    let after: Vec<_> = result
+        .pattern
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .filter_map(|hap| match &hap.value {
+            Value::Map(map) => map.get("cutoff").cloned(),
+            _ => None,
+        })
+        .collect();
+    assert!(after.contains(&Value::F64(1400.0)), "got {after:?}");
+}
+
+#[test]
 fn eval_result_carries_slider_widget_metadata() {
     let result = eval_result("slider(0.5, 0, 1)").expect("eval");
 
