@@ -33,6 +33,8 @@ const CODE_EDITOR_ID: &str = "rudel_code_editor";
 pub(crate) struct EditorOutput {
     pub(crate) text_change: Option<TextChange>,
     pub(crate) slider_update: Option<SliderHostUpdate>,
+    /// Cursor byte offset, as plain `usize` for the app layer (block eval);
+    /// inside the editor module byte offsets are typed [`egui::text::ByteIndex`].
     pub(crate) cursor_byte: Option<usize>,
 }
 
@@ -174,9 +176,7 @@ pub(crate) fn code_editor(
     if output.response.has_focus()
         && let Some(cursor_range) = output.cursor_range
     {
-        // egui 0.35 makes `CCursor.index` a `CharIndex` newtype; the editor
-        // helpers all work in plain `usize` char indices, so normalize here.
-        let mut cursor: usize = cursor_range.primary.index.into();
+        let mut cursor = cursor_range.primary.index;
         let mut handled = false;
 
         // Completion-popup interactions take priority over text editing.
@@ -215,7 +215,7 @@ pub(crate) fn code_editor(
                 enter_pressed,
                 settings,
             );
-            cursor = edited.map(|r| r.primary.index.into()).unwrap_or(cursor);
+            cursor = edited.map(|r| r.primary.index).unwrap_or(cursor);
             if let Some(new_range) = edited {
                 output.state.cursor.set_char_range(Some(new_range));
                 output.state.clone().store(ui.ctx(), output.response.id);
@@ -325,7 +325,7 @@ pub(crate) fn code_editor(
     EditorOutput {
         text_change: TextChange::from_texts(&before, code),
         slider_update,
-        cursor_byte,
+        cursor_byte: cursor_byte.map(|byte: egui::text::ByteIndex| byte.0),
     }
 }
 
@@ -363,8 +363,8 @@ fn draw_line_number_gutter(
     }
 }
 
-fn line_span_at_char(code: &str, cursor_char: usize) -> (usize, usize) {
-    let byte = byte_index_at_char(code, cursor_char);
+fn line_span_at_char(code: &str, cursor_char: egui::text::CharIndex) -> (usize, usize) {
+    let byte = byte_index_at_char(code, cursor_char).0;
     let start = code[..byte].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
     let end = code[byte..]
         .find('\n')

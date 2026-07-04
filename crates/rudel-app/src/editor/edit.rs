@@ -5,7 +5,7 @@ use super::{
         next_line_start_after, replace_char_range,
     },
 };
-use eframe::egui;
+use eframe::egui::{self, text::CharIndex};
 
 const CODE_INDENT: &str = "  ";
 
@@ -105,9 +105,7 @@ pub(super) fn apply_editor_text_edits(
     settings: &EditorSettings,
 ) -> Option<egui::text::CCursorRange> {
     if shortcuts.jump_next || shortcuts.jump_prev {
-        if let Some(idx) =
-            jump_to_marker(text, cursor_range.primary.index.into(), shortcuts.jump_next)
-        {
+        if let Some(idx) = jump_to_marker(text, cursor_range.primary.index, shortcuts.jump_next) {
             return Some(egui::text::CCursorRange::one(egui::text::CCursor::new(idx)));
         }
         return None;
@@ -132,7 +130,8 @@ pub(super) fn apply_editor_text_edits(
 
 #[derive(Clone, Debug)]
 struct CharChange {
-    pos: usize,
+    /// Char position of the change; `delete_len`/`insert` are char counts.
+    pos: CharIndex,
     delete_len: usize,
     insert: String,
 }
@@ -146,8 +145,8 @@ fn apply_char_changes(
         return cursor_range;
     }
 
-    let primary = map_index_after_changes(cursor_range.primary.index.into(), &changes, true);
-    let secondary = map_index_after_changes(cursor_range.secondary.index.into(), &changes, true);
+    let primary = map_index_after_changes(cursor_range.primary.index, &changes, true);
+    let secondary = map_index_after_changes(cursor_range.secondary.index, &changes, true);
 
     for change in changes.iter().rev() {
         replace_char_range(
@@ -167,7 +166,7 @@ fn apply_char_changes(
 fn apply_line_changes(
     text: &mut String,
     cursor_range: egui::text::CCursorRange,
-    line_starts: &[usize],
+    line_starts: &[CharIndex],
     changes: Vec<CharChange>,
 ) -> egui::text::CCursorRange {
     if cursor_range.is_empty() || line_starts.is_empty() {
@@ -195,25 +194,26 @@ fn apply_line_changes(
 }
 
 fn map_index_after_changes(
-    index: usize,
+    index: CharIndex,
     changes: &[CharChange],
     include_insert_at_index: bool,
-) -> usize {
+) -> CharIndex {
+    let index = index.0;
     let mut delta = 0isize;
     for change in changes {
         let insert_len = change.insert.chars().count();
-        let deleted_end = change.pos + change.delete_len;
-        if index < change.pos
-            || (!include_insert_at_index && index == change.pos && change.delete_len == 0)
+        let deleted_end = change.pos.0 + change.delete_len;
+        if index < change.pos.0
+            || (!include_insert_at_index && index == change.pos.0 && change.delete_len == 0)
         {
             break;
         }
         if index <= deleted_end {
-            return (change.pos as isize + delta + insert_len as isize).max(0) as usize;
+            return CharIndex((change.pos.0 as isize + delta + insert_len as isize).max(0) as usize);
         }
         delta += insert_len as isize - change.delete_len as isize;
     }
-    (index as isize + delta).max(0) as usize
+    CharIndex((index as isize + delta).max(0) as usize)
 }
 
 fn apply_auto_pair(
@@ -223,8 +223,8 @@ fn apply_auto_pair(
 ) -> Option<egui::text::CCursorRange> {
     let cursor = cursor_range.single()?;
     let typed = typed.chars().next()?;
-    let idx: usize = cursor.index.into();
-    if idx == 0 || char_at(text, idx - 1) != Some(typed) {
+    let idx = cursor.index;
+    if idx == CharIndex::ZERO || char_at(text, idx - 1) != Some(typed) {
         return None;
     }
 
@@ -249,8 +249,8 @@ fn auto_indent_after_enter(
     cursor_range: egui::text::CCursorRange,
 ) -> Option<egui::text::CCursorRange> {
     let cursor = cursor_range.single()?;
-    let idx: usize = cursor.index.into();
-    if idx == 0 || char_at(text, idx - 1) != Some('\n') {
+    let idx = cursor.index;
+    if idx == CharIndex::ZERO || char_at(text, idx - 1) != Some('\n') {
         return None;
     }
 
@@ -292,7 +292,7 @@ fn toggle_line_comments(
     cursor_range: egui::text::CCursorRange,
 ) -> egui::text::CCursorRange {
     let line_starts = selected_line_starts(text, cursor_range);
-    let code_lines: Vec<usize> = line_starts
+    let code_lines: Vec<CharIndex> = line_starts
         .iter()
         .copied()
         .filter(|&line| !line_is_blank(text, line))
@@ -353,7 +353,7 @@ fn indent_lines(
             });
         } else {
             let spaces = (0..CODE_INDENT.chars().count())
-                .take_while(|i| char_at(text, line + i) == Some(' '))
+                .take_while(|&i| char_at(text, line + i) == Some(' '))
                 .count();
             if spaces > 0 {
                 changes.push(CharChange {
@@ -368,10 +368,10 @@ fn indent_lines(
     apply_line_changes(text, cursor_range, &line_starts, changes)
 }
 
-fn selected_line_starts(text: &str, cursor_range: egui::text::CCursorRange) -> Vec<usize> {
+fn selected_line_starts(text: &str, cursor_range: egui::text::CCursorRange) -> Vec<CharIndex> {
     let [min, max] = cursor_range.sorted_cursors();
-    let start: usize = min.index.into();
-    let mut end: usize = max.index.into();
+    let start = min.index;
+    let mut end = max.index;
     if end > start && char_at(text, end - 1) == Some('\n') {
         end -= 1;
     }
@@ -388,20 +388,20 @@ fn selected_line_starts(text: &str, cursor_range: egui::text::CCursorRange) -> V
     lines
 }
 
-fn line_comment_pos(text: &str, line_start: usize) -> Option<usize> {
+fn line_comment_pos(text: &str, line_start: CharIndex) -> Option<CharIndex> {
     let pos = line_start + leading_whitespace_len(text, line_start);
     (char_at(text, pos) == Some('/') && char_at(text, pos + 1) == Some('/')).then_some(pos)
 }
 
-fn line_is_blank(text: &str, line_start: usize) -> bool {
+fn line_is_blank(text: &str, line_start: CharIndex) -> bool {
     char_slice(text, line_start..line_end_at(text, line_start))
         .trim()
         .is_empty()
 }
 
-fn leading_whitespace_len(text: &str, line_start: usize) -> usize {
+fn leading_whitespace_len(text: &str, line_start: CharIndex) -> usize {
     text.chars()
-        .skip(line_start)
+        .skip(line_start.0)
         .take_while(|c| matches!(c, ' ' | '\t'))
         .count()
 }
@@ -416,12 +416,16 @@ fn is_quote_pair(ch: char) -> bool {
 
 /// The char index of the nearest `$` block marker after (`forward`) or before
 /// the cursor, mirroring Strudel's `Alt+w`/`Alt+q` jump-to-character.
-fn jump_to_marker(text: &str, cursor_char: usize, forward: bool) -> Option<usize> {
-    let markers = text.chars().enumerate().filter(|(_, c)| *c == '$');
+fn jump_to_marker(text: &str, cursor_char: CharIndex, forward: bool) -> Option<CharIndex> {
+    let mut markers = text
+        .chars()
+        .enumerate()
+        .filter(|(_, c)| *c == '$')
+        .map(|(i, _)| CharIndex(i));
     if forward {
-        markers.map(|(i, _)| i).find(|&i| i > cursor_char)
+        markers.find(|&i| i > cursor_char)
     } else {
-        markers.map(|(i, _)| i).filter(|&i| i < cursor_char).last()
+        markers.filter(|&i| i < cursor_char).last()
     }
 }
 
@@ -444,32 +448,28 @@ mod tests {
         )
     }
 
-    // egui 0.35 returns `Range<CharIndex>`; flatten to `usize` for assertions.
-    fn char_range(range: &egui::text::CCursorRange) -> std::ops::Range<usize> {
-        let r = range.as_sorted_char_range();
-        r.start.into()..r.end.into()
-    }
-
     #[test]
     fn jump_moves_between_dollar_markers() {
         let text = "$: s(\"bd\")\n$: s(\"hh\")";
-        let second = text
-            .char_indices()
-            .filter(|(_, c)| *c == '$')
-            .nth(1)
-            .unwrap()
-            .0;
+        let second = CharIndex(
+            text.chars()
+                .enumerate()
+                .filter(|(_, c)| *c == '$')
+                .nth(1)
+                .unwrap()
+                .0,
+        );
         // forward from the first marker lands on the second
-        assert_eq!(jump_to_marker(text, 0, true), Some(second));
+        assert_eq!(jump_to_marker(text, CharIndex::ZERO, true), Some(second));
         // backward from the end lands on the second, then the first
         assert_eq!(
-            jump_to_marker(text, text.chars().count(), false),
+            jump_to_marker(text, CharIndex(text.chars().count()), false),
             Some(second)
         );
-        assert_eq!(jump_to_marker(text, second, false), Some(0));
+        assert_eq!(jump_to_marker(text, second, false), Some(CharIndex::ZERO));
         // nothing past the last/first marker
         assert_eq!(jump_to_marker(text, second, true), None);
-        assert_eq!(jump_to_marker(text, 0, false), None);
+        assert_eq!(jump_to_marker(text, CharIndex::ZERO, false), None);
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
         let mut text = "stack(".to_string();
         let range = apply_auto_pair(&mut text, cursor(6), "(").unwrap();
         assert_eq!(text, "stack()");
-        assert_eq!(usize::from(range.single().unwrap().index), 6);
+        assert_eq!(range.single().unwrap().index, CharIndex(6));
     }
 
     #[test]
@@ -485,7 +485,7 @@ mod tests {
         let mut text = "())".to_string();
         let range = apply_auto_pair(&mut text, cursor(2), ")").unwrap();
         assert_eq!(text, "()");
-        assert_eq!(usize::from(range.single().unwrap().index), 2);
+        assert_eq!(range.single().unwrap().index, CharIndex(2));
     }
 
     #[test]
@@ -493,7 +493,7 @@ mod tests {
         let mut text = "  note(\n".to_string();
         let range = auto_indent_after_enter(&mut text, cursor(8)).unwrap();
         assert_eq!(text, "  note(\n    ");
-        assert_eq!(usize::from(range.single().unwrap().index), 12);
+        assert_eq!(range.single().unwrap().index, CharIndex(12));
     }
 
     #[test]
@@ -501,7 +501,7 @@ mod tests {
         let mut text = "(\n)".to_string();
         let range = auto_indent_after_enter(&mut text, cursor(2)).unwrap();
         assert_eq!(text, "(\n  \n)");
-        assert_eq!(usize::from(range.single().unwrap().index), 4);
+        assert_eq!(range.single().unwrap().index, CharIndex(4));
     }
 
     #[test]
@@ -509,11 +509,11 @@ mod tests {
         let mut text = "a\nb".to_string();
         let range = indent_lines(&mut text, selection(0, 3), true);
         assert_eq!(text, "  a\n  b");
-        assert_eq!(char_range(&range), 0..7);
+        assert_eq!(range.as_sorted_char_range(), CharIndex(0)..CharIndex(7));
 
         let range = indent_lines(&mut text, range, false);
         assert_eq!(text, "a\nb");
-        assert_eq!(char_range(&range), 0..3);
+        assert_eq!(range.as_sorted_char_range(), CharIndex(0)..CharIndex(3));
     }
 
     #[test]
@@ -524,7 +524,7 @@ mod tests {
 
         let range = toggle_line_comments(&mut text, range);
         assert_eq!(text, "  a\n  b");
-        assert_eq!(char_range(&range), 0..7);
+        assert_eq!(range.as_sorted_char_range(), CharIndex(0)..CharIndex(7));
     }
 
     #[test]

@@ -43,7 +43,7 @@ pub(super) fn widget_rect(
     // Anchor to the bottom of the widget's (inflated) row in the real galley, so
     // the widget sits in the gap reserved below the line, pushing following code
     // down rather than overlapping it.
-    let char_index = char_index_at_byte(code, widget.placement());
+    let char_index = char_index_at_byte(code, egui::text::ByteIndex(widget.placement()));
     let row = layout
         .galley
         .pos_from_cursor(egui::text::CCursor::new(char_index));

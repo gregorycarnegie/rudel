@@ -109,7 +109,7 @@ fn slider_rect(layout: SliderLayout<'_>, code: &str, range: SourceRange) -> egui
     // Anchor to the literal's position in the real galley. The literal is hidden
     // and stretched to the slider width by the layouter, so the slider sits over
     // that reserved inline space and the rest of the line flows after it.
-    let char_index = char_index_at_byte(code, range.from);
+    let char_index = char_index_at_byte(code, egui::text::ByteIndex(range.from));
     let cursor = layout
         .galley
         .pos_from_cursor(egui::text::CCursor::new(char_index));

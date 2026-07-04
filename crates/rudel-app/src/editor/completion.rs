@@ -3,7 +3,10 @@ use super::{
     text::char_index_at_byte,
 };
 use crate::reference::{DRUMS, LANGUAGE_KEYWORDS, WAVEFORMS};
-use eframe::egui;
+use eframe::egui::{
+    self,
+    text::{ByteIndex, CharIndex},
+};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 const MAX_COMPLETIONS: usize = 12;
@@ -93,7 +96,7 @@ pub(super) struct CompletionCatalog<'a> {
 /// between frames.
 #[derive(Clone, Default)]
 pub(super) struct Completion {
-    pub(super) start: usize,
+    pub(super) start: ByteIndex,
     pub(super) items: Vec<CompletionItem>,
     pub(super) selected: usize,
 }
@@ -153,11 +156,11 @@ pub(super) fn completion_tooltip(
 /// the new char cursor index just after the inserted text.
 pub(super) fn apply_completion(
     code: &mut String,
-    start: usize,
-    cursor: usize,
+    start: ByteIndex,
+    cursor: ByteIndex,
     item: &CompletionItem,
-) -> usize {
-    code.replace_range(start..cursor, &item.apply);
+) -> CharIndex {
+    code.replace_range(start.0..cursor.0, &item.apply);
     char_index_at_byte(code, start + item.apply.len())
 }
 
@@ -165,6 +168,17 @@ pub(super) fn apply_completion(
 /// sounds/banks/chords/scales/modes inside quoted arguments, then documented
 /// runtime identifiers as the fallback.
 pub(super) fn completion_at(
+    code: &str,
+    cursor: ByteIndex,
+    catalog: &CompletionCatalog<'_>,
+) -> Option<(ByteIndex, ByteIndex, Vec<CompletionItem>)> {
+    completion_at_bytes(code, cursor.0, catalog)
+        .map(|(start, end, items)| (ByteIndex(start), ByteIndex(end), items))
+}
+
+/// Byte-domain implementation of [`completion_at`]; everything below works in
+/// plain `usize` byte offsets (no char indices in sight).
+fn completion_at_bytes(
     code: &str,
     cursor: usize,
     catalog: &CompletionCatalog<'_>,
@@ -193,10 +207,10 @@ pub(super) fn completion_at(
 
 pub(super) fn reference_tooltip_at(
     code: &str,
-    cursor: usize,
+    cursor: ByteIndex,
     catalog: &CompletionCatalog<'_>,
 ) -> Option<CompletionItem> {
-    let (_, _, word) = word_at_cursor(code, cursor)?;
+    let (_, _, word) = word_at_cursor(code, cursor.0)?;
     item_for_word(&word, catalog)
 }
 
@@ -612,16 +626,16 @@ mod tests {
         let sample_names = Vec::new();
         let catalog = catalog(&reference, &idents, &sample_names);
 
-        let (start, end, items) = completion_at("st", 2, &catalog).unwrap();
+        let (start, end, items) = completion_at_bytes("st", 2, &catalog).unwrap();
         assert_eq!((start, end), (0, 2));
         assert_eq!(labels(items), vec!["stack".to_string()]);
 
-        let (_, _, items) = completion_at("s", 1, &catalog).unwrap();
+        let (_, _, items) = completion_at_bytes("s", 1, &catalog).unwrap();
         assert_eq!(labels(items), vec!["slow", "stack"]);
-        assert_eq!(completion_at("note", 4, &catalog), None);
-        assert_eq!(completion_at("note(", 5, &catalog), None);
+        assert_eq!(completion_at_bytes("note", 4, &catalog), None);
+        assert_eq!(completion_at_bytes("note(", 5, &catalog), None);
 
-        let (start, end, items) = completion_at("note(fa", 7, &catalog).unwrap();
+        let (start, end, items) = completion_at_bytes("note(fa", 7, &catalog).unwrap();
         assert_eq!((start, end), (5, 7));
         assert_eq!(labels(items), vec!["false", "fast"]);
     }
@@ -630,15 +644,15 @@ mod tests {
     fn accepting_completion_uses_apply_text() {
         let item = CompletionItem::new("fast", CompletionKind::Function);
         let mut code = "note(fa".to_string();
-        let cursor = apply_completion(&mut code, 5, 7, &item);
+        let cursor = apply_completion(&mut code, ByteIndex(5), ByteIndex(7), &item);
         assert_eq!(code, "note(fast");
-        assert_eq!(cursor, 9);
+        assert_eq!(cursor, CharIndex(9));
 
         let major = CompletionItem::with_apply("major", "", CompletionKind::ChordSymbol);
         let mut code = r#"chord("C"#.to_string();
-        let cursor = apply_completion(&mut code, 8, 8, &major);
+        let cursor = apply_completion(&mut code, ByteIndex(8), ByteIndex(8), &major);
         assert_eq!(code, r#"chord("C"#);
-        assert_eq!(cursor, 8);
+        assert_eq!(cursor, CharIndex(8));
     }
 
     #[test]
@@ -651,8 +665,8 @@ mod tests {
         let sample_names = Vec::new();
         let catalog = catalog(&reference, &idents, &sample_names);
 
-        assert_eq!(completion_at("// st", 5, &catalog), None);
-        assert_eq!(completion_at("_sp", 3, &catalog), None);
+        assert_eq!(completion_at_bytes("// st", 5, &catalog), None);
+        assert_eq!(completion_at_bytes("_sp", 3, &catalog), None);
     }
 
     #[test]
@@ -662,11 +676,11 @@ mod tests {
         let sample_names = vec!["RolandTR909_bd".to_string(), "tabla".to_string()];
         let catalog = catalog(&reference, &idents, &sample_names);
 
-        let (start, end, items) = completion_at(r#"s("ta"#, 5, &catalog).unwrap();
+        let (start, end, items) = completion_at_bytes(r#"s("ta"#, 5, &catalog).unwrap();
         assert_eq!((start, end), (3, 5));
         assert_eq!(labels(items), vec!["tabla"]);
 
-        let (_, _, items) = completion_at(r#"sound("[b"#, 9, &catalog).unwrap();
+        let (_, _, items) = completion_at_bytes(r#"sound("[b"#, 9, &catalog).unwrap();
         assert!(labels(items).contains(&"bd".to_string()));
     }
 
@@ -677,7 +691,7 @@ mod tests {
         let sample_names = vec!["RolandTR909_bd".to_string(), "tabla".to_string()];
         let catalog = catalog(&reference, &idents, &sample_names);
 
-        let (start, end, items) = completion_at(r#"bank("Ro"#, 8, &catalog).unwrap();
+        let (start, end, items) = completion_at_bytes(r#"bank("Ro"#, 8, &catalog).unwrap();
         assert_eq!((start, end), (6, 8));
         assert_eq!(labels(items), vec!["RolandTR909"]);
     }
@@ -689,14 +703,14 @@ mod tests {
         let sample_names = Vec::new();
         let catalog = catalog(&reference, &idents, &sample_names);
 
-        let (_, _, items) = completion_at(r#"scale("C:har"#, 12, &catalog).unwrap();
+        let (_, _, items) = completion_at_bytes(r#"scale("C:har"#, 12, &catalog).unwrap();
         assert_eq!(items[0].label, "harmonic minor");
         assert_eq!(items[0].apply, "harmonic:minor");
 
-        let (_, _, items) = completion_at(r#"mode("be"#, 8, &catalog).unwrap();
+        let (_, _, items) = completion_at_bytes(r#"mode("be"#, 8, &catalog).unwrap();
         assert_eq!(labels(items), vec!["below"]);
 
-        let (start, end, items) = completion_at(r#"chord("Am"#, 9, &catalog).unwrap();
+        let (start, end, items) = completion_at_bytes(r#"chord("Am"#, 9, &catalog).unwrap();
         assert_eq!((start, end), (8, 9));
         assert!(labels(items).contains(&"m".to_string()));
     }
@@ -708,7 +722,7 @@ mod tests {
         let sample_names = Vec::new();
         let catalog = catalog(&reference, &idents, &sample_names);
 
-        let item = reference_tooltip_at("stack(s(\"bd\"))", 2, &catalog).unwrap();
+        let item = reference_tooltip_at("stack(s(\"bd\"))", ByteIndex(2), &catalog).unwrap();
         assert_eq!(item.label, "stack");
         assert_eq!(item.kind, CompletionKind::Function);
     }
