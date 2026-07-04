@@ -243,6 +243,9 @@ impl RudelApp {
                 let samples = fuzzy_filter(self.sample_names.iter().map(String::as_str), query);
                 let sound_groups = [("synths", synths), ("drums", drums), ("samples", samples)];
 
+                // Collected locally to avoid borrowing `self` inside the
+                // closures (sound_groups borrows sample_names immutably).
+                let mut insert: Option<String> = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if sound_groups.iter().any(|(_, items)| !items.is_empty()) {
                         egui::CollapsingHeader::new("sounds")
@@ -260,7 +263,9 @@ impl RudelApp {
                                     first = false;
                                     ui.weak(*label);
                                     for (item, hits) in items {
-                                        fuzzy_label(ui, item, hits);
+                                        if let Some(text) = reference_item(ui, item, hits) {
+                                            insert = Some(text);
+                                        }
                                     }
                                 }
                             });
@@ -279,11 +284,16 @@ impl RudelApp {
                             .open(force_open)
                             .show(ui, |ui| {
                                 for (item, hits) in &items {
-                                    fuzzy_label(ui, item, hits);
+                                    if let Some(text) = reference_item(ui, item, hits) {
+                                        insert = Some(text);
+                                    }
                                 }
                             });
                     }
                 });
+                if insert.is_some() {
+                    self.pending_insert = insert;
+                }
             });
     }
 
@@ -311,6 +321,7 @@ impl RudelApp {
                         let widgets = self.editor_decorations.widgets().to_vec();
                         let current_pattern = self.current.clone();
                         let playback_position_cycles = self.playback_position_cycles();
+                        let insert_text = self.pending_insert.take();
                         let editor_output = code_editor(
                             ui,
                             &mut self.code,
@@ -325,6 +336,7 @@ impl RudelApp {
                                 widgets: &widgets,
                                 widget_host: &mut self.widget_host,
                                 settings: &self.editor_settings,
+                                insert_text,
                             },
                         );
                         if let Some(change) = editor_output.text_change {
@@ -512,29 +524,39 @@ fn fuzzy_filter<'a>(
         .collect()
 }
 
+/// A reference list entry: draggable into the editor, double-click to insert
+/// at the cursor. Returns the name when it was double-clicked this frame.
+fn reference_item(ui: &mut egui::Ui, name: &str, hits: &[usize]) -> Option<String> {
+    let id = ui.id().with(name);
+    let response = ui.dnd_drag_source(id, name.to_string(), |ui| fuzzy_label(ui, name, hits));
+    response.inner.double_clicked().then(|| name.to_string())
+}
+
 /// A monospace label with the fuzzy-matched chars tinted like a hyperlink.
-fn fuzzy_label(ui: &mut egui::Ui, name: &str, hits: &[usize]) {
-    if hits.is_empty() {
-        ui.monospace(name);
-        return;
-    }
-    let font = egui::TextStyle::Monospace.resolve(ui.style());
-    let normal = egui::text::TextFormat::simple(font.clone(), ui.visuals().text_color());
-    let hit = egui::text::TextFormat::simple(font, ui.visuals().hyperlink_color);
-    let mut job = egui::text::LayoutJob::default();
-    let mut last = 0;
-    for &start in hits {
-        if start > last {
-            job.append(&name[last..start], 0.0, normal.clone());
+fn fuzzy_label(ui: &mut egui::Ui, name: &str, hits: &[usize]) -> egui::Response {
+    let text: egui::WidgetText = if hits.is_empty() {
+        egui::RichText::new(name).monospace().into()
+    } else {
+        let font = egui::TextStyle::Monospace.resolve(ui.style());
+        let normal = egui::text::TextFormat::simple(font.clone(), ui.visuals().text_color());
+        let hit = egui::text::TextFormat::simple(font, ui.visuals().hyperlink_color);
+        let mut job = egui::text::LayoutJob::default();
+        let mut last = 0;
+        for &start in hits {
+            if start > last {
+                job.append(&name[last..start], 0.0, normal.clone());
+            }
+            let end = start + name[start..].chars().next().map_or(1, char::len_utf8);
+            job.append(&name[start..end], 0.0, hit.clone());
+            last = end;
         }
-        let end = start + name[start..].chars().next().map_or(1, char::len_utf8);
-        job.append(&name[start..end], 0.0, hit.clone());
-        last = end;
-    }
-    if last < name.len() {
-        job.append(&name[last..], 0.0, normal);
-    }
-    ui.label(job);
+        if last < name.len() {
+            job.append(&name[last..], 0.0, normal);
+        }
+        job.into()
+    };
+    ui.add(egui::Label::new(text).sense(egui::Sense::click()))
+        .on_hover_text("double-click to insert · drag into the editor")
 }
 
 /// The deduped source byte ranges of the discrete events sounding at cycle

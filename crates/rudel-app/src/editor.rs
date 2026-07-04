@@ -49,6 +49,8 @@ pub(crate) struct CodeEditorInput<'a> {
     pub(crate) widgets: &'a [WidgetDecoration],
     pub(crate) widget_host: &'a mut WidgetHostState,
     pub(crate) settings: &'a EditorSettings,
+    /// Text to insert at the cursor this frame (a double-clicked reference).
+    pub(crate) insert_text: Option<String>,
 }
 
 pub(crate) fn code_editor(
@@ -67,6 +69,7 @@ pub(crate) fn code_editor(
         widgets,
         widget_host,
         settings,
+        insert_text,
     } = input;
 
     apply_editor_style(ui, settings);
@@ -273,6 +276,40 @@ pub(crate) fn code_editor(
             ui.data_mut(|d| d.remove::<(usize, usize)>(active_line_id));
             ui.ctx().request_repaint();
         }
+    }
+
+    // Insert a reference name from the side panel: a drag lands at the pointer
+    // position, a double-click at the current cursor (end of code when the
+    // editor has never had one). Mutating `code` here keeps the insertion
+    // inside the `before`/after diff so decorations are remapped like any edit.
+    let insertion: Option<(String, egui::text::CharIndex)> =
+        if let Some(payload) = output.response.dnd_release_payload::<String>() {
+            let pos = ui.ctx().pointer_interact_pos().unwrap_or(output.galley_pos);
+            let at = output.galley.cursor_from_pos(pos - output.galley_pos).index;
+            Some((payload.as_str().to_string(), at))
+        } else {
+            insert_text.map(|text| {
+                let at = output
+                    .state
+                    .cursor
+                    .char_range()
+                    .map(|range| range.primary.index)
+                    .unwrap_or(egui::text::CharIndex(code.chars().count()));
+                (text, at)
+            })
+        };
+    if let Some((text, at)) = insertion {
+        text::insert_text_at_char(code, at, &text);
+        let after = at + text.chars().count();
+        output
+            .state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(
+                egui::text::CCursor::new(after),
+            )));
+        output.state.clone().store(ui.ctx(), output.response.id);
+        cursor_byte = Some(byte_index_at_char(code, after));
+        ui.ctx().request_repaint();
     }
 
     if let Some(state) = &completion {

@@ -53,6 +53,9 @@ pub(crate) struct RudelApp {
     highlight_idents: HashSet<String>,
     /// Case-insensitive substring filter for the reference side panel.
     reference_filter: String,
+    /// Reference name double-clicked this frame, inserted into the editor at
+    /// the cursor when the editor panel renders (same frame).
+    pending_insert: Option<String>,
     playing: bool,
     /// When playback started, used as a wall-clock position source for
     /// active-event highlighting when there is no audio device to clock from.
@@ -120,6 +123,7 @@ impl RudelApp {
             reference,
             highlight_idents,
             reference_filter: String::new(),
+            pending_insert: None,
             playing: false,
             play_start: None,
             current: None,
@@ -249,6 +253,7 @@ mod tests {
             reference,
             highlight_idents,
             reference_filter: String::new(),
+            pending_insert: None,
             playing: false,
             play_start: None,
             current: None,
