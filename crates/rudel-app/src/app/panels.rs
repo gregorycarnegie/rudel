@@ -70,11 +70,37 @@ impl eframe::App for RudelApp {
 impl RudelApp {
     fn transport_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("transport").show(ui, |ui| {
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
-                ui.heading("rudel");
+                ui.label(
+                    egui::RichText::new("rudel")
+                        .monospace()
+                        .size(18.0)
+                        .strong()
+                        .color(crate::theme::ACCENT),
+                );
                 ui.separator();
-                let label = if self.playing { "⏹ Stop" } else { "▶ Play" };
-                if ui.button(label).clicked() {
+                // Play is the one action a live coder reaches for blind: filled
+                // accent while stopped, red while playing.
+                let play_button = if self.playing {
+                    egui::Button::new(
+                        egui::RichText::new("⏹ Stop")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(crate::theme::STOP)
+                } else {
+                    egui::Button::new(
+                        egui::RichText::new("▶ Play")
+                            .strong()
+                            .color(egui::Color32::BLACK),
+                    )
+                    .fill(crate::theme::ACCENT)
+                };
+                if ui
+                    .add(play_button.min_size(egui::vec2(72.0, 26.0)))
+                    .clicked()
+                {
                     let now = !self.playing;
                     if now && self.current.is_none() {
                         self.evaluate();
@@ -151,69 +177,94 @@ impl RudelApp {
                     }
                     Output::Audio => {}
                 }
-                ui.separator();
-                ui.label(format!("status: {}", self.status));
-                if self.audio_error.is_some() {
-                    ui.colored_label(egui::Color32::YELLOW, "(no audio)");
-                }
+                // Right edge: status text with a colored state light.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.weak(&self.status);
+                    let light = if self.eval_error.is_some() || self.io_error.is_some() {
+                        crate::theme::STOP
+                    } else if self.playing {
+                        crate::theme::GO
+                    } else {
+                        egui::Color32::from_gray(90)
+                    };
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                    ui.painter().circle_filled(rect.center(), 4.0, light);
+                    if self.audio_error.is_some() {
+                        ui.colored_label(crate::theme::ACCENT, "no audio");
+                    }
+                });
             });
 
-            ui.horizontal(|ui| {
-                ui.label("samples");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.sample_dir)
-                        .hint_text("folder, strudel.json, URL, or github:user/repo")
-                        .desired_width(360.0),
-                );
-                if ui.button("Load samples").clicked() {
-                    self.load_samples();
-                }
-            });
+            // Occasional setup lives out of the way: one collapsed row instead
+            // of two always-visible ones.
+            let io_summary = io_summary(
+                self.sample_names.len(),
+                self.midi_in.is_some(),
+                self.midi_in_pending.is_some(),
+            );
+            egui::CollapsingHeader::new(io_summary)
+                .id_salt("io_section")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("samples");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.sample_dir)
+                                .hint_text("folder, strudel.json, URL, or github:user/repo")
+                                .desired_width(360.0),
+                        );
+                        if ui.button("Load samples").clicked() {
+                            self.load_samples();
+                        }
+                    });
 
-            ui.horizontal(|ui| {
-                ui.label("midi in");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.midi_in_port)
-                        .hint_text("first")
-                        .desired_width(90.0),
-                );
-                let connected = self.midi_in.is_some();
-                let connecting = self.midi_in_pending.is_some();
-                let label = if connecting {
-                    "Connecting…"
-                } else if connected {
-                    "Reconnect"
-                } else {
-                    "Connect"
-                };
-                if ui
-                    .add_enabled(!connecting, egui::Button::new(label))
-                    .clicked()
-                {
-                    self.connect_input();
-                }
-                if connected && ui.button("Disconnect").clicked() {
-                    self.midi_in = None;
-                }
-                ui.checkbox(&mut self.clock_sync, "clock→cps");
-                if let Some(bpm) = self.midi_in.as_ref().and_then(|i| i.bpm()) {
-                    ui.weak(format!("{bpm:.0} bpm"));
-                }
-                ui.weak("→ ccin(n)");
-            });
+                    ui.horizontal(|ui| {
+                        ui.label("midi in");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.midi_in_port)
+                                .hint_text("first")
+                                .desired_width(90.0),
+                        );
+                        let connected = self.midi_in.is_some();
+                        let connecting = self.midi_in_pending.is_some();
+                        let label = if connecting {
+                            "Connecting…"
+                        } else if connected {
+                            "Reconnect"
+                        } else {
+                            "Connect"
+                        };
+                        if ui
+                            .add_enabled(!connecting, egui::Button::new(label))
+                            .clicked()
+                        {
+                            self.connect_input();
+                        }
+                        if connected && ui.button("Disconnect").clicked() {
+                            self.midi_in = None;
+                        }
+                        ui.checkbox(&mut self.clock_sync, "clock→cps");
+                        if let Some(bpm) = self.midi_in.as_ref().and_then(|i| i.bpm()) {
+                            ui.weak(format!("{bpm:.0} bpm"));
+                        }
+                        ui.weak("→ ccin(n)");
+                    });
+                });
+            ui.add_space(2.0);
         });
     }
 
     fn errors_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::bottom("errors").show(ui, |ui| {
             if let Some(e) = &self.audio_error {
-                ui.colored_label(egui::Color32::from_rgb(220, 160, 60), format!("audio: {e}"));
+                ui.colored_label(crate::theme::ACCENT, format!("audio: {e}"));
             }
             if let Some(e) = &self.io_error {
-                ui.colored_label(egui::Color32::from_rgb(220, 160, 60), e);
+                ui.colored_label(crate::theme::ACCENT, e);
             }
             if let Some(e) = &self.eval_error {
-                ui.colored_label(egui::Color32::from_rgb(230, 90, 90), e);
+                ui.colored_label(crate::theme::STOP, e);
             } else {
                 ui.weak(
                     "Ctrl+Enter eval · Ctrl+Shift+Enter block · Ctrl+. hush · Ctrl+Shift+. panic · Ctrl+/ comment",
@@ -309,7 +360,9 @@ impl RudelApp {
                 *ui.visuals_mut() = if draw.light {
                     egui::Visuals::light()
                 } else {
-                    egui::Visuals::dark()
+                    // Keep the app theme (rounded widgets, accent) inside the
+                    // dark editor instead of stock egui dark.
+                    ui.ctx().style_of(egui::Theme::Dark).visuals.clone()
                 };
                 ui.visuals_mut().override_text_color = Some(draw.foreground);
                 ui.add_space(4.0);
@@ -477,6 +530,19 @@ impl RudelApp {
     }
 }
 
+/// Collapsed-header summary for the I/O section, so what's loaded/connected
+/// shows at a glance without opening it.
+fn io_summary(sample_count: usize, midi_in_connected: bool, midi_in_connecting: bool) -> String {
+    let midi = if midi_in_connecting {
+        "midi in connecting…"
+    } else if midi_in_connected {
+        "midi in connected"
+    } else {
+        "midi in off"
+    };
+    format!("i/o — {sample_count} samples · {midi}")
+}
+
 /// `(label, shortcut-tooltip)` for the primary (Ctrl+Enter) and secondary
 /// (Ctrl+Shift+Enter) eval buttons. Which action each triggers swaps with the
 /// block-based-eval setting; the shortcut binding stays fixed.
@@ -585,7 +651,22 @@ fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<(usize, us
 
 #[cfg(test)]
 mod tests {
-    use super::{active_source_spans_at, eval_button_labels, fuzzy_filter, fuzzy_match};
+    use super::{
+        active_source_spans_at, eval_button_labels, fuzzy_filter, fuzzy_match, io_summary,
+    };
+
+    #[test]
+    fn io_summary_reflects_connection_state() {
+        assert_eq!(io_summary(0, false, false), "i/o — 0 samples · midi in off");
+        assert_eq!(
+            io_summary(12, true, false),
+            "i/o — 12 samples · midi in connected"
+        );
+        assert_eq!(
+            io_summary(3, false, true),
+            "i/o — 3 samples · midi in connecting…"
+        );
+    }
 
     #[test]
     fn fuzzy_match_finds_case_insensitive_subsequences() {

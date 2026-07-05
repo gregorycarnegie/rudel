@@ -146,7 +146,14 @@ pub(crate) fn code_editor(
     let desired_rows = ((ui.available_height() / row_height).floor() as usize).max(4);
     let mut output = if settings.line_numbers {
         ui.horizontal_top(|ui| {
-            draw_line_number_gutter(ui, code, active_line, settings);
+            draw_line_number_gutter(
+                ui,
+                code,
+                active_line,
+                settings,
+                &line_heights,
+                base_row_height,
+            );
             egui::TextEdit::multiline(code)
                 // Pin an absolute id (not `id_salt`) so the widget keeps the
                 // same id whether it sits in the outer `ui` or inside this
@@ -369,6 +376,8 @@ fn draw_line_number_gutter(
     code: &str,
     active_line: Option<(usize, usize)>,
     settings: &EditorSettings,
+    line_heights: &std::collections::HashMap<usize, f32>,
+    base_row_height: f32,
 ) {
     let font_id = settings.font_id();
     let line_count = code.bytes().filter(|byte| *byte == b'\n').count() + 1;
@@ -380,22 +389,35 @@ fn draw_line_number_gutter(
             .filter(|b| *b == b'\n')
             .count()
     });
-    ui.set_width(width);
-    for line in 0..line_count {
-        let color = if Some(line) == active_line_index {
-            settings.theme.palette().line_number_active
-        } else {
-            settings.theme.palette().line_number
-        };
-        ui.add_sized(
-            [width, settings.font_size * 1.35],
-            egui::Label::new(
-                egui::RichText::new(format!("{:>digits$}", line + 1))
-                    .font(font_id.clone())
-                    .color(color),
-            ),
-        );
-    }
+    let palette = settings.theme.palette();
+    // ponytail: assumes no soft wrap — numbers drift when line_wrapping is on;
+    // walk galley rows instead if that ever matters.
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        // Match TextEdit's inner top margin so row 1 lines up with the text.
+        ui.add_space(2.0);
+        for line in 0..line_count {
+            let color = if Some(line) == active_line_index {
+                palette.line_number_active
+            } else {
+                palette.line_number
+            };
+            // Rows hosting block widgets are inflated by the layouter; mirror
+            // that height so later numbers stay aligned, with the number pinned
+            // to the top where the text row is.
+            let row_height = line_heights.get(&line).copied().unwrap_or(base_row_height);
+            let (rect, _) =
+                ui.allocate_exact_size(egui::vec2(width, row_height), egui::Sense::hover());
+            ui.painter().text(
+                egui::pos2(rect.right() - 4.0, rect.top()),
+                egui::Align2::RIGHT_TOP,
+                (line + 1).to_string(),
+                font_id.clone(),
+                color,
+            );
+        }
+    });
 }
 
 fn line_span_at_char(code: &str, cursor_char: egui::text::CharIndex) -> (usize, usize) {

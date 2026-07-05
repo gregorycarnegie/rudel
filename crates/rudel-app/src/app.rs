@@ -230,7 +230,10 @@ pub(crate) fn run() -> eframe::Result {
     eframe::run_native(
         "rudel",
         native_options,
-        Box::new(|_cc| Ok(Box::new(RudelApp::new()))),
+        Box::new(|cc| {
+            crate::theme::apply(&cc.egui_ctx);
+            Ok(Box::new(RudelApp::new()))
+        }),
     )
 }
 
