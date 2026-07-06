@@ -1760,16 +1760,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
-name = "i24"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bafc62750bce7c2603750d1c19532e226bb85bd21f5385ab952cc29b8c31e2af"
-dependencies = [
- "bytemuck",
- "num-traits",
-]
-
-[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3582,7 +3572,6 @@ dependencies = [
  "rudel-mini",
  "serde_json",
  "ureq",
- "wavers",
 ]
 
 [[package]]
@@ -4821,19 +4810,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
-]
-
-[[package]]
-name = "wavers"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d599ddd98c95ad3d3fc898cfb5c4023430f6ea62f96083f46d13cc8b82589bd3"
-dependencies = [
- "bytemuck",
- "i24",
- "num-traits",
- "paste",
- "thiserror 1.0.69",
 ]
 
 [[package]]

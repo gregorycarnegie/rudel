@@ -466,7 +466,7 @@ fn load_sample(path: &Path) -> Result<Sample, String> {
 }
 
 /// Decode in-memory audio bytes into a mono [`Sample`]. Symphonia (via fundsp)
-/// handles all formats; WAVs it rejects fall back to the lenient `wavers`
+/// handles all formats; WAVs it rejects fall back to our lenient in-house
 /// reader, since old sample packs (e.g. dirt-samples' `mute`/`pluck`) have
 /// nonstandard 20-byte PCM fmt chunks symphonia refuses to parse.
 fn decode_sample_bytes(bytes: Vec<u8>) -> Result<Sample, String> {
@@ -474,19 +474,65 @@ fn decode_sample_bytes(bytes: Vec<u8>) -> Result<Sample, String> {
     let bytes: std::sync::Arc<[u8]> = bytes.into();
     match Wave::load_slice(bytes.clone()) {
         Ok(wave) => Ok(wave_to_sample(&wave)),
-        Err(e) if is_wav => decode_wav_lenient(bytes)
+        Err(e) if is_wav => decode_wav_lenient(&bytes)
             .map_err(|e2| format!("decode audio: {e}; lenient wav: {e2}")),
         Err(e) => Err(format!("decode audio: {e}")),
     }
 }
 
-/// Fallback WAV decode via `wavers`, which tolerates spec-violating headers.
-fn decode_wav_lenient(bytes: std::sync::Arc<[u8]>) -> Result<Sample, String> {
-    let cursor = std::io::Cursor::new(bytes);
-    let mut wav = wavers::Wav::<f32>::new(Box::new(cursor)).map_err(|e| e.to_string())?;
-    let channels = (wav.n_channels() as usize).max(1);
-    let sample_rate = wav.sample_rate() as f32;
-    let samples = wav.read().map_err(|e| e.to_string())?;
+/// Fallback lenient WAV decode (replaces the archived `wavers` crate): skips
+/// unknown chunks, tolerates oversized fmt chunks and truncated data, and
+/// handles 8/16/24/32-bit PCM plus 32/64-bit IEEE float.
+fn decode_wav_lenient(bytes: &[u8]) -> Result<Sample, String> {
+    let mut fmt: Option<(u16, usize, f32, u16)> = None; // (tag, channels, rate, bits)
+    let mut data: Option<&[u8]> = None;
+    let mut pos = 12;
+    while pos + 8 <= bytes.len() {
+        let id = &bytes[pos..pos + 4];
+        let size = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
+        let body = &bytes[pos + 8..(pos + 8 + size).min(bytes.len())];
+        match id {
+            b"fmt " if body.len() >= 16 => {
+                let u16_at = |o: usize| u16::from_le_bytes(body[o..o + 2].try_into().unwrap());
+                let mut tag = u16_at(0);
+                // WAVE_FORMAT_EXTENSIBLE: real format is the first word of the sub-format GUID
+                if tag == 0xFFFE && body.len() >= 26 {
+                    tag = u16_at(24);
+                }
+                let rate = u32::from_le_bytes(body[4..8].try_into().unwrap()) as f32;
+                fmt = Some((tag, u16_at(2).max(1) as usize, rate, u16_at(14)));
+            }
+            b"data" => data = Some(body),
+            _ => {}
+        }
+        pos += 8 + size + (size & 1); // chunks are word-aligned
+    }
+    let (tag, channels, sample_rate, bits) = fmt.ok_or("no fmt chunk")?;
+    let data = data.ok_or("no data chunk")?;
+    let samples: Vec<f32> = match (tag, bits) {
+        (1, 8) => data.iter().map(|&v| (v as f32 - 128.0) / 128.0).collect(),
+        (1, 16) => data
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+            .collect(),
+        (1, 24) => data
+            .chunks_exact(3)
+            .map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0)
+            .collect(),
+        (1, 32) => data
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f32 / 2_147_483_648.0)
+            .collect(),
+        (3, 32) => data
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect(),
+        (3, 64) => data
+            .chunks_exact(8)
+            .map(|c| f64::from_le_bytes(c.try_into().unwrap()) as f32)
+            .collect(),
+        _ => return Err(format!("unsupported wav format: tag {tag}, {bits}-bit")),
+    };
     let data = samples
         .chunks(channels)
         .map(|frame| frame.iter().sum::<f32>() / channels as f32)
@@ -564,7 +610,7 @@ mod tests {
     #[test]
     fn decodes_wav_with_nonstandard_fmt_chunk() {
         // 20-byte PCM fmt chunk (16 + 4 junk bytes), as found in dirt-samples'
-        // "mute"/"pluck" banks; symphonia rejects it, the wavers fallback must not.
+        // "mute"/"pluck" banks; symphonia rejects it, the lenient fallback must not.
         let samples: Vec<f32> = (0..64).map(|i| (TAU * i as f32 / 64.0).sin()).collect();
         let data_len = (samples.len() * 2) as u32;
         let mut b = Vec::new();
@@ -590,6 +636,37 @@ mod tests {
         assert_eq!(s.sample_rate, 44100.0);
         assert_eq!(s.data.len(), 64);
         assert!((s.data[16] - 1.0).abs() < 1e-2); // sin peak survives roundtrip
+    }
+
+    #[test]
+    fn lenient_decoder_handles_stereo_float32() {
+        // Exercises the IEEE-float branch and channel averaging directly.
+        let frames: Vec<(f32, f32)> = (0..32).map(|i| (i as f32 / 32.0, -(i as f32) / 32.0)).collect();
+        let data_len = (frames.len() * 8) as u32;
+        let mut b = Vec::new();
+        b.extend(b"RIFF");
+        b.extend((36 + data_len).to_le_bytes());
+        b.extend(b"WAVE");
+        b.extend(b"fmt ");
+        b.extend(16u32.to_le_bytes());
+        b.extend(3u16.to_le_bytes()); // IEEE float
+        b.extend(2u16.to_le_bytes()); // stereo
+        b.extend(48000u32.to_le_bytes());
+        b.extend((48000u32 * 8).to_le_bytes());
+        b.extend(8u16.to_le_bytes()); // block align
+        b.extend(32u16.to_le_bytes()); // bits
+        b.extend(b"data");
+        b.extend(data_len.to_le_bytes());
+        for &(l, r) in &frames {
+            b.extend(l.to_le_bytes());
+            b.extend(r.to_le_bytes());
+        }
+
+        let s = decode_wav_lenient(&b).expect("float32 stereo decodes");
+        assert_eq!(s.sample_rate, 48000.0);
+        assert_eq!(s.data.len(), 32);
+        // L and R are mirrored, so the mono average is ~0 everywhere.
+        assert!(s.data.iter().all(|&x| x.abs() < 1e-6));
     }
 
     #[test]
