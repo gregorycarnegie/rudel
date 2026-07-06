@@ -23,6 +23,11 @@ pub use bindings::{KPattern, filter_output, output_targets};
 pub use samples::SampleEffects;
 pub use sliders::{set_slider_value, slider_value};
 
+/// Install mini-notation as the parser for Rust string patterns.
+pub fn install_mini() {
+    rudel_mini::install();
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct EvalMeta {
     /// Source byte ranges for mini-notation leaves discovered during

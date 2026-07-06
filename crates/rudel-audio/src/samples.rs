@@ -8,7 +8,7 @@ use rudel_dsp::Sample;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, mpsc},
 };
 
 /// A group of samples sharing one tuning. Flat (drum-machine) sounds use a
@@ -335,7 +335,7 @@ fn parallel_map<J: Send + Sync, R: Send>(
 ) -> Vec<(J, R)> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let workers = workers.clamp(1, jobs.len().max(1));
-    let (tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = mpsc::channel();
     let next = AtomicUsize::new(0);
     std::thread::scope(|s| {
         for _ in 0..workers {

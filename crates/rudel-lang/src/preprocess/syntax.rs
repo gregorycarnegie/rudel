@@ -1,40 +1,35 @@
+use super::scanner::{skip_block_comment, skip_line_comment, skip_string};
+
 pub(super) fn strip_line_comments(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
-    let mut quote = None;
-    let mut escaped = false;
     let mut i = 0;
     while i < chars.len() {
-        let c = chars[i];
-        if let Some(q) = quote {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
-            }
-            i += 1;
+        let (byte, c) = chars[i];
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
+            let end = skip_block_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
             continue;
         }
         if c == '"' || c == '\'' {
-            quote = Some(c);
-            out.push(c);
-            i += 1;
-        } else if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
-            i += 2;
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            if i < chars.len() {
+            let end = skip_string(&chars, i, c);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
+            i = skip_line_comment(&chars, i);
+            if chars.get(i).map(|x| x.1) == Some('\n') {
                 out.push('\n');
                 i += 1;
             }
-        } else {
-            out.push(c);
-            i += 1;
+            continue;
         }
+        out.push(c);
+        i += 1;
     }
     out
 }
@@ -49,34 +44,28 @@ pub(super) fn strip_line_comments(src: &str) -> String {
 /// expression-bodied callbacks Strudel's docs use. String literals are skipped
 /// so an `=>` inside a pattern string is left intact.
 pub(super) fn rewrite_arrow_functions(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out: Vec<char> = Vec::with_capacity(chars.len());
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
     let mut i = 0;
     while i < chars.len() {
-        let c = chars[i];
-        if let Some(q) = quote {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
-            }
-            i += 1;
+        let (byte, c) = chars[i];
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
+            let end = skip_block_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.extend(src[byte..end_byte].chars());
+            i = end;
             continue;
         }
         if c == '"' || c == '\'' {
-            quote = Some(c);
-            out.push(c);
-            i += 1;
+            let end = skip_string(&chars, i, c);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.extend(src[byte..end_byte].chars());
+            i = end;
             continue;
         }
         // An arrow is the two-char sequence `=>` (never `>=`, which has the
         // opposite order, so comparison operators are untouched).
-        if c == '=' && i + 1 < chars.len() && chars[i + 1] == '>' {
+        if c == '=' && chars.get(i + 1).map(|x| x.1) == Some('>') {
             // Boundary of the parameter list: everything already emitted, minus
             // trailing whitespace between the params and the `=>`.
             let mut end = out.len();
@@ -141,10 +130,10 @@ pub(super) fn rewrite_arrow_functions(src: &str) -> String {
                 i += 2; // skip `=>`
                 // Collapse the whitespace after `=>` to a single space (or none,
                 // if the body starts on the next line) for predictable output.
-                while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
+                while i < chars.len() && (chars[i].1 == ' ' || chars[i].1 == '\t') {
                     i += 1;
                 }
-                if i < chars.len() && chars[i] != '\n' && chars[i] != '\r' {
+                if i < chars.len() && chars[i].1 != '\n' && chars[i].1 != '\r' {
                     out.push(' ');
                 }
                 continue;
@@ -190,39 +179,33 @@ fn normalize_string_literal(literal: &str) -> String {
 }
 
 pub(super) fn rewrite_string_method_chains(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
     while i < chars.len() {
-        let c = chars[i];
+        let (byte, c) = chars[i];
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
+            let end = skip_block_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
         if c != '"' && c != '\'' {
             out.push(c);
             i += 1;
             continue;
         }
 
-        let start = i;
-        let quote = c;
-        let mut escaped = false;
-        i += 1;
-        while i < chars.len() {
-            let c = chars[i];
-            i += 1;
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == quote {
-                break;
-            }
-        }
-        let literal = normalize_string_literal(&chars[start..i].iter().collect::<String>());
-        let mut j = i;
-        while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
+        let end = skip_string(&chars, i, c);
+        let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+        let literal = normalize_string_literal(&src[byte..end_byte]);
+        let mut j = end;
+        while j < chars.len() && chars[j].1.is_whitespace() && chars[j].1 != '\n' {
             j += 1;
         }
         let method_chain =
-            j + 1 < chars.len() && chars[j] == '.' && chars[j + 1].is_ascii_alphabetic();
+            j + 1 < chars.len() && chars[j].1 == '.' && chars[j + 1].1.is_ascii_alphabetic();
         if method_chain {
             out.push_str("pat(");
             out.push_str(&literal);
@@ -230,6 +213,7 @@ pub(super) fn rewrite_string_method_chains(src: &str) -> String {
         } else {
             out.push_str(&literal);
         }
+        i = end;
     }
     out
 }

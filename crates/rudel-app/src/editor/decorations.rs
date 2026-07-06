@@ -121,7 +121,6 @@ impl WidgetDecoration {
 pub(crate) struct EditorDecorationState {
     sliders: Vec<SliderDecoration>,
     widgets: Vec<WidgetDecoration>,
-    mini_locations: Vec<SourceRange>,
     flash_ranges: Vec<SourceRange>,
     changes_since_eval: Vec<TextChange>,
 }
@@ -130,7 +129,6 @@ impl EditorDecorationState {
     pub(crate) fn replace_all(&mut self, meta: &rudel_lang::EvalMeta) {
         self.sliders = sliders_from_meta(meta);
         self.widgets = widgets_from_meta(meta);
-        self.mini_locations = ranges_from_tuples(&meta.mini_locations);
         self.flash_ranges.clear();
         self.changes_since_eval.clear();
     }
@@ -158,17 +156,6 @@ impl EditorDecorationState {
         dedupe_widgets(&mut widgets);
         widgets.sort_by_key(|widget| widget.placement());
         self.widgets = widgets;
-
-        let mut mini_locations: Vec<_> = self
-            .mini_locations
-            .iter()
-            .copied()
-            .filter(|location| outside_replaced_range(location.from, range))
-            .chain(ranges_from_tuples(&meta.mini_locations))
-            .collect();
-        dedupe_ranges(&mut mini_locations);
-        mini_locations.sort_by_key(|location| location.from);
-        self.mini_locations = mini_locations;
     }
 
     pub(crate) fn map_change(&mut self, change: TextChange) {
@@ -177,9 +164,6 @@ impl EditorDecorationState {
         }
         for widget in &mut self.widgets {
             widget.map(change);
-        }
-        for range in &mut self.mini_locations {
-            *range = range.mapped(change);
         }
         for range in &mut self.flash_ranges {
             *range = range.mapped(change);
@@ -222,11 +206,6 @@ impl EditorDecorationState {
     #[allow(dead_code)]
     pub(crate) fn widgets(&self) -> &[WidgetDecoration] {
         &self.widgets
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn mini_locations(&self) -> &[SourceRange] {
-        &self.mini_locations
     }
 
     fn map_eval_range_to_current(&self, mut range: SourceRange) -> SourceRange {
@@ -299,13 +278,6 @@ fn widgets_from_meta(meta: &rudel_lang::EvalMeta) -> Vec<WidgetDecoration> {
     dedupe_widgets(&mut widgets);
     widgets.sort_by_key(|widget| widget.placement());
     widgets
-}
-
-fn ranges_from_tuples(ranges: &[(usize, usize)]) -> Vec<SourceRange> {
-    let mut ranges: Vec<_> = ranges.iter().copied().map(SourceRange::from).collect();
-    dedupe_ranges(&mut ranges);
-    ranges.sort_by_key(|range| range.from);
-    ranges
 }
 
 fn outside_replaced_range(position: usize, range: SourceRange) -> bool {
@@ -403,7 +375,6 @@ mod tests {
 
         assert_eq!(state.sliders()[0].range, SourceRange::new(5, 8));
         assert_eq!(state.widgets()[0].range, SourceRange::new(12, 22));
-        assert_eq!(state.mini_locations(), &[SourceRange::new(9, 11)]);
         assert_eq!(state.flash_ranges(), vec![(5, 8), (12, 14)]);
     }
 
@@ -461,10 +432,6 @@ mod tests {
                 .map(|widget| (widget.widget_type.as_str(), widget.id.as_str()))
                 .collect::<Vec<_>>(),
             vec![("_pitchwheel", "new"), ("_spiral", "outside")]
-        );
-        assert_eq!(
-            state.mini_locations(),
-            &[SourceRange::new(1, 2), SourceRange::new(6, 8)]
         );
     }
 }

@@ -101,7 +101,7 @@ pub(crate) struct RudelApp {
 
 impl RudelApp {
     fn new() -> RudelApp {
-        rudel_mini::install();
+        rudel_lang::install_mini();
         let (engine, audio_error) = match Engine::new() {
             Ok(e) => {
                 e.set_cps(0.5);
@@ -174,7 +174,6 @@ impl RudelApp {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
                 self.editor_decorations.replace_all(&result.meta);
-                self.widget_host.sync(self.editor_decorations.widgets());
                 self.eval_meta = result.meta;
                 self.eval_error = None;
                 self.status = "evaluated".to_string();
@@ -205,7 +204,6 @@ impl RudelApp {
                 let source_range = SourceRange::new(range.from, range.to);
                 self.editor_decorations
                     .replace_range(&result.meta, source_range);
-                self.widget_host.sync(self.editor_decorations.widgets());
                 self.eval_meta = result.meta;
                 self.eval_error = None;
                 self.block_flash = Some((source_range, Instant::now()));

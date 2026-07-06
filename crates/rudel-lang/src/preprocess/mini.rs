@@ -1,4 +1,7 @@
-use super::{scanner::is_ident_char, widgets::VISUAL_WIDGET_METHODS};
+use super::{
+    scanner::{is_ident_char, skip_line_comment},
+    widgets::VISUAL_WIDGET_METHODS,
+};
 
 /// Map a byte position in the widget-rewritten source back to the original
 /// editor source using the verbatim-copy anchors gathered during the widget
@@ -40,10 +43,10 @@ pub(super) fn annotate_mini_offsets(
     while i < chars.len() {
         let c = chars[i].1;
         if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            while i < chars.len() && chars[i].1 != '\n' {
-                out.push(chars[i].1);
-                i += 1;
-            }
+            let start = chars[i].0;
+            i = skip_line_comment(&chars, i);
+            let end = chars.get(i).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[start..end]);
             continue;
         }
         if c != '"' && c != '\'' {

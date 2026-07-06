@@ -19,7 +19,6 @@ pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
 pub use samples::SampleBank;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crossbeam_channel::{Receiver, Sender};
 use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
 use rudel_dsp::VoiceLike;
@@ -27,6 +26,7 @@ use std::{
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{self, Receiver, Sender},
     },
     thread::JoinHandle,
     time::Duration,
@@ -459,7 +459,7 @@ impl OfflineMixer {
     /// Build an offline mixer at the given sample rate (global reverb + delay
     /// configured exactly as the real engine).
     pub fn new(sample_rate: f32) -> OfflineMixer {
-        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
         let volume = Arc::new(AtomicU64::new(0));
         store_f64(&volume, DEFAULT_MASTER_VOLUME);
         let mixer = Mixer {
@@ -535,7 +535,7 @@ impl Engine {
         let sample_format = config.sample_format();
         let stream_config = config.into();
 
-        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
         let played = Arc::new(AtomicU64::new(0));
         let pattern = Arc::new(RwLock::new(rudel_core::silence()));
         let clock = Arc::new(Mutex::new(Clock::new(0.5))); // Strudel default cps
@@ -829,14 +829,11 @@ mod tests {
         volume
     }
 
-    fn test_mixer(rx: crossbeam_channel::Receiver<NoteEvent>) -> Mixer {
+    fn test_mixer(rx: Receiver<NoteEvent>) -> Mixer {
         test_mixer_with_volume(rx, test_volume(DEFAULT_MASTER_VOLUME))
     }
 
-    fn test_mixer_with_volume(
-        rx: crossbeam_channel::Receiver<NoteEvent>,
-        volume: Arc<AtomicU64>,
-    ) -> Mixer {
+    fn test_mixer_with_volume(rx: Receiver<NoteEvent>, volume: Arc<AtomicU64>) -> Mixer {
         Mixer {
             rx,
             pending: Vec::new(),
@@ -924,7 +921,7 @@ mod tests {
 
     #[test]
     fn reverb_send_produces_a_tail() {
-        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
         let mut mixer = test_mixer(rx);
         // a short note with a big reverb send
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69))).room(1.0);
@@ -949,7 +946,7 @@ mod tests {
         // Two sustained notes in cut group 1, the second a little later. After
         // the second starts, the first should be choked to silence within the
         // ~10ms fade, leaving only one voice's worth of energy.
-        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
         let mut mixer = test_mixer(rx);
         // A long held saw so the voice is still audible when the next one cuts it.
         let held = |onset: f64| NoteEvent {
@@ -1004,8 +1001,8 @@ mod tests {
         // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.
         let onsets = [0.0, 37.0 / 44100.0, 150.0 / 44100.0];
 
-        let (tx_a, rx_a) = crossbeam_channel::unbounded::<NoteEvent>();
-        let (tx_b, rx_b) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx_a, rx_a) = mpsc::channel::<NoteEvent>();
+        let (tx_b, rx_b) = mpsc::channel::<NoteEvent>();
         for &o in &onsets {
             tx_a.send(note(o)).unwrap();
             tx_b.send(note(o)).unwrap();
@@ -1036,7 +1033,7 @@ mod tests {
     fn mixer_renders_a_scheduled_note() {
         // Drive a Mixer directly (no audio device) and confirm a scheduled
         // note produces non-silent output once its onset passes.
-        let (tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
         let mut mixer = test_mixer(rx);
         let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)));
         let events = collect_events(&pat, 1.0, 0.0, 1.0, &SampleBank::new());
@@ -1075,7 +1072,7 @@ mod tests {
             }
         }
 
-        let (_tx, rx) = crossbeam_channel::unbounded::<NoteEvent>();
+        let (_tx, rx) = mpsc::channel::<NoteEvent>();
         let volume = test_volume(0.5);
         let mut mixer = test_mixer_with_volume(rx, volume.clone());
         mixer.active.push(ActiveVoice {

@@ -13,7 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 rudel-core = { path = "../rudel-core" }
-rudel-mini = { path = "../rudel-mini" }
 rudel-lang = { path = "../rudel-lang" }
 rudel-audio = { path = "../rudel-audio" }
 rudel-midi = { path = "../rudel-midi" }
