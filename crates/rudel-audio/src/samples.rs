@@ -461,14 +461,37 @@ fn is_audio_file(path: &Path) -> bool {
 
 /// Decode an audio file into a mono [`Sample`] (channels are averaged).
 fn load_sample(path: &Path) -> Result<Sample, String> {
-    let wave = Wave::load(path).map_err(|e| format!("load {path:?}: {e}"))?;
-    Ok(wave_to_sample(&wave))
+    let bytes = std::fs::read(path).map_err(|e| format!("read {path:?}: {e}"))?;
+    decode_sample_bytes(bytes).map_err(|e| format!("load {path:?}: {e}"))
 }
 
-/// Decode in-memory audio bytes into a mono [`Sample`] (for remote samples).
+/// Decode in-memory audio bytes into a mono [`Sample`]. Symphonia (via fundsp)
+/// handles all formats; WAVs it rejects fall back to the lenient `wavers`
+/// reader, since old sample packs (e.g. dirt-samples' `mute`/`pluck`) have
+/// nonstandard 20-byte PCM fmt chunks symphonia refuses to parse.
 fn decode_sample_bytes(bytes: Vec<u8>) -> Result<Sample, String> {
-    let wave = Wave::load_slice(bytes).map_err(|e| format!("decode audio: {e}"))?;
-    Ok(wave_to_sample(&wave))
+    let is_wav = bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(&b"WAVE"[..]);
+    let bytes: std::sync::Arc<[u8]> = bytes.into();
+    match Wave::load_slice(bytes.clone()) {
+        Ok(wave) => Ok(wave_to_sample(&wave)),
+        Err(e) if is_wav => decode_wav_lenient(bytes)
+            .map_err(|e2| format!("decode audio: {e}; lenient wav: {e2}")),
+        Err(e) => Err(format!("decode audio: {e}")),
+    }
+}
+
+/// Fallback WAV decode via `wavers`, which tolerates spec-violating headers.
+fn decode_wav_lenient(bytes: std::sync::Arc<[u8]>) -> Result<Sample, String> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut wav = wavers::Wav::<f32>::new(Box::new(cursor)).map_err(|e| e.to_string())?;
+    let channels = (wav.n_channels() as usize).max(1);
+    let sample_rate = wav.sample_rate() as f32;
+    let samples = wav.read().map_err(|e| e.to_string())?;
+    let data = samples
+        .chunks(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect();
+    Ok(Sample { data, sample_rate })
 }
 
 /// Average a decoded [`Wave`]'s channels down to a mono [`Sample`].
@@ -536,6 +559,37 @@ mod tests {
         assert!(s.data.len() > 4000);
         assert!(s.data.iter().any(|&x| x.abs() > 0.1));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn decodes_wav_with_nonstandard_fmt_chunk() {
+        // 20-byte PCM fmt chunk (16 + 4 junk bytes), as found in dirt-samples'
+        // "mute"/"pluck" banks; symphonia rejects it, the wavers fallback must not.
+        let samples: Vec<f32> = (0..64).map(|i| (TAU * i as f32 / 64.0).sin()).collect();
+        let data_len = (samples.len() * 2) as u32;
+        let mut b = Vec::new();
+        b.extend(b"RIFF");
+        b.extend((40 + data_len).to_le_bytes());
+        b.extend(b"WAVE");
+        b.extend(b"fmt ");
+        b.extend(20u32.to_le_bytes());
+        b.extend(1u16.to_le_bytes()); // PCM
+        b.extend(1u16.to_le_bytes()); // mono
+        b.extend(44100u32.to_le_bytes());
+        b.extend((44100u32 * 2).to_le_bytes());
+        b.extend(2u16.to_le_bytes()); // block align
+        b.extend(16u16.to_le_bytes()); // bits
+        b.extend([0u8; 4]); // the nonstandard trailing bytes
+        b.extend(b"data");
+        b.extend(data_len.to_le_bytes());
+        for &s in &samples {
+            b.extend(((s * 32767.0) as i16).to_le_bytes());
+        }
+
+        let s = decode_sample_bytes(b).expect("lenient wav fallback decodes");
+        assert_eq!(s.sample_rate, 44100.0);
+        assert_eq!(s.data.len(), 64);
+        assert!((s.data[16] - 1.0).abs() < 1e-2); // sin peak survives roundtrip
     }
 
     #[test]
