@@ -138,9 +138,7 @@ impl VisualWidgetOptions {
             min_db: option_f32(options, "min"),
             max_db: option_f32(options, "max").unwrap_or(0.0),
             speed: option_f32(options, "speed").unwrap_or(1.0).max(1.0),
-            smear: option_f32(options, "smear")
-                .unwrap_or(0.0)
-                .clamp(0.0, 0.95),
+            smear: option_f32(options, "smear").unwrap_or(0.0).clamp(0.0, 0.95),
             lowest: option_midi(options, "lowest"),
             highest: option_midi(options, "highest"),
         }

@@ -80,12 +80,26 @@ pub(super) fn paint_pattern_widget(
                 .active_color
                 .or_else(|| hap_color(None))
                 .unwrap_or(colors.active);
-            paint_scope(ui, rect, &widget.id, widget_tap().as_deref(), options, color);
+            paint_scope(
+                ui,
+                rect,
+                &widget.id,
+                widget_tap().as_deref(),
+                options,
+                color,
+            );
             true
         }
         "_fscope" => {
             let color = options.active_color.unwrap_or(colors.active);
-            paint_fscope(ui, rect, &widget.id, widget_tap().as_deref(), options, color);
+            paint_fscope(
+                ui,
+                rect,
+                &widget.id,
+                widget_tap().as_deref(),
+                options,
+                color,
+            );
             true
         }
         "_spectrum" => {

@@ -62,10 +62,8 @@ pub(super) fn paint_claviature(
         }
         let x = rect.left() + white_index * key_w;
         white_x.insert(midi, x);
-        let key = egui::Rect::from_min_size(
-            egui::pos2(x, rect.top()),
-            egui::vec2(key_w, rect.height()),
-        );
+        let key =
+            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(key_w, rect.height()));
         let fill = active_color(midi).unwrap_or(egui::Color32::WHITE);
         painter.rect_filled(key, 1.0, fill);
         painter.rect_stroke(key, 1.0, stroke, egui::StrokeKind::Inside);

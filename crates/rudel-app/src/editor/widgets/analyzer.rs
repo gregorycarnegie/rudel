@@ -78,7 +78,10 @@ pub(super) fn paint_scope(
                 )
             })
             .collect::<Vec<_>>();
-        painter.add(egui::Shape::line(points, egui::Stroke::new(thickness, color)));
+        painter.add(egui::Shape::line(
+            points,
+            egui::Stroke::new(thickness, color),
+        ));
     };
 
     for (age, trace) in traces.iter().enumerate().skip(1).rev() {
@@ -162,10 +165,7 @@ pub(super) fn paint_spectrum(
         (rect.height().round() as usize).clamp(1, 2048),
     );
     if state.image.as_ref().map(|i| i.size) != Some([w, h]) {
-        state.image = Some(egui::ColorImage::filled(
-            [w, h],
-            egui::Color32::TRANSPARENT,
-        ));
+        state.image = Some(egui::ColorImage::filled([w, h], egui::Color32::TRANSPARENT));
         state.tex = None;
     }
     let image = state.image.as_mut().unwrap();

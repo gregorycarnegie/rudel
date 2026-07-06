@@ -474,8 +474,9 @@ fn decode_sample_bytes(bytes: Vec<u8>) -> Result<Sample, String> {
     let bytes: std::sync::Arc<[u8]> = bytes.into();
     match Wave::load_slice(bytes.clone()) {
         Ok(wave) => Ok(wave_to_sample(&wave)),
-        Err(e) if is_wav => decode_wav_lenient(&bytes)
-            .map_err(|e2| format!("decode audio: {e}; lenient wav: {e2}")),
+        Err(e) if is_wav => {
+            decode_wav_lenient(&bytes).map_err(|e2| format!("decode audio: {e}; lenient wav: {e2}"))
+        }
         Err(e) => Err(format!("decode audio: {e}")),
     }
 }
@@ -641,7 +642,9 @@ mod tests {
     #[test]
     fn lenient_decoder_handles_stereo_float32() {
         // Exercises the IEEE-float branch and channel averaging directly.
-        let frames: Vec<(f32, f32)> = (0..32).map(|i| (i as f32 / 32.0, -(i as f32) / 32.0)).collect();
+        let frames: Vec<(f32, f32)> = (0..32)
+            .map(|i| (i as f32 / 32.0, -(i as f32) / 32.0))
+            .collect();
         let data_len = (frames.len() * 8) as u32;
         let mut b = Vec::new();
         b.extend(b"RIFF");
