@@ -7,6 +7,7 @@ pub(super) fn default_surface_size(widget_type: &str) -> egui::Vec2 {
         "_spiral" => egui::vec2(275.0, 275.0),
         "_pitchwheel" | "_spectrum" => egui::vec2(200.0, 200.0),
         "_wordfall" => egui::vec2(500.0, 120.0),
+        "_claviature" => egui::vec2(500.0, 100.0),
         _ => egui::vec2(500.0, 60.0),
     }
 }

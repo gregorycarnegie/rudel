@@ -16,15 +16,22 @@ pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
     "_pitchwheel",
     "_spectrum",
     "_wordfall",
+    "_claviature",
+    "_fscope",
     // Public (non-underscore) visualizer names render the same inline widget as
     // their `_`-prefixed variants. `canonical_widget_type` maps them back to the
-    // `_`-prefixed type the painter/host key on. (`scope`/`spectrum` are omitted:
-    // their widgets need an audio analyzer tap and are not yet rendered.)
+    // `_`-prefixed type the painter/host key on. `tscope` is Strudel's alias
+    // for `scope` (same painter).
     "pianoroll",
     "punchcard",
     "spiral",
+    "scope",
+    "tscope",
+    "fscope",
     "pitchwheel",
+    "spectrum",
     "wordfall",
+    "claviature",
 ];
 
 /// Normalize a matched widget method name to the `_`-prefixed widget type that
@@ -35,10 +42,12 @@ fn canonical_widget_type(method: &str) -> &'static str {
         "pianoroll" | "_pianoroll" => "_pianoroll",
         "punchcard" | "_punchcard" => "_punchcard",
         "spiral" | "_spiral" => "_spiral",
-        "scope" | "_scope" => "_scope",
+        "scope" | "tscope" | "_scope" => "_scope",
+        "fscope" | "_fscope" => "_fscope",
         "pitchwheel" | "_pitchwheel" => "_pitchwheel",
         "spectrum" | "_spectrum" => "_spectrum",
         "wordfall" | "_wordfall" => "_wordfall",
+        "claviature" | "_claviature" => "_claviature",
         _ => "_pianoroll",
     }
 }
@@ -171,9 +180,11 @@ fn koto_widget_method(widget_type: &str) -> &'static str {
         "_punchcard" => "rudel_widget_punchcard",
         "_spiral" => "rudel_widget_spiral",
         "_scope" => "rudel_widget_scope",
+        "_fscope" => "rudel_widget_fscope",
         "_pitchwheel" => "rudel_widget_pitchwheel",
         "_spectrum" => "rudel_widget_spectrum",
         "_wordfall" => "rudel_widget_wordfall",
+        "_claviature" => "rudel_widget_claviature",
         _ => "rudel_widget",
     }
 }

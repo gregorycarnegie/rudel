@@ -43,6 +43,7 @@ fn note_event() -> NoteEvent {
             ..Default::default()
         },
         cut: None,
+        tags: Vec::new(),
     }
 }
 

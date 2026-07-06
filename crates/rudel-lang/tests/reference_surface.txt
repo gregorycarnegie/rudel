@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=309 methods=1062 controls=663
+# functions=309 methods=1069 controls=663
 
 [functions]
 Math
@@ -318,6 +318,8 @@ zoom
 FXr
 FXrel
 FXrelease
+_claviature
+_fscope
 _pianoroll
 _pitchwheel
 _punchcard
@@ -427,6 +429,7 @@ chunk_back_into
 chunk_into
 chunkbackinto
 chunkinto
+claviature
 clip
 coarse
 collect
@@ -855,6 +858,7 @@ freeze
 freq
 fromBipolar
 from_bipolar
+fscope
 fshift
 fshiftnote
 fshiftphase
@@ -1196,6 +1200,7 @@ scale
 scaleTrans
 scaleTranspose
 scale_transpose
+scope
 scram
 scramble
 scrub
@@ -1236,6 +1241,7 @@ songPtr
 sound
 source
 sparsity
+spectrum
 speed
 spiral
 splice
@@ -1300,6 +1306,7 @@ tremshape
 tremskew
 tremsync
 triode
+tscope
 tsdelay
 tune
 tuning

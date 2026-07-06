@@ -39,8 +39,8 @@ newline inside brackets, live bracket-match highlighting around the cursor,
 contextual autocomplete, and Ctrl-held reference tooltips match the CodeMirror
 REPL where their settings are enabled. The selected editor theme also supplies
 the draw colors used by inline visual surfaces, sliders, native
-`_pianoroll`/`_pitchwheel`/`_spiral` widgets, and the native one-cycle
-visualizer.
+`_pianoroll`/`_pitchwheel`/`_spiral`/`_claviature`/`_scope`/`_spectrum`
+widgets, and the native one-cycle visualizer.
 
 ## Features
 
@@ -54,7 +54,11 @@ visualizer.
 - Reference panel for built-in synths, drums, loaded samples, controls, signals,
   and factories.
 - Inline Strudel-style visual widgets for pianoroll/punchcard/wordfall,
-  pitchwheel, and spiral patterns, including common static size/draw options.
+  pitchwheel, spiral, and claviature patterns, including common static
+  size/draw options.
+- Scope/tscope (triggered oscilloscope with smear), fscope (frequency bars),
+  and spectrum (scrolling spectrogram) widgets, each fed by its own lock-free
+  per-widget tap on the live audio output.
 - One-cycle visualizer with a live playhead and per-orbit bands.
 
 ## Output Notes

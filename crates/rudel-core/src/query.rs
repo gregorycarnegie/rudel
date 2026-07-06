@@ -23,6 +23,9 @@ pub struct ControlEvent {
     pub onset_cycle: f64,
     /// The resolved control map (`note`, `s`, `gain`, ...).
     pub controls: ValueMap,
+    /// Widget tags from the hap context (`pat.tag(id)`); the audio engine uses
+    /// them to route a voice's output to per-widget analyzer taps.
+    pub tags: Vec<String>,
 }
 
 /// Normalize a hap value into a control map: maps pass through; bare strings
@@ -87,6 +90,7 @@ pub fn query_controls(
             duration_seconds: hap.clipped_duration().to_f64() / cps,
             onset_cycle,
             controls,
+            tags: hap.context.tags.clone(),
         });
     }
     out

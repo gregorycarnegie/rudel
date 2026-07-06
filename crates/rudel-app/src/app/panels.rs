@@ -385,6 +385,7 @@ impl RudelApp {
                                 sample_names: &self.sample_names,
                                 current_pattern: current_pattern.as_ref(),
                                 playback_position_cycles,
+                                scope_taps: self.engine.as_ref().map(|e| e.scope_taps()),
                                 sliders: &sliders,
                                 widgets: &widgets,
                                 widget_host: &mut self.widget_host,

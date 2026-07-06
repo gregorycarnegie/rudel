@@ -1,3 +1,5 @@
+mod analyzer;
+mod claviature;
 mod geometry;
 mod host;
 mod options;

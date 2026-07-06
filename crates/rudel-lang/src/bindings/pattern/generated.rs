@@ -468,22 +468,25 @@ kpattern_methods! {
         // The public (non-underscore) visualizer names are Strudel's global
         // full-screen painters; Rudel has no global draw canvas, so they expose
         // the same inline editor widget as their `_`-prefixed variants (the
-        // preprocess rewrites either spelling to the same widget host). `_scope`
-        // / `_spectrum` need an audio analyzer tap and stay deferred.
+        // preprocess rewrites either spelling to the same widget host).
         #[koto_method(alias = "pianoroll")]
         _pianoroll => kpattern_visual_widget,
         #[koto_method(alias = "punchcard")]
         _punchcard => kpattern_visual_widget,
         #[koto_method(alias = "spiral")]
         _spiral => kpattern_visual_widget,
-        #[koto_method]
+        #[koto_method(alias = "scope", alias = "tscope")]
         _scope => kpattern_visual_widget,
+        #[koto_method(alias = "fscope")]
+        _fscope => kpattern_visual_widget,
         #[koto_method(alias = "pitchwheel")]
         _pitchwheel => kpattern_visual_widget,
-        #[koto_method]
+        #[koto_method(alias = "spectrum")]
         _spectrum => kpattern_visual_widget,
         #[koto_method(alias = "wordfall")]
         _wordfall => kpattern_visual_widget,
+        #[koto_method(alias = "claviature")]
+        _claviature => kpattern_visual_widget,
         #[koto_method]
         rudel_widget_pianoroll => kpattern_visual_widget,
         #[koto_method]
@@ -498,6 +501,10 @@ kpattern_methods! {
         rudel_widget_spectrum => kpattern_visual_widget,
         #[koto_method]
         rudel_widget_wordfall => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_claviature => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_fscope => kpattern_visual_widget,
         #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
         loop_at_cps => kpattern_loop_at_cps,
         #[koto_method(alias = "applyN")]

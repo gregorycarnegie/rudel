@@ -76,7 +76,7 @@ pub(super) fn paint_pitchwheel(
     }
 }
 
-fn hap_frequency(hap: &Hap) -> Option<f64> {
+pub(super) fn hap_frequency(hap: &Hap) -> Option<f64> {
     let mut controls = rudel_core::to_control_map(&hap.value);
     rudel_core::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());
     if let Some(freq) = controls.get("freq").and_then(Value::as_f64) {

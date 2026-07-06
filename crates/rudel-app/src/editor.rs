@@ -45,6 +45,8 @@ pub(crate) struct CodeEditorInput<'a> {
     pub(crate) sample_names: &'a [String],
     pub(crate) current_pattern: Option<&'a rudel_core::Pattern>,
     pub(crate) playback_position_cycles: Option<f64>,
+    /// The engine's analyzer taps for the scope/fscope/spectrum widgets.
+    pub(crate) scope_taps: Option<&'a rudel_audio::ScopeTaps>,
     pub(crate) sliders: &'a [SliderDecoration],
     pub(crate) widgets: &'a [WidgetDecoration],
     pub(crate) widget_host: &'a mut WidgetHostState,
@@ -65,6 +67,7 @@ pub(crate) fn code_editor(
         sample_names,
         current_pattern,
         playback_position_cycles,
+        scope_taps,
         sliders,
         widgets,
         widget_host,
@@ -350,6 +353,7 @@ pub(crate) fn code_editor(
             pattern: current_pattern,
             time_cycles: playback_position_cycles,
             draw_theme,
+            taps: scope_taps,
         },
     );
     let slider_update = draw_slider_hosts(

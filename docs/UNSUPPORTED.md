@@ -54,7 +54,8 @@ described above — running user-driven drawing every animation frame — the
 `animate` painter is **intentionally unsupported** in Rudel. There is no native
 equivalent surface; patterns that call `animate` will not produce visuals. The
 supported way to get scheduler-time visuals in Rudel is the inline editor widgets
-(`_pianoroll`, `_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`).
+(`_pianoroll`, `_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`,
+`_claviature`, `_scope`, `_spectrum`).
 
 The `register`-based param transforms themselves — `rescale`, `moveXY`, `zoomIn`
 — **are** implemented (`crates/rudel-core/src/draw.rs`), since they are pure
@@ -64,22 +65,21 @@ evaluate and emit the same control maps as Strudel, so `.rescale(2)` /
 with no `animate` painter to consume `x`/`y`/`w`/`h`, they produce no visual on
 their own.
 
-### Audio analyzer visuals — `scope`/`spectrum` (`@strudel/webaudio`) — deferred
+### Audio analyzer visuals — `scope`/`tscope`/`fscope`/`spectrum` (`@strudel/webaudio`) — implemented
 
-Strudel's `scope.mjs` and `spectrum.mjs` (`scope`, `tscope`, `fscope`, `_scope`,
-`spectrum`, `_spectrum`) read live audio data from a Web Audio `AnalyserNode`:
-time-domain samples for the oscilloscope (with align/trigger options and smear)
-and FFT magnitudes for the spectrum (with scrolling history and color memory).
+The analyzer widgets **are** implemented with Strudel's semantics
+(`crates/rudel-app/src/editor/widgets/analyzer.rs`): `scope`/`tscope` (the
+same painter, like upstream) draws a falling-edge-triggered oscilloscope with
+`align`/`trigger`/`pos`/`scale`/`thickness`/`smear` options; `fscope` draws
+per-bin frequency bars (`scale`/`pos`/`lean`/`min`/`max`); `spectrum` draws
+the scrolling log-frequency spectrogram with per-widget color memory.
 
-Unlike the pianoroll/pitchwheel/spiral widgets — which are *pure pattern*
-visuals derived from haps and need no audio analyzer — `scope`/`spectrum`
-require a real-time audio analyzer tap. Rudel's audio engine
-(`crates/rudel-audio`) does not currently expose an analyzer/FFT node, so these
-are **deferred**: the inline `_scope`/`_spectrum` widget types are not rendered
-and the `scope`/`spectrum` controls have no visual effect. This is the one
-visual area gated on engine work (an analyzer tap on the mixer output) rather
-than on a deliberate "never" decision; it is tracked separately from the pure
-pattern visuals, which are implemented.
+Like Strudel's per-`analyze`-id `AnalyserNode`s, each widget has its own
+analyzer: the mixer keeps a lock-free ring per widget tag
+(`rudel_audio::ScopeTaps`) fed only by the voices of the tagged pattern, plus
+a master-mix ring, and frequency data is smoothed across frames like
+`AnalyserNode.getFloatFrequencyData` (τ = 0.5). The explicit `.analyze(id)`
+control itself is not exposed — Rudel wires taps through widget ids only.
 
 ## External integrations and inputs
 

@@ -60,6 +60,20 @@ pub(super) struct VisualWidgetOptions {
     pub(super) active_color: Option<egui::Color32>,
     pub(super) inactive_color: Option<egui::Color32>,
     pub(super) playhead_color: Option<egui::Color32>,
+    // scope / fscope / spectrum (Strudel scope.mjs / spectrum.mjs) options;
+    // `pos`/`scale` are optional because the defaults differ per widget.
+    pub(super) align: bool,
+    pub(super) trigger: f32,
+    pub(super) pos: Option<f32>,
+    pub(super) scale: Option<f32>,
+    pub(super) lean: f32,
+    pub(super) min_db: Option<f32>,
+    pub(super) max_db: f32,
+    pub(super) speed: f32,
+    pub(super) smear: f32,
+    // claviature key range (midi numbers or note names)
+    pub(super) lowest: Option<f64>,
+    pub(super) highest: Option<f64>,
 }
 
 impl VisualWidgetOptions {
@@ -111,10 +125,24 @@ impl VisualWidgetOptions {
             colorize_spiral_inactive: option_bool(options, "colorizeInactive").unwrap_or(false),
             fade: option_bool(options, "fade").unwrap_or(true),
             active_color: option_color(options, "active")
-                .or_else(|| option_color(options, "activeColor")),
+                .or_else(|| option_color(options, "activeColor"))
+                .or_else(|| option_color(options, "color")),
             inactive_color: option_color(options, "inactive")
                 .or_else(|| option_color(options, "inactiveColor")),
             playhead_color: option_color(options, "playheadColor"),
+            align: option_bool(options, "align").unwrap_or(true),
+            trigger: option_f32(options, "trigger").unwrap_or(0.0),
+            pos: option_f32(options, "pos"),
+            scale: option_f32(options, "scale"),
+            lean: option_f32(options, "lean").unwrap_or(0.5),
+            min_db: option_f32(options, "min"),
+            max_db: option_f32(options, "max").unwrap_or(0.0),
+            speed: option_f32(options, "speed").unwrap_or(1.0).max(1.0),
+            smear: option_f32(options, "smear")
+                .unwrap_or(0.0)
+                .clamp(0.0, 0.95),
+            lowest: option_midi(options, "lowest"),
+            highest: option_midi(options, "highest"),
         }
     }
 
@@ -171,4 +199,13 @@ fn option_color(
     key: &str,
 ) -> Option<egui::Color32> {
     option_str(options, key).and_then(resolve_color)
+}
+
+/// A midi number, or a note name (`"c2"`) resolved to one.
+fn option_midi(options: &BTreeMap<String, rudel_lang::WidgetOption>, key: &str) -> Option<f64> {
+    option_f64(options, key).or_else(|| {
+        option_str(options, key)
+            .and_then(rudel_core::note_to_midi)
+            .map(|m| m as f64)
+    })
 }

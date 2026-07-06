@@ -1,4 +1,6 @@
 use super::{
+    analyzer::fft_in_place,
+    claviature::{hap_midi, is_black},
     geometry::WIDGET_GAP_PADDING,
     options::VisualWidgetOptions,
     pianoroll::{RollRectInput, RollValue, horizontal_roll_rect, pianoroll_value},
@@ -262,6 +264,73 @@ fn spiral_point_matches_strudel_polar_mapping() {
     assert!((at_start.y - 100.0).abs() < 1e-4);
     assert!((one_turn.x - 100.0).abs() < 1e-4);
     assert!((one_turn.y - 90.0).abs() < 1e-4);
+}
+
+#[test]
+fn fft_peaks_at_the_sine_bin() {
+    let n = 512;
+    let bin = 37;
+    let mut re: Vec<f32> = (0..n)
+        .map(|i| (std::f32::consts::TAU * bin as f32 * i as f32 / n as f32).sin())
+        .collect();
+    let mut im = vec![0.0f32; n];
+    fft_in_place(&mut re, &mut im);
+    let peak = (0..n / 2)
+        .max_by(|&a, &b| {
+            let mag = |k: usize| re[k] * re[k] + im[k] * im[k];
+            mag(a).total_cmp(&mag(b))
+        })
+        .unwrap();
+    assert_eq!(peak, bin);
+}
+
+#[test]
+fn analyzer_and_claviature_options_follow_strudel_names() {
+    let scope = widget_with_options(
+        "_scope",
+        &[
+            ("align", rudel_lang::WidgetOption::Number(0.0)),
+            ("trigger", rudel_lang::WidgetOption::Number(0.1)),
+            ("pos", rudel_lang::WidgetOption::Number(0.25)),
+            ("scale", rudel_lang::WidgetOption::Number(0.5)),
+            ("smear", rudel_lang::WidgetOption::Number(0.8)),
+            ("lowest", rudel_lang::WidgetOption::String("c1".to_string())),
+            ("highest", rudel_lang::WidgetOption::Number(96.0)),
+        ],
+    );
+    let options = VisualWidgetOptions::from_widget(&scope);
+
+    assert!(!options.align);
+    assert_eq!(options.trigger, 0.1);
+    assert_eq!(options.pos, Some(0.25));
+    assert_eq!(options.scale, Some(0.5));
+    assert_eq!(options.smear, 0.8);
+    assert_eq!(options.lowest, Some(24.0)); // note name resolves to midi
+    assert_eq!(options.highest, Some(96.0));
+
+    // per-widget defaults live in the painters; the parse defaults are open
+    let defaults = VisualWidgetOptions::from_widget(&widget("_spectrum", "s", 0, 1));
+    assert!(defaults.align);
+    assert_eq!(defaults.pos, None);
+    assert_eq!(defaults.speed, 1.0);
+}
+
+#[test]
+fn claviature_maps_notes_to_midi_and_key_colors() {
+    // note name and freq both resolve to the same midi key
+    let named = hap(Value::Map(ValueMap::from([(
+        "note".to_string(),
+        Value::Str("c4".to_string()),
+    )])));
+    let tuned = hap(Value::Map(ValueMap::from([(
+        "freq".to_string(),
+        Value::F64(440.0),
+    )])));
+    assert_eq!(hap_midi(&named), Some(60));
+    assert_eq!(hap_midi(&tuned), Some(69));
+    // black-key pattern of an octave: C# D# F# G# A#
+    let blacks: Vec<i32> = (60..72).filter(|&m| is_black(m)).collect();
+    assert_eq!(blacks, vec![61, 63, 66, 68, 70]);
 }
 
 #[test]

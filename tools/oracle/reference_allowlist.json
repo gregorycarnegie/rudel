@@ -25,9 +25,8 @@
     },
     "draw_runtime": {
       "status": "deferred",
-      "reason": "Audio-analyzer scope/spectrum widgets and the label/scope/draw-lifecycle helpers; the realtime draw path never runs the Koto VM, and there is no analyzer tap yet (FULL_STRUDEL.md draw items, docs/UNSUPPORTED.md). The pianoroll/punchcard/spiral/pitchwheel/wordfall visualizers and the rescale/moveXY/zoomIn animate transforms are now exposed (inline widgets + x/y/w/h param transforms).",
+      "reason": "Label/draw-lifecycle helpers; the realtime draw path never runs the Koto VM (FULL_STRUDEL.md draw items, docs/UNSUPPORTED.md). The pianoroll/punchcard/spiral/pitchwheel/wordfall/claviature visualizers, the scope/tscope/fscope/spectrum analyzer widgets (per-widget lock-free taps on the audio output), and the rescale/moveXY/zoomIn animate transforms are now exposed (inline widgets + x/y/w/h param transforms).",
       "names": [
-        "scope", "tscope", "fscope", "spectrum",
         "label", "activeLabel",
         "markcss", "logValues", "clearScope", "getDuration", "onTriggerTime", "tables"
       ]

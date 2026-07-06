@@ -20,6 +20,9 @@ pub struct NoteEvent {
     /// `cut` group: when a new voice in the same group starts, any still-playing
     /// voice in that group is choked (fast fade). `None` means no group.
     pub cut: Option<i32>,
+    /// Widget tags from the source hap; the mixer adds the voice's output to
+    /// the per-widget scope taps registered under these ids.
+    pub tags: Vec<String>,
 }
 
 /// The requested MIDI note for a sampler, from `freq` or `note` (name or
@@ -127,6 +130,7 @@ pub fn collect_events_at(
                 .get("cut")
                 .and_then(|v| v.as_f64())
                 .map(|v| v as i32),
+            tags: ev.tags,
         })
         .collect()
 }

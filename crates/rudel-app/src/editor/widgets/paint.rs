@@ -6,6 +6,7 @@ use super::{
 };
 use crate::editor::{decorations::WidgetDecoration, settings::DrawTheme};
 use eframe::egui;
+use rudel_audio::ScopeTaps;
 use rudel_core::Pattern;
 
 #[derive(Clone, Copy)]
@@ -13,6 +14,9 @@ pub(crate) struct WidgetPaintInput<'a> {
     pub(crate) pattern: Option<&'a Pattern>,
     pub(crate) time_cycles: Option<f64>,
     pub(crate) draw_theme: DrawTheme,
+    /// The engine's analyzer taps for scope/fscope/spectrum widgets (`None`
+    /// when no audio device is running — those widgets then draw empty).
+    pub(crate) taps: Option<&'a ScopeTaps>,
 }
 
 pub(crate) fn draw_widget_hosts(
@@ -26,6 +30,12 @@ pub(crate) fn draw_widget_hosts(
     let sync = host.sync(widgets);
     if !sync.created.is_empty() || !sync.removed.is_empty() {
         ui.ctx().request_repaint();
+    }
+    // Free the audio-side analyzer rings of widgets that no longer exist.
+    if let Some(taps) = paint.taps {
+        for id in &sync.removed {
+            taps.remove(id);
+        }
     }
 
     let clip = ui.clip_rect();
@@ -88,7 +98,17 @@ fn paint_widget_surface(
 
     let painted = paint
         .pattern
-        .map(|pattern| paint_pattern_widget(ui, rect, widget, pattern, paint.time_cycles, colors))
+        .map(|pattern| {
+            paint_pattern_widget(
+                ui,
+                rect,
+                widget,
+                pattern,
+                paint.time_cycles,
+                colors,
+                paint.taps,
+            )
+        })
         .unwrap_or(false);
 
     if !painted {

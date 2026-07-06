@@ -123,6 +123,11 @@ fn public_visualizer_names_rewrite_to_inline_widget() {
         ("spiral", "_spiral", "rudel_widget_spiral"),
         ("pitchwheel", "_pitchwheel", "rudel_widget_pitchwheel"),
         ("wordfall", "_wordfall", "rudel_widget_wordfall"),
+        ("scope", "_scope", "rudel_widget_scope"),
+        ("tscope", "_scope", "rudel_widget_scope"),
+        ("fscope", "_fscope", "rudel_widget_fscope"),
+        ("spectrum", "_spectrum", "rudel_widget_spectrum"),
+        ("claviature", "_claviature", "rudel_widget_claviature"),
     ] {
         let result = preprocess_strudel_with_meta(&format!(r#"s("bd sd").{call}()"#));
         assert_eq!(result.meta.widgets.len(), 1, "{call}");

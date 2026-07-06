@@ -67,6 +67,102 @@ impl StereoDelay {
     }
 }
 
+/// Ring-buffer capacity of [`ScopeTap`] (power of two; ~0.19s at 44.1kHz).
+const SCOPE_TAP_LEN: usize = 8192;
+
+/// Lock-free ring buffer of the most recent mono output samples, written by
+/// the audio callback and read by UI visualizers (`_scope` / `_spectrum`).
+/// Single writer (the audio thread); a reader may catch a window mid-update,
+/// which is harmless for display.
+pub struct ScopeTap {
+    /// Sample ring, each slot an `f32` stored as bits.
+    buf: Box<[std::sync::atomic::AtomicU32]>,
+    /// Total samples written since start (monotonic write cursor).
+    written: AtomicU64,
+}
+
+impl ScopeTap {
+    fn new() -> ScopeTap {
+        ScopeTap {
+            buf: (0..SCOPE_TAP_LEN)
+                .map(|_| std::sync::atomic::AtomicU32::new(0))
+                .collect(),
+            written: AtomicU64::new(0),
+        }
+    }
+
+    /// Append samples to the ring (audio thread only).
+    fn write(&self, samples: impl ExactSizeIterator<Item = f32>) {
+        let mask = (self.buf.len() - 1) as u64;
+        let start = self.written.load(Ordering::Relaxed);
+        let n = samples.len() as u64;
+        for (i, s) in samples.enumerate() {
+            self.buf[((start + i as u64) & mask) as usize].store(s.to_bits(), Ordering::Relaxed);
+        }
+        self.written.store(start + n, Ordering::Release);
+    }
+
+    /// Append the mono mix of rendered stereo frames (audio thread only).
+    fn write_frames(&self, frames: &[(f32, f32)]) {
+        self.write(frames.iter().map(|(l, r)| (l + r) * 0.5));
+    }
+
+    /// Copy the most recent `out.len()` samples into `out`, oldest first.
+    /// Samples older than the ring (or not yet written) read as silence.
+    pub fn latest(&self, out: &mut [f32]) {
+        let mask = (self.buf.len() - 1) as u64;
+        let end = self.written.load(Ordering::Acquire);
+        let n = (out.len() as u64).min(self.buf.len() as u64).min(end);
+        let pad = out.len() - n as usize;
+        out[..pad].fill(0.0);
+        for (o, idx) in out[pad..].iter_mut().zip((end - n)..end) {
+            *o = f32::from_bits(self.buf[(idx & mask) as usize].load(Ordering::Relaxed));
+        }
+    }
+}
+
+/// The engine's scope taps: the master mix plus one ring per analyzed widget
+/// tag. Mirrors Strudel's per-`analyze`-id `AnalyserNode`s: each inline
+/// scope/spectrum widget registers a tap under its widget id, and the mixer
+/// feeds it from just the voices whose haps carry that tag, so a scope shows
+/// its own pattern's audio rather than the master mix.
+pub struct ScopeTaps {
+    master: ScopeTap,
+    named: RwLock<std::collections::HashMap<String, Arc<ScopeTap>>>,
+}
+
+impl ScopeTaps {
+    fn new() -> ScopeTaps {
+        ScopeTaps {
+            master: ScopeTap::new(),
+            named: RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// The tap for a widget id, created on first use.
+    pub fn get_or_create(&self, id: &str) -> Arc<ScopeTap> {
+        if let Some(tap) = self.named.read().unwrap().get(id) {
+            return tap.clone();
+        }
+        self.named
+            .write()
+            .unwrap()
+            .entry(id.to_string())
+            .or_insert_with(|| Arc::new(ScopeTap::new()))
+            .clone()
+    }
+
+    /// Drop the tap of a removed widget.
+    pub fn remove(&self, id: &str) {
+        self.named.write().unwrap().remove(id);
+    }
+
+    /// The master-mix tap (post master volume).
+    pub fn master(&self) -> &ScopeTap {
+        &self.master
+    }
+}
+
 /// Stores an `f64` value in an atomic variable by encoding it as binary bits.
 fn store_f64(a: &AtomicU64, v: f64) {
     a.store(v.to_bits(), Ordering::Relaxed);
@@ -80,6 +176,9 @@ fn load_f64(a: &AtomicU64) -> f64 {
 struct ActiveVoice {
     /// The actual synthesizer or sampler voice implementation.
     voice: Box<dyn VoiceLike>,
+    /// Widget tags of the source hap; the voice's output is added to the
+    /// matching per-widget scope taps.
+    tags: Vec<String>,
     /// Optional cut group (e.g. for choking open/closed hi-hats).
     cut: Option<i32>,
     /// When choked, the remaining gain (ramps 1.0 → 0.0 over `CHOKE_SECS`).
@@ -150,6 +249,10 @@ struct Mixer {
     volume: Arc<AtomicU64>,
     /// Reusable per-block render/accumulation buffers.
     scratch: MixScratch,
+    /// Output rings shared with UI scope/spectrum visualizers.
+    taps: Arc<ScopeTaps>,
+    /// Per-widget-tag mono accumulation buffers feeding the named taps.
+    tag_bufs: std::collections::HashMap<String, Vec<f32>>,
 }
 
 impl Mixer {
@@ -208,6 +311,7 @@ impl Mixer {
                 }
                 self.active.push(ActiveVoice {
                     voice: ev.spec.into_voice_with_fx(self.sample_rate, ev.fx),
+                    tags: ev.tags,
                     cut: ev.cut,
                     choke_gain: None,
                 });
@@ -232,6 +336,8 @@ impl Mixer {
             delay,
             reverb,
             sample_clock,
+            taps,
+            tag_bufs,
             ..
         } = self;
         let MixScratch {
@@ -248,8 +354,33 @@ impl Mixer {
             b[..len].fill(0.0);
         }
 
+        // Zero an accumulation buffer for every registered widget tap. The
+        // read lock is only contended when the UI adds/removes a widget.
+        let named = taps.named.read().unwrap();
+        for id in named.keys() {
+            let buf = tag_bufs.entry(id.clone()).or_default();
+            if buf.len() < len {
+                buf.resize(len, 0.0);
+            }
+            buf[..len].fill(0.0);
+        }
+        if tag_bufs.len() > named.len() {
+            tag_bufs.retain(|id, _| named.contains_key(id));
+        }
+
         active.retain_mut(|av| {
             av.voice.process_block(&mut src_l[..len], &mut src_r[..len]);
+            // Feed per-widget analyzer taps from the voice's raw output
+            // (Strudel taps the sound chain, pre orbit sends / master fx).
+            if !named.is_empty() {
+                for tag in &av.tags {
+                    if let Some(buf) = tag_bufs.get_mut(tag) {
+                        for i in 0..len {
+                            buf[i] += (src_l[i] + src_r[i]) * 0.5;
+                        }
+                    }
+                }
+            }
             // `dry` scales the direct signal; the reverb/delay sends are taken
             // pre-dry, so `dry(0)` leaves only the wet signal.
             let dry = av.voice.dry();
@@ -306,6 +437,12 @@ impl Mixer {
                 (dry_r[i] + dr_out + rout[1]) * volume,
             );
         }
+        taps.master.write_frames(out);
+        for (id, tap) in named.iter() {
+            if let Some(buf) = tag_bufs.get(id) {
+                tap.write(buf[..len].iter().copied());
+            }
+        }
         *sample_clock += len as u64;
     }
 }
@@ -336,6 +473,8 @@ impl OfflineMixer {
             reverb: build_reverb(sample_rate),
             volume,
             scratch: MixScratch::default(),
+            taps: Arc::new(ScopeTaps::new()),
+            tag_bufs: std::collections::HashMap::new(),
         };
         OfflineMixer { tx, mixer }
     }
@@ -359,6 +498,11 @@ impl OfflineMixer {
     pub fn active_len(&self) -> usize {
         self.mixer.active.len()
     }
+
+    /// The mixer's scope taps (master + per-widget-tag rings).
+    pub fn taps(&self) -> &ScopeTaps {
+        &self.mixer.taps
+    }
 }
 
 /// A running audio engine: owns the cpal stream and a scheduler thread.
@@ -373,6 +517,7 @@ pub struct Engine {
     played: Arc<AtomicU64>,
     volume: Arc<AtomicU64>,
     sample_rate: f32,
+    taps: Arc<ScopeTaps>,
 }
 
 impl Engine {
@@ -398,6 +543,7 @@ impl Engine {
         let bank = Arc::new(RwLock::new(SampleBank::new()));
         let volume = Arc::new(AtomicU64::new(0));
         store_f64(&volume, DEFAULT_MASTER_VOLUME);
+        let taps = Arc::new(ScopeTaps::new());
 
         let mut mixer = Mixer {
             rx,
@@ -410,6 +556,8 @@ impl Engine {
             reverb: build_reverb(sample_rate),
             volume: volume.clone(),
             scratch: MixScratch::default(),
+            taps: taps.clone(),
+            tag_bufs: std::collections::HashMap::new(),
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
@@ -459,6 +607,7 @@ impl Engine {
             played,
             volume,
             sample_rate,
+            taps,
         })
     }
 
@@ -550,6 +699,12 @@ impl Engine {
     /// The sample rate of the audio engine output.
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate
+    }
+
+    /// The scope taps (master mix + per-widget analyzer rings) feeding the
+    /// scope/spectrum visualizers.
+    pub fn scope_taps(&self) -> &ScopeTaps {
+        &self.taps
     }
 
     /// Total elapsed cycles since the stream started (fractional). The visualizer
@@ -693,7 +848,63 @@ mod tests {
             reverb: build_reverb(44100.0),
             volume,
             scratch: MixScratch::default(),
+            taps: Arc::new(ScopeTaps::new()),
+            tag_bufs: std::collections::HashMap::new(),
         }
+    }
+
+    #[test]
+    fn scope_tap_returns_the_most_recent_samples() {
+        let tap = ScopeTap::new();
+        // Fewer samples written than requested: left-padded with silence,
+        // stereo frames averaged to mono.
+        tap.write_frames(&[(1.0, 1.0), (1.0, 3.0)]);
+        let mut out = [9.0f32; 4];
+        tap.latest(&mut out);
+        assert_eq!(out, [0.0, 0.0, 1.0, 2.0]);
+        // Wrap the ring and confirm the newest window is still returned.
+        tap.write_frames(&vec![(0.5, 0.5); SCOPE_TAP_LEN + 3]);
+        tap.latest(&mut out);
+        assert_eq!(out, [0.5; 4]);
+    }
+
+    #[test]
+    fn tagged_voices_feed_their_widget_tap_only() {
+        let mut mixer = OfflineMixer::new(44100.0);
+        let tagged = mixer.taps().get_or_create("w1");
+        let silent = mixer.taps().get_or_create("w2");
+        let ev = |tags: Vec<String>| NoteEvent {
+            onset_seconds: 0.0,
+            spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams::from_controls(
+                &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
+                10.0,
+            ))),
+            fx: rudel_dsp::PostFx::default(),
+            cut: None,
+            tags,
+        };
+        mixer.schedule(ev(vec!["w1".to_string()]));
+        mixer.schedule(ev(Vec::new()));
+        let mut out = vec![(0.0f32, 0.0f32); 2048];
+        mixer.render_block(&mut out);
+
+        let mut got = [0.0f32; 256];
+        tagged.latest(&mut got);
+        assert!(
+            got.iter().any(|s| s.abs() > 0.0),
+            "the w1 tap should hear the w1-tagged voice"
+        );
+        silent.latest(&mut got);
+        assert!(
+            got.iter().all(|s| *s == 0.0),
+            "the w2 tap should stay silent (no voice carries its tag)"
+        );
+        let mut master = [0.0f32; 256];
+        mixer.taps().master().latest(&mut master);
+        assert!(
+            master.iter().any(|s| s.abs() > 0.0),
+            "the master tap hears the mix"
+        );
     }
 
     #[test]
@@ -749,6 +960,7 @@ mod tests {
             ))),
             fx: rudel_dsp::PostFx::default(),
             cut: Some(1),
+            tags: Vec::new(),
         };
         tx.send(held(0.0)).unwrap();
         tx.send(held(0.2)).unwrap();
@@ -787,6 +999,7 @@ mod tests {
             ))),
             fx: rudel_dsp::PostFx::default(),
             cut: None,
+            tags: Vec::new(),
         };
         // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.
         let onsets = [0.0, 37.0 / 44100.0, 150.0 / 44100.0];
@@ -867,6 +1080,7 @@ mod tests {
         let mut mixer = test_mixer_with_volume(rx, volume.clone());
         mixer.active.push(ActiveVoice {
             voice: Box::new(ConstVoice),
+            tags: Vec::new(),
             cut: None,
             choke_gain: None,
         });

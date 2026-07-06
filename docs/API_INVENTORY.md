@@ -23,9 +23,9 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `osc` | 1 | 1 | 0 | 0 | 0 |
 | `superdough` | 4 | 0 | 2 | 2 | 0 |
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
-| `webaudio` | 4 | 0 | 0 | 4 | 0 |
+| `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **618** | **78** | **13** | **0** |
+| **Total** | **709** | **622** | **78** | **9** | **0** |
 
 ## `codemirror`
 
@@ -778,10 +778,10 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `fscope` | deferred | draw runtime |
-| `scope` | deferred | draw runtime |
-| `spectrum` | deferred | draw runtime |
-| `tscope` | deferred | draw runtime |
+| `fscope` | implemented |  |
+| `scope` | implemented |  |
+| `spectrum` | implemented |  |
+| `tscope` | implemented |  |
 
 ## `xen`
 
