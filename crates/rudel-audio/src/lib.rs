@@ -37,32 +37,23 @@ use std::{
 /// into the audio/scheduler threads. The guarded data (pattern, bank, clock,
 /// taps) holds no cross-panic invariants — worst case is one stale value — so
 /// log and keep playing.
+fn recover_poison<G>(e: std::sync::PoisonError<G>) -> G {
+    // G is the lock guard type, whose name identifies both the lock kind and
+    // the guarded data, e.g. "RwLockWriteGuard<SampleBank>".
+    eprintln!(
+        "[rudel-audio] recovered poisoned {} (another thread panicked)",
+        std::any::type_name::<G>()
+    );
+    e.into_inner()
+}
 fn read_lock<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    lock.read().unwrap_or_else(|e| {
-        eprintln!(
-            "[rudel-audio] recovered poisoned RwLock<{}> (another thread panicked)",
-            std::any::type_name::<T>()
-        );
-        e.into_inner()
-    })
+    lock.read().unwrap_or_else(recover_poison)
 }
 fn write_lock<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    lock.write().unwrap_or_else(|e| {
-        eprintln!(
-            "[rudel-audio] recovered poisoned RwLock<{}> (another thread panicked)",
-            std::any::type_name::<T>()
-        );
-        e.into_inner()
-    })
+    lock.write().unwrap_or_else(recover_poison)
 }
 fn lock_mutex<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    lock.lock().unwrap_or_else(|e| {
-        eprintln!(
-            "[rudel-audio] recovered poisoned Mutex<{}> (another thread panicked)",
-            std::any::type_name::<T>()
-        );
-        e.into_inner()
-    })
+    lock.lock().unwrap_or_else(recover_poison)
 }
 
 /// A simple stereo feedback delay line for the `delay` send bus.
