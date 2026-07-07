@@ -23,14 +23,47 @@ use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
 use rudel_dsp::VoiceLike;
 use std::{
+    collections::HashMap,
     sync::{
         Arc, Mutex, RwLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread::JoinHandle,
     time::Duration,
 };
+
+/// Poison-recovering lock accessors: a panic on one thread must not cascade
+/// into the audio/scheduler threads. The guarded data (pattern, bank, clock,
+/// taps) holds no cross-panic invariants — worst case is one stale value — so
+/// log and keep playing.
+fn read_lock<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|e| {
+        eprintln!(
+            "[rudel-audio] recovered poisoned RwLock<{}> (another thread panicked)",
+            std::any::type_name::<T>()
+        );
+        e.into_inner()
+    })
+}
+fn write_lock<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(|e| {
+        eprintln!(
+            "[rudel-audio] recovered poisoned RwLock<{}> (another thread panicked)",
+            std::any::type_name::<T>()
+        );
+        e.into_inner()
+    })
+}
+fn lock_mutex<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    lock.lock().unwrap_or_else(|e| {
+        eprintln!(
+            "[rudel-audio] recovered poisoned Mutex<{}> (another thread panicked)",
+            std::any::type_name::<T>()
+        );
+        e.into_inner()
+    })
+}
 
 /// A simple stereo feedback delay line for the `delay` send bus.
 struct StereoDelay {
@@ -76,7 +109,7 @@ const SCOPE_TAP_LEN: usize = 8192;
 /// which is harmless for display.
 pub struct ScopeTap {
     /// Sample ring, each slot an `f32` stored as bits.
-    buf: Box<[std::sync::atomic::AtomicU32]>,
+    buf: Box<[AtomicU32]>,
     /// Total samples written since start (monotonic write cursor).
     written: AtomicU64,
 }
@@ -84,9 +117,7 @@ pub struct ScopeTap {
 impl ScopeTap {
     fn new() -> ScopeTap {
         ScopeTap {
-            buf: (0..SCOPE_TAP_LEN)
-                .map(|_| std::sync::atomic::AtomicU32::new(0))
-                .collect(),
+            buf: (0..SCOPE_TAP_LEN).map(|_| AtomicU32::new(0)).collect(),
             written: AtomicU64::new(0),
         }
     }
@@ -128,25 +159,23 @@ impl ScopeTap {
 /// its own pattern's audio rather than the master mix.
 pub struct ScopeTaps {
     master: ScopeTap,
-    named: RwLock<std::collections::HashMap<String, Arc<ScopeTap>>>,
+    named: RwLock<HashMap<String, Arc<ScopeTap>>>,
 }
 
 impl ScopeTaps {
     fn new() -> ScopeTaps {
         ScopeTaps {
             master: ScopeTap::new(),
-            named: RwLock::new(std::collections::HashMap::new()),
+            named: RwLock::new(HashMap::new()),
         }
     }
 
     /// The tap for a widget id, created on first use.
     pub fn get_or_create(&self, id: &str) -> Arc<ScopeTap> {
-        if let Some(tap) = self.named.read().unwrap().get(id) {
+        if let Some(tap) = read_lock(&self.named).get(id) {
             return tap.clone();
         }
-        self.named
-            .write()
-            .unwrap()
+        write_lock(&self.named)
             .entry(id.to_string())
             .or_insert_with(|| Arc::new(ScopeTap::new()))
             .clone()
@@ -154,7 +183,7 @@ impl ScopeTaps {
 
     /// Drop the tap of a removed widget.
     pub fn remove(&self, id: &str) {
-        self.named.write().unwrap().remove(id);
+        write_lock(&self.named).remove(id);
     }
 
     /// The master-mix tap (post master volume).
@@ -252,7 +281,7 @@ struct Mixer {
     /// Output rings shared with UI scope/spectrum visualizers.
     taps: Arc<ScopeTaps>,
     /// Per-widget-tag mono accumulation buffers feeding the named taps.
-    tag_bufs: std::collections::HashMap<String, Vec<f32>>,
+    tag_bufs: HashMap<String, Vec<f32>>,
 }
 
 impl Mixer {
@@ -356,7 +385,7 @@ impl Mixer {
 
         // Zero an accumulation buffer for every registered widget tap. The
         // read lock is only contended when the UI adds/removes a widget.
-        let named = taps.named.read().unwrap();
+        let named = read_lock(&taps.named);
         for id in named.keys() {
             let buf = tag_bufs.entry(id.clone()).or_default();
             if buf.len() < len {
@@ -474,7 +503,7 @@ impl OfflineMixer {
             volume,
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
-            tag_bufs: std::collections::HashMap::new(),
+            tag_bufs: HashMap::new(),
         };
         OfflineMixer { tx, mixer }
     }
@@ -557,7 +586,7 @@ impl Engine {
             volume: volume.clone(),
             scratch: MixScratch::default(),
             taps: taps.clone(),
-            tag_bufs: std::collections::HashMap::new(),
+            tag_bufs: HashMap::new(),
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
@@ -614,7 +643,7 @@ impl Engine {
     /// Load a directory of samples (subfolders become sound names).
     pub fn load_samples(&self, dir: impl AsRef<std::path::Path>) -> Result<usize, String> {
         let loaded = SampleBank::load_dir_entries(dir.as_ref())?;
-        Ok(self.bank.write().unwrap().extend_loaded(loaded))
+        Ok(write_lock(&self.bank).extend_loaded(loaded))
     }
 
     /// The `samples(...)` loader: load from a `github:`/`bubo:` pseudo-URL, an
@@ -622,14 +651,14 @@ impl Engine {
     /// directory. Returns the number of samples registered.
     pub fn samples(&self, source: &str) -> Result<usize, String> {
         let loaded = SampleBank::load_samples_source_entries(source)?;
-        Ok(self.bank.write().unwrap().extend_loaded(loaded))
+        Ok(write_lock(&self.bank).extend_loaded(loaded))
     }
 
     /// Load an inline Strudel-format sample map (`samples({...}, base)`). `base`
     /// resolves relative file paths. Returns the number of samples registered.
     pub fn load_sample_map(&self, json: &str, base: &str) -> Result<usize, String> {
         let loaded = SampleBank::load_sample_map_entries(json, base)?;
-        Ok(self.bank.write().unwrap().extend_loaded(loaded))
+        Ok(write_lock(&self.bank).extend_loaded(loaded))
     }
 
     /// Start a background `samples(...)` load and merge the decoded samples into
@@ -638,7 +667,7 @@ impl Engine {
         let bank = self.bank.clone();
         std::thread::spawn(move || {
             let loaded = SampleBank::load_samples_source_entries(&source)?;
-            Ok(bank.write().unwrap().extend_loaded(loaded))
+            Ok(write_lock(&bank).extend_loaded(loaded))
         })
     }
 
@@ -651,24 +680,24 @@ impl Engine {
         let bank = self.bank.clone();
         std::thread::spawn(move || {
             let loaded = SampleBank::load_sample_map_entries(&json, &base)?;
-            Ok(bank.write().unwrap().extend_loaded(loaded))
+            Ok(write_lock(&bank).extend_loaded(loaded))
         })
     }
 
     /// Register a bank alias (`aliasBank`): a pack loaded as `<canonical>_<s>`
     /// also resolves via `<alias>_<s>`.
     pub fn alias_bank(&self, canonical: &str, alias: &str) {
-        self.bank.write().unwrap().alias_bank(canonical, alias);
+        write_lock(&self.bank).alias_bank(canonical, alias);
     }
 
     /// Register a single decoded sample under `name`.
-    pub fn register_sample(&self, name: &str, sample: std::sync::Arc<rudel_dsp::Sample>) {
-        self.bank.write().unwrap().register(name, sample);
+    pub fn register_sample(&self, name: &str, sample: Arc<rudel_dsp::Sample>) {
+        write_lock(&self.bank).register(name, sample);
     }
 
     /// Swap in a new pattern (live update).
     pub fn set_pattern(&self, pat: Pattern) {
-        *self.pattern.write().unwrap() = pat;
+        *write_lock(&self.pattern) = pat;
     }
 
     /// Set cycles per second (cps). `cpm`/`bpm` can be converted by the caller.
@@ -677,7 +706,7 @@ impl Engine {
     /// is unchanged.
     pub fn set_cps(&self, cps: f64) {
         let now = self.played.load(Ordering::Relaxed) as f64 / self.sample_rate as f64;
-        self.clock.lock().unwrap().set_cps(now, cps);
+        lock_mutex(&self.clock).set_cps(now, cps);
     }
 
     /// Set the master audio output volume. `1.0` is unity; values above `1.0`
@@ -711,12 +740,12 @@ impl Engine {
     /// uses `position_cycles().fract()` as the within-cycle playhead.
     pub fn position_cycles(&self) -> f64 {
         let seconds = self.played.load(Ordering::Relaxed) as f64 / self.sample_rate as f64;
-        self.clock.lock().unwrap().cycle_at(seconds)
+        lock_mutex(&self.clock).cycle_at(seconds)
     }
 
     /// The sound names currently registered in the sample bank, sorted.
     pub fn sample_names(&self) -> Vec<String> {
-        self.bank.read().unwrap().names()
+        read_lock(&self.bank).names()
     }
 }
 
@@ -771,15 +800,15 @@ fn scheduler_loop(
     while running.load(Ordering::Relaxed) {
         // Snapshot the clock so the cycle window and the onset-seconds
         // conversion below use one consistent mapping even if cps changes.
-        let clock_now = *clock.lock().unwrap();
+        let clock_now = *lock_mutex(&clock);
         let now = played.load(Ordering::Relaxed) as f64 / sample_rate as f64;
         let current_cycle = clock_now.cycle_at(now);
         let target_cycle = clock_now.cycle_at(now + lookahead);
         if let Some((begin_cycle, target_cycle)) =
             next_schedule_window(scheduled_cycle, current_cycle, target_cycle)
         {
-            let pat = pattern.read().unwrap().clone();
-            let bank = bank.read().unwrap();
+            let pat = read_lock(&pattern).clone();
+            let bank = read_lock(&bank);
             for ev in collect_events_at(&pat, &clock_now, begin_cycle, target_cycle, &bank) {
                 let _ = tx.send(ev);
             }
@@ -846,7 +875,7 @@ mod tests {
             volume,
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
-            tag_bufs: std::collections::HashMap::new(),
+            tag_bufs: HashMap::new(),
         }
     }
 
