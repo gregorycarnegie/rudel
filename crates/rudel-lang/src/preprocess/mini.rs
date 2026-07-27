@@ -76,6 +76,11 @@ pub(super) fn annotate_mini_offsets(
         let lit_end = chars.get(i).map(|x| x.0).unwrap_or(src.len());
         let literal = &src[lit_start..lit_end];
 
+        // Only *double*-quoted strings are mini-notation, matching Strudel's
+        // `plugin-mini` (`isStringWithDoubleQuotes`). Single quotes are the
+        // escape hatch for a plain string — which is how upstream examples such
+        // as `.filter(hap => hap.value.s === 'hh')` compare against one.
+        //
         // A string immediately followed by `:` is a map key, not a pattern.
         // Generated slider ids are runtime strings inserted by the widget pass,
         // so they must also stay out of mini-notation/source-location metadata.
@@ -83,7 +88,10 @@ pub(super) fn annotate_mini_offsets(
         while j < chars.len() && chars[j].1.is_whitespace() {
             j += 1;
         }
-        if chars.get(j).map(|x| x.1) == Some(':') || is_slider_id_literal(src, lit_start) {
+        if quote == '\''
+            || chars.get(j).map(|x| x.1) == Some(':')
+            || is_slider_id_literal(src, lit_start)
+        {
             out.push_str(literal);
         } else {
             let content_start = map_to_source(anchors, content_byte) + node_offset;

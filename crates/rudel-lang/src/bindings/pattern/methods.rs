@@ -399,6 +399,80 @@ pub(super) fn kpattern_fmap(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
     )))
 }
 
+/// `pat.tag(name)`: mark every hap with an identifier, which a later `filter`
+/// can select on (`hap.tags.contains(name)`).
+pub(super) fn kpattern_tag(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let tag = arg_to_raw_str(&method_arg(&ctx, 0)).unwrap_or_default();
+    with_instance(&ctx, |pat| pat.tag(tag.clone()))
+}
+
+/// Marshal a hap into the Koto map a `filter` predicate receives:
+/// `{value, begin, end, wholeBegin, wholeEnd, tags}`. Strudel hands over a
+/// `Hap` object; this is the same information in Koto's shape, so
+/// `hap.value.s == "hh"` reads as it does upstream and `hap.tags.contains(t)`
+/// stands in for `hap.hasTag(t)`.
+fn hap_to_koto(hap: &rudel_core::Hap) -> KValue {
+    let map = koto::runtime::KMap::new();
+    map.insert("value", super::convert::value_to_koto(hap.value.clone()));
+    map.insert("begin", hap.part.begin.to_f64());
+    map.insert("end", hap.part.end.to_f64());
+    let (whole_begin, whole_end) = match &hap.whole {
+        Some(w) => (w.begin.to_f64(), w.end.to_f64()),
+        // An analog hap has no whole; Strudel's `filterWhen` reads
+        // `hap.whole.begin`, so fall back to the part it does have.
+        None => (hap.part.begin.to_f64(), hap.part.end.to_f64()),
+    };
+    map.insert("wholeBegin", whole_begin);
+    map.insert("wholeEnd", whole_end);
+    map.insert(
+        "tags",
+        KValue::List(koto::runtime::KList::from_slice(
+            &hap.context
+                .tags
+                .iter()
+                .map(|t| KValue::Str(t.as_str().into()))
+                .collect::<Vec<_>>(),
+        )),
+    );
+    KValue::Map(map)
+}
+
+/// Probe-and-bake a per-hap predicate. The Koto VM is not `Send`, so it cannot
+/// run in the query path; the pattern is queried over `PROBE` cycles, the
+/// predicate applied to each hap, and the survivors emitted as a static pattern
+/// that repeats with that period — exactly what `fmap` does with its callback.
+fn filter_build(pat: &Pattern, cb: &Callback, arg: impl Fn(&rudel_core::Hap) -> KValue) -> Pattern {
+    const PROBE: i64 = 16;
+    let haps = pat
+        .query_arc(Frac::zero(), Frac::int(PROBE))
+        .into_iter()
+        .filter(|hap| cb.apply_predicate(arg(hap)))
+        .collect();
+    static_period_pattern(haps, pat.steps, Frac::int(PROBE))
+}
+
+/// `pat.filter(|hap| ...)`: keep only the haps the predicate accepts.
+pub(super) fn kpattern_filter(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let out = filter_build(&pat, &cb, hap_to_koto);
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
+/// `pat.filterWhen(|t| ...)`: keep only the haps whose onset the predicate
+/// accepts. The argument is the whole's begin in cycles, as upstream.
+pub(super) fn kpattern_filter_when(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let out = filter_build(&pat, &cb, |hap| {
+        let t = hap.whole.as_ref().map_or(hap.part.begin, |w| w.begin);
+        KValue::Number(t.to_f64().into())
+    });
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
 /// `pat.arp_with(|chord| ...)`: arpeggiate chords, transforming each chord
 /// (presented as a sequence of its notes) with a callback.
 ///

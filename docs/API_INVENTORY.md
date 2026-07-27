@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 1 | 0 | 2 | 0 |
-| `core` | 618 | 594 | 19 | 5 | 0 |
+| `core` | 618 | 597 | 16 | 5 | 0 |
 | `csound` | 2 | 0 | 2 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **626** | **72** | **11** | **0** |
+| **Total** | **709** | **629** | **69** | **11** | **0** |
 
 ## `codemirror`
 
@@ -226,8 +226,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `fastchunk` | implemented |  |
 | `fastgap` | implemented |  |
 | `fft` | implemented |  |
-| `filter` | intentional | query path callback |
-| `filterWhen` | intentional | query path callback |
+| `filter` | implemented |  |
+| `filterWhen` | implemented |  |
 | `firstOf` | implemented |  |
 | `fit` | implemented |  |
 | `floor` | implemented |  |
@@ -562,7 +562,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `sysexdata` | implemented |  |
 | `sysexid` | implemented |  |
 | `sz` | implemented |  |
-| `tag` | intentional | query path callback |
+| `tag` | implemented |  |
 | `timeCat` | implemented |  |
 | `timecat` | implemented |  |
 | `timeline` | implemented |  |

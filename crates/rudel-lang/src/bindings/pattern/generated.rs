@@ -419,6 +419,12 @@ kpattern_methods! {
         arp_with => kpattern_arp_with,
         #[koto_method(alias = "whenKey")]
         when_key => kpattern_when_key,
+        #[koto_method]
+        tag => kpattern_tag,
+        #[koto_method]
+        filter => kpattern_filter,
+        #[koto_method(alias = "filterWhen")]
+        filter_when => kpattern_filter_when,
         #[koto_method(alias = "keyDown")]
         key_down => kpattern_key_down,
         #[koto_method]

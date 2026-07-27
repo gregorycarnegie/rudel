@@ -74,7 +74,9 @@ let pat = note(seq([60, 64, 67, 71]))
     .gain(0.8);
 ```
 
-Install mini-notation when you want strings to parse like Strudel patterns:
+Install mini-notation when you want strings to parse like Strudel patterns.
+As in Strudel, **double-quoted** strings are mini-notation and single-quoted
+strings are plain strings:
 
 ```rust
 rudel_mini::install();

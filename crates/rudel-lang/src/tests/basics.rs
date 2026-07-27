@@ -349,3 +349,39 @@ fn parray_packs_one_value_per_pattern_into_a_list() {
         other => panic!("expected list value, got {other:?}"),
     }
 }
+
+#[test]
+fn filter_keeps_only_matching_haps() {
+    // Strudel's own example: `s("hh!7 oh").filter(hap => hap.value.s === 'hh')`.
+    // Single-quoted strings are plain strings (double quotes are
+    // mini-notation), which is how upstream's example compares against one.
+    let pat = eval(r#"s("hh!7 oh").filter |hap| hap.value.s == 'hh'"#).expect("eval");
+    let vals = values(&pat, 0, 1);
+    assert_eq!(vals.len(), 7, "the `oh` should be dropped");
+    assert!(vals.iter().all(|v| match v {
+        Value::Map(m) => m.get("s").and_then(|x| x.as_str()) == Some("hh"),
+        _ => false,
+    }));
+}
+
+#[test]
+fn tag_marks_haps_for_a_later_filter() {
+    // `tag` writes Hap.context.tags, which the predicate sees as `hap.tags`.
+    let pat = eval(r#"stack(s("bd").tag('keep'), s("sd")).filter |hap| hap.tags.contains 'keep'"#)
+        .expect("eval");
+    let vals = values(&pat, 0, 1);
+    assert_eq!(vals.len(), 1);
+    assert!(matches!(&vals[0], Value::Map(m)
+        if m.get("s").and_then(|x| x.as_str()) == Some("bd")));
+}
+
+#[test]
+fn filter_when_selects_by_onset_time() {
+    // `filterWhen` receives the whole's begin in cycles.
+    let pat = eval(r#"s("bd*4").filterWhen |t| t < 0.5"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2, "first half of the cycle only");
+    // The predicate sees absolute cycle time, so it can select whole cycles.
+    let one = eval(r#"s("bd*4").filterWhen |t| t < 1"#).expect("eval");
+    assert_eq!(values(&one, 0, 1).len(), 4, "cycle 0 kept");
+    assert_eq!(values(&one, 1, 2).len(), 0, "cycle 1 dropped");
+}

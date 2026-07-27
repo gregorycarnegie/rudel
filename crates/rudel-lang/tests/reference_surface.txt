@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=315 methods=1073 controls=663
+# functions=315 methods=1077 controls=663
 
 [functions]
 Math
@@ -561,6 +561,9 @@ fastGap
 fast_chunk
 fast_gap
 fft
+filter
+filterWhen
+filter_when
 firstOf
 first_of
 fit
@@ -1292,6 +1295,7 @@ sysex
 sysexdata
 sysexid
 sz
+tag
 take
 timeline
 toBipolar

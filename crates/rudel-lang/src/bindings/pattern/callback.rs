@@ -529,6 +529,26 @@ impl Callback {
         }
     }
 
+    /// Invoke the Koto function with an already-built argument and read the
+    /// result as a truth value. Used by the predicate combinators (`filter`,
+    /// `filterWhen`), which keep a hap when the callback says so; a callback
+    /// that errors keeps the hap, so a broken predicate drops nothing.
+    pub(super) fn apply_predicate(&self, arg: KValue) -> bool {
+        let call = self
+            .vm
+            .borrow_mut()
+            .call_function(self.func.clone(), CallArgs::Single(arg));
+        match call {
+            Ok(value) => koto_to_value(&value).truthy(),
+            Err(e) => {
+                if self.err.borrow().is_none() {
+                    *self.err.borrow_mut() = Some(e);
+                }
+                true
+            }
+        }
+    }
+
     /// Surface the first callback error (if any) after the combinator has run.
     pub(super) fn finish(self) -> KotoResult<()> {
         match self.err.into_inner() {

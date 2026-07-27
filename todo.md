@@ -294,6 +294,17 @@ Function-by-function audit against the Strudel learn pages
       Key names match the browser's `KeyboardEvent.key` values, including
       Strudel's `ctrl`/`alt`/`shift`/`up`/`down`/`left`/`right` shorthands; a
       `:`-list is a combination that must be held in full.
+- [x] `filter`/`filterWhen`/`tag`: probe-and-bake like `fmap` — 16 cycles are
+      queried, the predicate applied per hap, and the survivors emitted as a
+      static pattern repeating with that period (the Koto VM can't run in the
+      query path). `filter` gets the hap as a map
+      (`{value, begin, end, wholeBegin, wholeEnd, tags}`), `filterWhen` the
+      whole's begin in cycles. Needed the transpiler fix below.
+- [x] transpiler quote rule: only *double*-quoted strings are mini-notation,
+      matching `plugin-mini`'s `isStringWithDoubleQuotes`. Single quotes are
+      plain strings, which is what upstream examples like
+      `.filter(hap => hap.value.s === 'hh')` rely on. Rudel used to rewrite
+      both styles.
 - [ ] `ifp`
 
 ## learn/accumulation
