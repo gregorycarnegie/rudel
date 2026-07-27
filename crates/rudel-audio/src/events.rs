@@ -52,7 +52,7 @@ fn requested_midi(map: &ValueMap) -> Option<f64> {
 }
 
 /// Resolve a control map into either a sampler or synth voice spec.
-fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank) -> VoiceSpec {
+fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank, cps: f64, cycle: f64) -> VoiceSpec {
     if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
         // The `bank` control prepends `<bank>_` to the sound name, matching
         // Strudel: `s("bd").bank("RolandTR909")` resolves `RolandTR909_bd`. We
@@ -130,7 +130,19 @@ fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank) -> VoiceSpec {
             return VoiceSpec::Zzfx(Box::new(ZzfxParams::from_controls(name, map, duration)));
         }
     }
-    VoiceSpec::Synth(Box::new(VoiceParams::from_controls(map, duration)))
+    let mut params = VoiceParams::from_controls_at(map, duration, cps, cycle);
+    // A wavetable collection loaded by `tables(...)` turns `s("name")` into the
+    // wavetable oscillator; it is checked after loaded samples (which win, like
+    // upstream's registerSound order) and before the built-in synths.
+    if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
+        let index = map
+            .get("n")
+            .and_then(|v| v.as_f64())
+            .map(|n| n.round() as i64)
+            .unwrap_or(0);
+        params.wavetable = bank.resolve_table(name, index);
+    }
+    VoiceSpec::Synth(Box::new(params))
 }
 
 /// Query `pattern` over the cycle window `[begin_cycle, end_cycle)` and return
@@ -162,7 +174,13 @@ pub fn collect_events_at(
     query_controls(pattern, clock.cps(), begin_cycle, end_cycle)
         .into_iter()
         .map(|ev| {
-            let spec = spec_for(&ev.controls, ev.duration_seconds as f32, bank);
+            let spec = spec_for(
+                &ev.controls,
+                ev.duration_seconds as f32,
+                bank,
+                clock.cps(),
+                ev.onset_cycle,
+            );
             let fx = PostFx::from_controls(&ev.controls);
             // A modulator's relative `depth` scales the target control's own
             // value, so the sources are resolved against the built voice.
@@ -213,6 +231,39 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!((events[0].onset_seconds - 0.0).abs() < 1e-9);
         assert!((events[1].onset_seconds - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_loaded_wavetable_turns_a_sound_into_the_wavetable_oscillator() {
+        use rudel_dsp::{WarpMode, WaveTable};
+
+        let mut bank = SampleBank::new();
+        bank.register_table(
+            "wt_test",
+            WaveTable::from_samples(&[0.0, 1.0, 0.0, -1.0], 4),
+        );
+        // `s("wt_test")` resolves to a synth voice carrying the table, and the
+        // `warp`/`warpmode`/`wt` controls come through with it.
+        let pat = s(pure(Value::Str("wt_test".into())))
+            .warpmode(pure(Value::Str("wormhole".into())))
+            .warp(pure(Value::F64(0.5)));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        assert_eq!(events.len(), 1);
+        match &events[0].spec {
+            VoiceSpec::Synth(params) => {
+                let table = params.wavetable.as_ref().expect("wavetable attached");
+                assert_eq!(table.frames.len(), 1);
+                assert_eq!(params.warpmode, WarpMode::Wormhole);
+                assert_eq!(params.warp.offset, 0.5);
+            }
+            _ => panic!("expected a synth voice"),
+        }
+        // An unloaded name is still the plain oscillator.
+        let plain = collect_events(&s(pure(Value::Str("sine".into()))), 1.0, 0.0, 1.0, &bank);
+        match &plain[0].spec {
+            VoiceSpec::Synth(params) => assert!(params.wavetable.is_none()),
+            _ => panic!("expected a synth voice"),
+        }
     }
 
     #[test]

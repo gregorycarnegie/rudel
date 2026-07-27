@@ -53,4 +53,5 @@ named_controls!(
     byte_beat_expression => "byteBeatExpression",
     byte_beat_start_time => "byteBeatStartTime",
     fx_release => "FXrelease",
+    active_label => "activeLabel",
 );

@@ -121,9 +121,13 @@ impl WidgetDecoration {
 pub(crate) struct EditorDecorationState {
     sliders: Vec<SliderDecoration>,
     widgets: Vec<WidgetDecoration>,
-    flash_ranges: Vec<SourceRange>,
+    flash_ranges: Vec<(SourceRange, Option<u32>)>,
     changes_since_eval: Vec<TextChange>,
 }
+
+/// A source span to flash, with the colour its event asked for (`markcss` /
+/// `color`, packed `0xRRGGBBAA`) or `None` for the theme's default flash.
+pub(crate) type FlashSpan = (usize, usize, Option<u32>);
 
 impl EditorDecorationState {
     pub(crate) fn replace_all(&mut self, meta: &rudel_lang::EvalMeta) {
@@ -165,28 +169,26 @@ impl EditorDecorationState {
         for widget in &mut self.widgets {
             widget.map(change);
         }
-        for range in &mut self.flash_ranges {
+        for (range, _) in &mut self.flash_ranges {
             *range = range.mapped(change);
         }
         self.changes_since_eval.push(change);
     }
 
-    pub(crate) fn set_flash_ranges_from_eval(&mut self, ranges: &[(usize, usize)]) {
+    pub(crate) fn set_flash_ranges_from_eval(&mut self, ranges: &[FlashSpan]) {
         self.flash_ranges = ranges
             .iter()
-            .copied()
-            .map(SourceRange::from)
-            .map(|range| self.map_eval_range_to_current(range))
-            .filter(|range| range.from < range.to)
+            .map(|&(from, to, color)| (self.map_eval_range_to_current((from, to).into()), color))
+            .filter(|(range, _)| range.from < range.to)
             .collect();
         dedupe_ranges(&mut self.flash_ranges);
-        self.flash_ranges.sort_by_key(|range| range.from);
+        self.flash_ranges.sort_by_key(|(range, _)| range.from);
     }
 
-    pub(crate) fn flash_ranges(&self) -> Vec<(usize, usize)> {
+    pub(crate) fn flash_ranges(&self) -> Vec<FlashSpan> {
         self.flash_ranges
             .iter()
-            .map(|range| (range.from, range.to))
+            .map(|&(range, color)| (range.from, range.to, color))
             .collect()
     }
 
@@ -299,9 +301,9 @@ fn dedupe_widgets(widgets: &mut Vec<WidgetDecoration>) {
     widgets.retain(|widget| seen.insert((widget.widget_type.clone(), widget.id.clone())));
 }
 
-fn dedupe_ranges(ranges: &mut Vec<SourceRange>) {
+fn dedupe_ranges(ranges: &mut Vec<(SourceRange, Option<u32>)>) {
     let mut seen = HashSet::new();
-    ranges.retain(|range| seen.insert((range.from, range.to)));
+    ranges.retain(|(range, _)| seen.insert((range.from, range.to)));
 }
 
 #[cfg(test)]
@@ -366,7 +368,7 @@ mod tests {
             ],
             vec![(7, 9)],
         ));
-        state.set_flash_ranges_from_eval(&[(3, 6), (10, 12)]);
+        state.set_flash_ranges_from_eval(&[(3, 6, None), (10, 12, None)]);
         state.map_change(TextChange {
             from: 0,
             to: 0,
@@ -375,7 +377,7 @@ mod tests {
 
         assert_eq!(state.sliders()[0].range, SourceRange::new(5, 8));
         assert_eq!(state.widgets()[0].range, SourceRange::new(12, 22));
-        assert_eq!(state.flash_ranges(), vec![(5, 8), (12, 14)]);
+        assert_eq!(state.flash_ranges(), vec![(5, 8, None), (12, 14, None)]);
     }
 
     #[test]
@@ -388,9 +390,9 @@ mod tests {
             insert_len: 2,
         });
 
-        state.set_flash_ranges_from_eval(&[(3, 6)]);
+        state.set_flash_ranges_from_eval(&[(3, 6, None)]);
 
-        assert_eq!(state.flash_ranges(), vec![(5, 8)]);
+        assert_eq!(state.flash_ranges(), vec![(5, 8, None)]);
     }
 
     #[test]

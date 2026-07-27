@@ -649,7 +649,7 @@ impl ModSpecs {
 
 /// superdough's `getModulationShapeInput`: a number indexes the waveshape table
 /// (mod 5), a name looks it up, anything else is the triangle.
-fn shape_index(v: Option<&Value>) -> usize {
+pub(crate) fn shape_index(v: Option<&Value>) -> usize {
     match v {
         Some(Value::Str(s)) => match s.as_str() {
             "sine" => 1,

@@ -22,9 +22,11 @@ use edit::{
     apply_editor_text_edits, capture_editor_shortcuts, editor_enter_pressed, editor_typed_text,
 };
 use highlight::highlighted_editor_job;
+pub(crate) use highlight::pack_color;
 use settings::{EditorSettings, apply_editor_style};
 use sliders::{SliderHostUpdate, SliderLayout, draw_slider_hosts};
 use text::byte_index_at_char;
+pub(crate) use widgets::mark_color;
 use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts};
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
@@ -39,7 +41,7 @@ pub(crate) struct EditorOutput {
 }
 
 pub(crate) struct CodeEditorInput<'a> {
-    pub(crate) active: &'a [(usize, usize)],
+    pub(crate) active: &'a [decorations::FlashSpan],
     pub(crate) idents: &'a HashSet<String>,
     pub(crate) reference: &'a rudel_lang::Reference,
     pub(crate) sample_names: &'a [String],

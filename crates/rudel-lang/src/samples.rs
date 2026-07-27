@@ -19,6 +19,13 @@ pub struct SampleEffects {
     /// Local SoundFont (`.sf2`) files to load (`loadSoundfont`), as
     /// `(path, sound name)`.
     pub soundfonts: Vec<(String, String)>,
+    /// MIDI input ports `midin`/`midikeys` asked for, by the name the script
+    /// used. The host opens each (matching the name against its ports) and
+    /// tags what arrives with that same name.
+    pub midi_inputs: Vec<String>,
+    /// Wavetable collections to load (`tables(url, frameLen)`), as
+    /// `(source, frame length)`.
+    pub tables: Vec<(String, usize)>,
 }
 
 /// Convert a Koto value into a `serde_json::Value` for an inline sample map.
@@ -119,6 +126,60 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
             return Ok(KValue::Str(name.into()));
         }
         Ok(KValue::Null)
+    });
+
+    // tables(url, frameLen): load a collection of wavetables to play with `s`.
+    // Recorded as a host effect, like `samples(...)`; the default frame length
+    // is superdough's 2048.
+    let effects = tempo_effects.clone();
+    prelude.add_fn("tables", move |ctx| {
+        let args = ctx.args();
+        if let Some(source) = args.first().and_then(arg_to_raw_str) {
+            let frame_len = args
+                .get(1)
+                .map(arg_to_f64)
+                .filter(|n| *n >= 1.0)
+                .map_or(2048, |n| n as usize);
+            effects.lock().unwrap().tables.push((source, frame_len));
+        }
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+
+    // midin(device): open a named MIDI input port and return a
+    // `(cc[, channel]) -> pattern` factory reading only that device's control
+    // changes. Upstream returns a promise (WebMidi is async); Rudel records the
+    // port as a host effect and returns the factory straight away, so the
+    // signals read 0 until the app has the port open.
+    let effects = tempo_effects.clone();
+    prelude.add_fn("midin", move |ctx| {
+        let device = arg_to_raw_str(&arg0(ctx)).unwrap_or_default();
+        effects.lock().unwrap().midi_inputs.push(device.clone());
+        Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+            let a = ctx.args();
+            let cc = a.first().map(arg_to_f64).unwrap_or(0.0) as u8;
+            let chan = a
+                .get(1)
+                .map(arg_to_f64)
+                .map(|c| c as u8)
+                .filter(|c| *c >= 1);
+            Ok(KPattern(rudel_core::cc_in_from(&device, cc, chan)).into())
+        })))
+    });
+
+    // midikeys(device): open a named MIDI input port and return a
+    // `(noteLength?) -> pattern` factory of the notes played on it. `noteLength`
+    // is in cycles and defaults to 0.5, as upstream.
+    let effects = tempo_effects.clone();
+    prelude.add_fn("midikeys", move |ctx| {
+        let device = arg_to_raw_str(&arg0(ctx)).unwrap_or_default();
+        effects.lock().unwrap().midi_inputs.push(device.clone());
+        Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+            let length = match ctx.args().first() {
+                None | Some(KValue::Null) => rudel_core::pure(rudel_core::Value::F64(0.5)),
+                Some(arg) => crate::bindings::arg_to_pattern(arg),
+            };
+            Ok(KPattern(rudel_core::midi_keys(&device, length)).into())
+        })))
     });
 
     // aliasBank(canonical, alias, ...): each extra string is an alias.

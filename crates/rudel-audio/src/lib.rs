@@ -875,6 +875,26 @@ impl Engine {
         })
     }
 
+    /// Start a background `tables(...)` load: fetch and decode each `.wav` in
+    /// the collection, slice it into `frame_len`-sample frames, and register the
+    /// results as wavetable sounds. Returns how many tables were registered.
+    pub fn spawn_tables(
+        &self,
+        source: String,
+        frame_len: usize,
+    ) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            let tables = SampleBank::load_tables_entries(&source, frame_len)?;
+            let count = tables.len();
+            let mut bank = write_lock(&bank);
+            for (name, table) in tables {
+                bank.register_table(&name, table);
+            }
+            Ok(count)
+        })
+    }
+
     /// Start a background inline sample-map load.
     pub fn spawn_load_sample_map(
         &self,

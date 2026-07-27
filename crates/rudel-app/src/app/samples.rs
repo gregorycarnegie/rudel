@@ -139,6 +139,75 @@ impl RudelApp {
         for (path, name) in &effects.soundfonts {
             self.queue_soundfont(path.clone(), name.clone());
         }
+        for device in &effects.midi_inputs {
+            self.queue_midi_input(device.clone());
+        }
+        for (source, frame_len) in &effects.tables {
+            self.queue_tables(source.clone(), *frame_len);
+        }
+    }
+
+    /// Load a wavetable collection in the background, once per
+    /// `(source, frame length)` pair.
+    fn queue_tables(&mut self, source: String, frame_len: usize) {
+        let Some(engine) = &self.engine else {
+            self.io_error = Some("no audio engine to load wavetables into".to_string());
+            return;
+        };
+        let key = format!("tables:{source}:{frame_len}");
+        if !self.loaded_sample_sources.insert(key.clone()) {
+            return;
+        }
+        let handle = engine.spawn_tables(source.clone(), frame_len);
+        self.sample_jobs.push(SampleJob {
+            key,
+            label: format!("tables({source:?})"),
+            handle,
+        });
+    }
+
+    /// Open the MIDI input port a `midin`/`midikeys` call named, once per name.
+    /// The open can block while the OS MIDI subsystem starts, so it runs on a
+    /// background thread like the UI-selected input; the factory the script
+    /// already holds reads zero/no notes until the connection lands.
+    fn queue_midi_input(&mut self, device: String) {
+        if self.script_midi_ins.contains_key(&device)
+            || self
+                .script_midi_in_pending
+                .iter()
+                .any(|(name, _)| *name == device)
+        {
+            return;
+        }
+        let requested = device.clone();
+        let handle = std::thread::spawn(move || {
+            let name = requested.trim();
+            rudel_midi::MidiIn::connect((!name.is_empty()).then_some(name))
+        });
+        self.script_midi_in_pending.push((device, handle));
+    }
+
+    /// Adopt finished `midin`/`midikeys` port opens. Called each frame; returns
+    /// `true` while any open is still in flight.
+    pub(super) fn poll_script_midi_inputs(&mut self) -> bool {
+        let mut i = 0;
+        while i < self.script_midi_in_pending.len() {
+            if !self.script_midi_in_pending[i].1.is_finished() {
+                i += 1;
+                continue;
+            }
+            let (device, handle) = self.script_midi_in_pending.swap_remove(i);
+            match handle.join() {
+                Ok(Ok(input)) => {
+                    self.script_midi_ins.insert(device, input);
+                }
+                Ok(Err(e)) => self.io_error = Some(format!("midin({device:?}): {e}")),
+                Err(_) => {
+                    self.io_error = Some(format!("midin({device:?}): connect thread panicked"))
+                }
+            }
+        }
+        !self.script_midi_in_pending.is_empty()
     }
 
     /// Load a local `.sf2` file in the background, once per path.

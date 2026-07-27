@@ -529,6 +529,25 @@ impl Callback {
         }
     }
 
+    /// Invoke the Koto function with an already-built argument and convert the
+    /// result back into a Rudel value. Used by `log`, whose callback is handed
+    /// the whole hap (as a map) and returns the message to write.
+    pub(super) fn apply_koto(&self, arg: KValue) -> Value {
+        let call = self
+            .vm
+            .borrow_mut()
+            .call_function(self.func.clone(), CallArgs::Single(arg));
+        match call {
+            Ok(value) => koto_to_value(&value),
+            Err(e) => {
+                if self.err.borrow().is_none() {
+                    *self.err.borrow_mut() = Some(e);
+                }
+                Value::Null
+            }
+        }
+    }
+
     /// Invoke the Koto function with an already-built argument and read the
     /// result as a truth value. Used by the predicate combinators (`filter`,
     /// `filterWhen`), which keep a hap when the callback says so; a callback

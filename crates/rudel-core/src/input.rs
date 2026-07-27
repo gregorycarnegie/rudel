@@ -18,30 +18,52 @@ use std::{
     sync::{LazyLock, RwLock},
 };
 
-/// Global MIDI-input CC bus: the latest value (0..1) keyed by `(channel, cc)`,
-/// where channel `0` means "any channel" (the most recent value seen on any
-/// channel). Long-lived for the process, like Strudel's singleton inputs.
-static CC_BUS: LazyLock<RwLock<HashMap<(u8, u8), f64>>> =
+/// How the CC bus is keyed: device name, MIDI channel, controller number.
+type CcKey = (String, u8, u8);
+
+/// Global MIDI-input CC bus: the latest value (0..1) keyed by
+/// `(device, channel, cc)`. An empty device name means "any device" and channel
+/// `0` means "any channel" — the most recent value seen anywhere — so a reader
+/// that pins neither still tracks the one selected input. Long-lived for the
+/// process, like Strudel's singleton `midiInputs`.
+static CC_BUS: LazyLock<RwLock<HashMap<CcKey, f64>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-/// Record an incoming MIDI CC (value already scaled to 0..1). Writes both the
-/// channel-specific entry and the channel-agnostic (`0`) entry, so `cc_in`
-/// readers that don't pin a channel see the latest value on any channel. Called
-/// by the MIDI input thread.
-pub fn set_cc(channel: u8, cc: u8, value: f64) {
+/// Record an incoming MIDI CC from `device` (value already scaled to 0..1).
+/// Writes the device/channel-specific entry plus the wildcard entries, so
+/// readers that don't pin a device or channel see the latest value from any.
+/// Called by the MIDI input thread.
+pub fn set_cc_from(device: &str, channel: u8, cc: u8, value: f64) {
     let mut bus = CC_BUS.write().unwrap();
-    bus.insert((channel, cc), value);
-    bus.insert((0, cc), value);
+    for key in [
+        (device.to_string(), channel, cc),
+        (device.to_string(), 0, cc),
+        (String::new(), channel, cc),
+        (String::new(), 0, cc),
+    ] {
+        bus.insert(key, value);
+    }
 }
 
-/// Read the latest value of CC `cc` on `channel` (0 = any), defaulting to `0.0`.
-pub fn get_cc(channel: u8, cc: u8) -> f64 {
+/// Record an incoming MIDI CC without attributing it to a named device.
+pub fn set_cc(channel: u8, cc: u8, value: f64) {
+    set_cc_from("", channel, cc, value);
+}
+
+/// Read the latest value of CC `cc` on `channel` (0 = any) from `device`
+/// (`""` = any), defaulting to `0.0`.
+pub fn get_cc_from(device: &str, channel: u8, cc: u8) -> f64 {
     CC_BUS
         .read()
         .unwrap()
-        .get(&(channel, cc))
+        .get(&(device.to_string(), channel, cc))
         .copied()
         .unwrap_or(0.0)
+}
+
+/// Read the latest value of CC `cc` on `channel` (0 = any) from any device.
+pub fn get_cc(channel: u8, cc: u8) -> f64 {
+    get_cc_from("", channel, cc)
 }
 
 /// Clear all recorded CC state (device reset / tests).
@@ -53,8 +75,123 @@ pub fn clear_cc() {
 /// `1..=16`, or `None` for any channel (`ccin` in Koto). Reads the live bus at
 /// query time, so the value tracks incoming controllers in real time.
 pub fn cc_in(cc: u8, channel: Option<u8>) -> Pattern {
+    cc_in_from("", cc, channel)
+}
+
+/// Like [`cc_in`] but reading only CCs that arrived from the named device —
+/// the signal `midin(device)`'s factory returns. `device` is matched exactly
+/// against the name the input connection was opened under; `""` means any.
+pub fn cc_in_from(device: &str, cc: u8, channel: Option<u8>) -> Pattern {
     let chan = channel.unwrap_or(0);
-    signal(move |_t| Value::F64(get_cc(chan, cc)))
+    let device = device.to_string();
+    signal(move |_t| Value::F64(get_cc_from(&device, chan, cc)))
+}
+
+// ---------------------------------------------------------------------------
+// MIDI keyboard
+
+/// How many unplayed note-ons are kept per device. Upstream's `kHaps` grows
+/// without bound until the scheduler drains it; bounding it means a keyboard
+/// hammered while the transport is stopped can't grow forever.
+const NOTE_QUEUE_CAPACITY: usize = 64;
+
+/// A buffered note-on: MIDI note number and velocity scaled to 0..1.
+type QueuedNote = (i64, f64);
+
+/// Note-ons received since the last query, keyed by the device they came in on
+/// (plus a `""` entry for "any device"). Mirrors Strudel's `kHaps`, which
+/// buffers incoming notes until the pattern that reads them is next queried.
+static NOTE_QUEUE: LazyLock<RwLock<HashMap<String, Vec<QueuedNote>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Buffer an incoming note-on from `device`: MIDI note number and velocity
+/// scaled to 0..1. Note-offs are not queued — like upstream, a `midikeys` hap's
+/// length comes from the pattern, not from when the key is released.
+pub fn push_midi_note(device: &str, note: i64, velocity: f64) {
+    let mut queue = NOTE_QUEUE.write().unwrap();
+    for key in [device.to_string(), String::new()] {
+        let notes = queue.entry(key).or_default();
+        if notes.len() == NOTE_QUEUE_CAPACITY {
+            notes.remove(0);
+        }
+        notes.push((note, velocity));
+    }
+}
+
+/// Take every buffered note from `device` (`""` = any), emptying its queue.
+pub fn take_midi_notes(device: &str) -> Vec<QueuedNote> {
+    let mut queue = NOTE_QUEUE.write().unwrap();
+    let taken = queue
+        .get_mut(device)
+        .map(std::mem::take)
+        .unwrap_or_default();
+    // A note is delivered once, so draining one view must drop it from the
+    // others (the device-specific queue and the "any device" queue hold the
+    // same notes).
+    if !taken.is_empty() {
+        for (key, notes) in queue.iter_mut() {
+            if key != device {
+                notes.retain(|n| !taken.contains(n));
+            }
+        }
+    }
+    taken
+}
+
+/// Forget every buffered note (transport stop / tests).
+pub fn clear_midi_notes() {
+    NOTE_QUEUE.write().unwrap().clear();
+}
+
+/// The pattern `midikeys(device)`'s factory returns: every note received since
+/// the last scheduler query, each sounding for `note_length` cycles from the
+/// moment it is picked up.
+///
+/// Ports upstream's `kb(noteLength)`. Two differences, both forced by Rudel
+/// having no wall-clock-to-cycle map outside the scheduler: a note is placed at
+/// the start of the query window that picks it up (upstream stamps it with the
+/// cyclist time at which the message arrived, so it lands within a scheduler
+/// block either way), and there is no immediate out-of-band trigger — the note
+/// sounds on the next scheduler block rather than being dispatched straight to
+/// the audio engine. Like upstream, the queue is only drained on a scheduler
+/// (`cyclist`) query, so a visualiser querying the same pattern doesn't eat the
+/// notes before they are played.
+pub fn midi_keys(device: &str, note_length: Pattern) -> Pattern {
+    let device = device.to_string();
+    Pattern::new(move |state| {
+        let scheduler_query = state.controls.contains_key("cyclist");
+        let notes = if scheduler_query {
+            take_midi_notes(&device)
+        } else {
+            Vec::new()
+        };
+        let length = note_length
+            .query(&state.set_span(crate::timespan::TimeSpan::new(
+                state.span.begin,
+                state.span.begin,
+            )))
+            .first()
+            .and_then(|h| h.value.as_f64())
+            .unwrap_or(0.5);
+        let span = crate::timespan::TimeSpan::new(
+            state.span.begin,
+            state.span.begin + crate::fraction::Frac::from_f64(length),
+        );
+        notes
+            .into_iter()
+            .map(|(note, velocity)| {
+                let value = Value::Map(crate::value::ValueMap::from([
+                    ("note".to_string(), Value::Int(note)),
+                    ("velocity".to_string(), Value::F64(velocity)),
+                ]));
+                crate::hap::Hap::new(
+                    Some(span),
+                    span.intersection(&state.span).unwrap_or(span),
+                    value,
+                )
+            })
+            .collect()
+    })
 }
 
 // ---------------------------------------------------------------------------

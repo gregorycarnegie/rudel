@@ -433,6 +433,14 @@ kpattern_methods! {
         voicings => kpattern_voicings,
         #[koto_method]
         scale => kpattern_scale,
+        #[koto_method]
+        markcss => kpattern_markcss,
+        #[koto_method]
+        log => kpattern_log,
+        #[koto_method(alias = "logValues")]
+        log_values => kpattern_log_values,
+        #[koto_method(alias = "onTriggerTime")]
+        on_trigger_time => kpattern_on_trigger_time,
         #[koto_method(alias = "edoScale")]
         edo_scale => kpattern_edo_scale,
         #[koto_method]

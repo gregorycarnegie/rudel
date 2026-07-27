@@ -1,6 +1,6 @@
 use super::{
     aliases::{ALIAS_CONTROL_BUILDERS, ALIAS_CONTROL_KEYS},
-    multi::{distort, shape, transient},
+    multi::{distort, label, shape, transient},
     named::{NAMED_CONTROL_BUILDERS, fade_time, fx_release, loop_begin, loop_end},
     plain::{PLAIN_CONTROL_BUILDERS, bend_range, warp, warpmode, wt, wtphaserand},
     special::{mode, s, sound},
@@ -21,6 +21,7 @@ static EXTRA_CONTROL_BUILDERS: &[ControlBuilderEntry] = &[
     ("distort", |p| distort(p)),
     ("shape", |p| shape(p)),
     ("transient", |p| transient(p)),
+    ("label", |p| label(p)),
     ("bendRange", |p| bend_range(p)),
     ("wavetablePosition", |p| wt(p)),
     ("wavetableWarp", |p| warp(p)),
@@ -40,6 +41,7 @@ static EXTRA_CONTROL_KEYS: &[ControlKeyEntry] = &[
     ("distort", "distort"),
     ("shape", "shape"),
     ("transient", "transient"),
+    ("label", "label"),
     ("bendRange", "bendRange"),
     ("wavetablePosition", "wt"),
     ("wavetableWarp", "warp"),

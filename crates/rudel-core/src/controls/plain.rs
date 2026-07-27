@@ -287,6 +287,9 @@ controls!(
     zzfx,
     // visuals / event metadata
     color,
+    // CSS the editor's pattern highlighting uses for this event instead of its
+    // default outline (Strudel's `markcss`). Rudel reads a colour out of it.
+    markcss,
     transsustain,
     // FM envelope ramp type
     fmenv,

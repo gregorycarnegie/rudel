@@ -283,6 +283,41 @@ fn input_cc_decodes_channel_and_scales_value() {
 }
 
 #[test]
+fn input_decodes_note_on_and_ignores_note_off() {
+    let mut clock = ClockDetector::new();
+    assert_eq!(
+        process_input(&[0x90, 60, 127], &mut clock, 0.0),
+        InputAction::NoteOn {
+            note: 60,
+            velocity: 1.0
+        }
+    );
+    // note-on with velocity 0 is a note-off on many devices
+    assert_eq!(
+        process_input(&[0x90, 60, 0], &mut clock, 0.0),
+        InputAction::None
+    );
+    assert_eq!(
+        process_input(&[0x80, 60, 64], &mut clock, 0.0),
+        InputAction::None
+    );
+}
+
+#[test]
+fn note_ons_reach_the_core_queue_per_device() {
+    rudel_core::clear_midi_notes();
+    if let InputAction::NoteOn { note, velocity } =
+        process_input(&[0x90, 64, 127], &mut ClockDetector::new(), 0.0)
+    {
+        rudel_core::push_midi_note("keystep", note, velocity);
+    }
+    // A device-pinned reader takes the note...
+    assert_eq!(rudel_core::take_midi_notes("keystep"), vec![(64, 1.0)]);
+    // ...and it is only delivered once, so the wildcard view no longer has it.
+    assert!(rudel_core::take_midi_notes("").is_empty());
+}
+
+#[test]
 fn clock_detector_estimates_bpm() {
     // 120 BPM = 2 beats/sec = 48 clock pulses/sec -> interval 1/48 s.
     let mut clock = ClockDetector::new();

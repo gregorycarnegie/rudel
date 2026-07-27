@@ -18,6 +18,7 @@ mod sampler;
 mod spec;
 mod synth;
 mod voice;
+mod wavetable;
 mod zzfx;
 
 pub use bus::{DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig};
@@ -37,6 +38,7 @@ pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::VoiceSpec;
 pub use synth::Voice;
 pub use voice::VoiceLike;
+pub use wavetable::{WarpMode, WaveTable, WavetableOsc, warp_phase};
 pub use zzfx::{ZzfxParams, ZzfxSynth, ZzfxVoice, build_samples};
 
 #[cfg(test)]

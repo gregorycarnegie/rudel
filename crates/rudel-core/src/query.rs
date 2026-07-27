@@ -46,6 +46,30 @@ pub fn to_control_map(value: &Value) -> ValueMap {
     }
 }
 
+/// The control `log`/`logValues` tag their haps with. Its value is either one
+/// of the two built-in formats or, when the user passed a formatting callback,
+/// the message that callback already produced.
+pub const LOG_KEY: &str = "_log";
+
+/// The control `onTriggerTime` tags its haps with (the id of the callback the
+/// host should fire). Defined here because this is where it is stripped; the
+/// registry itself lives in the language layer, which owns the Koto VM.
+pub const TRIGGER_KEY: &str = "_ontrigger";
+
+/// Build the line a `_log`-tagged event writes. `"hap"` is `log()`'s default
+/// (`[hap] ${hap.showWhole(true)}`), `"values"` is `logValues()`'s
+/// (`[hap] ${stringifyValues(value, true)}`); anything else is a message a
+/// user callback already formatted, and is logged as-is.
+fn log_message(mode: &Value, whole: &TimeSpan, controls: &ValueMap) -> String {
+    let values = crate::host::stringify_values(&Value::Map(controls.clone()));
+    match mode.as_str() {
+        Some("hap") => format!("[hap] {} → {}: {values}", whole.begin, whole.end),
+        Some("values") => format!("[hap] {values}"),
+        Some(message) => message.to_string(),
+        None => format!("[hap] {values}"),
+    }
+}
+
 /// Query `pattern` over the cycle window `[begin_cycle, end_cycle)` and return a
 /// [`ControlEvent`] for every onset, with times converted to seconds via `cps`.
 /// Exposes `_cps` to cps-dependent transforms (`loopAt`/`fit`/`splice`).
@@ -82,6 +106,15 @@ pub fn query_controls(
             continue; // avoid duplicates across adjacent windows
         }
         let mut controls = to_control_map(&hap.value);
+        // `log`/`logValues` tag their haps with `_log`; this is the trigger-time
+        // hook upstream gets from `Pattern.onTrigger`. The key is consumed here
+        // so it never reaches a voice or an OSC message.
+        if let Some(mode) = controls.shift_remove(LOG_KEY) {
+            crate::host::log_line(log_message(&mode, &whole, &controls));
+        }
+        // `onTriggerTime`'s hook id is fired by the host (which owns the Koto
+        // VM), not here; strip it so it never reaches a voice or an OSC message.
+        controls.shift_remove(TRIGGER_KEY);
         // Fold mtranspose/ctranspose into `note` using the hap's tagged scale,
         // matching SuperDirt's external-synth pitch handling.
         crate::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());

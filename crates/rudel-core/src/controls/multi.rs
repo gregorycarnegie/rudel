@@ -63,6 +63,13 @@ pub fn shape(pat: impl IntoPattern) -> Pattern {
     spread_control(&["shape", "shapevol"], pat.into_pattern())
 }
 
+/// Strudel's `label` multi-control (`registerControl(['label', 'activeLabel'])`):
+/// the text a visualiser draws for an event, with an optional second entry
+/// (`"bd:BD!"`) used only while the event is sounding.
+pub fn label(pat: impl IntoPattern) -> Pattern {
+    spread_control(&["label", "activeLabel"], pat.into_pattern())
+}
+
 /// Strudel's `transient` multi-control
 /// (`registerControl(['transient', 'transsustain'])`): a `:`-list (`"1:-1"`)
 /// spreads into the transient shaper's attack and sustain emphasis.
@@ -84,6 +91,11 @@ impl Pattern {
     /// Set the `transient` multi-control (see [`transient`]).
     pub fn transient(&self, x: impl IntoPattern) -> Pattern {
         self.set(transient(x))
+    }
+
+    /// Set the `label` multi-control (see [`label`]).
+    pub fn label(&self, x: impl IntoPattern) -> Pattern {
+        self.set(label(x))
     }
 }
 

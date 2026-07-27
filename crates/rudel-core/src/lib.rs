@@ -12,6 +12,7 @@ pub mod edo;
 pub mod euclid;
 pub mod fraction;
 pub mod hap;
+pub mod host;
 pub mod impure;
 pub mod input;
 pub mod modulate;
@@ -64,9 +65,12 @@ pub use controls::{
 };
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
 pub use input::{
-    cc_in, clear_cc, clear_keys, get_cc, get_pointer, key_down, keys_down, mousex, mousey, set_cc,
-    set_keys_held, set_pointer,
+    cc_in, cc_in_from, clear_cc, clear_keys, clear_midi_notes, get_cc, get_cc_from, get_pointer,
+    key_down, keys_down, midi_keys, mousex, mousey, push_midi_note, set_cc, set_cc_from,
+    set_keys_held, set_pointer, take_midi_notes,
 };
+// Host-published tables read back by scripts (sample durations, the log ring).
+pub use host::{clear_sample_durations, drain_log, log_line, sample_duration, set_sample_duration};
 // Tonal: note names, scales, chords.
 pub use tonal::{
     chord_notes, chord_symbols, note_to_midi, note_to_midi_with_octave, scale_names, scale_offset,
@@ -77,7 +81,7 @@ pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};
 // CSS named colors + color/hex -> number conversion (draw/color.mjs).
 pub use color::{convert_color_to_number, convert_hex_to_number, css_color_hex};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
-pub use query::{ControlEvent, query_controls, to_control_map};
+pub use query::{ControlEvent, LOG_KEY, TRIGGER_KEY, query_controls, to_control_map};
 
 /// Convenience: build a `pure` pattern from anything convertible to a [`Value`].
 pub fn p(v: impl Into<Value>) -> Pattern {

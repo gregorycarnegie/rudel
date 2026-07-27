@@ -5,59 +5,106 @@
       "status": "unsupported",
       "reason": "@strudel/motion browser DeviceMotion/DeviceOrientation sensor signals; no native sensor source (docs/UNSUPPORTED.md).",
       "names": [
-        "absOriA", "absOriB", "absOriG", "absOriX", "absOriY", "absOriZ",
-        "absoluteOrientationAlpha", "absoluteOrientationBeta", "absoluteOrientationGamma",
-        "absoluteOrientationX", "absoluteOrientationY", "absoluteOrientationZ",
-        "accX", "accY", "accZ", "accelerationX", "accelerationY", "accelerationZ",
-        "gravX", "gravY", "gravZ", "gravityX", "gravityY", "gravityZ",
-        "oriA", "oriB", "oriG", "oriX", "oriY", "oriZ",
-        "orientationAlpha", "orientationBeta", "orientationGamma",
-        "orientationX", "orientationY", "orientationZ",
-        "rotA", "rotB", "rotG", "rotX", "rotY", "rotZ",
-        "rotationAlpha", "rotationBeta", "rotationGamma",
-        "rotationX", "rotationY", "rotationZ"
+        "absOriA",
+        "absOriB",
+        "absOriG",
+        "absOriX",
+        "absOriY",
+        "absOriZ",
+        "absoluteOrientationAlpha",
+        "absoluteOrientationBeta",
+        "absoluteOrientationGamma",
+        "absoluteOrientationX",
+        "absoluteOrientationY",
+        "absoluteOrientationZ",
+        "accX",
+        "accY",
+        "accZ",
+        "accelerationX",
+        "accelerationY",
+        "accelerationZ",
+        "gravX",
+        "gravY",
+        "gravZ",
+        "gravityX",
+        "gravityY",
+        "gravityZ",
+        "oriA",
+        "oriB",
+        "oriG",
+        "oriX",
+        "oriY",
+        "oriZ",
+        "orientationAlpha",
+        "orientationBeta",
+        "orientationGamma",
+        "orientationX",
+        "orientationY",
+        "orientationZ",
+        "rotA",
+        "rotB",
+        "rotG",
+        "rotX",
+        "rotY",
+        "rotZ",
+        "rotationAlpha",
+        "rotationBeta",
+        "rotationGamma",
+        "rotationX",
+        "rotationY",
+        "rotationZ"
       ]
-    },
-    "midi_device_input": {
-      "status": "deferred",
-      "reason": "`midin(device)`/`midikeys(device)` open a *named* MIDI port and return a factory of signals from it. Rudel's MIDI input is a single app-selected device feeding a process-global bus, read via `ccin(cc[, chan])`; per-device ports and MIDI-note-input-as-a-pattern are not ported (crates/rudel-midi/src/input.rs). The mouse/keyboard signals that used to sit here (`mousex`/`mousey`/`keyDown`/`whenKey`) are now implemented natively off the same bus, fed by the egui window.",
-      "names": ["midikeys", "midin"]
-    },
-    "draw_runtime": {
-      "status": "deferred",
-      "reason": "Label/draw-lifecycle helpers; the realtime draw path never runs the Koto VM (FULL_STRUDEL.md draw items, docs/UNSUPPORTED.md). The pianoroll/punchcard/spiral/pitchwheel/wordfall/claviature visualizers, the scope/tscope/fscope/spectrum analyzer widgets (per-widget lock-free taps on the audio output), and the rescale/moveXY/zoomIn animate transforms are now exposed (inline widgets + x/y/w/h param transforms).",
-      "names": [
-        "label", "activeLabel",
-        "markcss", "logValues", "clearScope", "getDuration", "onTriggerTime", "tables"
-      ]
-    },
-    "theme": {
-      "status": "deferred",
-      "reason": "Strudel's full CodeMirror theme catalog is not ported; Rudel ships the strudel-dark/light palettes (FULL_STRUDEL.md theme item).",
-      "names": ["dracula"]
     },
     "unsupported_package": {
       "status": "unsupported",
       "reason": "Browser-only / alternative-engine features and config setters with no native analog: Csound WASM, Web Speech, kabelsalat worklet (K/worklet), the FX effect-chain graph, the legacy RNG toggle, superdough gain-curve/polyphony setters, and runtime voicing-dictionary registration (docs/UNSUPPORTED.md, FULL_STRUDEL.md effects/voicings items).",
       "names": [
-        "csound", "csoundm", "speak", "K", "worklet", "FX",
-        "useRNG", "setGainCurve", "setMaxPolyphony", "addVoicings"
+        "csound",
+        "csoundm",
+        "speak",
+        "K",
+        "worklet",
+        "FX",
+        "useRNG",
+        "setGainCurve",
+        "setMaxPolyphony",
+        "addVoicings"
       ]
     },
     "query_path_callback": {
       "status": "unsupported",
       "reason": "Takes a per-hap callback evaluated in the query path, which the Koto VM cannot run there (it is not Send/Sync). `filter`/`filterWhen`/`tag` were here too and are now implemented by probing 16 cycles and baking the survivors into a static repeating pattern, the same trick `fmap` uses; `degradeByWith` instead needs an arbitrary *pattern* consulted per hap, which the bake cannot stand in for.",
-      "names": ["degradeByWith"]
+      "names": [
+        "degradeByWith"
+      ]
     },
     "span_arg_internal": {
       "status": "unsupported",
       "reason": "TimeSpan-object variants that throw on a plain array upstream, i.e. internal helpers; the user-facing two-arg compress/focus/zoom are exposed (FULL_STRUDEL.md core/pattern.mjs item).",
-      "names": ["compressSpan", "compressspan", "focusSpan", "focusspan", "zoomArc", "zoomarc"]
+      "names": [
+        "compressSpan",
+        "compressspan",
+        "focusSpan",
+        "focusspan",
+        "zoomArc",
+        "zoomarc"
+      ]
     },
     "doc_artifact": {
       "status": "unsupported",
-      "reason": "Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`; `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive); `log` is the console/visualization method (`pat.log()` writes hap data to the side panel), part of the draw-runtime family (docs/UNSUPPORTED.md).",
-      "names": ["vlpf", "weave", "weaveWith", "log"]
+      "reason": "Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).",
+      "names": [
+        "vlpf",
+        "weave",
+        "weaveWith"
+      ]
+    },
+    "editor_theme": {
+      "status": "unsupported",
+      "reason": "CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is implemented as a native `EditorTheme` variant (crates/rudel-app/src/editor/settings.rs) selectable in the editor settings panel, alongside `strudelTheme`/`whitescreen`, so it never appears in `rudel_lang::reference()`.",
+      "names": [
+        "dracula"
+      ]
     }
   }
 }

@@ -4,7 +4,7 @@ use rudel_core::{Frac, Pattern, Value, ValueMap};
 
 /// Convert a Koto argument into a pattern: numbers become `pure` values,
 /// strings parse as mini-notation, and patterns pass through.
-pub(in crate::bindings) fn arg_to_pattern(value: &KValue) -> Pattern {
+pub(crate) fn arg_to_pattern(value: &KValue) -> Pattern {
     match value {
         KValue::Number(n) => {
             if n.is_i64() {

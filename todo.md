@@ -149,11 +149,19 @@ Function-by-function audit against the Strudel learn pages
       sampled with linear interpolation. Koto `partials`/`phases` take a list.
 - [x] `zzfx` — ported (`rudel-dsp/zzfx.rs`, golden-tested against superdough's
       `zzfx.mjs`); `s("zzfx")` and the `z_<wave>` family resolve to it.
-- [ ] wavetable oscillator (`wt`/`warp`/`warpmode`/`wtphaserand`) — the controls
-      are registered but the `WavetableOscillatorProcessor` worklet
-      (`superdough/wavetable.mjs`) is not ported. Only the *additive* wavetable
-      (`partials`/`phases`) is. Reference source exists upstream now, so this is
-      a port, not original DSP.
+- [x] wavetable oscillator: `tables(url[, frameLen])` loads a collection of
+      `.wav` wavetables (same source forms as `samples`), each sliced into
+      `frameLen`-sample single-cycle frames (default 2048), and `s("name")`
+      plays them. `rudel-dsp/wavetable.rs` ports the
+      `WavetableOscillatorProcessor` worklet: all 22 `warpmode` phase
+      distortions (golden-tested against the worklet in
+      `rudel-dsp/tests/warp_golden.rs` over a 64×7 phase/amount grid), frame
+      interpolation by `wt` position, and the `unison`/`detune`/`spread`/
+      `wtphaserand` unison stack. `wt`/`warp` are swept per sample by their own
+      linear ADSR + LFO (`ParamMod`, porting `applyParameterModulators`:
+      `wtenv`/`wt{adsr}`/`wtrate`/`wtsync`/`wtdepth`/`wtshape`/`wtskew`/`wtdc`
+      and the `warp*` twins). The table is attached in `events.rs` after loaded
+      samples win, and `fm` applies to the wavetable frequency like upstream.
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),
@@ -265,8 +273,10 @@ Function-by-function audit against the Strudel learn pages
 - [x] `pace` (stretch to a target step count, preserving step metadata)
 - [x] `ribbon`/`rib` (cut a `cycles`-long window at `offset` and loop it;
       `early` + `keep_restart`), `seg` (alias for `segment`)
+- [x] `flux`/`fluxBy` (Strudel's aliases for `juxFlip`/`juxFlipBy`), bound as
+      both methods and standalone callback combinators
 - [ ] `compressSpan`/`focusSpan`/`zoomArc` (would just duplicate the two-arg
-      `compress`/`focus`/`zoom` — no Koto span type), `flux`
+      `compress`/`focus`/`zoom` — no Koto span type)
 
 ## learn/signals
 
@@ -322,6 +332,27 @@ Function-by-function audit against the Strudel learn pages
 - [ ] soundfont zone envelopes: a zone's own ADSR/vibrato/pitch-envelope are
       ignored in favour of Rudel's voice controls. Loading a `.sf2` over HTTP is
       not wired up either (local paths only).
+- [x] `log`/`logValues`: the message is decided at build time (one of the two
+      built-in formats, or a probe-and-baked string when a formatting callback
+      is given) and carried as a `_log` control; the scheduler's shared event
+      extraction consumes it and writes the line as the event plays, which the
+      app drains into a console panel. `onTriggerTime` keeps the evaluation's
+      Koto VM alive past `eval` (`rudel-lang/src/triggers.rs`) and the app fires
+      the hooks from its frame loop as each onset passes — frame-accurate, like
+      upstream's `setTimeout`.
+- [x] `midin(device)`/`midikeys(device)`: the input bus is keyed by device, so
+      `midin` returns a `(cc[, chan]) -> pattern` factory reading one port and
+      `midikeys` a `(noteLength?) -> pattern` factory of its note-ons. The port
+      open is a host effect (like `samples`), so no `await` is needed. Notes
+      only drain on a scheduler (`cyclist`) query, so a visualiser querying the
+      same pattern doesn't eat them.
+- [x] `label`/`activeLabel` (multi-control; the pianoroll swaps to `activeLabel`
+      while an event sounds), `markcss` (a colour is parsed out of the CSS and
+      used for the editor's flash, falling back to the `color` control),
+      `getDuration`/`getDur` (the bank publishes each sample's length as it
+      registers it, so the call is synchronous), `clearScope` (a no-op returning
+      silence: Rudel evaluates in a fresh VM, so no user scope accumulates), and
+      the `dracula` editor theme.
 - [ ] `ifp`
 
 ## learn/accumulation

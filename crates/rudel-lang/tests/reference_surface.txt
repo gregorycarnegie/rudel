@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=318 methods=1078 controls=663
+# functions=324 methods=1086 controls=666
 
 [functions]
 Math
@@ -55,6 +55,7 @@ chunkback
 chunkbackinto
 chunkinto
 clamp
+clearScope
 collect
 compress
 contract
@@ -109,6 +110,8 @@ fold
 freq
 freqToMidi
 gap
+getDur
+getDuration
 getFreq
 grow
 gt
@@ -159,6 +162,8 @@ lte
 m
 mask
 midiToFreq
+midikeys
+midin
 modulo
 morph
 mouseX
@@ -300,6 +305,7 @@ superimpose
 swing
 swingBy
 swing_by
+tables
 take
 time
 timeCat
@@ -337,6 +343,7 @@ _spectrum
 _spiral
 _wordfall
 accelerate
+activeLabel
 ad
 add
 add_mix
@@ -951,6 +958,7 @@ keepif
 keyDown
 key_down
 krush
+label
 lastOf
 last_of
 late
@@ -961,7 +969,10 @@ leslie
 lfo
 linger
 lock
+log
 log2
+logValues
+log_values
 loop
 loopAt
 loopAtCps
@@ -1000,6 +1011,7 @@ lrate
 lsize
 lt
 lte
+markcss
 mask
 midi
 midibend
@@ -1053,6 +1065,8 @@ octersubsub
 off
 offset
 often
+onTriggerTime
+on_trigger_time
 or
 orbit
 osc
@@ -1408,6 +1422,7 @@ FXr
 FXrel
 FXrelease
 accelerate
+activeLabel
 amp
 analyze
 anchor
@@ -1854,6 +1869,7 @@ iresponse
 irspeed
 kcutoff
 krush
+label
 lbrick
 legato
 leslie
@@ -1886,6 +1902,7 @@ lpsustain
 lpsync
 lrate
 lsize
+markcss
 midibend
 midichan
 midicmd

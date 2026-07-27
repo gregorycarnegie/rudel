@@ -113,7 +113,7 @@ pub(super) fn paint_pianoroll(
             painter.text(
                 block.left_center() + egui::vec2(3.0, 0.0),
                 egui::Align2::LEFT_CENTER,
-                roll_label(hap),
+                roll_label(hap, active),
                 egui::FontId::monospace((block.height() * 0.55).clamp(9.0, 18.0)),
                 colors.text,
             );
@@ -287,9 +287,19 @@ fn roll_value_cmp(a: &RollValue, b: &RollValue) -> std::cmp::Ordering {
     }
 }
 
-fn roll_label(hap: &Hap) -> String {
+/// The text drawn on a note block. Mirrors upstream's rule: `activeLabel`
+/// replaces `label` only while the event is sounding, and with neither set the
+/// label falls back to the note / sound name.
+fn roll_label(hap: &Hap, active: bool) -> String {
     let controls = rudel_core::to_control_map(&hap.value);
-    for key in ["label", "activeLabel", "note", "s", "n"] {
+    let custom = active
+        .then(|| controls.get("activeLabel"))
+        .flatten()
+        .or_else(|| controls.get("label"));
+    if let Some(value) = custom {
+        return value_short(value);
+    }
+    for key in ["note", "s", "n"] {
         if let Some(value) = controls.get(key) {
             return value_short(value);
         }

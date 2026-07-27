@@ -43,6 +43,63 @@ lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
 host re-queries the pattern each frame instead of keeping painter-side hap
 memory.
 
+**The event-annotation controls around the draw runtime are implemented.**
+`label` (a multi-control, so `label("bd:BD!")` also sets `activeLabel`) and
+`activeLabel` set the text the pianoroll draws for an event, with `activeLabel`
+replacing `label` only while the event sounds. `markcss` styles an event's
+source span in the editor while it plays — Rudel paints a background rather
+than applying CSS, so the declaration list is scanned for a colour
+(`markcss('outline: solid 2px #ff0000')` flashes red) and the rest of the CSS
+is ignored; with no `markcss`, the `color` control colours the flash instead.
+Note that a CSS string needs single quotes: double-quoted strings are
+mini-notation.
+
+### `log`, `logValues`, `onTriggerTime` — implemented, with different timing
+
+`pat.log()` and `pat.logValues()` write a line per event as it plays. Strudel
+sends these through `logger()` into the REPL's side menu; Rudel's scheduler
+writes them to a process-global ring which the app drains into a **console
+panel** below the editor (hidden until something logs, with a clear button).
+Both accept a formatting callback (`logValues(v => 'saw ' + v.s)`); since the
+Koto VM cannot run in the realtime path, the callback is applied ahead of time
+over a 16-cycle probe and the resulting message is carried on the event — the
+same probe-and-bake `filter`/`fmap` use, so a callback that depends on
+something other than the hap will not see later changes.
+
+`pat.onTriggerTime(f)` fires a Koto callback as each event's onset passes. This
+is the one callback that has to run *later* rather than at build time, so the
+evaluation's Koto VM is kept alive past `eval` and the app fires the hooks from
+its frame loop (`crates/rudel-lang/src/triggers.rs`). Timing is therefore
+frame-accurate rather than sample-accurate — the same caveat upstream carries,
+where the hook is a `window.setTimeout` and its own docs call it "innacurate
+for audio tasks". This does not reopen the draw-callback path above: the hook
+runs on the UI thread after the fact, not inside the query path.
+
+### Editor themes — `strudelTheme`, `whitescreen`, `dracula`
+
+Strudel's theme catalog is a set of CodeMirror themes selected in the REPL
+settings. Rudel ports three as native `EditorTheme` variants
+(`crates/rudel-app/src/editor/settings.rs`), each carrying both the syntax
+palette and the matching `DrawTheme` the inline visualisers use. Because a
+theme is an editor setting rather than a name a pattern can call, theme names
+do not appear in Rudel's scripting surface. The rest of Strudel's catalog is
+not ported.
+
+### `clearScope` — accepted, no-op
+
+`clearScope()` deletes the user variables Strudel's block-based eval leaks into
+its shared `strudelScope`. Rudel evaluates each script in a fresh Koto VM, so
+nothing accumulates across evaluations and there is nothing to delete. It is
+accepted and returns silence, like `registerSoundfonts()`.
+
+### `getDuration` / `getDur` — implemented, and synchronous
+
+`getDuration(name[, n])` returns a loaded sample's length in seconds. Upstream
+reads it off the decoded `AudioBuffer` and returns a promise (so patterns must
+`await` it); Rudel's sample bank publishes each length as it registers the
+sample, so the call returns the number directly and needs no `await`. A sound
+that is unknown or not loaded yet reads as `0`.
+
 ### `animate` (`@strudel/draw` `animate.mjs`) — intentionally unsupported
 
 `animate` is built directly on the `draw.mjs` runtime: it registers a per-frame
@@ -182,13 +239,28 @@ envelope are ignored in favour of Rudel's voice controls (`attack`/`decay`/…,
 `vib`, `penv`), which apply to soundfonts as they do to every other sound.
 Loading a `.sf2` over HTTP is not wired up — local paths only.
 
-### `stretch`, `bytebeat`, wavetable oscillator — not yet ported
+### `stretch`, `bytebeat` — not yet ported
 
-`stretch` (superdough's `phase-vocoder-processor`), `s("bytebeat")` with
-`byteBeatExpression`, and the wavetable oscillator (`wt`/`warp`/`warpmode`/
-`wtphaserand`, superdough's `wavetable.mjs`) have registered controls but no
-native DSP yet. These are ports waiting to be done, not deliberate omissions.
-Note that the *additive* wavetable (`partials`/`phases`) **is** implemented.
+`stretch` (superdough's `phase-vocoder-processor`) and `s("bytebeat")` with
+`byteBeatExpression` have registered controls but no native DSP yet. These are
+ports waiting to be done, not deliberate omissions.
+
+### Wavetable oscillator — implemented
+
+`tables(url[, frameLen])` loads a collection of wavetables and `s("name")`
+plays them, as upstream: each `.wav` is sliced into `frameLen`-sample
+single-cycle frames (default 2048), `wt` sweeps the read position through the
+frame stack with interpolation, and `warp` + `warpmode` distort the read phase.
+All 22 warp modes are ported from the `wavetable-oscillator-processor` worklet
+and golden-tested against it (`crates/rudel-dsp/tests/warp_golden.rs`), as are
+the `wt`/`warp` envelopes and LFOs (`wtenv`/`wt{adsr}`/`wtrate`/`wtsync`/
+`wtdepth`/`wtshape`/`wtskew`/`wtdc`, and the `warp*` twins) and the
+`unison`/`detune`/`spread`/`wtphaserand` unison stack. The *additive* wavetable
+(`partials`/`phases`) remains a separate, also-implemented path.
+
+Like `samples(...)`, a `tables(...)` source is a local folder/`strudel.json`,
+an http(s) URL, or a `github:`/`bubo:` pseudo-URL, and is fetched once per
+session rather than on every re-evaluation.
 
 ## External integrations and inputs
 
@@ -223,13 +295,28 @@ are named exactly as in Strudel — the browser's `KeyboardEvent.key` values
 shorthands (`ctrl`, `alt`, `shift`, `up`/`down`/`left`/`right`), so
 `whenKey("ctrl:j", …)` names the same combination in both.
 
-### MIDI device input (`midin`, `midikeys`) — deferred
+### MIDI device input (`midin`, `midikeys`) — supported, with different timing
 
-`midin(device)` and `midikeys(device)` open a *named* MIDI port and return a
-factory that makes signals from it. Rudel's MIDI input is a single
-app-selected device feeding the same global bus, read with `ccin(cc[, chan])`
-(`crates/rudel-midi/src/input.rs`), so incoming control changes work but
-per-device ports and MIDI-note-input-as-a-pattern are not ported.
+`midin(device)` and `midikeys(device)` both work. Each opens the named MIDI
+input port and returns a factory, exactly as upstream: `midin` gives
+`(cc[, channel]) -> pattern` reading only that device's control changes, and
+`midikeys` gives `(noteLength?) -> pattern` of the notes played on it. The
+app-selected input device and the device-agnostic `ccin(cc[, chan])` signal
+still work alongside them.
+
+Upstream returns a promise (WebMidi is async, so patterns `await midin(...)`).
+Rudel returns the factory immediately and opens the port in the background, so
+the `await` is unnecessary — a signal reads 0, and `midikeys` yields no notes,
+until the port is open.
+
+Two timing differences in `midikeys`, both because Rudel has no wall-clock →
+cycle map outside the scheduler. A note is placed at the start of the scheduler
+block that picks it up (upstream stamps it with the cyclist time the message
+arrived at, which lands in the same block either way), and there is no
+out-of-band immediate trigger — the note sounds on the next scheduler block
+rather than being dispatched straight to the audio engine. As upstream does,
+note-*offs* are ignored: a `midikeys` hap's length comes from the pattern
+(`kb(0.25)`), not from when the key is released.
 
 ### Gamepad (`@strudel/gamepad`) — intentionally unsupported (no native input source yet)
 

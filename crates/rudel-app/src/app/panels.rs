@@ -2,6 +2,7 @@ use super::{Output, RudelApp};
 use crate::{
     editor::{
         CodeEditorInput, code_editor,
+        decorations::FlashSpan,
         settings::{EditorFontFamily, EditorTheme},
     },
     reference::{CONTROLS, DRUMS, FACTORIES, SIGNALS, WAVEFORMS},
@@ -9,12 +10,16 @@ use crate::{
 };
 use eframe::egui;
 
+/// How many `log`/`logValues` lines the console keeps.
+const LOG_LINES_SHOWN: usize = 512;
+
 impl eframe::App for RudelApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         pump_input_bus(ui.ctx());
         self.poll_font_requests();
         self.poll_sample_jobs(ui.ctx());
-        let midi_connecting = self.poll_midi_connect() | self.poll_midi_in_connect();
+        let midi_connecting =
+            self.poll_midi_connect() | self.poll_midi_in_connect() | self.poll_script_midi_inputs();
 
         // Match Strudel's REPL transport keys: Ctrl/Alt+Enter evaluates,
         // Ctrl/Alt+. hushes, and Ctrl+Shift+. panics (reset/all-notes-off).
@@ -40,9 +45,11 @@ impl eframe::App for RudelApp {
             self.hush();
         }
 
+        self.fire_trigger_hooks();
         let active_spans = self.active_editor_spans();
         self.transport_panel(ui);
         self.errors_panel(ui);
+        self.console_panel(ui);
         self.reference_panel(ui);
         self.editor_panel(ui, &active_spans);
 
@@ -257,6 +264,79 @@ impl RudelApp {
         });
     }
 
+    /// Fire the `onTriggerTime` callbacks of every event whose onset the
+    /// playhead has passed since the last frame. Upstream schedules these with
+    /// `window.setTimeout`, so frame-rate accuracy matches its own caveat that
+    /// the hook is "innacurate for audio tasks". The callbacks run here because
+    /// this is the thread that owns the Koto VM.
+    fn fire_trigger_hooks(&mut self) {
+        if self.trigger_hooks.is_empty() {
+            return;
+        }
+        let Some(pos) = self.playback_position_cycles() else {
+            self.trigger_fired_upto = None;
+            return;
+        };
+        let Some(pattern) = self.current.clone() else {
+            return;
+        };
+        // The first frame after evaluating (or after a seek backwards) only
+        // establishes the mark, so a whole cycle of past events doesn't all
+        // fire at once.
+        let Some(from) = self.trigger_fired_upto.filter(|&from| pos > from) else {
+            self.trigger_fired_upto = Some(pos);
+            return;
+        };
+        self.trigger_fired_upto = Some(pos);
+        let haps = pattern.query_arc(
+            rudel_core::Frac::from_f64(from),
+            rudel_core::Frac::from_f64(pos),
+        );
+        for hap in haps {
+            let onset = match &hap.whole {
+                Some(w) => w.begin.to_f64(),
+                None => continue, // continuous haps have no trigger
+            };
+            if onset < from || onset >= pos {
+                continue;
+            }
+            if let Some(e) = self.trigger_hooks.fire(&hap) {
+                self.eval_error = Some(format!("onTriggerTime: {e}"));
+            }
+        }
+    }
+
+    /// The `log`/`logValues` console — Strudel writes these to the REPL's side
+    /// menu; Rudel collects them off the scheduler and shows them here. Hidden
+    /// entirely until a pattern logs something, so it costs no screen space.
+    fn console_panel(&mut self, ui: &mut egui::Ui) {
+        self.log_lines.extend(rudel_core::drain_log());
+        // Keep the tail; the ring in rudel-core is bounded the same way.
+        let overflow = self.log_lines.len().saturating_sub(LOG_LINES_SHOWN);
+        self.log_lines.drain(..overflow);
+        if self.log_lines.is_empty() {
+            return;
+        }
+        egui::Panel::bottom("console")
+            .resizable(true)
+            .default_size(90.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("console");
+                    if ui.button("clear").clicked() {
+                        self.log_lines.clear();
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for line in &self.log_lines {
+                            ui.label(egui::RichText::new(line).monospace().size(12.0));
+                        }
+                    });
+            });
+    }
+
     fn errors_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::bottom("errors").show(ui, |ui| {
             if let Some(e) = &self.audio_error {
@@ -350,7 +430,7 @@ impl RudelApp {
             });
     }
 
-    fn editor_panel(&mut self, ui: &mut egui::Ui, active_spans: &[(usize, usize)]) {
+    fn editor_panel(&mut self, ui: &mut egui::Ui, active_spans: &[FlashSpan]) {
         // Theme the whole editor region to its own theme (not the host/system
         // theme) so the background, text and TextEdit all share one color and the
         // editor fills its panel seamlessly — no contrasting box with light
@@ -488,14 +568,14 @@ impl RudelApp {
     /// position, for active-event highlighting in the editor. Like Strudel,
     /// only discrete events (haps with a `whole`) flash — continuous signals
     /// are skipped — and an event flashes for the span of its `whole`.
-    fn active_source_spans(&self) -> Vec<(usize, usize)> {
+    fn active_source_spans(&self) -> Vec<FlashSpan> {
         match (&self.current, self.playback_position_cycles()) {
             (Some(pat), Some(pos)) => active_source_spans_at(pat, pos),
             _ => Vec::new(),
         }
     }
 
-    fn active_editor_spans(&mut self) -> Vec<(usize, usize)> {
+    fn active_editor_spans(&mut self) -> Vec<FlashSpan> {
         if !self.editor_settings.flash {
             self.editor_decorations.set_flash_ranges_from_eval(&[]);
             self.block_flash = None;
@@ -508,7 +588,7 @@ impl RudelApp {
         let mut spans = self.editor_decorations.flash_ranges();
         if let Some((range, started)) = self.block_flash {
             if started.elapsed() <= std::time::Duration::from_millis(200) {
-                spans.push((range.from, range.to));
+                spans.push((range.from, range.to, None));
             } else {
                 self.block_flash = None;
             }
@@ -631,10 +711,10 @@ fn fuzzy_label(ui: &mut egui::Ui, name: &str, hits: &[usize]) -> egui::Response 
 /// The deduped source byte ranges of the discrete events sounding at cycle
 /// position `pos`. Factored out of [`RudelApp::active_source_spans`] so it can
 /// be tested without a running engine.
-fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<(usize, usize)> {
+fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<FlashSpan> {
     let pos_f = rudel_core::Frac::from_f64(pos);
     let cycle = pos.floor();
-    let mut spans: Vec<(usize, usize)> = pat
+    let mut spans: Vec<FlashSpan> = pat
         .query_arc(
             rudel_core::Frac::from_f64(cycle),
             rudel_core::Frac::from_f64(cycle + 1.0),
@@ -645,7 +725,14 @@ fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<(usize, us
                 .as_ref()
                 .is_some_and(|w| w.begin <= pos_f && pos_f < w.end)
         })
-        .flat_map(|h| h.context.locations.clone())
+        .flat_map(|h| {
+            let color = crate::editor::mark_color(&h).map(crate::editor::pack_color);
+            h.context
+                .locations
+                .clone()
+                .into_iter()
+                .map(move |(from, to)| (from, to, color))
+        })
         .collect();
     spans.sort_unstable();
     spans.dedup();
@@ -698,10 +785,40 @@ mod tests {
     fn active_spans_flash_discrete_events_at_position() {
         // s("bd sd"): `bd` (bytes 3..5) sounds in [0,0.5), `sd` (6..8) in [0.5,1).
         let pat = rudel_lang::eval(r#"s("bd sd")"#).expect("eval");
-        assert_eq!(active_source_spans_at(&pat, 0.25), vec![(3, 5)]);
-        assert_eq!(active_source_spans_at(&pat, 0.75), vec![(6, 8)]);
+        assert_eq!(active_source_spans_at(&pat, 0.25), vec![(3, 5, None)]);
+        assert_eq!(active_source_spans_at(&pat, 0.75), vec![(6, 8, None)]);
         // the same structure repeats every cycle, so cycle 2 maps identically
-        assert_eq!(active_source_spans_at(&pat, 2.25), vec![(3, 5)]);
+        assert_eq!(active_source_spans_at(&pat, 2.25), vec![(3, 5, None)]);
+    }
+
+    #[test]
+    fn markcss_and_color_set_the_flash_colour() {
+        // `markcss` wins, and a colour is picked out of the CSS declaration.
+        let pat =
+            rudel_lang::eval(r#"s("bd").color("blue").markcss('outline: solid 2px #ff0000')"#)
+                .expect("eval");
+        let red = crate::editor::pack_color(eframe::egui::Color32::from_rgb(0xff, 0, 0));
+        assert!(
+            active_source_spans_at(&pat, 0.25)
+                .iter()
+                .all(|&(_, _, c)| c == Some(red))
+        );
+        // With no `markcss`, the `color` control colours the flash instead.
+        let pat = rudel_lang::eval(r#"s("bd").color("blue")"#).expect("eval");
+        let blue = crate::editor::pack_color(eframe::egui::Color32::from_rgb(0, 0, 0xff));
+        assert!(
+            active_source_spans_at(&pat, 0.25)
+                .iter()
+                .all(|&(_, _, c)| c == Some(blue))
+        );
+        // CSS with no colour in it leaves the theme's flash alone.
+        let pat =
+            rudel_lang::eval(r#"s("bd").markcss('text-decoration: underline')"#).expect("eval");
+        assert!(
+            active_source_spans_at(&pat, 0.25)
+                .iter()
+                .all(|&(_, _, c)| c.is_none())
+        );
     }
 
     #[test]

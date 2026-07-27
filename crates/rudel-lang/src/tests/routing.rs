@@ -105,7 +105,8 @@ fn midi_method_stores_device_hint() {
 #[test]
 fn ccin_reads_the_midi_input_bus() {
     // `ccin(cc)` is a live 0..1 signal of the latest incoming control-change.
-    rudel_core::clear_cc();
+    // The bus is process-global and these tests run in parallel, so this uses a
+    // CC number no other test touches rather than clearing the whole bus.
     let pat = eval(r#"ccin(74).segment(4)"#).expect("eval");
     // nothing received yet -> 0
     assert!(values(&pat, 0, 1).iter().all(|v| v.as_f64() == Some(0.0)));
@@ -113,6 +114,59 @@ fn ccin_reads_the_midi_input_bus() {
     assert!(values(&pat, 0, 1).iter().all(|v| v.as_f64() == Some(0.5)));
     // channel-pinned form + use as a control modulator resolves too
     assert!(eval(r#"note("c3").lpf(ccin(1, 1).range(200, 2000))"#).is_ok());
+}
+
+#[test]
+fn midin_and_midikeys_read_their_own_device() {
+    use rudel_core::{Frac, State, TimeSpan, Value, ValueMap};
+
+    // The CC bus is process-global and these tests run in parallel, so this
+    // uses a CC number no other test touches rather than clearing the bus.
+    rudel_core::clear_midi_notes();
+    // `midin(name)` returns a `(cc[, chan]) -> pattern` factory, and asks the
+    // host to open that port.
+    let (pat, effects) = crate::eval_with_samples(
+        "let cc = midin('keystep')\nnote(\"c3\").lpf(cc(91).range(200, 2000))",
+    )
+    .expect("eval");
+    assert_eq!(effects.midi_inputs, vec!["keystep".to_string()]);
+    // A CC from another device doesn't move it; one from `keystep` does.
+    rudel_core::set_cc_from("other", 1, 91, 1.0);
+    let lpf = |p: &rudel_core::Pattern| match &values(p, 0, 1)[0] {
+        Value::Map(m) => m.get("cutoff").and_then(Value::as_f64).unwrap(),
+        other => panic!("expected a control map, got {other:?}"),
+    };
+    assert_eq!(lpf(&pat), 200.0);
+    rudel_core::set_cc_from("keystep", 1, 91, 1.0);
+    assert_eq!(lpf(&pat), 2000.0);
+
+    // `midikeys(name)` returns a `(noteLength?) -> pattern` factory of the
+    // notes played on that port. Notes only surface on a scheduler query.
+    let (keys, effects) =
+        crate::eval_with_samples("let kb = midikeys('keystep')\nkb(0.25).s(\"tri\")")
+            .expect("eval");
+    assert_eq!(effects.midi_inputs, vec!["keystep".to_string()]);
+    rudel_core::push_midi_note("keystep", 60, 0.5);
+    // A plain (visualiser) query leaves the queue alone...
+    assert!(keys.query_arc(Frac::zero(), Frac::one()).is_empty());
+    // ...a scheduler query picks the note up, for the requested length.
+    let controls = ValueMap::from([("cyclist".to_string(), Value::Str("cyclist".to_string()))]);
+    let haps = keys.query(&State::with_controls(
+        TimeSpan::new(Frac::zero(), Frac::new(1, 4)),
+        controls,
+    ));
+    assert_eq!(haps.len(), 1);
+    assert_eq!(haps[0].whole.unwrap().end, Frac::new(1, 4));
+    match &haps[0].value {
+        Value::Map(m) => {
+            assert_eq!(m.get("note").and_then(Value::as_f64), Some(60.0));
+            assert_eq!(m.get("velocity").and_then(Value::as_f64), Some(0.5));
+            assert_eq!(m.get("s").and_then(Value::as_str), Some("tri"));
+        }
+        other => panic!("expected a control map, got {other:?}"),
+    }
+    // The note is consumed, so it doesn't repeat on the next block.
+    assert!(keys.query_arc(Frac::zero(), Frac::one()).is_empty());
 }
 
 #[test]
@@ -145,4 +199,70 @@ fn key_down_and_when_key_read_the_live_keyboard() {
     assert_eq!(values(&pat, 0, 1).len(), 4, "held -> fast(2)");
     rudel_core::clear_keys();
     assert_eq!(values(&pat, 0, 1).len(), 2, "released -> untransformed");
+}
+
+#[test]
+fn log_and_log_values_write_lines_as_events_play() {
+    use rudel_core::{drain_log, query_controls};
+
+    // `logValues()` prints the event's controls; the `_log` key never reaches
+    // the back-ends.
+    drain_log();
+    let pat = eval(r#"s("bd sd").logValues()"#).expect("eval");
+    let events = query_controls(&pat, 1.0, 0.0, 1.0);
+    assert_eq!(events.len(), 2);
+    assert!(
+        events.iter().all(|e| !e.controls.contains_key("_log")),
+        "the log key is consumed by the scheduler"
+    );
+    assert_eq!(
+        drain_log(),
+        vec!["[hap] s:bd".to_string(), "[hap] s:sd".to_string()]
+    );
+
+    // `log()` adds the whole's span, and nothing is logged until the events
+    // are actually scheduled.
+    let pat = eval(r#"s("bd").log()"#).expect("eval");
+    assert!(drain_log().is_empty(), "building the pattern logs nothing");
+    query_controls(&pat, 1.0, 0.0, 1.0);
+    assert_eq!(drain_log(), vec!["[hap] 0/1 → 1/1: s:bd".to_string()]);
+
+    // A formatting callback replaces the message.
+    let pat = eval(r#"s("bd sd").logValues(|v| 'saw ' + v.s)"#).expect("eval");
+    query_controls(&pat, 1.0, 0.0, 1.0);
+    assert_eq!(
+        drain_log(),
+        vec!["saw bd".to_string(), "saw sd".to_string()]
+    );
+}
+
+#[test]
+fn on_trigger_time_fires_its_callback_per_event() {
+    // The callback survives evaluation (with the VM that runs it) and is fired
+    // by the host as each event's onset passes; the tag never leaks to a
+    // back-end.
+    let result = crate::eval_result(
+        "let seen = []\nexport seen = seen\ns(\"bd sd\").onTriggerTime(|hap| seen.push(hap.value.s))",
+    )
+    .expect("eval");
+    let mut hooks = result.trigger_hooks;
+    assert!(!hooks.is_empty());
+
+    let events = rudel_core::query_controls(&result.pattern, 1.0, 0.0, 1.0);
+    assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .iter()
+            .all(|e| !e.controls.contains_key(rudel_core::TRIGGER_KEY)),
+        "the trigger key is consumed by the scheduler"
+    );
+
+    // Firing runs the Koto callback without error.
+    for hap in result.pattern.query_arc(Frac::zero(), Frac::one()) {
+        assert_eq!(hooks.fire(&hap), None, "callback should not raise");
+    }
+
+    // A script with no hook carries none, so the host skips the scan.
+    let plain = crate::eval_result(r#"s("bd")"#).expect("eval");
+    assert!(plain.trigger_hooks.is_empty());
 }

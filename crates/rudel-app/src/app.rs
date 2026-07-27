@@ -16,7 +16,11 @@ use rudel_audio::Engine;
 use rudel_core::Pattern;
 use rudel_midi::{MidiEngine, MidiIn, MidiOut};
 use rudel_osc::OscEngine;
-use std::{collections::HashSet, thread::JoinHandle, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    thread::JoinHandle,
+    time::Instant,
+};
 
 const DEFAULT_CODE: &str = r#"stack(
   s("bd ~ bd bd").gain(0.9),
@@ -100,6 +104,20 @@ pub(crate) struct RudelApp {
     midi_in_pending: Option<JoinHandle<Result<MidiIn, String>>>,
     midi_in_port: String,
     clock_sync: bool,
+    /// Extra MIDI input ports opened because a script called
+    /// `midin(name)`/`midikeys(name)`, keyed by the name the script used (which
+    /// is also how the input bus tags what arrives on them). Held so the
+    /// connections stay alive; opened once per name per session.
+    script_midi_ins: HashMap<String, MidiIn>,
+    /// `midin`/`midikeys` port opens still in flight, as `(name, handle)`.
+    script_midi_in_pending: Vec<(String, JoinHandle<Result<MidiIn, String>>)>,
+    /// Lines written by `log`/`logValues`-tagged events, drained off the
+    /// scheduler each frame and shown in the console panel.
+    pub(super) log_lines: Vec<String>,
+    /// `onTriggerTime` callbacks from the last evaluation, plus the cycle
+    /// position they have already been fired up to.
+    pub(super) trigger_hooks: rudel_lang::triggers::TriggerHooks,
+    pub(super) trigger_fired_upto: Option<f64>,
 }
 
 impl RudelApp {
@@ -152,6 +170,11 @@ impl RudelApp {
             midi_in_pending: None,
             midi_in_port: String::new(),
             clock_sync: false,
+            script_midi_ins: HashMap::new(),
+            script_midi_in_pending: Vec::new(),
+            log_lines: Vec::new(),
+            trigger_hooks: rudel_lang::triggers::TriggerHooks::default(),
+            trigger_fired_upto: None,
         }
     }
 
@@ -177,6 +200,8 @@ impl RudelApp {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
+                self.trigger_hooks = result.trigger_hooks;
+                self.trigger_fired_upto = None;
                 self.editor_decorations.replace_all(&result.meta);
                 self.eval_meta = result.meta;
                 self.eval_error = None;
@@ -205,6 +230,8 @@ impl RudelApp {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
+                self.trigger_hooks = result.trigger_hooks;
+                self.trigger_fired_upto = None;
                 let source_range = SourceRange::new(range.from, range.to);
                 self.editor_decorations
                     .replace_range(&result.meta, source_range);
@@ -284,6 +311,11 @@ mod tests {
             midi_in_pending: None,
             midi_in_port: String::new(),
             clock_sync: false,
+            script_midi_ins: HashMap::new(),
+            script_midi_in_pending: Vec::new(),
+            log_lines: Vec::new(),
+            trigger_hooks: rudel_lang::triggers::TriggerHooks::default(),
+            trigger_fired_upto: None,
         }
     }
 

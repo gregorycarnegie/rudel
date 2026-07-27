@@ -19,3 +19,4 @@ mod tests;
 pub(crate) use geometry::{WidgetLayout, block_widget_line_heights};
 pub(crate) use host::WidgetHostState;
 pub(crate) use paint::{WidgetPaintInput, draw_widget_hosts};
+pub(crate) use style::mark_color;

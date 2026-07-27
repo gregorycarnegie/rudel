@@ -4,7 +4,7 @@
 
 use crate::{sample_map, soundfont::Preset};
 use fundsp::wave::Wave;
-use rudel_dsp::Sample;
+use rudel_dsp::{Sample, WaveTable};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -33,6 +33,9 @@ pub struct SampleBank {
     /// Bank aliases (`alias -> canonical`), so `s("bd").bank("tr909")` can find
     /// a pack registered as `RolandTR909_bd`. See [`alias_bank`](Self::alias_bank).
     bank_aliases: HashMap<String, String>,
+    /// Wavetable collections loaded by `tables(...)`, keyed by sound name; `n`
+    /// indexes into the list, as it does for samples.
+    tables: HashMap<String, Vec<WaveTable>>,
 }
 
 /// A soundfont zone resolved for one note: what to play, how fast, and where
@@ -75,7 +78,12 @@ impl SampleBank {
 
     /// Internal helper to push a sample into the corresponding group.
     fn push_into(&mut self, name: &str, note: Option<i32>, sample: Arc<Sample>) {
+        // Publish the length so `getDuration(name, n)` can read it back at eval
+        // time; `n` counts across the sound's groups, as `resolve` indexes it.
+        let seconds = sample.data.len() as f64 / f64::from(sample.sample_rate).max(1.0);
         let groups = self.map.entry(name.to_string()).or_default();
+        let index = groups.iter().map(|g| g.samples.len()).sum::<usize>() as i64;
+        rudel_core::set_sample_duration(name, index, seconds);
         match groups.iter_mut().find(|g| g.note == note) {
             Some(g) => g.samples.push(sample),
             None => groups.push(SampleGroup {
@@ -157,6 +165,21 @@ impl SampleBank {
             let sample = group.samples[wrap_index(index, group.samples.len())].clone();
             Some((sample, midi.map(|m| m - 36.0).unwrap_or(0.0)))
         }
+    }
+
+    /// Register a wavetable under `name` (appended as the next `n` index).
+    pub fn register_table(&mut self, name: &str, table: WaveTable) {
+        self.tables.entry(name.to_string()).or_default().push(table);
+    }
+
+    /// Resolve the `n`-th wavetable registered under `name`, wrapping `n` into
+    /// range like [`resolve`](Self::resolve) does for samples.
+    pub fn resolve_table(&self, name: &str, index: i64) -> Option<WaveTable> {
+        let tables = self.tables.get(name)?;
+        if tables.is_empty() {
+            return None;
+        }
+        Some(tables[wrap_index(index, tables.len())].clone())
     }
 
     /// Register a loaded soundfont preset for `name` at variant `n`.
@@ -355,6 +378,68 @@ impl SampleBank {
             }
         }
         Ok(loaded)
+    }
+
+    /// Load a wavetable collection (`tables(source, frameLen)`), porting
+    /// `wavetable.mjs`'s `tables`/`_processTables`: the source is resolved the
+    /// same way `samples()` resolves one, each entry's files are fetched and
+    /// decoded, and each buffer is sliced into `frame_len`-sample single-cycle
+    /// frames. Non-`.wav` entries are skipped with a note, as upstream does.
+    pub(crate) fn load_tables_entries(
+        source: &str,
+        frame_len: usize,
+    ) -> Result<Vec<(String, WaveTable)>, String> {
+        use sample_map::SoundFiles;
+
+        let resolved = sample_map::resolve_special_paths(source.trim());
+        let (json, base) = if resolved.starts_with("github:") {
+            let url = sample_map::github_path(&resolved, "strudel.json")?;
+            let base = sample_map::base_url_of(&url);
+            (fetch_text(&url)?, base)
+        } else if is_http(&resolved) {
+            let base = sample_map::base_url_of(&resolved);
+            (fetch_text(&resolved)?, base)
+        } else {
+            let path = expand_home(&resolved);
+            let path = Path::new(&path);
+            let json = std::fs::read_to_string(path)
+                .map_err(|e| format!("read {}: {e}", path.display()))?;
+            let base = path
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            (json, base)
+        };
+
+        let mut jobs: Vec<(String, String)> = Vec::new();
+        for (name, files) in sample_map::parse_sample_map(&json, &base)? {
+            let urls = match files {
+                SoundFiles::Flat(urls) => urls,
+                // Wavetables are a flat list per name; a note-keyed map has no
+                // meaning here, so its groups are flattened in order.
+                SoundFiles::Pitched(groups) => {
+                    groups.into_iter().flat_map(|(_, urls)| urls).collect()
+                }
+            };
+            for url in urls {
+                if !url.to_lowercase().ends_with(".wav") {
+                    eprintln!("[rudel-audio] wavetable {url:?}: must be .wav, skipping");
+                    continue;
+                }
+                jobs.push((name.clone(), url));
+            }
+        }
+
+        let decoded = parallel_map(jobs, 16, |(_, url)| fetch_and_decode(url));
+        let mut tables = Vec::new();
+        for ((name, _), sample) in decoded {
+            match sample {
+                Ok(s) => tables.push((name, WaveTable::from_samples(&s.data, frame_len))),
+                Err(e) => eprintln!("[rudel-audio] wavetable {name:?}: {e}"),
+            }
+        }
+        Ok(tables)
     }
 }
 
@@ -863,6 +948,30 @@ mod tests {
         let (s, t) = bank.resolve("piano", 0, None).unwrap();
         assert_eq!(s.data[0], 0.60);
         assert_eq!(t, 36.0 - 60.0);
+    }
+
+    #[test]
+    fn registering_publishes_the_duration_getduration_reads() {
+        let mut bank = SampleBank::new();
+        // 22050 frames at 44.1kHz == half a second; the second one is a full
+        // second, and its index matches the `n` `resolve` would use.
+        bank.register(
+            "dur_test",
+            Arc::new(Sample {
+                data: vec![0.0; 22050],
+                sample_rate: 44100.0,
+            }),
+        );
+        bank.register(
+            "dur_test",
+            Arc::new(Sample {
+                data: vec![0.0; 44100],
+                sample_rate: 44100.0,
+            }),
+        );
+        assert_eq!(rudel_core::sample_duration("dur_test", 0), Some(0.5));
+        assert_eq!(rudel_core::sample_duration("dur_test", 1), Some(1.0));
+        assert_eq!(rudel_core::sample_duration("dur_test", 2), None);
     }
 
     #[test]

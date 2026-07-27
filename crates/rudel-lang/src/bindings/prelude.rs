@@ -247,6 +247,27 @@ pub(crate) fn register(prelude: &KMap) {
         super::pattern::reset_slots();
         Ok(KPattern(rudel_core::silence()).into())
     });
+    // clearScope(): upstream deletes the user variables block-based eval leaked
+    // into the shared `strudelScope`. Rudel runs each evaluation in a fresh Koto
+    // VM, so nothing accumulates across blocks and there is nothing to delete;
+    // the persistent state Rudel *does* keep is the slot registry, which is
+    // already cleared per eval. So this returns silence, as upstream does, and
+    // is otherwise a no-op (like `registerSoundfonts()`).
+    prelude.add_fn("clearScope", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // getDuration(name[, n]) / getDur: the length in seconds of a loaded
+    // sample, so a pattern can set its tempo from it
+    // (`setcps(1 / getDuration('sax'))`). Upstream returns a promise resolved
+    // from the decoded AudioBuffer; Rudel's bank publishes the length as it
+    // registers each sample, so this returns the number directly — no `await`.
+    // An unknown sound (or one not loaded yet) reads as 0, like an unseen CC.
+    for name in ["getDuration", "getDur"] {
+        prelude.add_fn(name, |ctx| {
+            let a = ctx.args();
+            let sound = a.first().and_then(arg_to_raw_str).unwrap_or_default();
+            let n = a.get(1).map(arg_to_f64).unwrap_or(0.0).round() as i64;
+            Ok(rudel_core::sample_duration(&sound, n).unwrap_or(0.0).into())
+        });
+    }
     // Strudel-style chord control: `chord("<Am C>").voicing()`.
     prelude.add_fn("chord", |ctx| {
         Ok(KPattern(rudel_core::control_dyn("chord", arg_to_pattern(&arg0(ctx)))).into())

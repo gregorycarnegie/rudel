@@ -66,6 +66,7 @@ node gen_zzfx_oracle.mjs        # -> zzfx_golden.json  (ZzFX audio golden)
 node gen_lfo_oracle.mjs         # -> lfo_golden.json   (LFO modulator-source golden)
 node gen_adsr_oracle.mjs        # -> adsr_golden.json  (linear ADSR gain-envelope golden)
 node gen_distortion_oracle.mjs  # -> distortion_golden.json  (waveshaping distortion golden)
+node gen_warp_oracle.mjs        # -> warp_golden.json  (wavetable phase-warp golden)
 ```
 
 ### Web Audio graph oracle (`OfflineAudioContext`)

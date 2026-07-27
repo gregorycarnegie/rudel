@@ -30,6 +30,36 @@ pub(super) fn event_color(hap: &Hap, fallback: egui::Color32) -> egui::Color32 {
         .unwrap_or(fallback)
 }
 
+/// The colour the editor should flash this event's source span with, or `None`
+/// to use the theme's default flash. Ports `highlight.mjs`'s
+/// `hap.value?.markcss || 'outline: solid 2px ${color}'` rule as far as a
+/// native text editor can: Rudel paints a background rather than applying CSS,
+/// so a `markcss` declaration is scanned for a colour and everything else in it
+/// (borders, text-decoration, fonts) is ignored. With no `markcss`, the `color`
+/// control is used, as upstream's default outline does.
+pub(crate) fn mark_color(hap: &Hap) -> Option<egui::Color32> {
+    let controls = rudel_core::to_control_map(&hap.value);
+    let from_css = controls
+        .get("markcss")
+        .and_then(Value::as_str)
+        .and_then(css_color);
+    from_css.or_else(|| {
+        controls
+            .get("color")
+            .and_then(Value::as_str)
+            .and_then(resolve_color)
+    })
+}
+
+/// The first colour-valued token in a CSS declaration list, e.g. `#ff0000` in
+/// `outline: solid 2px #ff0000` or `red` in `background-color: red`.
+fn css_color(css: &str) -> Option<egui::Color32> {
+    css.split(';')
+        .flat_map(|decl| decl.split(':').skip(1))
+        .flat_map(str::split_whitespace)
+        .find_map(resolve_color)
+}
+
 pub(super) fn event_alpha(hap: &Hap) -> f32 {
     let controls = rudel_core::to_control_map(&hap.value);
     let velocity = controls
@@ -42,7 +72,7 @@ pub(super) fn event_alpha(hap: &Hap) -> f32 {
 
 /// Resolve a pattern `color` control to a color: a `#rrggbb`/`#rrggbbaa` hex, or
 /// a CSS named color via `draw/color.mjs`'s table (which resolves to `#rrggbb`).
-pub(super) fn resolve_color(color: &str) -> Option<egui::Color32> {
+pub(crate) fn resolve_color(color: &str) -> Option<egui::Color32> {
     if color.starts_with('#') {
         return parse_hex_color(color);
     }

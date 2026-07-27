@@ -6,6 +6,7 @@ use crate::{
     oscillator::{NoiseGen, NoiseKind, Waveform, sample_table},
     params::VoiceParams,
     voice::VoiceLike,
+    wavetable::{ParamModRunner, WavetableOsc},
 };
 use std::f32::consts::{FRAC_PI_2, TAU};
 use wide::f32x8;
@@ -103,6 +104,8 @@ pub struct Voice {
     filters_r: Vec<VoiceFilter>,
     /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
     pitch_env: Option<(Adsr, f32, f32)>,
+    /// Wavetable source with its `wt` position and `warp` amount modulators.
+    wavetable: Option<(WavetableOsc, ParamModRunner, ParamModRunner)>,
     /// Modulators targeting this voice (frequency, gain, the filters). Empty
     /// for the common case, and then every offset reads as zero.
     mods: ModBank,
@@ -173,7 +176,9 @@ impl Voice {
         } else {
             (Vec::new(), Vec::new(), Vec::new(), Vec::new())
         };
-        let filters_r = if params.supersaw {
+        // The super-saw and wavetable sources are stereo, and the filters are
+        // stateful and mono, so the right channel needs its own bank.
+        let filters_r = if params.supersaw || params.wavetable.is_some() {
             filters.clone()
         } else {
             Vec::new()
@@ -199,6 +204,29 @@ impl Voice {
         } else {
             None
         };
+        // Wavetable source: the unison stack mirrors the super-saw's, and the
+        // `wt`/`warp` params get their own envelope+LFO runners.
+        let wavetable = params.wavetable.clone().map(|table| {
+            let voices = params.unison.max(1);
+            // `wtphaserand ?? (unison > 1)` — a unison stack decorrelates by
+            // default, a single voice starts at phase 0.
+            let phaserand = params
+                .wtphaserand
+                .unwrap_or(if voices > 1 { 1.0 } else { 0.0 });
+            (
+                WavetableOsc::new(
+                    table,
+                    voices,
+                    params.freqspread,
+                    params.panspread,
+                    phaserand,
+                    sample_rate,
+                    rand_phase,
+                ),
+                ParamModRunner::new(&params.wt, sample_rate as f64),
+                ParamModRunner::new(&params.warp, sample_rate as f64),
+            )
+        });
         Voice {
             params,
             sample_rate,
@@ -216,6 +244,7 @@ impl Voice {
             super_gain_r,
             filters_r,
             pitch_env,
+            wavetable,
             mods: ModBank::new(mods, sample_rate as f64),
             done: false,
         }
@@ -335,6 +364,28 @@ impl Voice {
         (acc_l.reduce_add() * norm, acc_r.reduce_add() * norm)
     }
 
+    /// Render one stereo wavetable sample and advance its phases. The `wt`
+    /// position and `warp` amount are swept per sample by their own envelope +
+    /// LFO, as superdough drives the worklet's AudioParams.
+    fn next_wavetable(&mut self) -> (f32, f32) {
+        let carrier = self.params.freq * self.pitch_mult() + self.mods.get(ModTarget::Frequency);
+        // `onTriggerSynth` runs `applyFM` on the worklet's frequency param, so
+        // the wavetable is FM-able like the plain oscillator.
+        let freq = if self.params.fm.active() {
+            carrier + self.fm_deviation(carrier)
+        } else {
+            carrier
+        };
+        let (t, hold_end) = (self.t, self.hold_end);
+        let warpmode = self.params.warpmode;
+        let Some((osc, wt, warp)) = &mut self.wavetable else {
+            return (0.0, 0.0);
+        };
+        let position = wt.tick(t, hold_end);
+        let amount = warp.tick(t, hold_end);
+        osc.tick(freq, position, amount, warpmode)
+    }
+
     /// Produce the next source sample and advance the oscillator phase(s).
     fn next_source(&mut self) -> f32 {
         let sr = self.sample_rate;
@@ -379,8 +430,12 @@ impl Voice {
         let gain = self.params.gain + self.mods.get(ModTarget::Gain);
         let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         // 0.3 matches Strudel's synth turn-down (gainNode(0.3)).
-        let out = if self.params.supersaw {
-            let (mut l, mut r) = self.next_supersaw();
+        let out = if self.params.supersaw || self.wavetable.is_some() {
+            let (mut l, mut r) = if self.wavetable.is_some() {
+                self.next_wavetable()
+            } else {
+                self.next_supersaw()
+            };
             for f in &mut self.filters {
                 let (ft, qt) = f.mod_targets();
                 l = f.process(l, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));

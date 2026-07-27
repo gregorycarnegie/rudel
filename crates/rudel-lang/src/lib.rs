@@ -7,6 +7,7 @@ mod bindings;
 mod preprocess;
 mod samples;
 mod sliders;
+pub mod triggers;
 
 use koto::prelude::*;
 use rudel_core::Pattern;
@@ -110,6 +111,9 @@ pub struct EvalResult {
     pub pattern: Pattern,
     pub sample_effects: SampleEffects,
     pub meta: EvalMeta,
+    /// `onTriggerTime` callbacks this evaluation registered, with the VM that
+    /// runs them. Empty unless the script called `onTriggerTime`.
+    pub trigger_hooks: triggers::TriggerHooks,
 }
 
 /// The names a user can reach in Rudel scripts, generated from the live runtime
@@ -215,6 +219,7 @@ fn eval_result_with_preprocessor(
     // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
     // they don't leak into this one (Strudel calls `hush()` at eval start).
     reset_slots();
+    triggers::reset_hooks();
     let chunk = koto.compile(&script).map_err(|e| e.to_string())?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
     let effects = std::mem::take(&mut *effects.lock().unwrap());
@@ -234,6 +239,7 @@ fn eval_result_with_preprocessor(
         pattern,
         sample_effects: effects,
         meta,
+        trigger_hooks: triggers::TriggerHooks::take(koto),
     })
 }
 

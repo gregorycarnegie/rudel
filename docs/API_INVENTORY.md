@@ -13,26 +13,26 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `codemirror` | 3 | 1 | 0 | 2 | 0 |
-| `core` | 618 | 597 | 16 | 5 | 0 |
+| `codemirror` | 3 | 2 | 1 | 0 | 0 |
+| `core` | 618 | 603 | 15 | 0 | 0 |
 | `csound` | 2 | 0 | 2 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
-| `midi` | 2 | 0 | 0 | 2 | 0 |
+| `midi` | 2 | 2 | 0 | 0 | 0 |
 | `motion` | 48 | 0 | 48 | 0 | 0 |
 | `osc` | 1 | 1 | 0 | 0 | 0 |
-| `superdough` | 4 | 0 | 2 | 2 | 0 |
+| `superdough` | 4 | 2 | 2 | 0 | 0 |
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **629** | **69** | **11** | **0** |
+| **Total** | **709** | **640** | **69** | **0** | **0** |
 
 ## `codemirror`
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `dracula` | deferred | theme |
-| `markcss` | deferred | draw runtime |
+| `dracula` | intentional | editor theme |
+| `markcss` | implemented |  |
 | `slider` | implemented |  |
 
 ## `core`
@@ -45,7 +45,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `FXrelease` | implemented |  |
 | `K` | intentional | unsupported package |
 | `accelerate` | implemented |  |
-| `activeLabel` | deferred | draw runtime |
+| `activeLabel` | implemented |  |
 | `ad` | implemented |  |
 | `add` | implemented |  |
 | `adsr` | implemented |  |
@@ -129,7 +129,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `chunkback` | implemented |  |
 | `chunkbackinto` | implemented |  |
 | `chunkinto` | implemented |  |
-| `clearScope` | deferred | draw runtime |
+| `clearScope` | implemented |  |
 | `clip` | implemented |  |
 | `coarse` | implemented |  |
 | `color` | implemented |  |
@@ -326,7 +326,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `keep` | implemented |  |
 | `keyDown` | implemented |  |
 | `krush` | implemented |  |
-| `label` | deferred | draw runtime |
+| `label` | implemented |  |
 | `lastOf` | implemented |  |
 | `late` | implemented |  |
 | `layer` | implemented |  |
@@ -336,9 +336,9 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `lfo` | implemented |  |
 | `linger` | implemented |  |
 | `lock` | implemented |  |
-| `log` | intentional | doc artifact |
+| `log` | implemented |  |
 | `log2` | implemented |  |
-| `logValues` | deferred | draw runtime |
+| `logValues` | implemented |  |
 | `loop` | implemented |  |
 | `loopAt` | implemented |  |
 | `loopAtCps` | implemented |  |
@@ -401,7 +401,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `off` | implemented |  |
 | `offset` | implemented |  |
 | `often` | implemented |  |
-| `onTriggerTime` | deferred | draw runtime |
+| `onTriggerTime` | implemented |  |
 | `orbit` | implemented |  |
 | `oschost` | implemented |  |
 | `oscport` | implemented |  |
@@ -688,8 +688,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `midikeys` | deferred | midi device input |
-| `midin` | deferred | midi device input |
+| `midikeys` | implemented |  |
+| `midin` | implemented |  |
 
 ## `motion`
 
@@ -754,10 +754,10 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `getDuration` | deferred | draw runtime |
+| `getDuration` | implemented |  |
 | `setGainCurve` | intentional | unsupported package |
 | `setMaxPolyphony` | intentional | unsupported package |
-| `tables` | deferred | draw runtime |
+| `tables` | implemented |  |
 
 ## `tonal`
 

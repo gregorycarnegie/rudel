@@ -4,15 +4,24 @@ use eframe::egui;
 pub(crate) enum EditorTheme {
     StrudelDark,
     Light,
+    /// Ported from `codemirror/themes/dracula.mjs` (Michael Kaminsky's port of
+    /// Zeno Rocha's scheme): its `settings` export drives the draw theme and its
+    /// `styles` list the syntax palette.
+    Dracula,
 }
 
 impl EditorTheme {
-    pub(crate) const ALL: [EditorTheme; 2] = [EditorTheme::StrudelDark, EditorTheme::Light];
+    pub(crate) const ALL: [EditorTheme; 3] = [
+        EditorTheme::StrudelDark,
+        EditorTheme::Light,
+        EditorTheme::Dracula,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             EditorTheme::StrudelDark => "strudelTheme",
             EditorTheme::Light => "whitescreen",
+            EditorTheme::Dracula => "dracula",
         }
     }
 
@@ -43,6 +52,19 @@ impl EditorTheme {
                 gutter_background: egui::Color32::TRANSPARENT,
                 gutter_foreground: egui::Color32::BLACK,
                 light: true,
+            },
+            EditorTheme::Dracula => DrawTheme {
+                background: egui::Color32::from_rgb(0x28, 0x2a, 0x36),
+                line_background: egui::Color32::from_rgba_unmultiplied(0x28, 0x2a, 0x36, 0x99),
+                foreground: egui::Color32::from_rgb(0xf8, 0xf8, 0xf2),
+                muted: egui::Color32::from_rgba_unmultiplied(0xf8, 0xf8, 0xf2, 0x50),
+                caret: egui::Color32::from_rgb(0xf8, 0xf8, 0xf0),
+                selection: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26),
+                selection_match: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 51),
+                line_highlight: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26),
+                gutter_background: egui::Color32::from_rgb(0x28, 0x2a, 0x36),
+                gutter_foreground: egui::Color32::from_rgb(0x62, 0x72, 0xa4),
+                light: false,
             },
         }
     }
@@ -76,6 +98,24 @@ impl EditorTheme {
                 mini_word: draw.foreground,
                 flash: egui::Color32::from_rgba_unmultiplied(0xff, 0xcc, 0x00, 0x33),
                 bracket_flash: draw.line_highlight,
+                active_line: draw.line_highlight,
+                line_number: draw.gutter_foreground,
+                line_number_active: draw.foreground,
+            },
+            // dracula.mjs `styles`: comments/gutter `#6272a4`, strings `#f1fa8c`,
+            // numbers/atoms `#bd93f9`, keywords `#ff79c6`, property/function
+            // names (Rudel's method tokens) `#50fa7b`.
+            EditorTheme::Dracula => EditorPalette {
+                foreground: draw.foreground,
+                keyword: egui::Color32::from_rgb(0xff, 0x79, 0xc6),
+                method: egui::Color32::from_rgb(0x50, 0xfa, 0x7b),
+                string: egui::Color32::from_rgb(0xf1, 0xfa, 0x8c),
+                number: egui::Color32::from_rgb(0xbd, 0x93, 0xf9),
+                comment: egui::Color32::from_rgb(0x62, 0x72, 0xa4),
+                mini_op: egui::Color32::from_rgb(0xff, 0x79, 0xc6),
+                mini_word: egui::Color32::from_rgb(0xf1, 0xfa, 0x8c),
+                flash: egui::Color32::from_rgba_unmultiplied(0xbd, 0x93, 0xf9, 0x44),
+                bracket_flash: draw.selection_match,
                 active_line: draw.line_highlight,
                 line_number: draw.gutter_foreground,
                 line_number_active: draw.foreground,

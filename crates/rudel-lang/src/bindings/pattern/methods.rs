@@ -423,7 +423,7 @@ pub(super) fn kpattern_tag(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
 /// `Hap` object; this is the same information in Koto's shape, so
 /// `hap.value.s == "hh"` reads as it does upstream and `hap.tags.contains(t)`
 /// stands in for `hap.hasTag(t)`.
-fn hap_to_koto(hap: &rudel_core::Hap) -> KValue {
+pub(crate) fn hap_to_koto(hap: &rudel_core::Hap) -> KValue {
     let map = koto::runtime::KMap::new();
     map.insert("value", super::convert::value_to_koto(hap.value.clone()));
     map.insert("begin", hap.part.begin.to_f64());
@@ -483,6 +483,67 @@ pub(super) fn kpattern_filter_when(ctx: MethodContext<KPattern>) -> KotoResult<K
     });
     cb.finish()?;
     Ok(KPattern::wrap(out))
+}
+
+/// `pat.log()` / `pat.logValues()`, with or without a formatting callback.
+///
+/// Upstream both go through `Pattern.onTrigger`, running the callback as each
+/// event fires. Rudel's Koto VM can't run in the realtime path, so the message
+/// is decided up front — `mode` for the two built-in formats, or a string
+/// probed-and-baked per hap when a callback is given — and carried on the hap as
+/// the `_log` control. The scheduler's shared event extraction
+/// (`rudel_core::query_controls`) consumes it and writes the line as the event
+/// is played, which is the trigger time upstream logs at.
+fn log_build(ctx: &MethodContext<KPattern>, mode: &str, per_value: bool) -> KotoResult<KValue> {
+    const PROBE: i64 = 16;
+    let pat = ctx.instance()?.0.clone();
+    let arg = method_arg(ctx, 0);
+    if matches!(arg, KValue::Null) {
+        // No callback: tag every hap with the built-in format to use.
+        return Ok(KPattern::wrap(pat.ctrl(
+            rudel_core::LOG_KEY,
+            rudel_core::pure(Value::Str(mode.into())),
+        )));
+    }
+    let cb = Callback::new(ctx, arg);
+    let haps = pat
+        .query_arc(Frac::zero(), Frac::int(PROBE))
+        .into_iter()
+        .map(|hap| {
+            // `logValues(f)` hands the callback the hap's value; `log(f)` the
+            // whole hap, as upstream.
+            let called = if per_value {
+                cb.apply_value(hap.value.clone())
+            } else {
+                cb.apply_koto(hap_to_koto(&hap))
+            };
+            let message = rudel_core::host::stringify_values(&called);
+            let mut hap = hap;
+            hap.value = merge_log_key(hap.value, message);
+            hap
+        })
+        .collect();
+    let out = static_period_pattern(haps, pat.steps, Frac::int(PROBE));
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
+/// Add the `_log` control (carrying the already-formatted message) to a hap
+/// value, coercing a bare value into a control map the way the controls do.
+fn merge_log_key(value: Value, message: String) -> Value {
+    let mut map = rudel_core::to_control_map(&value);
+    map.insert(rudel_core::LOG_KEY.to_string(), Value::Str(message));
+    Value::Map(map)
+}
+
+pub(super) use crate::triggers::kpattern_on_trigger_time;
+
+pub(super) fn kpattern_log(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    log_build(&ctx, "hap", false)
+}
+
+pub(super) fn kpattern_log_values(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    log_build(&ctx, "values", true)
 }
 
 /// `pat.arp_with(|chord| ...)`: arpeggiate chords, transforming each chord
@@ -553,6 +614,18 @@ pub(super) fn kpattern_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue>
         None => arg_to_pattern(&arg),
     };
     with_instance(&ctx, |pat| pat.scale(name))
+}
+
+/// `markcss(css)`: the CSS the editor styles this event's source span with. A
+/// declaration list (`'outline: solid 2px #ff0000'`) is one opaque string, not
+/// a sequence of mini words, so the argument is taken raw.
+pub(super) fn kpattern_markcss(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let arg = method_arg(&ctx, 0);
+    let css = match arg_to_raw_str(&arg) {
+        Some(s) => rudel_core::pure(Value::Str(s)),
+        None => arg_to_pattern(&arg),
+    };
+    with_instance(&ctx, |pat| pat.markcss(css))
 }
 
 pub(super) fn kpattern_edo_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

@@ -4,6 +4,7 @@ use crate::{
     fm::FmSpec,
     oscillator::{AdditiveType, NoiseKind, Waveform, build_additive},
     pitch::note_to_freq,
+    wavetable::{ParamMod, WarpMode, WaveTable},
 };
 use rudel_core::{Value, ValueMap};
 
@@ -60,6 +61,17 @@ pub struct VoiceParams {
     pub hp: FilterParams,
     /// Band-pass filter (`bandf`/`bpf` + `bpenv`/...).
     pub bp: FilterParams,
+    /// Wavetable source (`tables(...)` + `s("name")`); overrides the oscillator.
+    pub wavetable: Option<WaveTable>,
+    /// `wt` table position with its envelope + LFO.
+    pub wt: ParamMod,
+    /// `warp` amount with its envelope + LFO.
+    pub warp: ParamMod,
+    /// `warpmode`: which phase distortion `warp` applies.
+    pub warpmode: WarpMode,
+    /// `wtphaserand`: how much random initial phase each unison voice gets.
+    /// Defaults to 1 when `unison > 1`, as `onTriggerSynth` does.
+    pub wtphaserand: Option<f32>,
 }
 
 impl Default for VoiceParams {
@@ -96,6 +108,11 @@ impl Default for VoiceParams {
                 q: 1.0,
                 ..FilterParams::default()
             },
+            wavetable: None,
+            wt: ParamMod::default(),
+            warp: ParamMod::default(),
+            warpmode: WarpMode::None,
+            wtphaserand: None,
         }
     }
 }
@@ -103,6 +120,13 @@ impl Default for VoiceParams {
 impl VoiceParams {
     /// Build params from a control map and the note duration in seconds.
     pub fn from_controls(map: &ValueMap, duration: f32) -> VoiceParams {
+        VoiceParams::from_controls_at(map, duration, 0.5, 0.0)
+    }
+
+    /// Like [`from_controls`](Self::from_controls) but with the pattern clock,
+    /// which the wavetable `wt`/`warp` LFOs need (`wtsync` is in cycles, and an
+    /// LFO's phase is locked to cycle time).
+    pub fn from_controls_at(map: &ValueMap, duration: f32, cps: f64, cycle: f64) -> VoiceParams {
         let mut p = VoiceParams {
             duration,
             ..Default::default()
@@ -165,6 +189,23 @@ impl VoiceParams {
         if let Some(n) = map.get("noise").and_then(|v| v.as_f64()) {
             p.noise_mix = (n as f32).clamp(0.0, 1.0);
         }
+        // Wavetable oscillator (`wt`/`warp`/`warpmode`/`wtphaserand` + their
+        // envelopes and LFOs). The table itself is attached by the audio layer,
+        // which owns the loaded collections; the modulation is read here.
+        let time = cycle / cps.max(1e-9);
+        p.wt = ParamMod::from_controls(map, "wt", cps, time);
+        p.warp = ParamMod::from_controls(map, "warp", cps, time);
+        p.warpmode = match map.get("warpmode") {
+            Some(Value::Str(name)) => WarpMode::from_name(name).unwrap_or(WarpMode::None),
+            Some(v) => v.as_f64().map_or(WarpMode::None, |n| {
+                WarpMode::from_index(n.clamp(0.0, 255.0) as u8)
+            }),
+            None => WarpMode::None,
+        };
+        p.wtphaserand = map
+            .get("wtphaserand")
+            .and_then(|v| v.as_f64())
+            .map(|x| x as f32);
         // Multi-operator FM matrix (fm/fmi/fmh/fmwave/fm{adsr} + fmiIJ + *N).
         p.fm = FmSpec::from_controls(map);
         // Vibrato (`vib` rate Hz, `vibmod` depth semitones).

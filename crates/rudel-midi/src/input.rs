@@ -1,4 +1,4 @@
-use crate::{CLOCK, CONTINUE, CONTROL_CHANGE, START, STOP};
+use crate::{CLOCK, CONTINUE, CONTROL_CHANGE, NOTE_OFF, NOTE_ON, START, STOP};
 use midir::{Ignore, MidiInput, MidiInputConnection};
 use std::{
     sync::{Arc, Mutex},
@@ -59,6 +59,10 @@ pub fn bpm_to_cps(bpm: f64, beats_per_cycle: f64) -> f64 {
 pub enum InputAction {
     /// A control-change: channel (1..=16), controller, value scaled to 0..1.
     Cc { channel: u8, cc: u8, value: f64 },
+    /// A note-on: MIDI note number and velocity scaled to 0..1. Feeds
+    /// `midikeys`; note-offs are reported as [`InputAction::None`] because a
+    /// `midikeys` hap's length comes from the pattern, not the key release.
+    NoteOn { note: i64, velocity: f64 },
     /// A new tempo estimate (BPM) from the clock.
     Bpm(f64),
     /// Transport start/stop/continue (resets the clock estimate).
@@ -80,6 +84,20 @@ pub fn process_input(bytes: &[u8], clock: &mut ClockDetector, now: f64) -> Input
             value: bytes[2] as f64 / 127.0,
         };
     }
+    if status & 0xF0 == NOTE_ON && bytes.len() >= 3 {
+        // A note-on with velocity 0 is a note-off on many devices, which
+        // `midikeys` ignores (upstream's `noteoff ||= noteon && velocity === 0`).
+        if bytes[2] > 0 {
+            return InputAction::NoteOn {
+                note: i64::from(bytes[1]),
+                velocity: f64::from(bytes[2]) / 127.0,
+            };
+        }
+        return InputAction::None;
+    }
+    if status & 0xF0 == NOTE_OFF {
+        return InputAction::None;
+    }
     match status {
         CLOCK => match clock.pulse(now) {
             Some(bpm) => InputAction::Bpm(bpm),
@@ -99,6 +117,7 @@ pub fn process_input(bytes: &[u8], clock: &mut ClockDetector, now: f64) -> Input
 pub struct MidiIn {
     _conn: MidiInputConnection<()>,
     bpm: Arc<Mutex<Option<f64>>>,
+    port_name: String,
 }
 
 impl MidiIn {
@@ -139,8 +158,15 @@ impl MidiIn {
             }
             None => ports[0].clone(),
         };
+        let port_name = input.port_name(&port).unwrap_or_default();
         let bpm = Arc::new(Mutex::new(None));
         let bpm_cb = bpm.clone();
+        // Everything written to the input bus is tagged with the name the
+        // connection was *asked* for, so `midin("IAC Bus 1")` reads back under
+        // the same string the script named — the wildcard readers (`ccin`) see
+        // whatever arrives regardless. Falls back to the port's full name when
+        // the caller didn't name one.
+        let device = name_substr.unwrap_or(&port_name).to_string();
         let mut clock = ClockDetector::new();
         let start = Instant::now();
         let conn = input
@@ -151,7 +177,10 @@ impl MidiIn {
                     let now = start.elapsed().as_secs_f64();
                     match process_input(message, &mut clock, now) {
                         InputAction::Cc { channel, cc, value } => {
-                            rudel_core::set_cc(channel, cc, value);
+                            rudel_core::set_cc_from(&device, channel, cc, value);
+                        }
+                        InputAction::NoteOn { note, velocity } => {
+                            rudel_core::push_midi_note(&device, note, velocity);
                         }
                         InputAction::Bpm(b) => *bpm_cb.lock().unwrap() = Some(b),
                         InputAction::Transport | InputAction::None => {}
@@ -160,7 +189,17 @@ impl MidiIn {
                 (),
             )
             .map_err(|e| format!("MIDI input connect failed: {e}"))?;
-        Ok(MidiIn { _conn: conn, bpm })
+        Ok(MidiIn {
+            _conn: conn,
+            bpm,
+            port_name,
+        })
+    }
+
+    /// The full name of the port this connection opened. `midin`/`midikeys`
+    /// device names are matched against it.
+    pub fn port_name(&self) -> &str {
+        &self.port_name
     }
 
     /// The latest BPM estimate from incoming MIDI clock, if any.

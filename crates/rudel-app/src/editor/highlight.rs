@@ -1,7 +1,7 @@
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 
-use super::settings::EditorSettings;
+use super::{decorations::FlashSpan, settings::EditorSettings};
 
 /// Layout space reserved for inline decorations, so block widgets push the
 /// following code down and inline sliders push the rest of their line right
@@ -46,7 +46,7 @@ pub(super) enum Token {
 pub(super) fn highlighted_editor_job(
     code: &str,
     wrap_width: f32,
-    active: &[(usize, usize)],
+    active: &[FlashSpan],
     brackets: &[(usize, usize)],
     active_line: Option<(usize, usize)>,
     idents: &HashSet<String>,
@@ -106,8 +106,12 @@ pub(super) fn highlighted_editor_job(
         {
             format.background = bracket_flash;
         }
-        if active.iter().any(|&span| spans_overlap((start, end), span)) {
-            format.background = flash;
+        // An event's own `markcss`/`color` wins over the theme's flash colour.
+        if let Some(&(_, _, color)) = active
+            .iter()
+            .find(|&&(from, to, _)| spans_overlap((start, end), (from, to)))
+        {
+            format.background = color.map_or(flash, unpack_color);
         }
         // Reserve the vertical gap for block widgets: make the widget's line tall
         // and top-align its glyphs so the gap opens below the text (and the next
@@ -220,6 +224,17 @@ pub(super) fn tokenize(code: &str, idents: &HashSet<String>) -> Vec<(usize, usiz
         }
     }
     tokens
+}
+
+/// Unpack a `0xRRGGBBAA` flash colour (see [`FlashSpan`]).
+fn unpack_color(packed: u32) -> egui::Color32 {
+    let [r, g, b, a] = packed.to_be_bytes();
+    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+/// Pack a colour into a [`FlashSpan`]'s `0xRRGGBBAA` slot.
+pub(crate) fn pack_color(color: egui::Color32) -> u32 {
+    u32::from_be_bytes(color.to_srgba_unmultiplied())
 }
 
 /// Two half-open byte ranges overlap.
