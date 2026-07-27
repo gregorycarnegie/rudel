@@ -20,7 +20,7 @@ mod synth;
 mod voice;
 mod zzfx;
 
-pub use bus::{DelayConfig, Djf, OrbitSend, ReverbConfig};
+pub use bus::{DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig};
 pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::{Adsr, adsr_value};
 pub use filter::{FilterModel, FilterParams, Ladder};

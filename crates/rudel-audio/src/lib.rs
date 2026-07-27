@@ -21,7 +21,7 @@ pub use samples::SampleBank;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
-use rudel_dsp::{DelayConfig, Djf, OrbitSend, ReverbConfig, VoiceLike};
+use rudel_dsp::{DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig, VoiceLike};
 use std::{
     collections::HashMap,
     sync::{
@@ -126,6 +126,9 @@ struct OrbitBus {
     reverb_cfg: ReverbConfig,
     /// Per-channel DJ filter; `None` until an event sets `djf`.
     djf: Option<(Djf, Djf)>,
+    /// Sidechain duck on this orbit's output gain, driven by other orbits'
+    /// `duckorbit` events.
+    duck: DuckEnv,
     /// Dry / reverb-send / delay-send accumulation buffers for this orbit.
     dry_l: Vec<f32>,
     dry_r: Vec<f32>,
@@ -149,6 +152,7 @@ impl OrbitBus {
             djf: send
                 .djf
                 .map(|v| (Djf::new(sample_rate, v), Djf::new(sample_rate, v))),
+            duck: DuckEnv::default(),
             dry_l: Vec::new(),
             dry_r: Vec::new(),
             room_l: Vec::new(),
@@ -203,10 +207,15 @@ impl OrbitBus {
         }
     }
 
-    /// Run the delay, reverb and DJ filter over `n` accumulated frames and add
-    /// the result into `out`. Returns without doing any work once the orbit has
-    /// been silent long enough for its tail to have decayed, so idle orbits
-    /// cost nothing.
+    /// Start (or restart) a sidechain duck on this orbit's output.
+    fn duck(&mut self, duck: &Duck) {
+        self.duck.trigger(self.sample_rate, duck);
+    }
+
+    /// Run the delay, reverb, DJ filter and duck envelope over `n` accumulated
+    /// frames and add the result into `out`. Returns without doing any work once
+    /// the orbit has been silent long enough for its tail to have decayed, so
+    /// idle orbits cost nothing.
     fn mix_into(&mut self, out: &mut [(f32, f32)]) {
         let n = out.len();
         let fed = self.dry_l[..n].iter().any(|&x| x != 0.0)
@@ -223,7 +232,9 @@ impl OrbitBus {
             // could in principle be cut off; raise the multiplier or track the
             // output RMS if that ever bites.
             let tail = self.reverb_cfg.size.max(self.delay_cfg.time) * 2.0 + 1.0;
-            if self.idle_frames > (self.sample_rate * tail) as u64 {
+            // Keep running while a duck is in flight so its envelope stays in
+            // step with the ducker, even across a silent stretch.
+            if self.idle_frames > (self.sample_rate * tail) as u64 && self.duck.is_idle() {
                 return;
             }
             self.idle_frames = self.idle_frames.saturating_add(n as u64);
@@ -239,8 +250,11 @@ impl OrbitBus {
                 l = fl.process(l);
                 r = fr.process(r);
             }
-            frame.0 += l;
-            frame.1 += r;
+            // The duck rides the orbit's output gain, after `djf` — the same
+            // place superdough puts it (`Orbit.output.gain`).
+            let duck = self.duck.next_gain();
+            frame.0 += l * duck;
+            frame.1 += r * duck;
         }
     }
 }
@@ -475,6 +489,20 @@ impl Mixer {
                     .entry(ev.send.orbit)
                     .or_insert_with(|| OrbitBus::new(sample_rate, &ev.send))
                     .configure(&ev.send);
+                // Sidechain: duck the orbits this voice targets. The target is
+                // created if it does not exist yet (superdough logs an error
+                // instead; creating it means the duck still lands once that
+                // orbit's own pattern starts).
+                for d in &ev.duck {
+                    let send = OrbitSend {
+                        orbit: d.orbit,
+                        ..OrbitSend::default()
+                    };
+                    self.orbits
+                        .entry(d.orbit)
+                        .or_insert_with(|| OrbitBus::new(sample_rate, &send))
+                        .duck(d);
+                }
                 self.active.push(ActiveVoice {
                     voice: ev.spec.into_voice_with_fx(self.sample_rate, ev.fx),
                     tags: ev.tags,
@@ -1056,6 +1084,7 @@ mod tests {
             fx: rudel_dsp::PostFx::default(),
             cut: None,
             send: OrbitSend::default(),
+            duck: Vec::new(),
             tags,
         };
         mixer.schedule(ev(vec!["w1".to_string()]));
@@ -1217,6 +1246,103 @@ mod tests {
         );
     }
 
+    /// Peak level of `frames` over the time window `[from, to)` seconds.
+    fn peak_between(frames: &[f32], from: f32, to: f32) -> f32 {
+        let idx = |t: f32| ((t * 44100.0) as usize).min(frames.len());
+        frames[idx(from)..idx(to)]
+            .iter()
+            .fold(0.0f32, |m, x| m.max(x.abs()))
+    }
+
+    /// A held note on orbit 2, plus a silent ducker on orbit 1 that fires at
+    /// the half cycle and ducks the given targets.
+    fn duck_pattern(targets: Pattern, extra: impl Fn(Pattern) -> Pattern) -> Pattern {
+        let held = |orbit: i64| {
+            rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+                .orbit(rudel_core::Value::Int(orbit))
+        };
+        // `postgain(0)` silences the ducker itself, like Strudel's own examples,
+        // so the measurement only sees the ducked orbit.
+        let ducker = rudel_core::sequence(&[
+            rudel_core::silence(),
+            extra(
+                rudel_core::s(rudel_core::pure(rudel_core::Value::Str("bd".into())))
+                    .orbit(rudel_core::Value::Int(1))
+                    .postgain(rudel_core::Value::F64(0.0))
+                    .duckorbit(targets),
+            ),
+        ]);
+        rudel_core::stack(&[held(2), ducker])
+    }
+
+    #[test]
+    fn duckorbit_dips_the_target_orbit_and_recovers() {
+        let pat = duck_pattern(rudel_core::pure(rudel_core::Value::Int(2)), |p| {
+            p.duckattack(rudel_core::Value::F64(0.3))
+        });
+        let frames = render_pattern(&pat, 1.0, 1.0);
+        let before = peak_between(&frames, 0.35, 0.49);
+        let during = peak_between(&frames, 0.5, 0.55);
+        let after = peak_between(&frames, 0.85, 0.99);
+        assert!(before > 0.01, "the held note should be sounding ({before})");
+        assert!(
+            during < before * 0.2,
+            "duckorbit(2) should dip orbit 2 ({during} vs {before})"
+        );
+        assert!(
+            after > before * 0.8,
+            "orbit 2 should recover after duckattack ({after} vs {before})"
+        );
+    }
+
+    #[test]
+    fn duckdepth_zero_leaves_the_target_alone() {
+        // floor = 1 - sqrt(0) = 1, so there is nothing to duck.
+        let pat = duck_pattern(rudel_core::pure(rudel_core::Value::Int(2)), |p| {
+            p.duckdepth(rudel_core::Value::F64(0.0))
+        });
+        let frames = render_pattern(&pat, 1.0, 1.0);
+        let before = peak_between(&frames, 0.35, 0.49);
+        let during = peak_between(&frames, 0.5, 0.55);
+        assert!(
+            during > before * 0.8,
+            "duckdepth(0) should not duck ({during} vs {before})"
+        );
+    }
+
+    #[test]
+    fn duck_control_lists_are_read_per_target() {
+        // `duckorbit("2:3")` with `duckdepth("1:0")`: orbit 2 ducks fully,
+        // orbit 3 not at all. Only orbit 2 carries the held note here, so a
+        // per-target read is what makes it dip; a first-entry-for-all read
+        // would too, so also check the reverse order.
+        let targets = |a: i64, b: i64| {
+            rudel_core::pure(rudel_core::Value::List(vec![
+                rudel_core::Value::Int(a),
+                rudel_core::Value::Int(b),
+            ]))
+        };
+        let depths =
+            rudel_core::Value::List(vec![rudel_core::Value::Int(1), rudel_core::Value::Int(0)]);
+        let dip = |t: Pattern| {
+            let pat = duck_pattern(t, |p| p.duckdepth(depths.clone()));
+            let frames = render_pattern(&pat, 1.0, 1.0);
+            (
+                peak_between(&frames, 0.35, 0.49),
+                peak_between(&frames, 0.5, 0.55),
+            )
+        };
+        // Orbit 2 is first, so it takes depth 1 and is ducked.
+        let (before, during) = dip(targets(2, 3));
+        assert!(during < before * 0.2, "orbit 2 first: {during} vs {before}");
+        // Orbit 2 is second, so it takes depth 0 and is left alone.
+        let (before, during) = dip(targets(3, 2));
+        assert!(
+            during > before * 0.8,
+            "orbit 2 second: {during} vs {before}"
+        );
+    }
+
     #[test]
     fn orbits_have_independent_effect_buses() {
         // A heavy `djf` lowpass on orbit 2 must not touch orbit 1. Both orbits
@@ -1267,6 +1393,7 @@ mod tests {
             fx: rudel_dsp::PostFx::default(),
             cut: Some(1),
             send: OrbitSend::default(),
+            duck: Vec::new(),
             tags: Vec::new(),
         };
         tx.send(held(0.0)).unwrap();
@@ -1307,6 +1434,7 @@ mod tests {
             fx: rudel_dsp::PostFx::default(),
             cut: None,
             send: OrbitSend::default(),
+            duck: Vec::new(),
             tags: Vec::new(),
         };
         // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.

@@ -2,7 +2,7 @@
 //! a single voice.
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
-use rudel_core::ValueMap;
+use rudel_core::{Value, ValueMap};
 use std::f32::consts::PI;
 
 /// Per-orbit reverb settings. These are superdough's `createReverb` arguments
@@ -118,6 +118,146 @@ impl OrbitSend {
             },
             djf: get("djf"),
         }
+    }
+}
+
+/// One orbit to sidechain-duck when a voice starts (`duckorbit` and friends).
+///
+/// A voice can name several targets with a `:`-list (`duckorbit("2:3")`), and
+/// `duckonset`/`duckattack`/`duckdepth` may be `:`-lists too — read per target,
+/// falling back to the first entry, exactly as superdough's
+/// `SuperdoughAudioController.duck` does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Duck {
+    /// The orbit whose output gain gets ducked.
+    pub orbit: i32,
+    /// `duckonset`: seconds to dip down over.
+    pub onset: f32,
+    /// `duckattack`: seconds to recover over (at least 0.002).
+    pub attack: f32,
+    /// `duckdepth`: 0..1, how far down to dip.
+    pub depth: f32,
+}
+
+impl Duck {
+    /// Read `duckorbit`/`duckonset`/`duckattack`/`duckdepth` from a control
+    /// map. Empty when the voice does not duck anything.
+    pub fn from_controls(map: &ValueMap) -> Vec<Duck> {
+        // A `:`-list arrives as a `Value::List`; a bare number as itself.
+        let list = |k: &str| -> Vec<f32> {
+            match map.get(k) {
+                Some(Value::List(items)) => items
+                    .iter()
+                    .filter_map(|v| v.as_f64())
+                    .map(|x| x as f32)
+                    .collect(),
+                Some(v) => v.as_f64().map(|x| vec![x as f32]).unwrap_or_default(),
+                None => Vec::new(),
+            }
+        };
+        let targets = list("duckorbit");
+        if targets.is_empty() {
+            return Vec::new();
+        }
+        let (onsets, attacks, depths) = (list("duckonset"), list("duckattack"), list("duckdepth"));
+        // Per target, take entry `i` or fall back to entry 0, then the default.
+        let at = |v: &[f32], i: usize, default: f32| {
+            v.get(i).or_else(|| v.first()).copied().unwrap_or(default)
+        };
+        targets
+            .iter()
+            .enumerate()
+            .map(|(i, &orbit)| Duck {
+                orbit: orbit as i32,
+                onset: at(&onsets, i, 0.0),
+                attack: at(&attacks, i, 0.1).max(0.002),
+                depth: at(&depths, i, 1.0),
+            })
+            .collect()
+    }
+}
+
+/// The sidechain duck envelope on an orbit's output gain: an exponential dip to
+/// `1 - sqrt(depth)` over `duckonset`, then an exponential recovery to unity
+/// over `duckattack`.
+///
+/// Ported from superdough's `Orbit.duck`, which schedules a pair of
+/// `exponentialRampToValueAtTime`s. An exponential ramp is geometric, so each
+/// segment is just a constant per-sample multiplier — no `powf` in the loop.
+/// Re-triggering ramps from the *current* gain rather than from unity, matching
+/// the `cancelScheduledValues` + `setValueAtTime(currVal)` pair upstream uses to
+/// emulate `cancelAndHoldAtTime`.
+#[derive(Clone, Copy, Debug)]
+pub struct DuckEnv {
+    /// Current gain, 1.0 when not ducking.
+    gain: f32,
+    /// Samples remaining in the dip, then in the recovery.
+    dip_left: u32,
+    rise_left: u32,
+    /// Per-sample multipliers for each segment.
+    dip_mul: f32,
+    rise_mul: f32,
+    /// The gain at the bottom of the dip.
+    floor: f32,
+}
+
+impl Default for DuckEnv {
+    fn default() -> Self {
+        DuckEnv {
+            gain: 1.0,
+            dip_left: 0,
+            rise_left: 0,
+            dip_mul: 1.0,
+            rise_mul: 1.0,
+            floor: 1.0,
+        }
+    }
+}
+
+impl DuckEnv {
+    /// Start (or restart) a duck.
+    pub fn trigger(&mut self, sample_rate: f32, duck: &Duck) {
+        // superdough: `clamp(1 - sqrt(depth), 0.01, currVal)`. The 0.01 floor is
+        // what keeps the exponential ramps away from zero, where they are
+        // undefined.
+        let floor = (1.0 - duck.depth.max(0.0).sqrt()).clamp(0.01, self.gain.max(0.01));
+        let dip = (sample_rate * duck.onset.max(0.0)) as u32;
+        let rise = ((sample_rate * duck.attack.max(0.002)) as u32).max(1);
+        self.dip_mul = if dip > 0 {
+            (floor / self.gain).powf(1.0 / dip as f32)
+        } else {
+            // A zero onset is an immediate drop (upstream's clicky default).
+            self.gain = floor;
+            1.0
+        };
+        self.rise_mul = (1.0 / floor).powf(1.0 / rise as f32);
+        self.floor = floor;
+        self.dip_left = dip;
+        self.rise_left = rise;
+    }
+
+    /// Advance one sample and return the gain to apply.
+    pub fn next_gain(&mut self) -> f32 {
+        if self.dip_left > 0 {
+            self.dip_left -= 1;
+            self.gain *= self.dip_mul;
+            if self.dip_left == 0 {
+                self.gain = self.floor;
+            }
+        } else if self.rise_left > 0 {
+            self.rise_left -= 1;
+            self.gain *= self.rise_mul;
+            if self.rise_left == 0 {
+                self.gain = 1.0;
+            }
+        }
+        self.gain
+    }
+
+    /// True when the envelope is at unity with nothing scheduled, so the whole
+    /// stage can be skipped.
+    pub fn is_idle(&self) -> bool {
+        self.dip_left == 0 && self.rise_left == 0 && self.gain == 1.0
     }
 }
 

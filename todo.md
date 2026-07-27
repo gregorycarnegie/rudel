@@ -221,8 +221,19 @@ Function-by-function audit against the Strudel learn pages
       (`phase-vocoder-processor` / `byte-beat-processor`) not ported. The
       bytebeat one also needs an integer-expression evaluator for
       `byteBeatExpression`.
-- [ ] `duckorbit`/`duckonset`/`duckattack`/`duckdepth` (sidechain ducking of one
-      orbit by another) — now unblocked by the orbit buses above, not yet wired.
+- [x] `duckorbit`/`duckonset`/`duckattack`/`duckdepth` (sidechain ducking of one
+      orbit by another), ported from superdough's `Orbit.duck`: a voice's
+      `duckorbit` dips the *target* orbit's output gain to `1 - sqrt(depth)`
+      over `duckonset`, then recovers to unity over `duckattack` (min 0.002s).
+      Both segments are exponential ramps, which are geometric, so `DuckEnv`
+      (`rudel-dsp/bus.rs`) runs them as a constant per-sample multiplier rather
+      than a `powf` per sample. Re-triggering ramps from the *current* gain, not
+      from unity, matching upstream's `cancelScheduledValues` +
+      `setValueAtTime(currVal)` pair. `duckorbit("2:3")` targets several orbits
+      and `duckonset`/`duckattack`/`duckdepth` may be `:`-lists read per target
+      (falling back to the first entry). A target orbit that does not exist yet
+      is created rather than logged as an error, so the duck still lands once
+      that orbit's own pattern starts.
 
 ## functions/value-modifiers
 

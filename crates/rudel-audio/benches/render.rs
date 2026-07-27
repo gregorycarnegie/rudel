@@ -44,6 +44,7 @@ fn note_event() -> NoteEvent {
         },
         cut: None,
         send: rudel_dsp::OrbitSend::default(),
+        duck: Vec::new(),
         tags: Vec::new(),
     }
 }
