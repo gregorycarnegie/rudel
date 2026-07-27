@@ -4,7 +4,9 @@
 
 use crate::{clock::Clock, samples::SampleBank};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
-use rudel_dsp::{DrumKind, DrumParams, PostFx, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams};
+use rudel_dsp::{
+    DrumKind, DrumParams, OrbitSend, PostFx, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
+};
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
 pub use rudel_core::to_control_map;
@@ -17,6 +19,9 @@ pub struct NoteEvent {
     pub spec: VoiceSpec,
     /// Per-voice post-effects (crush/shape/distort/coarse/postgain).
     pub fx: PostFx,
+    /// Which orbit bus this voice feeds, how much it sends to that orbit's
+    /// reverb/delay, and the settings the orbit itself should take on.
+    pub send: OrbitSend,
     /// `cut` group: when a new voice in the same group starts, any still-playing
     /// voice in that group is choked (fast fade). `None` means no group.
     pub cut: Option<i32>,
@@ -125,6 +130,7 @@ pub fn collect_events_at(
             onset_seconds: clock.seconds_at(ev.onset_cycle),
             spec: spec_for(&ev.controls, ev.duration_seconds as f32, bank),
             fx: PostFx::from_controls(&ev.controls),
+            send: OrbitSend::from_controls(&ev.controls, clock.cps()),
             cut: ev
                 .controls
                 .get("cut")

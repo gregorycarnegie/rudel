@@ -147,8 +147,13 @@ Function-by-function audit against the Strudel learn pages
       (= N equal harmonics); `phases` rotates each harmonic. Built in
       `oscillator.rs` (`build_additive`/`sample_table`), stored on `VoiceParams`,
       sampled with linear interpolation. Koto `partials`/`phases` take a list.
-- [ ] `zzfx`, wavetables — no DSP reference in the local Strudel clone
-      (worklet-based); would need original DSP, not a port
+- [x] `zzfx` — ported (`rudel-dsp/zzfx.rs`, golden-tested against superdough's
+      `zzfx.mjs`); `s("zzfx")` and the `z_<wave>` family resolve to it.
+- [ ] wavetable oscillator (`wt`/`warp`/`warpmode`/`wtphaserand`) — the controls
+      are registered but the `WavetableOscillatorProcessor` worklet
+      (`superdough/wavetable.mjs`) is not ported. Only the *additive* wavetable
+      (`partials`/`phases`) is. Reference source exists upstream now, so this is
+      a port, not original DSP.
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
       (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
 - [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),
@@ -176,12 +181,48 @@ Function-by-function audit against the Strudel learn pages
 - [x] `dry` (wet/dry of room/delay): per-voice `dry` scales the direct signal in
       the mixer (default full); reverb/delay sends are taken pre-dry, so `dry(0)`
       leaves only the wet signal.
-- [x] `ftype` (filter slope): `0`/`"12db"` = single biquad (default), `2`/`"24db"`
-      = cascade the biquad twice for a steeper slope; applies to `lpf`/`hpf`/`bpf`
-      (synth) and the sampler lowpass. `1`/`"ladder"` (Moog worklet) not ported.
-- [ ] `djf`, `leslie`, IR reverb (`ir`), `squiz` (sampler harmonic repeats),
-      `compressor*` (needs orbit/bus routing), `fshift` (frequency shifter) — no
-      DSP reference in the local Strudel clone (control-only / worklet-only)
+- [x] `ftype` (filter model), all three of superdough's `['12db','ladder','24db']`:
+      `0`/`"12db"` = single biquad (default), `2`/`"24db"` = the biquad cascaded
+      twice, `1`/`"ladder"` = the Moog-style nonlinear ladder lowpass ported from
+      superdough's `ladder-processor` worklet (`filter.rs` `Ladder`, driven by
+      `drive`). Applies to `lpf`/`hpf`/`bpf` (synth) and the sampler lowpass,
+      which now shares the voice filter slot. Golden-tested
+      (`rudel-dsp/tests/worklet_golden.rs`).
+- [x] **per-orbit effect buses** (`rudel-audio` `OrbitBus`, mirroring
+      superdough's `Orbit` in `superdoughoutput.mjs`): each `orbit` gets its own
+      reverb, feedback delay and DJ filter, created on demand and configured by
+      the most recent event to hit it. The routing controls moved off the voice
+      params onto `NoteEvent.send` (`rudel-dsp` `OrbitSend`), so `VoiceLike` no
+      longer carries `room`/`delay_send`/`dry`. This made these live for the
+      first time (they were parsed and forwarded over OSC but had no effect on
+      the native audio): `orbit`, `delaytime`/`delaysync`/`delayfeedback`,
+      `size`/`roomsize`, `roomlp`, `roomdim`. Idle orbits stop running their
+      reverb/delay once the tail has decayed.
+- [x] `djf` (DJ filter): ported from superdough's `djf-processor` worklet
+      (`rudel-dsp/bus.rs`), applied on the orbit bus so it colours that orbit's
+      dry signal and its reverb/delay returns alike. Golden-tested.
+- [x] `transient`/`transsustain` (transient shaper): ported from superdough's
+      `transient-processor` worklet (`rudel-dsp/postfx.rs` `TransientShaper`).
+      Golden-tested. Note `transient` is a *multi*-control upstream
+      (`registerControl(['transient','transsustain'])`), as is `shape`
+      (`['shape','shapevol']`) — both now spread their `:`-lists rather than
+      treating the second name as an alias of the first.
+- [ ] `roomfade` — accepted but ignored. Rudel's reverb is a parametric FDN
+      (fundsp), not superdough's convolution against a generated noise impulse
+      response, and an IR fade-in has no FDN analogue. `size`/`roomlp`/`roomdim`
+      do map onto it (decay time and HF damping); see `build_reverb`.
+- [ ] IR reverb (`ir`/`iresponse`/`irspeed`/`irbegin`) — needs a partitioned
+      FFT convolver, which would also subsume the generated-IR reverb above.
+- [ ] `leslie`, `squiz` (sampler harmonic repeats), `fshift` (frequency shifter)
+      — control-only in Strudel too: superdough has no DSP for them (they exist
+      to be forwarded to SuperDirt over OSC, which Rudel already does), so a
+      native implementation would be original DSP, not a port.
+- [ ] `stretch` (phase vocoder) and `bytebeat` — control registered, worklet
+      (`phase-vocoder-processor` / `byte-beat-processor`) not ported. The
+      bytebeat one also needs an integer-expression evaluator for
+      `byteBeatExpression`.
+- [ ] `duckorbit`/`duckonset`/`duckattack`/`duckdepth` (sidechain ducking of one
+      orbit by another) — now unblocked by the orbit buses above, not yet wired.
 
 ## functions/value-modifiers
 

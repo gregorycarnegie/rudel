@@ -81,6 +81,48 @@ a master-mix ring, and frequency data is smoothed across frames like
 `AnalyserNode.getFloatFrequencyData` (τ = 0.5). The explicit `.analyze(id)`
 control itself is not exposed — Rudel wires taps through widget ids only.
 
+## Audio effects
+
+### Reverb — intentionally different (parametric, not convolution)
+
+Strudel's reverb is a `ConvolverNode` fed an impulse response that
+`reverbGen.mjs` *generates from white noise*: an exponentially decaying random
+buffer with an optional fade-in and a gradual lowpass sweep. Rudel instead runs
+a parametric feedback-delay-network reverb (fundsp `reverb_stereo`), one per
+orbit.
+
+The controls behave the same way, which is what matters for patterns:
+`size`/`roomsize` is the -60dB decay time on both sides, and the IR's
+`roomlp` → `roomdim` lowpass sweep becomes the FDN's high-frequency damping
+(log-scaled, so the defaults `roomlp(15000).roomdim(1000)` land on the same
+damping the engine used before it was parameterised). Because upstream's impulse
+response is literally `Math.random()` per sample, there is no sample-exact target
+to match here — only the parameter semantics.
+
+Two things are **not** available as a result:
+
+- **`roomfade`** is accepted but has no effect. It is the impulse response's
+  fade-in time, which has no analogue in an FDN.
+- **`ir` / `iresponse` / `irspeed` / `irbegin`** (reverb from a loaded sample)
+  do nothing. Convolving against an arbitrary IR needs a partitioned FFT
+  convolver, which Rudel does not have.
+
+### `leslie`, `squiz`, `fshift` — no effect (control-only upstream too)
+
+These are SuperDirt effects. Strudel registers the controls but `superdough` has
+no DSP for them either — they exist to be forwarded to a SuperDirt instance over
+OSC. Rudel does forward them (`crates/rudel-osc`), so they work exactly as well
+as they do in Strudel when you are driving SuperDirt, and they are silent in the
+native engine on both sides.
+
+### `stretch`, `bytebeat`, wavetable oscillator — not yet ported
+
+`stretch` (superdough's `phase-vocoder-processor`), `s("bytebeat")` with
+`byteBeatExpression`, and the wavetable oscillator (`wt`/`warp`/`warpmode`/
+`wtphaserand`, superdough's `wavetable.mjs`) have registered controls but no
+native DSP yet. These are ports waiting to be done, not deliberate omissions.
+Note that the *additive* wavetable (`partials`/`phases`) **is** implemented.
+
 ## External integrations and inputs
 
 ### Hydra (`@strudel/hydra`) — intentionally unsupported

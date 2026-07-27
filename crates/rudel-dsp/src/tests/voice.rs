@@ -22,16 +22,10 @@ fn voice_produces_sound_then_finishes() {
 
 #[test]
 fn dry_control_parses_and_defaults_full() {
-    // Default dry is full (1.0); `dry` parses into the param + voice accessor.
-    assert_eq!(VoiceParams::default().dry, 1.0);
+    // `dry` is bus routing, not a voice param: it rides on `OrbitSend`.
+    assert_eq!(crate::OrbitSend::default().dry, 1.0);
     let map = ValueMap::from([("dry".to_string(), Value::F64(0.25))]);
-    let p = VoiceParams::from_controls(&map, 0.1);
-    assert_eq!(p.dry, 0.25);
-    let v = Voice::new(p, 44100.0);
-    assert_eq!(VoiceLike::dry(&v), 0.25);
-    // A voice with no `dry` control reports full dry by default.
-    let v = Voice::new(VoiceParams::default(), 44100.0);
-    assert_eq!(VoiceLike::dry(&v), 1.0);
+    assert_eq!(crate::OrbitSend::from_controls(&map, 1.0).dry, 0.25);
 }
 
 #[test]

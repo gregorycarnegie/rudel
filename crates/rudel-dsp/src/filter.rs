@@ -1,4 +1,5 @@
 use crate::envelope::{Adsr, adsr_value};
+use rudel_core::Value;
 use std::f32::consts::TAU;
 
 #[derive(Clone, Copy)]
@@ -36,9 +37,6 @@ impl Biquad {
         b
     }
 
-    pub(crate) fn lowpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
-        Biquad::new(FilterKind::Low, sample_rate, cutoff, q)
-    }
     pub(crate) fn highpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
         Biquad::new(FilterKind::High, sample_rate, cutoff, q)
     }
@@ -91,6 +89,108 @@ impl Biquad {
     }
 }
 
+/// Which filter model `ftype` selects. Superdough's list is
+/// `['12db', 'ladder', '24db']`, so a numeric `ftype` indexes this order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FilterModel {
+    /// A single RBJ biquad (superdough's `'12db'`, the default).
+    #[default]
+    Db12,
+    /// The Moog-style nonlinear ladder (superdough's `ladder-processor`).
+    /// Always a lowpass, whichever slot it replaces — as upstream.
+    Ladder,
+    /// The biquad cascaded twice for a steeper slope (superdough's `'24db'`).
+    Db24,
+}
+
+impl FilterModel {
+    /// Resolve from an `ftype` control value: a string names the model, a
+    /// number indexes `['12db', 'ladder', '24db']` (wrapping), matching
+    /// superdough's `getFilterType`.
+    pub fn from_value(v: &Value) -> FilterModel {
+        match v {
+            Value::Str(s) => match s.as_str() {
+                "ladder" => FilterModel::Ladder,
+                "24db" => FilterModel::Db24,
+                _ => FilterModel::Db12,
+            },
+            other => match other.as_f64().map(|f| f.rem_euclid(3.0).floor() as i32) {
+                Some(1) => FilterModel::Ladder,
+                Some(2) => FilterModel::Db24,
+                _ => FilterModel::Db12,
+            },
+        }
+    }
+}
+
+/// superdough's `fast_tanh` rational approximation (`worklets.mjs`). The ladder
+/// is ported against this, not `f32::tanh`, so the saturation curve matches.
+fn fast_tanh(x: f32) -> f32 {
+    let x2 = x * x;
+    (x * (27.0 + x2)) / (27.0 + 9.0 * x2)
+}
+
+/// The Moog-style nonlinear ladder lowpass, ported sample-for-sample from
+/// superdough's `ladder-processor` worklet (itself adapted from
+/// <https://github.com/TheBouteillacBear/webaudioworklet-wasm>). Four
+/// `tanh`-saturated one-pole stages with resonant feedback, read through a
+/// fixed 4-tap smoothing FIR.
+#[derive(Clone)]
+pub struct Ladder {
+    /// The four cascaded one-pole stage states (`p0`..`p3`).
+    stages: [f32; 4],
+    /// The previous three `p3` values (`p32`/`p33`/`p34`), feeding the output FIR.
+    history: [f32; 3],
+    /// Resonance feedback coefficient (`min(8, q * 0.13)`).
+    k: f32,
+    /// Input drive (`clamp(exp(drive), 0.1, 2000)`).
+    drive: f32,
+    /// Output gain compensating for drive and resonance loss.
+    makeup: f32,
+    /// Cutoff as a normalised one-pole coefficient (`min(1, 2πf/sr)`).
+    cutoff: f32,
+}
+
+impl Ladder {
+    pub fn new(sample_rate: f32, freq: f32, q: f32, drive: f32) -> Ladder {
+        let k = (q * 0.13).min(8.0);
+        let drive = drive.exp().clamp(0.1, 2000.0);
+        let mut l = Ladder {
+            stages: [0.0; 4],
+            history: [0.0; 3],
+            k,
+            drive,
+            // drive makeup * resonance volume-loss makeup
+            makeup: (1.0 / drive) * (1.0 + k).min(1.75),
+            cutoff: 0.0,
+        };
+        l.set_cutoff(sample_rate, freq);
+        l
+    }
+
+    /// Retune the cutoff in place, preserving the stage states so the envelope
+    /// can sweep it per sample.
+    pub fn set_cutoff(&mut self, sample_rate: f32, freq: f32) {
+        self.cutoff = (freq * TAU / sample_rate).min(1.0);
+    }
+
+    pub fn process(&mut self, x: f32) -> f32 {
+        let [p0, p1, p2, p3] = self.stages;
+        let [p32, p33, p34] = self.history;
+        let out = p3 * 0.360891 + p32 * 0.41729 + p33 * 0.177896 + p34 * 0.0439725;
+        self.history = [p3, p32, p33];
+
+        let c = self.cutoff;
+        let p0 = p0 + (fast_tanh(x * self.drive - self.k * out) - fast_tanh(p0)) * c;
+        let p1 = p1 + (fast_tanh(p0) - fast_tanh(p1)) * c;
+        let p2 = p2 + (fast_tanh(p1) - fast_tanh(p2)) * c;
+        let p3 = p3 + (fast_tanh(p2) - fast_tanh(p3)) * c;
+        self.stages = [p0, p1, p2, p3];
+
+        out * self.makeup
+    }
+}
+
 /// Per-filter parameters (low/high/band) including an optional cutoff envelope.
 #[derive(Clone, Copy, Debug)]
 pub struct FilterParams {
@@ -105,8 +205,11 @@ pub struct FilterParams {
     pub release: Option<f32>,
     /// `fanchor`: where the base cutoff sits within the sweep (0 = bottom).
     pub anchor: f32,
-    /// `ftype` 24dB: cascade the biquad twice for a steeper slope.
-    pub cascade: bool,
+    /// `ftype`: which filter model to run.
+    pub model: FilterModel,
+    /// `drive`: ladder input drive (superdough's default 0.69). Unused by the
+    /// biquad models.
+    pub drive: f32,
 }
 
 impl Default for FilterParams {
@@ -120,7 +223,8 @@ impl Default for FilterParams {
             sustain: None,
             release: None,
             anchor: 0.0,
-            cascade: false,
+            model: FilterModel::Db12,
+            drive: 0.69,
         }
     }
 }
@@ -135,14 +239,21 @@ impl FilterParams {
     }
 }
 
-/// A voice filter slot: a biquad plus an optional cutoff envelope sweep.
+/// The resonant core of a filter slot, selected by `ftype`.
+#[derive(Clone)]
+enum FilterCore {
+    /// One biquad, or two cascaded for the 24dB slope.
+    Biquad(Biquad, Option<Biquad>),
+    /// The Moog ladder lowpass.
+    Ladder(Ladder),
+}
+
+/// A voice filter slot: a resonant core plus an optional cutoff envelope sweep.
 #[derive(Clone)]
 pub(crate) struct VoiceFilter {
     kind: FilterKind,
     q: f32,
-    biquad: Biquad,
-    /// A second cascaded biquad for the `ftype` 24dB slope (`None` = 12dB).
-    second: Option<Biquad>,
+    core: FilterCore,
     /// `(adsr, min_hz, max_hz)` when a cutoff envelope is active.
     env: Option<(Adsr, f32, f32)>,
 }
@@ -172,28 +283,40 @@ impl VoiceFilter {
         } else {
             None
         };
-        VoiceFilter {
-            kind,
-            q,
-            biquad: Biquad::new(kind, sample_rate, base, q),
-            second: fp.cascade.then(|| Biquad::new(kind, sample_rate, base, q)),
-            env,
-        }
+        let core = match fp.model {
+            FilterModel::Ladder => FilterCore::Ladder(Ladder::new(sample_rate, base, q, fp.drive)),
+            FilterModel::Db24 => FilterCore::Biquad(
+                Biquad::new(kind, sample_rate, base, q),
+                Some(Biquad::new(kind, sample_rate, base, q)),
+            ),
+            FilterModel::Db12 => FilterCore::Biquad(Biquad::new(kind, sample_rate, base, q), None),
+        };
+        VoiceFilter { kind, q, core, env }
     }
 
     pub(crate) fn process(&mut self, x: f32, t: f32, hold_end: f32, sample_rate: f32) -> f32 {
         if let Some((adsr, min, max)) = self.env {
             let shape = adsr_value(&adsr, t, hold_end);
             let freq = min + shape * (max - min);
-            self.biquad.update(self.kind, sample_rate, freq, self.q);
-            if let Some(b2) = &mut self.second {
-                b2.update(self.kind, sample_rate, freq, self.q);
+            match &mut self.core {
+                FilterCore::Biquad(b1, b2) => {
+                    b1.update(self.kind, sample_rate, freq, self.q);
+                    if let Some(b2) = b2 {
+                        b2.update(self.kind, sample_rate, freq, self.q);
+                    }
+                }
+                FilterCore::Ladder(l) => l.set_cutoff(sample_rate, freq),
             }
         }
-        let y = self.biquad.process(x);
-        match &mut self.second {
-            Some(b2) => b2.process(y),
-            None => y,
+        match &mut self.core {
+            FilterCore::Biquad(b1, b2) => {
+                let y = b1.process(x);
+                match b2 {
+                    Some(b2) => b2.process(y),
+                    None => y,
+                }
+            }
+            FilterCore::Ladder(l) => l.process(x),
         }
     }
 }

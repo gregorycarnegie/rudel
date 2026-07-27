@@ -43,7 +43,9 @@ controls!(
     roomdim,
     roomfade,
     size,
-    shape,
+    // `shape`/`transient` themselves are multi-controls (see `multi.rs`); these
+    // are their second slots, settable on their own.
+    shapevol,
     crush,
     cutoff,
     resonance,
@@ -285,7 +287,7 @@ controls!(
     zzfx,
     // visuals / event metadata
     color,
-    transient,
+    transsustain,
     // FM envelope ramp type
     fmenv,
     // MIDI controls

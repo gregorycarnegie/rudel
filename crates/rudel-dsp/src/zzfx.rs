@@ -217,9 +217,6 @@ pub struct ZzfxParams {
     pub synth: ZzfxSynth,
     pub gain: f32,
     pub pan: f32,
-    pub room: f32,
-    pub delay_send: f32,
-    pub dry: f32,
 }
 
 impl ZzfxParams {
@@ -310,9 +307,6 @@ impl ZzfxParams {
             synth,
             gain: num("gain", 1.0) as f32,
             pan: num("pan", 0.5) as f32,
-            room: num("room", 0.0) as f32,
-            delay_send: num("delay", 0.0) as f32,
-            dry: num("dry", 1.0) as f32,
         }
     }
 }
@@ -339,9 +333,6 @@ pub struct ZzfxVoice {
     gain: f32,
     left_gain: f32,
     right_gain: f32,
-    room: f32,
-    delay_send: f32,
-    dry: f32,
 }
 
 impl ZzfxVoice {
@@ -354,9 +345,6 @@ impl ZzfxVoice {
             gain: params.gain,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
-            room: params.room,
-            delay_send: params.delay_send,
-            dry: params.dry,
         }
     }
 }
@@ -372,15 +360,6 @@ impl VoiceLike for ZzfxVoice {
     }
     fn is_done(&self) -> bool {
         self.pos >= self.buffer.len()
-    }
-    fn room(&self) -> f32 {
-        self.room
-    }
-    fn delay_send(&self) -> f32 {
-        self.delay_send
-    }
-    fn dry(&self) -> f32 {
-        self.dry
     }
 }
 

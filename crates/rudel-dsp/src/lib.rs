@@ -4,6 +4,7 @@
 // Param model mirrors strudel/packages/superdough/synth.mjs.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod bus;
 mod drum;
 mod envelope;
 mod filter;
@@ -19,15 +20,16 @@ mod synth;
 mod voice;
 mod zzfx;
 
+pub use bus::{DelayConfig, Djf, OrbitSend, ReverbConfig};
 pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::{Adsr, adsr_value};
-pub use filter::FilterParams;
+pub use filter::{FilterModel, FilterParams, Ladder};
 pub use fm::{FmOp, FmSpec};
 pub use modulator::{Lfo, LfoConfig, waveshape};
 pub use oscillator::{NoiseKind, Waveform};
 pub use params::VoiceParams;
 pub use pitch::{mtof, note_name_to_midi, note_to_freq};
-pub use postfx::{DistortAlgo, PostFx, PostFxVoice, Vowel};
+pub use postfx::{DistortAlgo, PostFx, PostFxVoice, TransientShaper, Vowel};
 pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::VoiceSpec;
 pub use synth::Voice;

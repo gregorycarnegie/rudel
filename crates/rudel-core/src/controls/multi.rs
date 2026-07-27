@@ -57,10 +57,33 @@ macro_rules! distort_shortcuts {
 
 distort_shortcuts!(soft, hard, cubic, diode, asym, fold, sinefold, chebyshev);
 
+/// Strudel's `shape` multi-control (`registerControl(['shape', 'shapevol'])`):
+/// a `:`-list (`".4:.8"`) spreads into the waveshape amount and its postgain.
+pub fn shape(pat: impl IntoPattern) -> Pattern {
+    spread_control(&["shape", "shapevol"], pat.into_pattern())
+}
+
+/// Strudel's `transient` multi-control
+/// (`registerControl(['transient', 'transsustain'])`): a `:`-list (`"1:-1"`)
+/// spreads into the transient shaper's attack and sustain emphasis.
+pub fn transient(pat: impl IntoPattern) -> Pattern {
+    spread_control(&["transient", "transsustain"], pat.into_pattern())
+}
+
 impl Pattern {
     /// Set the `distort` multi-control (see [`distort`]).
     pub fn distort(&self, x: impl IntoPattern) -> Pattern {
         self.set(distort(x))
+    }
+
+    /// Set the `shape` multi-control (see [`shape`]).
+    pub fn shape(&self, x: impl IntoPattern) -> Pattern {
+        self.set(shape(x))
+    }
+
+    /// Set the `transient` multi-control (see [`transient`]).
+    pub fn transient(&self, x: impl IntoPattern) -> Pattern {
+        self.set(transient(x))
     }
 }
 

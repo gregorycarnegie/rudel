@@ -21,7 +21,7 @@ pub use samples::SampleBank;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
-use rudel_dsp::VoiceLike;
+use rudel_dsp::{DelayConfig, Djf, OrbitSend, ReverbConfig, VoiceLike};
 use std::{
     collections::HashMap,
     sync::{
@@ -56,38 +56,192 @@ fn lock_mutex<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     lock.lock().unwrap_or_else(recover_poison)
 }
 
-/// A simple stereo feedback delay line for the `delay` send bus.
+/// Longest `delaytime` the delay line can be retuned to, in seconds. Matches
+/// the `maxDelayTime` superdough gives its `createFeedbackDelay(1, …)` node.
+const MAX_DELAY_SECS: f32 = 1.0;
+
+/// A stereo feedback delay line for an orbit's `delay` send bus. The buffer is
+/// allocated once at [`MAX_DELAY_SECS`] and the delay time is a read offset
+/// into it, so `delaytime` can be retuned live without allocating on the audio
+/// thread.
 struct StereoDelay {
     /// Circular buffer for the left channel delay line.
     left: Vec<f32>,
     /// Circular buffer for the right channel delay line.
     right: Vec<f32>,
-    /// Current circular buffer read/write index.
-    idx: usize,
-    /// Feedback amount (typically between 0.0 and 1.0).
+    /// Current circular buffer write index.
+    write: usize,
+    /// Delay length in samples (at least 1, at most the buffer length).
+    delay_samples: usize,
+    /// Feedback amount, 0..0.98 (superdough's ear-saving clamp).
     feedback: f32,
+    sample_rate: f32,
 }
 
 impl StereoDelay {
-    /// Create a new `StereoDelay` configured for the target sample rate, delay time, and feedback level.
-    fn new(sample_rate: f32, time: f32, feedback: f32) -> StereoDelay {
-        let len = (sample_rate * time).max(1.0) as usize;
-        StereoDelay {
+    fn new(sample_rate: f32, cfg: DelayConfig) -> StereoDelay {
+        let len = (sample_rate * MAX_DELAY_SECS).max(1.0) as usize;
+        let mut d = StereoDelay {
             left: vec![0.0; len],
             right: vec![0.0; len],
-            idx: 0,
-            feedback,
-        }
+            write: 0,
+            delay_samples: 1,
+            feedback: 0.0,
+            sample_rate,
+        };
+        d.configure(cfg);
+        d
+    }
+
+    /// Retune time and feedback in place, keeping the buffer contents so a
+    /// changing `delaytime` glides rather than clicking to silence.
+    fn configure(&mut self, cfg: DelayConfig) {
+        let max = self.left.len();
+        self.delay_samples = ((self.sample_rate * cfg.time) as usize).clamp(1, max);
+        self.feedback = cfg.feedback.clamp(0.0, 0.98);
     }
 
     /// Process a single stereo input frame and return the delayed output frame.
     fn process(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
-        let out_l = self.left[self.idx];
-        let out_r = self.right[self.idx];
-        self.left[self.idx] = in_l + out_l * self.feedback;
-        self.right[self.idx] = in_r + out_r * self.feedback;
-        self.idx = (self.idx + 1) % self.left.len();
+        let len = self.left.len();
+        let read = (self.write + len - self.delay_samples) % len;
+        let (out_l, out_r) = (self.left[read], self.right[read]);
+        self.left[self.write] = in_l + out_l * self.feedback;
+        self.right[self.write] = in_r + out_r * self.feedback;
+        self.write = (self.write + 1) % len;
         (out_l, out_r)
+    }
+}
+
+/// One orbit's effect bus: its own reverb, feedback delay and DJ filter, plus
+/// the accumulation buffers the voices routed to it mix into.
+///
+/// Mirrors superdough's `Orbit` (`superdoughoutput.mjs`): voices send `room`
+/// into the reverb and `delay` into the delay line, both returns sum with the
+/// dry signal, and the sum passes through `djf` on the way to the master mix.
+struct OrbitBus {
+    delay: StereoDelay,
+    delay_cfg: DelayConfig,
+    reverb: Box<dyn AudioUnit>,
+    reverb_cfg: ReverbConfig,
+    /// Per-channel DJ filter; `None` until an event sets `djf`.
+    djf: Option<(Djf, Djf)>,
+    /// Dry / reverb-send / delay-send accumulation buffers for this orbit.
+    dry_l: Vec<f32>,
+    dry_r: Vec<f32>,
+    room_l: Vec<f32>,
+    room_r: Vec<f32>,
+    delay_l: Vec<f32>,
+    delay_r: Vec<f32>,
+    /// Frames since this orbit last received any input, used to stop running
+    /// its reverb and delay once the tail has died away.
+    idle_frames: u64,
+    sample_rate: f32,
+}
+
+impl OrbitBus {
+    fn new(sample_rate: f32, send: &OrbitSend) -> OrbitBus {
+        OrbitBus {
+            delay: StereoDelay::new(sample_rate, send.delay_cfg),
+            delay_cfg: send.delay_cfg,
+            reverb: build_reverb(sample_rate, send.reverb),
+            reverb_cfg: send.reverb,
+            djf: send
+                .djf
+                .map(|v| (Djf::new(sample_rate, v), Djf::new(sample_rate, v))),
+            dry_l: Vec::new(),
+            dry_r: Vec::new(),
+            room_l: Vec::new(),
+            room_r: Vec::new(),
+            delay_l: Vec::new(),
+            delay_r: Vec::new(),
+            idle_frames: u64::MAX,
+            sample_rate,
+        }
+    }
+
+    /// Apply an event's orbit settings. Like superdough's `getReverb`, the
+    /// reverb is only rebuilt when a parameter actually changed — otherwise a
+    /// stack of voices all carrying the same defaults would reset the tail on
+    /// every note.
+    fn configure(&mut self, send: &OrbitSend) {
+        if send.reverb != self.reverb_cfg {
+            self.reverb = build_reverb(self.sample_rate, send.reverb);
+            self.reverb_cfg = send.reverb;
+        }
+        if send.delay_cfg != self.delay_cfg {
+            self.delay.configure(send.delay_cfg);
+            self.delay_cfg = send.delay_cfg;
+        }
+        if let Some(v) = send.djf {
+            match &mut self.djf {
+                Some((l, r)) => {
+                    l.set_value(v);
+                    r.set_value(v);
+                }
+                None => {
+                    self.djf = Some((Djf::new(self.sample_rate, v), Djf::new(self.sample_rate, v)))
+                }
+            }
+        }
+    }
+
+    /// Zero this orbit's accumulation buffers, growing them to `n` frames.
+    fn clear(&mut self, n: usize) {
+        for b in [
+            &mut self.dry_l,
+            &mut self.dry_r,
+            &mut self.room_l,
+            &mut self.room_r,
+            &mut self.delay_l,
+            &mut self.delay_r,
+        ] {
+            if b.len() < n {
+                b.resize(n, 0.0);
+            }
+            b[..n].fill(0.0);
+        }
+    }
+
+    /// Run the delay, reverb and DJ filter over `n` accumulated frames and add
+    /// the result into `out`. Returns without doing any work once the orbit has
+    /// been silent long enough for its tail to have decayed, so idle orbits
+    /// cost nothing.
+    fn mix_into(&mut self, out: &mut [(f32, f32)]) {
+        let n = out.len();
+        let fed = self.dry_l[..n].iter().any(|&x| x != 0.0)
+            || self.room_l[..n].iter().any(|&x| x != 0.0)
+            || self.delay_l[..n].iter().any(|&x| x != 0.0)
+            || self.dry_r[..n].iter().any(|&x| x != 0.0)
+            || self.room_r[..n].iter().any(|&x| x != 0.0)
+            || self.delay_r[..n].iter().any(|&x| x != 0.0);
+        if fed {
+            self.idle_frames = 0;
+        } else {
+            // ponytail: fixed idle window rather than measuring the tail's
+            // actual level. Long reverbs (`size` above ~8s) with a long delay
+            // could in principle be cut off; raise the multiplier or track the
+            // output RMS if that ever bites.
+            let tail = self.reverb_cfg.size.max(self.delay_cfg.time) * 2.0 + 1.0;
+            if self.idle_frames > (self.sample_rate * tail) as u64 {
+                return;
+            }
+            self.idle_frames = self.idle_frames.saturating_add(n as u64);
+        }
+
+        for (i, frame) in out.iter_mut().enumerate() {
+            let (dl, dr) = self.delay.process(self.delay_l[i], self.delay_r[i]);
+            let mut rout = [0.0f32; 2];
+            self.reverb
+                .tick(&[self.room_l[i], self.room_r[i]], &mut rout);
+            let (mut l, mut r) = (self.dry_l[i] + dl + rout[0], self.dry_r[i] + dr + rout[1]);
+            if let Some((fl, fr)) = &mut self.djf {
+                l = fl.process(l);
+                r = fr.process(r);
+            }
+            frame.0 += l;
+            frame.1 += r;
+        }
     }
 }
 
@@ -201,6 +355,8 @@ struct ActiveVoice {
     tags: Vec<String>,
     /// Optional cut group (e.g. for choking open/closed hi-hats).
     cut: Option<i32>,
+    /// Orbit routing and send levels for this voice.
+    send: OrbitSend,
     /// When choked, the remaining gain (ramps 1.0 → 0.0 over `CHOKE_SECS`).
     /// `None` means the voice is playing normally.
     choke_gain: Option<f32>,
@@ -211,34 +367,19 @@ const CHOKE_SECS: f32 = 0.01;
 const DEFAULT_MASTER_VOLUME: f64 = 1.0;
 const MAX_MASTER_VOLUME: f64 = 2.0;
 
-/// Reusable per-block scratch buffers: one voice's rendered stereo block
-/// (`src_*`) and the dry / reverb / delay accumulation buses. Grown to the
-/// callback's block size on first use, then reused.
+/// Reusable per-block scratch: one voice's rendered stereo block. Grown to the
+/// callback's block size on first use, then reused. (The dry / reverb / delay
+/// accumulation buffers live on each [`OrbitBus`].)
 #[derive(Default)]
 struct MixScratch {
     src_l: Vec<f32>,
     src_r: Vec<f32>,
-    dry_l: Vec<f32>,
-    dry_r: Vec<f32>,
-    room_l: Vec<f32>,
-    room_r: Vec<f32>,
-    delay_l: Vec<f32>,
-    delay_r: Vec<f32>,
 }
 
 impl MixScratch {
     /// Ensure every buffer holds at least `n` samples.
     fn ensure(&mut self, n: usize) {
-        for b in [
-            &mut self.src_l,
-            &mut self.src_r,
-            &mut self.dry_l,
-            &mut self.dry_r,
-            &mut self.room_l,
-            &mut self.room_r,
-            &mut self.delay_l,
-            &mut self.delay_r,
-        ] {
+        for b in [&mut self.src_l, &mut self.src_r] {
             if b.len() < n {
                 b.resize(n, 0.0);
             }
@@ -261,10 +402,8 @@ struct Mixer {
     sample_rate: f32,
     /// Atomic tracking of played frames, shared with the scheduling thread.
     played: Arc<AtomicU64>,
-    /// The global stereo delay line.
-    delay: StereoDelay,
-    /// The global reverb effect unit.
-    reverb: Box<dyn AudioUnit>,
+    /// Effect buses keyed by `orbit`, created on demand as voices arrive.
+    orbits: HashMap<i32, OrbitBus>,
     /// Master output volume, shared with the UI/control thread.
     volume: Arc<AtomicU64>,
     /// Reusable per-block render/accumulation buffers.
@@ -329,10 +468,18 @@ impl Mixer {
                         }
                     }
                 }
+                // Create the orbit on first use and let this event configure
+                // it, as superdough does when it builds a voice's chain.
+                let sample_rate = self.sample_rate;
+                self.orbits
+                    .entry(ev.send.orbit)
+                    .or_insert_with(|| OrbitBus::new(sample_rate, &ev.send))
+                    .configure(&ev.send);
                 self.active.push(ActiveVoice {
                     voice: ev.spec.into_voice_with_fx(self.sample_rate, ev.fx),
                     tags: ev.tags,
                     cut: ev.cut,
+                    send: ev.send,
                     choke_gain: None,
                 });
             } else {
@@ -348,30 +495,21 @@ impl Mixer {
         let len = out.len();
         let volume = load_f64(&self.volume) as f32;
         let choke_step = 1.0 / (self.sample_rate * CHOKE_SECS);
+        let sample_rate = self.sample_rate;
         self.scratch.ensure(len);
 
         let Mixer {
             active,
             scratch,
-            delay,
-            reverb,
+            orbits,
             sample_clock,
             taps,
             tag_bufs,
             ..
         } = self;
-        let MixScratch {
-            src_l,
-            src_r,
-            dry_l,
-            dry_r,
-            room_l,
-            room_r,
-            delay_l,
-            delay_r,
-        } = scratch;
-        for b in [&mut *dry_l, dry_r, room_l, room_r, delay_l, delay_r] {
-            b[..len].fill(0.0);
+        let MixScratch { src_l, src_r } = scratch;
+        for bus in orbits.values_mut() {
+            bus.clear(len);
         }
 
         // Zero an accumulation buffer for every registered widget tap. The
@@ -403,23 +541,29 @@ impl Mixer {
             }
             // `dry` scales the direct signal; the reverb/delay sends are taken
             // pre-dry, so `dry(0)` leaves only the wet signal.
-            let dry = av.voice.dry();
-            let room = av.voice.room();
-            let dsend = av.voice.delay_send();
+            let (dry, room, dsend) = (av.send.dry, av.send.room, av.send.delay);
+            // Normally the orbit already exists (created when the voice
+            // started); create it here too so a voice can never be routed into
+            // a missing bus and silently disappear.
+            let bus = orbits.entry(av.send.orbit).or_insert_with(|| {
+                let mut b = OrbitBus::new(sample_rate, &av.send);
+                b.clear(len);
+                b
+            });
             if let Some(g) = &mut av.choke_gain {
                 // Choked voices fade per sample; drop the voice once silent.
                 let mut gain = *g;
                 for i in 0..len {
                     let (a, b) = (src_l[i] * gain, src_r[i] * gain);
-                    dry_l[i] += a * dry;
-                    dry_r[i] += b * dry;
+                    bus.dry_l[i] += a * dry;
+                    bus.dry_r[i] += b * dry;
                     if room > 0.0 {
-                        room_l[i] += a * room;
-                        room_r[i] += b * room;
+                        bus.room_l[i] += a * room;
+                        bus.room_r[i] += b * room;
                     }
                     if dsend > 0.0 {
-                        delay_l[i] += a * dsend;
-                        delay_r[i] += b * dsend;
+                        bus.delay_l[i] += a * dsend;
+                        bus.delay_r[i] += b * dsend;
                     }
                     gain -= choke_step;
                     if gain <= 0.0 {
@@ -429,33 +573,34 @@ impl Mixer {
                 *g = gain;
             } else {
                 for i in 0..len {
-                    dry_l[i] += src_l[i] * dry;
-                    dry_r[i] += src_r[i] * dry;
+                    bus.dry_l[i] += src_l[i] * dry;
+                    bus.dry_r[i] += src_r[i] * dry;
                 }
                 if room > 0.0 {
                     for i in 0..len {
-                        room_l[i] += src_l[i] * room;
-                        room_r[i] += src_r[i] * room;
+                        bus.room_l[i] += src_l[i] * room;
+                        bus.room_r[i] += src_r[i] * room;
                     }
                 }
                 if dsend > 0.0 {
                     for i in 0..len {
-                        delay_l[i] += src_l[i] * dsend;
-                        delay_r[i] += src_r[i] * dsend;
+                        bus.delay_l[i] += src_l[i] * dsend;
+                        bus.delay_r[i] += src_r[i] * dsend;
                     }
                 }
             }
             !av.voice.is_done()
         });
 
-        for (i, frame) in out.iter_mut().enumerate() {
-            let (dl_out, dr_out) = delay.process(delay_l[i], delay_r[i]);
-            let mut rout = [0.0f32; 2];
-            reverb.tick(&[room_l[i], room_r[i]], &mut rout);
-            *frame = (
-                (dry_l[i] + dl_out + rout[0]) * volume,
-                (dry_r[i] + dr_out + rout[1]) * volume,
-            );
+        // Every orbit runs its own delay + reverb + DJ filter and sums into the
+        // master mix.
+        out.fill((0.0, 0.0));
+        for bus in orbits.values_mut() {
+            bus.mix_into(out);
+        }
+        for frame in out.iter_mut() {
+            frame.0 *= volume;
+            frame.1 *= volume;
         }
         taps.master.write_frames(out);
         for (id, tap) in named.iter() {
@@ -489,8 +634,7 @@ impl OfflineMixer {
             sample_clock: 0,
             sample_rate,
             played: Arc::new(AtomicU64::new(0)),
-            delay: StereoDelay::new(sample_rate, 1.0 / 6.0, 0.4),
-            reverb: build_reverb(sample_rate),
+            orbits: HashMap::new(),
             volume,
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
@@ -572,8 +716,7 @@ impl Engine {
             sample_clock: 0,
             sample_rate,
             played: played.clone(),
-            delay: StereoDelay::new(sample_rate, 1.0 / 6.0, 0.4),
-            reverb: build_reverb(sample_rate),
+            orbits: HashMap::new(),
             volume: volume.clone(),
             scratch: MixScratch::default(),
             taps: taps.clone(),
@@ -747,9 +890,24 @@ impl Drop for Engine {
 }
 
 /// Build the global FDN reverb (fundsp), configured for the sample rate.
-fn build_reverb(sample_rate: f32) -> Box<dyn AudioUnit> {
-    // room size 10m, ~1.5s tail, moderate damping
-    let mut unit = Box::new(reverb_stereo(10.0, 1.5, 0.5));
+fn build_reverb(sample_rate: f32, cfg: ReverbConfig) -> Box<dyn AudioUnit> {
+    // ponytail: a parametric FDN, not superdough's convolution against a
+    // generated noise impulse response. The upstream IR is literally
+    // `Math.random()` per sample (`reverbGen.mjs`), so there is no sample-exact
+    // target to hit; what matters for parity is that the *controls* do what
+    // they say. `roomsize` is the -60dB decay time either way, and the IR's
+    // gradual `roomlp` -> `roomdim` lowpass becomes the FDN's HF damping. The
+    // upgrade path, if `ir`/`iresponse` is ever wanted, is a partitioned FFT
+    // convolver — which would subsume this.
+    //
+    // `roomfade` (the IR's fade-in) has no FDN analogue and is accepted but
+    // ignored; it needs the convolver too.
+    let decay = cfg.size.max(0.01);
+    // Log-scaled so the defaults (lp 15000, dim 1000) land on 0.5 — the damping
+    // the fixed reverb used before — and more `roomdim` closing means more
+    // damping.
+    let damping = ((cfg.lp.max(1.0) / cfg.dim.max(1.0)).log2() / 8.0).clamp(0.0, 1.0);
+    let mut unit = Box::new(reverb_stereo(10.0, decay, damping));
     unit.set_sample_rate(sample_rate as f64);
     unit
 }
@@ -861,8 +1019,7 @@ mod tests {
             sample_clock: 0,
             sample_rate: 44100.0,
             played: Arc::new(AtomicU64::new(0)),
-            delay: StereoDelay::new(44100.0, 1.0 / 6.0, 0.4),
-            reverb: build_reverb(44100.0),
+            orbits: HashMap::new(),
             volume,
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
@@ -898,6 +1055,7 @@ mod tests {
             ))),
             fx: rudel_dsp::PostFx::default(),
             cut: None,
+            send: OrbitSend::default(),
             tags,
         };
         mixer.schedule(ev(vec!["w1".to_string()]));
@@ -926,7 +1084,13 @@ mod tests {
 
     #[test]
     fn stereo_delay_echoes_after_its_time() {
-        let mut d = StereoDelay::new(1000.0, 0.01, 0.5); // 10-sample delay
+        let mut d = StereoDelay::new(
+            1000.0,
+            DelayConfig {
+                time: 0.01, // 10-sample delay
+                feedback: 0.5,
+            },
+        );
         let (o0, _) = d.process(1.0, 0.0); // impulse in
         assert_eq!(o0, 0.0, "no output before the delay time");
         let mut max_echo = 0.0f32;
@@ -961,6 +1125,131 @@ mod tests {
         assert!(tail > 0.0, "reverb should ring out after the note ends");
     }
 
+    /// Render `secs` seconds of `pat` at `cps` and return the mono frames.
+    fn render_pattern(pat: &Pattern, cps: f64, secs: f32) -> Vec<f32> {
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
+        let mut mixer = test_mixer(rx);
+        for ev in collect_events(pat, cps, 0.0, 1.0, &SampleBank::new()) {
+            tx.send(ev).unwrap();
+        }
+        drop(tx);
+        (0..(44100.0 * secs) as usize)
+            .map(|_| {
+                let (l, r) = mixer.render_frame();
+                (l + r) * 0.5
+            })
+            .collect()
+    }
+
+    /// Index of the loudest frame in `frames[from..]`, as a time in seconds.
+    fn peak_time(frames: &[f32], from: usize) -> f32 {
+        let (i, _) = frames[from..]
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
+            .unwrap();
+        (from + i) as f32 / 44100.0
+    }
+
+    #[test]
+    fn delaytime_places_the_echo() {
+        // `delaytime` used to be inert (the delay line was hardwired to 1/6s).
+        // A short note with a full delay send should echo at `delaytime`.
+        let echo_at = |delaytime: f64| {
+            let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+                .delay(rudel_core::Value::F64(1.0))
+                .delaytime(rudel_core::Value::F64(delaytime))
+                .delayfeedback(rudel_core::Value::F64(0.0));
+            // Skip the direct signal (the note itself is ~0.06s at 4 cps).
+            let frames = render_pattern(&pat, 4.0, 0.6);
+            peak_time(&frames, (44100.0 * 0.12) as usize)
+        };
+        for want in [0.2, 0.35] {
+            let got = echo_at(want);
+            assert!(
+                (got - want as f32).abs() < 0.02,
+                "delaytime({want}) should echo at ~{want}s, got {got}s"
+            );
+        }
+    }
+
+    #[test]
+    fn delaysync_scales_the_echo_with_cps() {
+        // With no explicit `delaytime`, superdough derives it from `delaysync`
+        // (a fraction of a cycle), so the echo tracks the tempo.
+        let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+            .delay(rudel_core::Value::F64(1.0))
+            .delaysync(rudel_core::Value::F64(0.25))
+            .delayfeedback(rudel_core::Value::F64(0.0));
+        // 0.25 cycles at 1 cps = 0.25s; at 2 cps = 0.125s.
+        let slow = peak_time(&render_pattern(&pat, 1.0, 0.6), (44100.0 * 0.06) as usize);
+        let fast = peak_time(&render_pattern(&pat, 2.0, 0.6), (44100.0 * 0.06) as usize);
+        assert!(
+            (slow - 0.25).abs() < 0.02,
+            "1 cps echo at {slow}s, want 0.25s"
+        );
+        assert!(
+            (fast - 0.125).abs() < 0.02,
+            "2 cps echo at {fast}s, want 0.125s"
+        );
+    }
+
+    #[test]
+    fn roomsize_lengthens_the_reverb_tail() {
+        // `size`/`roomsize` used to be inert (one fixed 1.5s reverb).
+        let tail_energy = |size: f64| {
+            let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+                .room(rudel_core::Value::F64(1.0))
+                .dry(rudel_core::Value::F64(0.0))
+                .size(rudel_core::Value::F64(size));
+            let frames = render_pattern(&pat, 4.0, 3.0);
+            // Energy well after the note has finished.
+            frames[(44100.0 * 1.5) as usize..]
+                .iter()
+                .map(|x| x.abs())
+                .sum::<f32>()
+        };
+        let short = tail_energy(0.3);
+        let long = tail_energy(6.0);
+        assert!(
+            long > short * 2.0,
+            "a 6s room ({long}) should ring far longer than a 0.3s room ({short})"
+        );
+    }
+
+    #[test]
+    fn orbits_have_independent_effect_buses() {
+        // A heavy `djf` lowpass on orbit 2 must not touch orbit 1. Both orbits
+        // play the same bright note; only the filtered one should lose level.
+        let note = |orbit: i64, djf: Option<f64>| {
+            let p = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(90)))
+                .orbit(rudel_core::Value::Int(orbit));
+            match djf {
+                Some(v) => p.djf(rudel_core::Value::F64(v)),
+                None => p,
+            }
+        };
+        let peak = |pat: &Pattern| {
+            render_pattern(pat, 4.0, 0.3)
+                .iter()
+                .fold(0.0f32, |m, x| m.max(x.abs()))
+        };
+
+        let clean = peak(&note(1, None));
+        // Same note on orbit 2 with the DJ filter fully closed.
+        let filtered = peak(&note(2, Some(0.0)));
+        assert!(
+            filtered < clean * 0.5,
+            "djf(0) should cut the note ({filtered} vs {clean})"
+        );
+        // Stacking them: orbit 1 keeps its level even though orbit 2 is filtered.
+        let both = peak(&rudel_core::stack(&[note(1, None), note(2, Some(0.0))]));
+        assert!(
+            both >= clean * 0.9,
+            "orbit 2's djf must not affect orbit 1 ({both} vs {clean})"
+        );
+    }
+
     #[test]
     fn cut_group_chokes_the_previous_voice() {
         // Two sustained notes in cut group 1, the second a little later. After
@@ -977,6 +1266,7 @@ mod tests {
             ))),
             fx: rudel_dsp::PostFx::default(),
             cut: Some(1),
+            send: OrbitSend::default(),
             tags: Vec::new(),
         };
         tx.send(held(0.0)).unwrap();
@@ -1016,6 +1306,7 @@ mod tests {
             ))),
             fx: rudel_dsp::PostFx::default(),
             cut: None,
+            send: OrbitSend::default(),
             tags: Vec::new(),
         };
         // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.
@@ -1082,14 +1373,6 @@ mod tests {
             fn is_done(&self) -> bool {
                 false
             }
-
-            fn room(&self) -> f32 {
-                0.0
-            }
-
-            fn delay_send(&self) -> f32 {
-                0.0
-            }
         }
 
         let (_tx, rx) = mpsc::channel::<NoteEvent>();
@@ -1099,6 +1382,7 @@ mod tests {
             voice: Box::new(ConstVoice),
             tags: Vec::new(),
             cut: None,
+            send: OrbitSend::default(),
             choke_gain: None,
         });
 

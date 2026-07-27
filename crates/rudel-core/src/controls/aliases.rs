@@ -113,9 +113,6 @@ control_aliases!(
     tremphase => tremolophase,
     tremshape => tremoloshape,
     tremsync => tremolosync,
-    // waveshaping `shape` postgain + transient-shaper sustain synonyms
-    shapevol => shape,
-    transsustain => transient,
     // phaser aliases
     ph => phaserrate,
     phs => phasersweep,

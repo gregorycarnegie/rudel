@@ -22,7 +22,9 @@
 //!
 //! Dependency-free `harness = false` main, matching the other rudel benches.
 
-use rudel_dsp::{FilterParams, PostFx, PostFxVoice, Voice, VoiceLike, VoiceParams, Waveform};
+use rudel_dsp::{
+    FilterParams, OrbitSend, PostFx, PostFxVoice, Voice, VoiceLike, VoiceParams, Waveform,
+};
 use std::{hint::black_box, time::Instant};
 
 const SAMPLE_RATE: f32 = 48_000.0;
@@ -65,8 +67,9 @@ fn postfx_voice() -> Box<dyn VoiceLike> {
 }
 
 /// Render `BLOCK` frames mixing all voices, mirroring `Mixer::render_frame`'s
-/// inner `retain_mut` body (tick + per-voice send queries + bus accumulation).
+/// inner `retain_mut` body (tick + orbit-send scaling + bus accumulation).
 fn mix_block(voices: &mut [Box<dyn VoiceLike>]) -> usize {
+    let send = OrbitSend::default();
     let mut acc = 0.0f32;
     for _ in 0..BLOCK {
         let (mut dl, mut dr) = (0.0f32, 0.0f32);
@@ -74,18 +77,15 @@ fn mix_block(voices: &mut [Box<dyn VoiceLike>]) -> usize {
         let (mut el, mut er) = (0.0f32, 0.0f32);
         for v in voices.iter_mut() {
             let (a, b) = v.tick();
-            let dry = v.dry();
-            dl += a * dry;
-            dr += b * dry;
-            let room = v.room();
-            if room > 0.0 {
-                rl += a * room;
-                rr += b * room;
+            dl += a * send.dry;
+            dr += b * send.dry;
+            if send.room > 0.0 {
+                rl += a * send.room;
+                rr += b * send.room;
             }
-            let dsend = v.delay_send();
-            if dsend > 0.0 {
-                el += a * dsend;
-                er += b * dsend;
+            if send.delay > 0.0 {
+                el += a * send.delay;
+                er += b * send.delay;
             }
         }
         acc += dl + dr + rl + rr + el + er;
@@ -97,8 +97,8 @@ fn mix_block(voices: &mut [Box<dyn VoiceLike>]) -> usize {
 /// Mix all voices by rendering each one a block at a time via `process_block`
 /// (one virtual dispatch + one post-fx pass per block instead of per frame),
 /// then accumulating the dry bus. This mirrors what a block-based `Mixer` would
-/// do; `room`/`delay_send` are queried once per block (they are zero for these
-/// voices, matching the per-sample loop's skipped sends).
+/// do; the orbit sends are constants per voice (and zero here, matching the
+/// per-sample loop's skipped sends).
 fn mix_block_via_process_block(
     voices: &mut [Box<dyn VoiceLike>],
     sl: &mut [f32],
@@ -106,15 +106,14 @@ fn mix_block_via_process_block(
     dl: &mut [f32],
     dr: &mut [f32],
 ) -> usize {
+    let send = OrbitSend::default();
     dl.iter_mut().for_each(|x| *x = 0.0);
     dr.iter_mut().for_each(|x| *x = 0.0);
     for v in voices.iter_mut() {
         v.process_block(sl, sr);
-        let dry = v.dry();
-        let _ = (v.room(), v.delay_send());
         for i in 0..BLOCK {
-            dl[i] += sl[i] * dry;
-            dr[i] += sr[i] * dry;
+            dl[i] += sl[i] * send.dry;
+            dr[i] += sr[i] * send.dry;
         }
     }
     let mut acc = 0.0f32;

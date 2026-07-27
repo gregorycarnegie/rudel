@@ -269,6 +269,84 @@ fn d_chebyshev(x: f32, k: f32) -> f32 {
     d_soft(y, kl / 20.0)
 }
 
+/// The transient shaper (`transient` / `transsustain`), ported from
+/// superdough's `transient-processor` worklet. Two followers track the signal's
+/// envelope at different rates; their difference is a "peakiness" measure that
+/// scales the attack up (or down) and the sustain down (or up), with a running
+/// makeup gain and a soft clip on the way out.
+///
+/// superdough only passes `attack`/`sustain` through, so the processor's other
+/// options (attack/sustain follower times, sensitivity, mix) keep their
+/// defaults here too.
+#[derive(Clone)]
+pub struct TransientShaper {
+    /// Fast envelope follower coefficient (0.003s).
+    attack_coeff: f32,
+    /// Slow envelope follower coefficient (0.08s).
+    sustain_coeff: f32,
+    /// Makeup-gain smoothing coefficient (0.2s).
+    gain_coeff: f32,
+    /// `transient`: attack emphasis, -1..1.
+    attack_amt: f32,
+    /// `transsustain`: sustain emphasis, -1..1.
+    sustain_amt: f32,
+    /// Peakiness scaling from the (fixed) 0.1 sensitivity.
+    scaling: f32,
+    attack_env: f32,
+    sustain_env: f32,
+    avg_gain: f32,
+}
+
+/// superdough's `timeToCoeff`: a one-pole smoothing coefficient for `t` seconds.
+fn time_to_coeff(t: f32, sample_rate: f32) -> f32 {
+    1.0 - (-1.0 / (sample_rate * t)).exp()
+}
+
+fn lerp(a: f32, b: f32, n: f32) -> f32 {
+    n * (b - a) + a
+}
+
+impl TransientShaper {
+    pub fn new(sample_rate: f32, attack: f32, sustain: f32) -> TransientShaper {
+        TransientShaper {
+            attack_coeff: time_to_coeff(0.003f32.clamp(0.0005, 0.05), sample_rate),
+            sustain_coeff: time_to_coeff(0.08f32.clamp(0.01, 0.5), sample_rate),
+            gain_coeff: time_to_coeff(0.2, sample_rate),
+            attack_amt: attack.clamp(-1.0, 1.0),
+            sustain_amt: sustain.clamp(-1.0, 1.0),
+            // 0.5 + 5 * sensitivity, sensitivity defaulting to 0.1
+            scaling: 0.5 + 5.0 * 0.1,
+            attack_env: 0.0,
+            sustain_env: 0.0,
+            avg_gain: 1.0,
+        }
+    }
+
+    pub fn process(&mut self, x: f32) -> f32 {
+        let mag = x.abs();
+        self.attack_env = lerp(self.attack_env, mag, self.attack_coeff);
+        self.sustain_env = lerp(self.sustain_env, mag, self.sustain_coeff);
+        let peakiness = ((self.scaling * (self.attack_env - self.sustain_env))
+            / (self.sustain_env + 1e-6))
+            .clamp(-1.5, 1.5);
+        let att_scale = peakiness.max(0.0);
+        let sus_scale = (-peakiness).max(0.0);
+        let db_to_lin = |db: f32| 10f32.powf(db / 20.0);
+        let attack_gain = db_to_lin(self.attack_amt * att_scale * 18.0);
+        let sustain_gain = db_to_lin(self.sustain_amt * sus_scale * 36.0);
+        let gain = (attack_gain * sustain_gain).clamp(0.0, 8.0);
+        self.avg_gain = lerp(self.avg_gain, gain, self.gain_coeff);
+        let makeup = if self.avg_gain > 1e-3 {
+            1.0 / self.avg_gain
+        } else {
+            1.0
+        };
+        // mix defaults to 1, so the wet signal passes through unblended.
+        let y = x * gain * makeup;
+        y / (1.0 + y.abs()) // soft clip
+    }
+}
+
 /// Per-voice post-effects (`crush`, `shape`, `distort`, `coarse`, `postgain`,
 /// `vowel`).
 #[derive(Clone, Copy, Debug)]
@@ -305,6 +383,10 @@ pub struct PostFx {
     pub phasersweep: f32,
     /// Dynamics-compressor threshold in dB (`compressor`). `None` = off.
     pub compressor: Option<f32>,
+    /// Transient-shaper attack emphasis (`transient`), -1..1. `None` = off.
+    pub transient: Option<f32>,
+    /// Transient-shaper sustain emphasis (`transsustain`), -1..1.
+    pub transsustain: f32,
     /// Compression ratio (`compressorRatio`), default 10.
     pub comp_ratio: f32,
     /// Soft-knee width in dB (`compressorKnee`), default 10.
@@ -333,6 +415,8 @@ impl Default for PostFx {
             phaserdepth: 0.75,
             phasercenter: 1000.0,
             phasersweep: 2000.0,
+            transient: None,
+            transsustain: 0.0,
             compressor: None,
             comp_ratio: 10.0,
             comp_knee: 10.0,
@@ -371,6 +455,8 @@ impl PostFx {
             phasersweep: get("phasersweep").unwrap_or(2000.0),
             // superdough's getCompressor defaults (only applied when the
             // `compressor` threshold key is present).
+            transient: get("transient"),
+            transsustain: get("transsustain").unwrap_or(0.0),
             compressor: get("compressor"),
             comp_ratio: get("compressorRatio").unwrap_or(10.0),
             comp_knee: get("compressorKnee").unwrap_or(10.0),
@@ -389,6 +475,7 @@ impl PostFx {
             || self.tremolo.is_some()
             || self.phaser.is_some()
             || self.compressor.is_some()
+            || self.transient.is_some()
     }
 }
 
@@ -405,6 +492,8 @@ pub struct PostFxVoice {
     vowel: Option<(Formant, Formant)>,
     /// Per-channel swept notch filters when `phaser` is set.
     phaser: Option<(Biquad, Biquad)>,
+    /// Per-channel transient shapers when `transient`/`transsustain` is set.
+    transient: Option<(TransientShaper, TransientShaper)>,
     /// Smoothed compressor gain (1.0 = no reduction), driven by attack/release.
     comp_gain: f32,
 }
@@ -422,6 +511,12 @@ impl PostFxVoice {
                 Biquad::notch(sample_rate, center, q),
             )
         });
+        let transient = fx.transient.map(|a| {
+            (
+                TransientShaper::new(sample_rate, a, fx.transsustain),
+                TransientShaper::new(sample_rate, a, fx.transsustain),
+            )
+        });
         PostFxVoice {
             inner,
             fx,
@@ -431,6 +526,7 @@ impl PostFxVoice {
             coarse_count: 0,
             vowel,
             phaser,
+            transient,
             comp_gain: 1.0,
         }
     }
@@ -451,6 +547,7 @@ impl PostFxVoice {
             && self.phaser.is_none()
             && self.fx.coarse.is_none()
             && self.fx.compressor.is_none()
+            && self.fx.transient.is_none()
             && (self.fx.distort.is_none() || self.fx.distort_alg == DistortAlgo::Scurve)
     }
 
@@ -544,6 +641,14 @@ impl VoiceLike for PostFxVoice {
     fn tick(&mut self) -> (f32, f32) {
         let (mut l, mut r) = self.inner.tick();
 
+        // transient shaper. superdough inserts this before the gain stage and
+        // the filters; Rudel's voices already contain their own gain/filters, so
+        // it runs here at the earliest point the post-chain reaches — the same
+        // fixed-order limitation documented for `FX`.
+        if let Some((tl, tr)) = &mut self.transient {
+            l = tl.process(l);
+            r = tr.process(r);
+        }
         // vowel: parallel formant band-pass bank.
         if let Some((fl, fr)) = &mut self.vowel {
             l = fl.process(l);
@@ -696,14 +801,5 @@ impl VoiceLike for PostFxVoice {
 
     fn is_done(&self) -> bool {
         self.inner.is_done()
-    }
-    fn room(&self) -> f32 {
-        self.inner.room()
-    }
-    fn delay_send(&self) -> f32 {
-        self.inner.delay_send()
-    }
-    fn dry(&self) -> f32 {
-        self.inner.dry()
     }
 }

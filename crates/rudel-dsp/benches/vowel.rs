@@ -27,12 +27,6 @@ impl VoiceLike for ConstVoice {
     fn is_done(&self) -> bool {
         false
     }
-    fn room(&self) -> f32 {
-        0.0
-    }
-    fn delay_send(&self) -> f32 {
-        0.0
-    }
 }
 
 fn make_voice() -> PostFxVoice {

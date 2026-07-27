@@ -383,16 +383,33 @@ fn arithmetic_between_two_controls_combines_on_shared_keys() {
 
 #[test]
 fn control_gap_synonyms_write_canonical_keys() {
-    // distortion -> distortvol, shapevol -> shape, transsustain -> transient,
-    // tremsync -> tremolosync (Strudel control synonyms).
+    // distortion -> distortvol, tremsync -> tremolosync (Strudel control
+    // synonyms). `shapevol`/`transsustain` are *not* synonyms: they are the
+    // second slots of the `shape`/`transient` multi-controls, so they keep
+    // their own keys.
     let pat = eval(r#"s("bd").distortion(0.8).shapevol(0.5).transsustain(0.3).tremsync(4)"#)
         .expect("eval");
     match &values(&pat, 0, 1)[0] {
         Value::Map(m) => {
             assert_eq!(m.get("distortvol").and_then(|v| v.as_f64()), Some(0.8));
-            assert_eq!(m.get("shape").and_then(|v| v.as_f64()), Some(0.5));
-            assert_eq!(m.get("transient").and_then(|v| v.as_f64()), Some(0.3));
+            assert_eq!(m.get("shapevol").and_then(|v| v.as_f64()), Some(0.5));
+            assert_eq!(m.get("transsustain").and_then(|v| v.as_f64()), Some(0.3));
             assert_eq!(m.get("tremolosync").and_then(|v| v.as_f64()), Some(4.0));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn shape_and_transient_spread_colon_lists() {
+    // Strudel: registerControl(['shape','shapevol']) / ['transient','transsustain'].
+    let pat = eval(r#"s("bd").shape("0.4:0.8").transient("1:-1")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("shape").and_then(|v| v.as_f64()), Some(0.4));
+            assert_eq!(m.get("shapevol").and_then(|v| v.as_f64()), Some(0.8));
+            assert_eq!(m.get("transient").and_then(|v| v.as_f64()), Some(1.0));
+            assert_eq!(m.get("transsustain").and_then(|v| v.as_f64()), Some(-1.0));
         }
         other => panic!("expected control map, got {other:?}"),
     }

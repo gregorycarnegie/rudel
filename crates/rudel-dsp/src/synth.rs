@@ -211,15 +211,6 @@ impl Voice {
         }
     }
 
-    /// Reverb send amount for this voice (`room`).
-    pub fn room(&self) -> f32 {
-        self.params.room
-    }
-    /// Delay send amount for this voice (`delay`).
-    pub fn delay_send(&self) -> f32 {
-        self.params.delay
-    }
-
     fn envelope(&self) -> f32 {
         adsr_value(&self.params.adsr, self.t, self.hold_end)
     }
@@ -421,14 +412,5 @@ impl VoiceLike for Voice {
     }
     fn is_done(&self) -> bool {
         self.done
-    }
-    fn room(&self) -> f32 {
-        self.params.room
-    }
-    fn delay_send(&self) -> f32 {
-        self.params.delay
-    }
-    fn dry(&self) -> f32 {
-        self.params.dry
     }
 }

@@ -10,12 +10,6 @@ impl VoiceLike for ConstVoice {
     fn is_done(&self) -> bool {
         false
     }
-    fn room(&self) -> f32 {
-        0.0
-    }
-    fn delay_send(&self) -> f32 {
-        0.0
-    }
 }
 
 #[test]
@@ -100,12 +94,6 @@ impl VoiceLike for ImpulseVoice {
     }
     fn is_done(&self) -> bool {
         false
-    }
-    fn room(&self) -> f32 {
-        0.0
-    }
-    fn delay_send(&self) -> f32 {
-        0.0
     }
 }
 
@@ -261,12 +249,6 @@ fn coarse_holds_samples() {
         fn is_done(&self) -> bool {
             false
         }
-        fn room(&self) -> f32 {
-            0.0
-        }
-        fn delay_send(&self) -> f32 {
-            0.0
-        }
     }
     let fx = PostFx {
         coarse: Some(3.0),
@@ -292,12 +274,6 @@ proptest! {
             }
             fn is_done(&self) -> bool {
                 false
-            }
-            fn room(&self) -> f32 {
-                0.0
-            }
-            fn delay_send(&self) -> f32 {
-                0.0
             }
         }
 
@@ -449,12 +425,6 @@ fn phaser_attenuates_tone_at_notch() {
         }
         fn is_done(&self) -> bool {
             false
-        }
-        fn room(&self) -> f32 {
-            0.0
-        }
-        fn delay_send(&self) -> f32 {
-            0.0
         }
     }
     let sr = 44100.0;

@@ -43,6 +43,7 @@ fn note_event() -> NoteEvent {
             ..Default::default()
         },
         cut: None,
+        send: rudel_dsp::OrbitSend::default(),
         tags: Vec::new(),
     }
 }

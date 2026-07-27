@@ -32,21 +32,52 @@ fn ftype_24db_cascades_the_filter() {
         twentyfour < twelve,
         "24dB ({twentyfour}) should attenuate more than 12dB ({twelve})"
     );
-    // ftype parses on params: 0/1 -> single, 2 -> cascade.
-    let cascade_of = |f: f64| {
+    // ftype parses on params, indexing ['12db', 'ladder', '24db'] (wrapping).
+    let model_of = |f: Value| {
         VoiceParams::from_controls(
             &ValueMap::from([
                 ("cutoff".to_string(), Value::F64(500.0)),
-                ("ftype".to_string(), Value::F64(f)),
+                ("ftype".to_string(), f),
             ]),
             1.0,
         )
         .lp
-        .cascade
+        .model
     };
-    assert!(!cascade_of(0.0));
-    assert!(!cascade_of(1.0));
-    assert!(cascade_of(2.0));
+    assert_eq!(model_of(Value::F64(0.0)), FilterModel::Db12);
+    assert_eq!(model_of(Value::F64(1.0)), FilterModel::Ladder);
+    assert_eq!(model_of(Value::F64(2.0)), FilterModel::Db24);
+    assert_eq!(model_of(Value::F64(4.0)), FilterModel::Ladder); // wraps
+    assert_eq!(model_of(Value::Str("ladder".into())), FilterModel::Ladder);
+    assert_eq!(model_of(Value::Str("24db".into())), FilterModel::Db24);
+}
+
+#[test]
+fn ladder_ftype_rolls_off_more_than_the_default_biquad() {
+    // The Moog ladder is a 4-pole lowpass, so at the same cutoff it should pass
+    // less of a bright signal than the default single biquad.
+    let peak = |ftype: Value| {
+        let p = VoiceParams::from_controls(
+            &ValueMap::from([
+                ("s".to_string(), Value::Str("sawtooth".into())),
+                ("freq".to_string(), Value::F64(2000.0)),
+                ("cutoff".to_string(), Value::F64(300.0)),
+                ("ftype".to_string(), ftype),
+            ]),
+            0.2,
+        );
+        let mut v = Voice::new(p, 44100.0);
+        (0..8000)
+            .map(|_| v.tick().0.abs())
+            .skip(2000)
+            .fold(0.0f32, f32::max)
+    };
+    let biquad = peak(Value::F64(0.0));
+    let ladder = peak(Value::Str("ladder".into()));
+    assert!(
+        ladder < biquad,
+        "ladder ({ladder}) should attenuate more than the 12dB biquad ({biquad})"
+    );
 }
 
 #[test]

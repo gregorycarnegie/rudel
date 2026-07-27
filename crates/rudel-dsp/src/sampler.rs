@@ -1,5 +1,8 @@
-use crate::{filter::Biquad, voice::VoiceLike};
-use rudel_core::{Value, ValueMap};
+use crate::{
+    filter::{FilterKind, FilterModel, FilterParams, VoiceFilter},
+    voice::VoiceLike,
+};
+use rudel_core::ValueMap;
 use std::{f32::consts::FRAC_PI_2, sync::Arc};
 
 pub struct Sample {
@@ -20,12 +23,10 @@ pub struct SamplerParams {
     pub release: f32,
     pub cutoff: Option<f32>,
     pub resonance: f32,
-    /// `ftype` 24dB: cascade the lowpass twice for a steeper slope.
-    pub cascade: bool,
-    pub room: f32,
-    pub delay: f32,
-    /// Dry (direct) signal level (`dry`), 0..1. Defaults to full.
-    pub dry: f32,
+    /// `ftype`: which lowpass model to run (12dB biquad, Moog ladder, 24dB).
+    pub model: FilterModel,
+    /// `drive`: ladder input drive; unused by the biquad models.
+    pub drive: f32,
     /// Hold time in seconds (0 = play to the sample's natural end).
     pub duration: f32,
     /// Start/end positions as fractions of the sample (0..1).
@@ -54,10 +55,8 @@ impl SamplerParams {
             release: 0.05,
             cutoff: None,
             resonance: 0.707,
-            cascade: false,
-            room: 0.0,
-            delay: 0.0,
-            dry: 1.0,
+            model: FilterModel::Db12,
+            drive: 0.69,
             duration: 0.0,
             begin: 0.0,
             end: 1.0,
@@ -85,24 +84,11 @@ impl SamplerParams {
         if let Some(q) = map.get("resonance").and_then(|v| v.as_f64()) {
             self.resonance = (q as f32).max(0.1);
         }
-        // `ftype` 24dB cascades the lowpass twice (see params.rs); 'ladder' is
-        // not ported and falls back to the default 12dB single biquad.
-        self.cascade = match map.get("ftype") {
-            Some(Value::Str(s)) => s == "24db",
-            Some(v) => v
-                .as_f64()
-                .map(|f| f.rem_euclid(3.0).floor() as i32 == 2)
-                .unwrap_or(false),
-            None => self.cascade,
-        };
-        if let Some(room) = map.get("room").and_then(|v| v.as_f64()) {
-            self.room = room as f32;
+        if let Some(v) = map.get("ftype") {
+            self.model = FilterModel::from_value(v);
         }
-        if let Some(d) = map.get("delay").and_then(|v| v.as_f64()) {
-            self.delay = d as f32;
-        }
-        if let Some(dry) = map.get("dry").and_then(|v| v.as_f64()) {
-            self.dry = dry as f32;
+        if let Some(d) = map.get("drive").and_then(|v| v.as_f64()) {
+            self.drive = d as f32;
         }
         if let Some(b) = map.get("begin").and_then(|v| v.as_f64()) {
             self.begin = (b as f32).clamp(0.0, 1.0);
@@ -145,12 +131,7 @@ pub struct SamplerVoice {
     t: f32,
     hold_end: f32,
     sample_rate: f32,
-    room: f32,
-    delay: f32,
-    dry: f32,
-    filter: Option<Biquad>,
-    /// Second cascaded lowpass for `ftype` 24dB.
-    filter2: Option<Biquad>,
+    filter: Option<VoiceFilter>,
     done: bool,
     /// Looping: when active, `pos` wraps within `[loop_start, loop_end)` (in
     /// sample frames) and the voice plays until `hold_end` rather than the slice
@@ -194,16 +175,18 @@ impl SamplerVoice {
         } else {
             natural as f32
         };
-        let filter = params
-            .cutoff
-            .map(|c| Biquad::lowpass(sample_rate, c, params.resonance));
-        let filter2 = (params.cascade)
-            .then(|| {
-                params
-                    .cutoff
-                    .map(|c| Biquad::lowpass(sample_rate, c, params.resonance))
-            })
-            .flatten();
+        // The sampler's lowpass has no envelope, so it reuses the voice filter
+        // slot with `env` unset — that also gives it `ftype`/`drive` for free.
+        let filter = params.cutoff.map(|c| {
+            let fp = FilterParams {
+                freq: Some(c),
+                q: params.resonance,
+                model: params.model,
+                drive: params.drive,
+                ..FilterParams::default()
+            };
+            VoiceFilter::new(FilterKind::Low, &fp, sample_rate)
+        });
         SamplerVoice {
             sample: params.sample.clone(),
             pos: begin,
@@ -217,11 +200,7 @@ impl SamplerVoice {
             t: 0.0,
             hold_end,
             sample_rate,
-            room: params.room,
-            delay: params.delay,
-            dry: params.dry,
             filter,
-            filter2,
             done: false,
             loop_on,
             loop_start,
@@ -262,10 +241,7 @@ impl VoiceLike for SamplerVoice {
         let s1 = self.sample.data[i + 1];
         let mut s = s0 + (s1 - s0) * frac;
         if let Some(f) = &mut self.filter {
-            s = f.process(s);
-        }
-        if let Some(f) = &mut self.filter2 {
-            s = f.process(s);
+            s = f.process(s, self.t, self.hold_end, self.sample_rate);
         }
         s *= self.envelope() * self.gain;
 
@@ -278,15 +254,6 @@ impl VoiceLike for SamplerVoice {
     }
     fn is_done(&self) -> bool {
         self.done
-    }
-    fn room(&self) -> f32 {
-        self.room
-    }
-    fn delay_send(&self) -> f32 {
-        self.delay
-    }
-    fn dry(&self) -> f32 {
-        self.dry
     }
 }
 

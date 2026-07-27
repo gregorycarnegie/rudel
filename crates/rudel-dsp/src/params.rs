@@ -1,6 +1,6 @@
 use crate::{
     envelope::Adsr,
-    filter::FilterParams,
+    filter::{FilterModel, FilterParams},
     fm::FmSpec,
     oscillator::{AdditiveType, NoiseKind, Waveform, build_additive},
     pitch::note_to_freq,
@@ -60,12 +60,6 @@ pub struct VoiceParams {
     pub hp: FilterParams,
     /// Band-pass filter (`bandf`/`bpf` + `bpenv`/...).
     pub bp: FilterParams,
-    /// Reverb send amount (`room`), 0..1.
-    pub room: f32,
-    /// Delay send amount (`delay`), 0..1.
-    pub delay: f32,
-    /// Dry (direct) signal level (`dry`), 0..1. Defaults to full.
-    pub dry: f32,
 }
 
 impl Default for VoiceParams {
@@ -102,9 +96,6 @@ impl Default for VoiceParams {
                 q: 1.0,
                 ..FilterParams::default()
             },
-            room: 0.0,
-            delay: 0.0,
-            dry: 1.0,
         }
     }
 }
@@ -316,28 +307,16 @@ impl VoiceParams {
             p.hp.anchor = a;
             p.bp.anchor = a;
         }
-        // `ftype` slope: superdough's filter types are ['12db','ladder','24db'].
-        // 24dB cascades the biquad twice; 'ladder' (the Moog worklet) isn't
-        // ported, so it falls back to the default 12dB single biquad.
-        let cascade = match map.get("ftype") {
-            Some(Value::Str(s)) => s == "24db",
-            Some(v) => v
-                .as_f64()
-                .map(|f| f.rem_euclid(3.0).floor() as i32 == 2)
-                .unwrap_or(false),
-            None => false,
-        };
-        p.lp.cascade = cascade;
-        p.hp.cascade = cascade;
-        p.bp.cascade = cascade;
-        if let Some(room) = map.get("room").and_then(|v| v.as_f64()) {
-            p.room = room as f32;
-        }
-        if let Some(d) = map.get("delay").and_then(|v| v.as_f64()) {
-            p.delay = d as f32;
-        }
-        if let Some(dry) = map.get("dry").and_then(|v| v.as_f64()) {
-            p.dry = dry as f32;
+        // `ftype` selects the filter model for every slot (superdough passes the
+        // same `model` to each `createFilter` call); `drive` feeds the ladder.
+        let model = map
+            .get("ftype")
+            .map(FilterModel::from_value)
+            .unwrap_or_default();
+        let drive = get("drive").unwrap_or(0.69);
+        for f in [&mut p.lp, &mut p.hp, &mut p.bp] {
+            f.model = model;
+            f.drive = drive;
         }
         p
     }
