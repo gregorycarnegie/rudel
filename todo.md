@@ -273,7 +273,9 @@ Function-by-function audit against the Strudel learn pages
 - [x] `sine` `cosine` `saw` `isaw` `tri` `square` `rand` `rand2` `irand` `run`
       `time` `perlin` — bound as Koto values/fns; `segment`/`range` on signals
 - [x] bipolar variants `saw2`/`square2`/`tri2`/`isaw2`/`sine2`/`cosine2`
-- [ ] `envL`/`envLR`/`envEq`…, `mousex`/`mousey` (n/a native)
+- [x] `mousex`/`mousey` (+ `mouseX`/`mouseY`): pointer position 0..1 across the
+      app window, published to the input bus each frame by the egui app.
+- [ ] `envL`/`envLR`/`envEq`… (envelope signals)
 
 ## learn/conditional-modifiers
 
@@ -287,7 +289,12 @@ Function-by-function audit against the Strudel learn pages
       randomizers from signal.mjs (`_rearrangeWith`), parity-tested against the
       oracle. Fixing these also fixed `time_to_rands` to match Strudel's legacy
       RNG (signed values for `n > 1`, initial `xorwise` applied).
-- [ ] `whenKey`/`keyDown` (keyboard), `ifp`
+- [x] `whenKey`/`keyDown`: the held-key set is published to the input bus each
+      frame, so both read the live keyboard at query time (no re-eval needed).
+      Key names match the browser's `KeyboardEvent.key` values, including
+      Strudel's `ctrl`/`alt`/`shift`/`up`/`down`/`left`/`right` shorthands; a
+      `:`-list is a combination that must be held in full.
+- [ ] `ifp`
 
 ## learn/accumulation
 

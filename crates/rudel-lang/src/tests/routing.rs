@@ -114,3 +114,35 @@ fn ccin_reads_the_midi_input_bus() {
     // channel-pinned form + use as a control modulator resolves too
     assert!(eval(r#"note("c3").lpf(ccin(1, 1).range(200, 2000))"#).is_ok());
 }
+
+#[test]
+fn mouse_signals_read_the_pointer_bus() {
+    // `mousex`/`mousey` are pattern *values* like `sine`, not calls.
+    rudel_core::set_pointer(0.25, 0.75);
+    let x = eval(r#"mousex.segment(2)"#).expect("eval");
+    let y = eval(r#"mouseY.segment(2)"#).expect("eval");
+    assert!(values(&x, 0, 1).iter().all(|v| v.as_f64() == Some(0.25)));
+    assert!(values(&y, 0, 1).iter().all(|v| v.as_f64() == Some(0.75)));
+    // and compose like any other signal
+    assert!(eval(r#"n(mousex.segment(4).range(0,7)).scale("C:minor")"#).is_ok());
+}
+
+#[test]
+fn key_down_and_when_key_read_the_live_keyboard() {
+    rudel_core::clear_keys();
+    // A `:`-list is a combination: every key must be held.
+    let down = eval(r#"keyDown("ctrl:j")"#).expect("eval");
+    let held = |p: &rudel_core::Pattern| values(p, 0, 1)[0].truthy();
+    assert!(!held(&down));
+    rudel_core::set_keys_held(["Control"]);
+    assert!(!held(&down), "one of the pair is not enough");
+    rudel_core::set_keys_held(["Control", "j"]);
+    assert!(held(&down));
+
+    // `whenKey` applies its callback while the keys are held, and the check is
+    // live: the same pattern responds without being re-evaluated.
+    let pat = eval(r#"note("c e").whenKey("ctrl:j", |p| p.fast(2))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4, "held -> fast(2)");
+    rudel_core::clear_keys();
+    assert_eq!(values(&pat, 0, 1).len(), 2, "released -> untransformed");
+}

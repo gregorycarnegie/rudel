@@ -417,6 +417,10 @@ kpattern_methods! {
         s_tour => kpattern_tour,
         #[koto_method(alias = "arpWith")]
         arp_with => kpattern_arp_with,
+        #[koto_method(alias = "whenKey")]
+        when_key => kpattern_when_key,
+        #[koto_method(alias = "keyDown")]
+        key_down => kpattern_key_down,
         #[koto_method]
         voicings => kpattern_voicings,
         #[koto_method]

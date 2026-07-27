@@ -11,6 +11,7 @@ use eframe::egui;
 
 impl eframe::App for RudelApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        pump_input_bus(ui.ctx());
         self.poll_sample_jobs(ui.ctx());
         let midi_connecting = self.poll_midi_connect() | self.poll_midi_in_connect();
 
@@ -725,5 +726,77 @@ mod tests {
             eval_button_labels(true),
             (("Block", "Ctrl+Enter"), ("Eval", "Ctrl+Shift+Enter"))
         );
+    }
+}
+
+/// Publish this frame's pointer position and held keys to `rudel-core`'s input
+/// bus, where the `mousex`/`mousey`/`keyDown` signals read them at query time.
+/// Strudel gets these from `document` listeners; the egui window is the source
+/// here.
+fn pump_input_bus(ctx: &egui::Context) {
+    ctx.input(|i| {
+        let rect = i.viewport_rect();
+        if let Some(p) = i.pointer.latest_pos() {
+            rudel_core::set_pointer(
+                ((p.x - rect.left()) / rect.width().max(1.0)) as f64,
+                ((p.y - rect.top()) / rect.height().max(1.0)) as f64,
+            );
+        }
+        // egui reports modifiers separately from `keys_down`; the browser
+        // reports them as keys of their own, which is what patterns name.
+        let mods = [
+            (i.modifiers.ctrl, "Control"),
+            (i.modifiers.shift, "Shift"),
+            (i.modifiers.alt, "Alt"),
+            (i.modifiers.mac_cmd, "Meta"),
+        ];
+        let held = i.keys_down.iter().map(|k| browser_key_name(*k)).chain(
+            mods.into_iter()
+                .filter(|(on, _)| *on)
+                .map(|(_, n)| n.to_string()),
+        );
+        rudel_core::set_keys_held(held);
+    });
+}
+
+/// Name an egui key the way a browser's `KeyboardEvent.key` would, so patterns
+/// name keys identically in Rudel and Strudel. egui's own names already agree
+/// for most keys (`Enter`, `Escape`, `Tab`, the digits, the function keys);
+/// only the arrows, space and the letters differ.
+fn browser_key_name(key: egui::Key) -> String {
+    use egui::Key;
+    match key {
+        Key::ArrowDown => "ArrowDown".to_string(),
+        Key::ArrowUp => "ArrowUp".to_string(),
+        Key::ArrowLeft => "ArrowLeft".to_string(),
+        Key::ArrowRight => "ArrowRight".to_string(),
+        Key::Space => " ".to_string(),
+        other => {
+            // Letters are "A".."Z" in egui; the browser reports the unshifted
+            // character, with `Shift` held separately (as it is here).
+            let name = other.name();
+            match name.as_bytes() {
+                [c] if c.is_ascii_alphabetic() => name.to_lowercase(),
+                _ => name.to_string(),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod input_bus_tests {
+    use super::browser_key_name;
+    use eframe::egui::Key;
+
+    #[test]
+    fn keys_are_named_as_the_browser_does() {
+        // The names patterns use are `KeyboardEvent.key` values, so a pattern
+        // written for Strudel names the same keys in Rudel.
+        assert_eq!(browser_key_name(Key::J), "j");
+        assert_eq!(browser_key_name(Key::Num4), "4");
+        assert_eq!(browser_key_name(Key::Space), " ");
+        assert_eq!(browser_key_name(Key::ArrowDown), "ArrowDown");
+        assert_eq!(browser_key_name(Key::Enter), "Enter");
+        assert_eq!(browser_key_name(Key::Escape), "Escape");
     }
 }

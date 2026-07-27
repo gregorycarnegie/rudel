@@ -439,6 +439,22 @@ pub(super) fn kpattern_arp_with(ctx: MethodContext<KPattern>) -> KotoResult<KVal
     Ok(KPattern::wrap(out))
 }
 
+/// `pat.whenKey(names, f)`: apply `f` while every named key is held. Unlike
+/// `when`'s plain boolean pattern the condition reads the live keyboard at
+/// query time, so it responds without re-evaluating the code.
+pub(super) fn kpattern_when_key(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let keys = super::super::prelude::key_down_pattern(&method_arg(&ctx, 0));
+    super::callback::with_callback(&ctx, 1, |pat, cb| pat.when(keys.clone(), |p| cb.apply(p)))
+}
+
+/// `pat.keyDown()`: map this pattern's values (key names) to whether they are
+/// currently held.
+pub(super) fn kpattern_key_down(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_instance(&ctx, |pat| {
+        super::super::prelude::key_down_pattern(&KPattern(pat.clone()).into())
+    })
+}
+
 pub(super) fn kpattern_voicings(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let dict = arg_to_raw_str(&method_arg(&ctx, 0)).unwrap_or_else(|| "legacy".to_string());
     with_instance(&ctx, |pat| pat.voicings(dict.clone()))

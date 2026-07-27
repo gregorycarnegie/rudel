@@ -330,6 +330,17 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     }
     cb_frac! { "inside" => inside, "outside" => outside }
     cb_pat! { "off" => off, "when" => when }
+    // whenKey(names, f, pat): `pat.when(keyDown(names), f)`. Unlike `when`'s
+    // plain boolean pattern, the condition reads the live keyboard at query
+    // time, so holding a key changes what plays without re-evaluating.
+    add_curried_cb_fn(prelude, "whenKey", 3, |ctx, a| {
+        let keys = super::super::prelude::key_down_pattern(lead(a, 0));
+        let (func, pat) = func_and_pat(a);
+        let cb = Callback::from_call_ctx(ctx, func);
+        let out = pat.when(keys, |p| cb.apply(p));
+        cb.finish()?;
+        Ok(KPattern(out).into())
+    });
     cb_frac2! { "within" => within }
 
     // applyN(n, f, pat): apply the callback `n` times.

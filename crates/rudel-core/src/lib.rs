@@ -63,7 +63,10 @@ pub use controls::{
     numbered_control_names, s, sound,
 };
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
-pub use input::{cc_in, clear_cc, get_cc, set_cc};
+pub use input::{
+    cc_in, clear_cc, clear_keys, get_cc, get_pointer, key_down, keys_down, mousex, mousey, set_cc,
+    set_keys_held, set_pointer,
+};
 // Tonal: note names, scales, chords.
 pub use tonal::{
     chord_notes, chord_symbols, note_to_midi, note_to_midi_with_octave, scale_names, scale_offset,

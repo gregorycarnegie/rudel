@@ -177,6 +177,26 @@ signals, intended for phones/tablets running the web REPL. Rudel targets desktop
 (Windows/macOS/Linux) and has no device-motion sensor source, so these signals
 are **intentionally unsupported**. There is no native equivalent surface.
 
+### Mouse and keyboard — supported natively
+
+`mousex`/`mousey` (and the `mouseX`/`mouseY` spellings) and
+`keyDown`/`whenKey` **do** work. Strudel reads them from `document` event
+listeners; Rudel's egui window is the source instead, publishing the pointer
+position and the held keys to a process-global input bus each frame
+(`crates/rudel-core/src/input.rs`), which the signals read at query time. Keys
+are named exactly as in Strudel — the browser's `KeyboardEvent.key` values
+(`"a"`, `"Control"`, `"ArrowUp"`, `" "` for space) — including Strudel's
+shorthands (`ctrl`, `alt`, `shift`, `up`/`down`/`left`/`right`), so
+`whenKey("ctrl:j", …)` names the same combination in both.
+
+### MIDI device input (`midin`, `midikeys`) — deferred
+
+`midin(device)` and `midikeys(device)` open a *named* MIDI port and return a
+factory that makes signals from it. Rudel's MIDI input is a single
+app-selected device feeding the same global bus, read with `ccin(cc[, chan])`
+(`crates/rudel-midi/src/input.rs`), so incoming control changes work but
+per-device ports and MIDI-note-input-as-a-pattern are not ported.
+
 ### Gamepad (`@strudel/gamepad`) — intentionally unsupported (no native input source yet)
 
 `@strudel/gamepad` (`gamepad`, `buttonMap`, `getGamepadStates`,
@@ -186,8 +206,10 @@ exposes axes/buttons as patternable signals. Rudel has no gamepad input source
 wired into the engine, so this is **currently unsupported** and patterns
 referencing `gamepad` have no input. Unlike the strictly browser-only packages,
 a native port is technically feasible (e.g. via a Rust controller crate such as
-`gilrs`); it is simply not implemented and not yet planned. There is no native
-equivalent surface today.
+`gilrs`) — the input bus that already carries the pointer, keyboard and MIDI CC
+would be its home — but it needs a new dependency and a polling thread for a
+surface of ~60 names (16 buttons in four spellings each, plus axes, toggles and
+the button-sequence detector), so it is not implemented and not yet planned.
 
 ### Serial and MQTT (`@strudel/serial`, `@strudel/mqtt`) — intentionally unsupported
 

@@ -474,6 +474,10 @@ pub(crate) fn register(prelude: &KMap) {
         "brand" => rudel_core::brand,
         "time" => rudel_core::time,
         "perlin" => rudel_core::perlin, "berlin" => rudel_core::berlin,
+        // Pointer position, 0..1 across the app window (Strudel reads the
+        // browser's mousemove events; the egui app is the source here).
+        "mousex" => rudel_core::mousex, "mouseX" => rudel_core::mousex,
+        "mousey" => rudel_core::mousey, "mouseY" => rudel_core::mousey,
         // Event-duration signals (take structure from the pattern they meet).
         "per" => rudel_core::per, "perCycle" => rudel_core::per,
         "cyclesPer" => rudel_core::cycles_per, "perx" => rudel_core::perx,
@@ -588,6 +592,13 @@ pub(crate) fn register(prelude: &KMap) {
             .map(|v| super::pattern::arg_to_f64(v) as u8)
             .filter(|c| *c >= 1);
         Ok(KPattern(rudel_core::cc_in(cc, chan)).into())
+    });
+    // Keyboard input: `keyDown("Control:j")` is a boolean signal that is true
+    // while every named key is held. The argument is patternified like
+    // Strudel's `register`, so a `:`-list is a combination and `<a b>`
+    // alternates which key is watched.
+    prelude.add_fn("keyDown", |ctx| {
+        Ok(KPattern(key_down_pattern(&arg0(ctx))).into())
     });
 
     // Standalone (curried-style) forms of the transforms, so Strudel code
@@ -710,4 +721,18 @@ pub(crate) fn register(prelude: &KMap) {
             "beat" => beat, "xfade" => xfade,
         ];
     );
+}
+
+/// `keyDown(names)` as a boolean pattern: true while **every** named key is
+/// held. The argument is patternified like Strudel's `register`, so a
+/// `:`-list (`"Control:j"`) is a combination and the live keyboard state is
+/// read at query time rather than when the pattern is built.
+pub(super) fn key_down_pattern(arg: &KValue) -> Pattern {
+    arg_to_pattern(arg).fmap(|v| {
+        let names: Vec<&str> = match &v {
+            rudel_core::Value::List(items) => items.iter().filter_map(|x| x.as_str()).collect(),
+            other => other.as_str().into_iter().collect(),
+        };
+        rudel_core::Value::Bool(rudel_core::keys_down(names))
+    })
 }

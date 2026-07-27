@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=309 methods=1069 controls=663
+# functions=315 methods=1073 controls=663
 
 [functions]
 Math
@@ -144,6 +144,7 @@ juxflip
 juxflipby
 keep
 keepif
+keyDown
 lastOf
 last_of
 late
@@ -159,6 +160,10 @@ mask
 midiToFreq
 modulo
 morph
+mouseX
+mouseY
+mousex
+mousey
 mpe
 mul
 n
@@ -308,6 +313,7 @@ undegrade_by
 wchoose
 wchooseCycles
 when
+whenKey
 within
 wrandcat
 xfade
@@ -936,6 +942,8 @@ keep_squeeze
 keep_squeezein
 keep_squeezeout
 keepif
+keyDown
+key_down
 krush
 lastOf
 last_of
@@ -1351,6 +1359,8 @@ wavetablePosition
 wavetableWarp
 wavetableWarpMode
 when
+whenKey
+when_key
 withBase
 with_base
 within

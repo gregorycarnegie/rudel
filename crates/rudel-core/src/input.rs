@@ -1,14 +1,20 @@
-// input.rs - realtime MIDI-input bus feeding query-time signals.
+// input.rs - realtime input buses feeding query-time signals.
 // External MIDI control-change messages are written into a global bus by the
 // MIDI back-end (`rudel-midi`); patterns read the latest value at query time via
 // the `cc_in` signal. This is the input counterpart to the output controls and
 // mirrors Strudel's `MidiInput` CC refs (packages/midi/input.mjs), which expose
 // the latest CC value as a `ref()` signal.
+//
+// The same shape serves the pointer and keyboard: the app writes the latest
+// state each frame, and `mousex`/`mousey`/`key_down` read it at query time.
+// Strudel gets these from `document` event listeners (core/signal.mjs,
+// core/util.mjs `getCurrentKeyboardState`); Rudel's egui app is the event
+// source instead.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{pattern::Pattern, signal::signal, value::Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{LazyLock, RwLock},
 };
 
@@ -51,6 +57,95 @@ pub fn cc_in(cc: u8, channel: Option<u8>) -> Pattern {
     signal(move |_t| Value::F64(get_cc(chan, cc)))
 }
 
+// ---------------------------------------------------------------------------
+// Pointer
+
+/// Latest pointer position, each axis normalised to 0..1 across the window.
+/// Strudel divides `clientX`/`clientY` by the body size; the app does the same
+/// against its own window.
+static POINTER: LazyLock<RwLock<(f64, f64)>> = LazyLock::new(|| RwLock::new((0.0, 0.0)));
+
+/// Record the pointer position (already normalised to 0..1). Called by the app
+/// once per frame.
+pub fn set_pointer(x: f64, y: f64) {
+    *POINTER.write().unwrap() = (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
+}
+
+/// The latest pointer position as `(x, y)` in 0..1.
+pub fn get_pointer() -> (f64, f64) {
+    *POINTER.read().unwrap()
+}
+
+/// A continuous 0..1 signal of the pointer's x position (`mousex`).
+pub fn mousex() -> Pattern {
+    signal(|_t| Value::F64(get_pointer().0))
+}
+
+/// A continuous 0..1 signal of the pointer's y position (`mousey`).
+pub fn mousey() -> Pattern {
+    signal(|_t| Value::F64(get_pointer().1))
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard
+
+/// The names of the keys currently held. Keys are named as in Strudel — that
+/// is, the browser's [`KeyboardEvent.key`] values (`"a"`, `"Control"`,
+/// `"ArrowUp"`, …) — so patterns written for either engine name them alike.
+///
+/// [`KeyboardEvent.key`]: https://developer.mozilla.org/docs/Web/API/UI_Events/Keyboard_event_key_values
+static KEYS: LazyLock<RwLock<HashSet<String>>> = LazyLock::new(|| RwLock::new(HashSet::new()));
+
+/// Replace the set of held keys. The app polls its window each frame, so it
+/// reports the whole set rather than individual up/down edges.
+pub fn set_keys_held<S: Into<String>>(names: impl IntoIterator<Item = S>) {
+    *KEYS.write().unwrap() = names.into_iter().map(Into::into).collect();
+}
+
+/// Forget every held key (window focus loss / tests).
+pub fn clear_keys() {
+    KEYS.write().unwrap().clear();
+}
+
+/// Resolve Strudel's shorthand key names (`util.mjs`'s `keyAlias`). Anything
+/// else passes through as written.
+fn key_alias(name: &str) -> &str {
+    match name {
+        "control" | "ctrl" => "Control",
+        "alt" => "Alt",
+        "shift" => "Shift",
+        "down" => "ArrowDown",
+        "up" => "ArrowUp",
+        "left" => "ArrowLeft",
+        "right" => "ArrowRight",
+        other => other,
+    }
+}
+
+/// True when **every** named key is held, matching `_keyDown`'s `every`. A
+/// combination is written as a `:`-list (`"Control:j"`), which reaches here as
+/// several names.
+pub fn keys_down<'a>(names: impl IntoIterator<Item = &'a str>) -> bool {
+    let keys = KEYS.read().unwrap();
+    let mut any = false;
+    for name in names {
+        any = true;
+        if !keys.contains(key_alias(name)) {
+            return false;
+        }
+    }
+    // `[].every(...)` is true in JS, but an empty key list is a user error
+    // rather than "always on", so it reads as not-held.
+    any
+}
+
+/// A boolean signal that is true while every key in `names` is held
+/// (`keyDown`). Reads the live state at query time, so a pattern responds to
+/// the keyboard without re-evaluating.
+pub fn key_down(names: Vec<String>) -> Pattern {
+    signal(move |_t| Value::Bool(keys_down(names.iter().map(String::as_str))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +182,34 @@ mod tests {
         assert_eq!(sample(&cc_in(20, Some(2))), 0.75);
         // the any-channel reader sees the most recent write (channel 2)
         assert_eq!(sample(&cc_in(20, None)), 0.75);
+    }
+
+    #[test]
+    fn pointer_signals_track_the_latest_position() {
+        set_pointer(0.25, 0.75);
+        assert_eq!(sample(&mousex()), 0.25);
+        assert_eq!(sample(&mousey()), 0.75);
+        // Out-of-window positions clamp rather than escaping 0..1.
+        set_pointer(-1.0, 2.0);
+        assert_eq!(sample(&mousex()), 0.0);
+        assert_eq!(sample(&mousey()), 1.0);
+    }
+
+    #[test]
+    fn key_down_needs_every_key_of_a_combination() {
+        clear_keys();
+        // Strudel's aliases: "ctrl" and "control" both mean "Control".
+        let combo = key_down(vec!["ctrl".into(), "j".into()]);
+        let truthy = |p: &Pattern| p.query_arc(Frac::zero(), Frac::one())[0].value.truthy();
+
+        assert!(!truthy(&combo), "nothing held");
+        set_keys_held(["Control"]);
+        assert!(!truthy(&combo), "only one of the pair held");
+        set_keys_held(["Control", "j"]);
+        assert!(truthy(&combo), "both held");
+        set_keys_held(["j"]);
+        assert!(!truthy(&combo), "released again");
+        clear_keys();
     }
 
     #[test]

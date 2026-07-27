@@ -18,10 +18,10 @@
         "rotationX", "rotationY", "rotationZ"
       ]
     },
-    "browser_input": {
-      "status": "unsupported",
-      "reason": "Browser-only input signals (mouse position, Web MIDI keyboard, key state); no native equivalent in the egui app.",
-      "names": ["mousex", "mousey", "keyDown", "whenKey", "midikeys", "midin"]
+    "midi_device_input": {
+      "status": "deferred",
+      "reason": "`midin(device)`/`midikeys(device)` open a *named* MIDI port and return a factory of signals from it. Rudel's MIDI input is a single app-selected device feeding a process-global bus, read via `ccin(cc[, chan])`; per-device ports and MIDI-note-input-as-a-pattern are not ported (crates/rudel-midi/src/input.rs). The mouse/keyboard signals that used to sit here (`mousex`/`mousey`/`keyDown`/`whenKey`) are now implemented natively off the same bus, fed by the egui window.",
+      "names": ["midikeys", "midin"]
     },
     "draw_runtime": {
       "status": "deferred",

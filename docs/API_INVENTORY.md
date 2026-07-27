@@ -14,18 +14,18 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 1 | 0 | 2 | 0 |
-| `core` | 618 | 590 | 23 | 5 | 0 |
+| `core` | 618 | 594 | 19 | 5 | 0 |
 | `csound` | 2 | 0 | 2 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
-| `midi` | 2 | 0 | 2 | 0 | 0 |
+| `midi` | 2 | 0 | 0 | 2 | 0 |
 | `motion` | 48 | 0 | 48 | 0 | 0 |
 | `osc` | 1 | 1 | 0 | 0 | 0 |
 | `superdough` | 4 | 0 | 2 | 2 | 0 |
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **622** | **78** | **9** | **0** |
+| **Total** | **709** | **626** | **72** | **11** | **0** |
 
 ## `codemirror`
 
@@ -324,7 +324,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `juxflipby` | implemented |  |
 | `kcutoff` | implemented |  |
 | `keep` | implemented |  |
-| `keyDown` | intentional | browser input |
+| `keyDown` | implemented |  |
 | `krush` | implemented |  |
 | `label` | deferred | draw runtime |
 | `lastOf` | implemented |  |
@@ -379,8 +379,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `miditouch` | implemented |  |
 | `minutes` | implemented |  |
 | `mode` | implemented |  |
-| `mousex` | intentional | browser input |
-| `mousey` | intentional | browser input |
+| `mousex` | implemented |  |
+| `mousey` | implemented |  |
 | `mtranspose` | implemented |  |
 | `mul` | implemented |  |
 | `n` | implemented |  |
@@ -625,7 +625,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `weave` | intentional | doc artifact |
 | `weaveWith` | intentional | doc artifact |
 | `when` | implemented |  |
-| `whenKey` | intentional | browser input |
+| `whenKey` | implemented |  |
 | `within` | implemented |  |
 | `worklet` | intentional | unsupported package |
 | `wrandcat` | implemented |  |
@@ -688,8 +688,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `midikeys` | intentional | browser input |
-| `midin` | intentional | browser input |
+| `midikeys` | deferred | midi device input |
+| `midin` | deferred | midi device input |
 
 ## `motion`
 
