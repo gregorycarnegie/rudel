@@ -115,6 +115,39 @@ OSC. Rudel does forward them (`crates/rudel-osc`), so they work exactly as well
 as they do in Strudel when you are driving SuperDirt, and they are silent in the
 native engine on both sides.
 
+### Modulators (`lfo`, `env`, `bmod`) — partial
+
+`lfo(...)` and `env(...)` work: both sources are ported from superdough's
+worklets and their output is added to the target control's own value, as Web
+Audio does when a node is connected to an `AudioParam`. `depth`/`depthabs`,
+`rate`/`sync`, `shape`/`skew`/`curve`/`dcoffset`/`phaseoffset`, `retrig`, the
+envelope's `attack`/`decay`/`sustain`/`release` and its `acurve`/`dcurve`/
+`rcurve` curvatures all behave as upstream, including the rule that a modulator
+with no explicit `control` targets whatever was applied just before it in the
+chain.
+
+**Only a subset of controls can be modulated.** Strudel's target table covers
+every parameter of its Web Audio graph; Rudel bakes most controls into a voice
+when it is constructed, so a modulator can only reach the parameters its DSP
+already varies per sample:
+
+| Target | Controls |
+| --- | --- |
+| Oscillator frequency | `s`, `freq`, `note` |
+| Level | `gain`, `postgain` |
+| Filters | `cutoff`, `resonance`, `hcutoff`, `hresonance`, `bandf`, `bandq` |
+| Post effects | `shape`, `shapevol`, `distort`, `distortvol`, `crush`, `coarse` |
+
+A modulator naming anything else is skipped and has no effect — the same outcome
+as Strudel's "may not be modulatable" path, which also carries on. For sampler
+voices only `gain`, `cutoff` and `resonance` apply; the drum and ZZFX voices
+render from a fixed recipe and take no modulators at all.
+
+Not implemented: **`bmod`** (bus modulation) needs audio-rate signal buses
+(`bus`/`busgain`), which Rudel does not have; **`subControl`** (pointing a
+modulator at another modulator's parameters) is ignored; and **`fxi`** (which
+link of an `FX` chain to target) is moot while `FX` itself is unported.
+
 ### `stretch`, `bytebeat`, wavetable oscillator — not yet ported
 
 `stretch` (superdough's `phase-vocoder-processor`), `s("bytebeat")` with

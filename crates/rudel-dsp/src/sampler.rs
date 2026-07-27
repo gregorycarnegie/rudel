@@ -1,5 +1,6 @@
 use crate::{
     filter::{FilterKind, FilterModel, FilterParams, VoiceFilter},
+    modulator::{ModBank, ModSpec, ModTarget},
     voice::VoiceLike,
 };
 use rudel_core::ValueMap;
@@ -132,6 +133,8 @@ pub struct SamplerVoice {
     hold_end: f32,
     sample_rate: f32,
     filter: Option<VoiceFilter>,
+    /// Modulators targeting this voice (gain and the lowpass).
+    mods: ModBank,
     done: bool,
     /// Looping: when active, `pos` wraps within `[loop_start, loop_end)` (in
     /// sample frames) and the voice plays until `hold_end` rather than the slice
@@ -143,6 +146,11 @@ pub struct SamplerVoice {
 
 impl SamplerVoice {
     pub fn new(params: SamplerParams, sample_rate: f32) -> SamplerVoice {
+        SamplerVoice::with_mods(params, sample_rate, &[])
+    }
+
+    /// Build a sampler voice with modulators bound to its parameters.
+    pub fn with_mods(params: SamplerParams, sample_rate: f32, mods: &[ModSpec]) -> SamplerVoice {
         let len = params.sample.data.len();
         let begin = (params.begin as f64 * len as f64).clamp(0.0, len as f64);
         let end = (params.end as f64 * len as f64).clamp(begin, len as f64);
@@ -201,6 +209,7 @@ impl SamplerVoice {
             hold_end,
             sample_rate,
             filter,
+            mods: ModBank::new(mods, sample_rate as f64),
             done: false,
             loop_on,
             loop_start,
@@ -240,10 +249,19 @@ impl VoiceLike for SamplerVoice {
         let s0 = self.sample.data[i];
         let s1 = self.sample.data[i + 1];
         let mut s = s0 + (s1 - s0) * frac;
+        self.mods.tick();
         if let Some(f) = &mut self.filter {
-            s = f.process(s, self.t, self.hold_end, self.sample_rate);
+            let (ft, qt) = f.mod_targets();
+            s = f.process(
+                s,
+                self.t,
+                self.hold_end,
+                self.sample_rate,
+                self.mods.get(ft),
+                self.mods.get(qt),
+            );
         }
-        s *= self.envelope() * self.gain;
+        s *= self.envelope() * (self.gain + self.mods.get(ModTarget::Gain));
 
         self.pos += self.step;
         self.t += 1.0 / self.sample_rate;

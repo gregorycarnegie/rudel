@@ -504,7 +504,9 @@ impl Mixer {
                         .duck(d);
                 }
                 self.active.push(ActiveVoice {
-                    voice: ev.spec.into_voice_with_fx(self.sample_rate, ev.fx),
+                    voice: ev
+                        .spec
+                        .into_modulated_voice(self.sample_rate, ev.fx, &ev.mods),
                     tags: ev.tags,
                     cut: ev.cut,
                     send: ev.send,
@@ -1085,6 +1087,7 @@ mod tests {
             cut: None,
             send: OrbitSend::default(),
             duck: Vec::new(),
+            mods: Default::default(),
             tags,
         };
         mixer.schedule(ev(vec!["w1".to_string()]));
@@ -1246,6 +1249,117 @@ mod tests {
         );
     }
 
+    /// `pat.lfo({...})` / `pat.env({...})` with a literal config.
+    fn modulate(pat: &Pattern, kind: &str, cfg: &[(&str, rudel_core::Value)]) -> Pattern {
+        let config = cfg
+            .iter()
+            .map(|(k, v)| (k.to_string(), rudel_core::pure(v.clone())))
+            .collect();
+        rudel_core::modulate(pat, kind, config, rudel_core::pure(rudel_core::Value::Null))
+    }
+
+    /// The loudest-to-quietest ratio across an amplitude envelope, skipping the
+    /// first two windows (the note's own attack).
+    fn spread(v: &[f32]) -> f32 {
+        let (lo, hi) = v[2..]
+            .iter()
+            .fold((f32::MAX, 0.0f32), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+        hi / lo.max(1e-9)
+    }
+
+    /// Per-window peak levels of `frames`, `windows` windows across the whole
+    /// buffer — a cheap amplitude envelope.
+    fn window_peaks(frames: &[f32], windows: usize) -> Vec<f32> {
+        let w = frames.len() / windows;
+        (0..windows)
+            .map(|i| {
+                frames[i * w..(i + 1) * w]
+                    .iter()
+                    .fold(0.0f32, |m, x| m.max(x.abs()))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_lfo_modulates_the_gain_it_targets() {
+        // `.gain(1).lfo({control:'gain', rate:8})`: depth defaults to 1, scaled
+        // by the target's own value (1), and the LFO's dcoffset of -0.5 makes
+        // the offset swing +/-0.5 — so the gain tremolos between 0.5 and 1.5.
+        let held = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+            .gain(rudel_core::Value::F64(1.0));
+        let modulated = modulate(
+            &held,
+            "lfo",
+            &[
+                ("control", rudel_core::Value::Str("gain".into())),
+                ("rate", rudel_core::Value::F64(2.0)),
+                ("shape", rudel_core::Value::Str("sine".into())),
+            ],
+        );
+
+        // 32 windows over 0.9s is ~28ms each, well inside the 500ms LFO period.
+        let flat = window_peaks(&render_pattern(&held, 1.0, 0.9), 32);
+        let swept = window_peaks(&render_pattern(&modulated, 1.0, 0.9), 32);
+        assert!(spread(&flat) < 1.2, "unmodulated gain should be steady");
+        assert!(
+            spread(&swept) > 2.5,
+            "a gain LFO should swing the level ~3x ({})",
+            spread(&swept)
+        );
+    }
+
+    #[test]
+    fn an_lfo_defaults_to_the_control_before_it_in_the_chain() {
+        // The documented example: `.lpf(500).lfo({rate:2})` sweeps the cutoff,
+        // because a modulator with no explicit `control` targets whatever was
+        // applied just before it.
+        // The note sits at 440Hz and the cutoff sweeps 200..600Hz, so the
+        // fundamental moves in and out of the passband.
+        let saw = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("sawtooth".into())))
+            .note(rudel_core::Value::Int(69))
+            .cutoff(rudel_core::Value::F64(400.0));
+        let modulated = modulate(&saw, "lfo", &[("rate", rudel_core::Value::F64(2.0))]);
+
+        let flat = window_peaks(&render_pattern(&saw, 1.0, 0.9), 32);
+        let swept = window_peaks(&render_pattern(&modulated, 1.0, 0.9), 32);
+        assert!(spread(&flat) < 1.2, "a static cutoff should be steady");
+        assert!(
+            spread(&swept) > 2.0,
+            "a cutoff LFO should sweep the level ({})",
+            spread(&swept)
+        );
+    }
+
+    #[test]
+    fn an_envelope_modulator_sweeps_its_target() {
+        // `.gain(1).env({attack:0.5, sustain:1})` ramps the gain offset 0 -> 1
+        // over half the note and holds it, so the level roughly doubles.
+        let held = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+            .gain(rudel_core::Value::F64(1.0));
+        let swept = modulate(
+            &held,
+            "env",
+            &[
+                ("attack", rudel_core::Value::F64(0.5)),
+                ("sustain", rudel_core::Value::F64(1.0)),
+            ],
+        );
+        let flat = window_peaks(&render_pattern(&held, 1.0, 0.9), 8);
+        let swept = window_peaks(&render_pattern(&swept, 1.0, 0.9), 8);
+        // Against the unmodulated note: still climbing early (the offset is
+        // partway up its 0.5s attack), fully doubled once it reaches sustain.
+        let early = swept[1] / flat[1];
+        let late = swept[6] / flat[6];
+        assert!(
+            early < 1.6,
+            "the envelope should still be climbing early ({early})"
+        );
+        assert!(
+            late > 1.8,
+            "the envelope should hold the gain at ~2x once sustained ({late})"
+        );
+    }
+
     /// Peak level of `frames` over the time window `[from, to)` seconds.
     fn peak_between(frames: &[f32], from: f32, to: f32) -> f32 {
         let idx = |t: f32| ((t * 44100.0) as usize).min(frames.len());
@@ -1394,6 +1508,7 @@ mod tests {
             cut: Some(1),
             send: OrbitSend::default(),
             duck: Vec::new(),
+            mods: Default::default(),
             tags: Vec::new(),
         };
         tx.send(held(0.0)).unwrap();
@@ -1435,6 +1550,7 @@ mod tests {
             cut: None,
             send: OrbitSend::default(),
             duck: Vec::new(),
+            mods: Default::default(),
             tags: Vec::new(),
         };
         // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.

@@ -5,8 +5,8 @@
 use crate::{clock::Clock, samples::SampleBank};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    DrumKind, DrumParams, Duck, OrbitSend, PostFx, SamplerParams, VoiceParams, VoiceSpec,
-    ZzfxParams,
+    DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx, SamplerParams,
+    VoiceParams, VoiceSpec, ZzfxParams,
 };
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
@@ -26,6 +26,9 @@ pub struct NoteEvent {
     /// Orbits this voice sidechain-ducks when it starts (`duckorbit`). Empty
     /// for the common case of a voice that ducks nothing.
     pub duck: Vec<Duck>,
+    /// `lfo`/`env` modulators bound to this voice's parameters, resolved but
+    /// not yet instantiated (that needs the device sample rate).
+    pub mods: ModSpecs,
     /// `cut` group: when a new voice in the same group starts, any still-playing
     /// voice in that group is choked (fast fade). `None` means no group.
     pub cut: Option<i32>,
@@ -130,18 +133,31 @@ pub fn collect_events_at(
 ) -> Vec<NoteEvent> {
     query_controls(pattern, clock.cps(), begin_cycle, end_cycle)
         .into_iter()
-        .map(|ev| NoteEvent {
-            onset_seconds: clock.seconds_at(ev.onset_cycle),
-            spec: spec_for(&ev.controls, ev.duration_seconds as f32, bank),
-            fx: PostFx::from_controls(&ev.controls),
-            send: OrbitSend::from_controls(&ev.controls, clock.cps()),
-            duck: Duck::from_controls(&ev.controls),
-            cut: ev
-                .controls
-                .get("cut")
-                .and_then(|v| v.as_f64())
-                .map(|v| v as i32),
-            tags: ev.tags,
+        .map(|ev| {
+            let spec = spec_for(&ev.controls, ev.duration_seconds as f32, bank);
+            let fx = PostFx::from_controls(&ev.controls);
+            // A modulator's relative `depth` scales the target control's own
+            // value, so the sources are resolved against the built voice.
+            let ctx = ModContext {
+                cps: clock.cps(),
+                cycle: ev.onset_cycle,
+                note_seconds: ev.duration_seconds,
+            };
+            let mods = ModSpecs::from_controls(&ev.controls, &ctx, |t| spec.mod_base(t, &fx));
+            NoteEvent {
+                onset_seconds: clock.seconds_at(ev.onset_cycle),
+                spec,
+                fx,
+                mods,
+                send: OrbitSend::from_controls(&ev.controls, clock.cps()),
+                duck: Duck::from_controls(&ev.controls),
+                cut: ev
+                    .controls
+                    .get("cut")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as i32),
+                tags: ev.tags,
+            }
         })
         .collect()
 }

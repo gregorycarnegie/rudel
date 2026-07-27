@@ -1,4 +1,8 @@
-use crate::{filter::Biquad, voice::VoiceLike};
+use crate::{
+    filter::Biquad,
+    modulator::{ModBank, ModSpec, ModTarget},
+    voice::VoiceLike,
+};
 use rudel_core::{Value, ValueMap};
 use std::f32::consts::TAU;
 use wide::f32x8;
@@ -465,6 +469,23 @@ impl PostFx {
         }
     }
 
+    /// The current value of a post-fx control a modulator can target, used to
+    /// scale a relative `depth`. Unset effects read as zero, which
+    /// `ModSpecs::from_controls` then treats as 1 (superdough's
+    /// `currentValue === 0 ? 1 : currentValue`).
+    pub fn mod_base(&self, target: ModTarget) -> f32 {
+        match target {
+            ModTarget::Postgain => self.postgain,
+            ModTarget::Shape => self.shape.unwrap_or(0.0),
+            ModTarget::Shapevol => self.shapevol,
+            ModTarget::Distort => self.distort.unwrap_or(0.0),
+            ModTarget::Distortvol => self.distortvol,
+            ModTarget::Crush => self.crush.unwrap_or(0.0),
+            ModTarget::Coarse => self.coarse.unwrap_or(0.0),
+            _ => 0.0,
+        }
+    }
+
     pub fn is_active(&self) -> bool {
         self.crush.is_some()
             || self.shape.is_some()
@@ -494,12 +515,25 @@ pub struct PostFxVoice {
     phaser: Option<(Biquad, Biquad)>,
     /// Per-channel transient shapers when `transient`/`transsustain` is set.
     transient: Option<(TransientShaper, TransientShaper)>,
+    /// Modulators targeting the post-fx amounts. Empty for the common case, and
+    /// then every offset reads as zero.
+    mods: ModBank,
     /// Smoothed compressor gain (1.0 = no reduction), driven by attack/release.
     comp_gain: f32,
 }
 
 impl PostFxVoice {
     pub fn new(inner: Box<dyn VoiceLike>, fx: PostFx, sample_rate: f32) -> PostFxVoice {
+        PostFxVoice::with_mods(inner, fx, sample_rate, &[])
+    }
+
+    /// Build the post-fx wrapper with modulators bound to its amounts.
+    pub fn with_mods(
+        inner: Box<dyn VoiceLike>,
+        fx: PostFx,
+        sample_rate: f32,
+        mods: &[ModSpec],
+    ) -> PostFxVoice {
         let vowel = fx
             .vowel
             .map(|v| (Formant::new(v, sample_rate), Formant::new(v, sample_rate)));
@@ -527,6 +561,7 @@ impl PostFxVoice {
             vowel,
             phaser,
             transient,
+            mods: ModBank::new(mods, sample_rate as f64),
             comp_gain: 1.0,
         }
     }
@@ -543,7 +578,10 @@ impl PostFxVoice {
     /// curve. Those cases take the vectorized [`process_block`](Self::process_block)
     /// fast path; everything else falls back to the per-sample [`tick`](Self::tick).
     fn memoryless_only(&self) -> bool {
-        self.vowel.is_none()
+        // Modulation makes the coefficients change per sample, so the hoisted
+        // block path cannot be used.
+        self.mods.is_empty()
+            && self.vowel.is_none()
             && self.phaser.is_none()
             && self.fx.coarse.is_none()
             && self.fx.compressor.is_none()
@@ -639,6 +677,7 @@ impl MemorylessFx {
 
 impl VoiceLike for PostFxVoice {
     fn tick(&mut self) -> (f32, f32) {
+        self.mods.tick();
         let (mut l, mut r) = self.inner.tick();
 
         // transient shaper. superdough inserts this before the gain stage and
@@ -680,7 +719,7 @@ impl VoiceLike for PostFxVoice {
         }
         // coarse: sample-and-hold every `coarse` output samples.
         if let Some(c) = self.fx.coarse {
-            let c = c.max(1.0) as u32;
+            let c = (c + self.mods.get(ModTarget::Coarse)).max(1.0) as u32;
             if self.coarse_count.is_multiple_of(c) {
                 self.coarse_hold = (l, r);
             } else {
@@ -690,21 +729,22 @@ impl VoiceLike for PostFxVoice {
         }
         // crush: quantize to `crush` bits.
         if let Some(bits) = self.fx.crush {
-            let x = 2f32.powf(bits.max(1.0) - 1.0);
+            let x = 2f32.powf((bits + self.mods.get(ModTarget::Crush)).max(1.0) - 1.0);
             l = (l * x).round() / x;
             r = (r * x).round() / x;
         }
         // shape: hyperbolic waveshaper.
         if let Some(s) = self.fx.shape {
-            let pg = self.fx.shapevol.clamp(0.001, 1.0);
+            let s = s + self.mods.get(ModTarget::Shape);
+            let pg = (self.fx.shapevol + self.mods.get(ModTarget::Shapevol)).clamp(0.001, 1.0);
             l = Self::shape_sample(l, s, pg);
             r = Self::shape_sample(r, s, pg);
         }
         // distort: waveshaper (selected by `distorttype`) with exponential
         // drive `k = e^distort - 1`, then postgain (superdough's DistortProcessor).
         if let Some(d) = self.fx.distort {
-            let k = d.exp_m1();
-            let pg = self.fx.distortvol.clamp(0.001, 1.0);
+            let k = (d + self.mods.get(ModTarget::Distort)).exp_m1();
+            let pg = (self.fx.distortvol + self.mods.get(ModTarget::Distortvol)).clamp(0.001, 1.0);
             let alg = self.fx.distort_alg;
             l = pg * alg.shape(l, k);
             r = pg * alg.shape(r, k);
@@ -747,9 +787,10 @@ impl VoiceLike for PostFxVoice {
             l *= self.comp_gain;
             r *= self.comp_gain;
         }
-        if self.fx.postgain != 1.0 {
-            l *= self.fx.postgain;
-            r *= self.fx.postgain;
+        let postgain = self.fx.postgain + self.mods.get(ModTarget::Postgain);
+        if postgain != 1.0 {
+            l *= postgain;
+            r *= postgain;
         }
         self.time += 1.0 / self.sample_rate;
         (l, r)

@@ -2,6 +2,7 @@ use crate::{
     envelope::{Adsr, adsr_value},
     filter::{FilterKind, VoiceFilter},
     fm::FM_OPS,
+    modulator::{ModBank, ModSpec, ModTarget},
     oscillator::{NoiseGen, NoiseKind, Waveform, sample_table},
     params::VoiceParams,
     voice::VoiceLike,
@@ -102,11 +103,19 @@ pub struct Voice {
     filters_r: Vec<VoiceFilter>,
     /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
     pitch_env: Option<(Adsr, f32, f32)>,
+    /// Modulators targeting this voice (frequency, gain, the filters). Empty
+    /// for the common case, and then every offset reads as zero.
+    mods: ModBank,
     done: bool,
 }
 
 impl Voice {
     pub fn new(params: VoiceParams, sample_rate: f32) -> Voice {
+        Voice::with_mods(params, sample_rate, &[])
+    }
+
+    /// Build a voice with modulators bound to its parameters.
+    pub fn with_mods(params: VoiceParams, sample_rate: f32, mods: &[ModSpec]) -> Voice {
         let pan = params.pan.clamp(0.0, 1.0);
         // equal-power panning
         let left_gain = (pan * FRAC_PI_2).cos();
@@ -207,6 +216,7 @@ impl Voice {
             super_gain_r,
             filters_r,
             pitch_env,
+            mods: ModBank::new(mods, sample_rate as f64),
             done: false,
         }
     }
@@ -281,7 +291,7 @@ impl Voice {
         // Main detune arrives via the pitch envelope / vibrato (`pitch_mult`),
         // like the worklet's `detune` AudioParam; the per-voice spread ratios
         // are precomputed in `super_incr_ratio`.
-        let base = self.params.freq * self.pitch_mult();
+        let base = self.params.freq * self.pitch_mult() + self.mods.get(ModTarget::Frequency);
         let base_over_sr = f32x8::splat(base / sr);
         let zero = f32x8::splat(0.0);
         let one = f32x8::splat(1.0);
@@ -332,8 +342,9 @@ impl Voice {
         if let Some(kind) = self.params.noise {
             return self.noise.next(kind);
         }
-        // Oscillator, optionally frequency-modulated.
-        let carrier = self.params.freq * pitch;
+        // Oscillator, optionally frequency-modulated. A `freq`/`note` modulator
+        // is an additive Hz offset on the source's frequency param.
+        let carrier = self.params.freq * pitch + self.mods.get(ModTarget::Frequency);
         let mut s = if let Some(table) = &self.params.additive {
             sample_table(table, self.phase)
         } else {
@@ -363,18 +374,22 @@ impl Voice {
         if self.done {
             return (0.0, 0.0);
         }
+        self.mods.tick();
         let env = self.envelope();
+        let gain = self.params.gain + self.mods.get(ModTarget::Gain);
         let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         // 0.3 matches Strudel's synth turn-down (gainNode(0.3)).
         let out = if self.params.supersaw {
             let (mut l, mut r) = self.next_supersaw();
             for f in &mut self.filters {
-                l = f.process(l, t, hold_end, sr);
+                let (ft, qt) = f.mod_targets();
+                l = f.process(l, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));
             }
             for f in &mut self.filters_r {
-                r = f.process(r, t, hold_end, sr);
+                let (ft, qt) = f.mod_targets();
+                r = f.process(r, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));
             }
-            let s = env * self.params.gain * 0.3;
+            let s = env * gain * 0.3;
             // The pair is already stereo-spread; apply the voice pan as a
             // balance (identity at center, like a StereoPannerNode driven with
             // a stereo input) instead of the mono equal-power gains.
@@ -388,9 +403,10 @@ impl Voice {
         } else {
             let mut osc = self.next_source();
             for f in &mut self.filters {
-                osc = f.process(osc, t, hold_end, sr);
+                let (ft, qt) = f.mod_targets();
+                osc = f.process(osc, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));
             }
-            let s = osc * env * self.params.gain * 0.3;
+            let s = osc * env * gain * 0.3;
             (s * self.left_gain, s * self.right_gain)
         };
 

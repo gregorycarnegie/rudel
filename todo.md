@@ -221,6 +221,22 @@ Function-by-function audit against the Strudel learn pages
       (`phase-vocoder-processor` / `byte-beat-processor`) not ported. The
       bytebeat one also needs an integer-expression evaluator for
       `byteBeatExpression`.
+- [x] generic modulators (`lfo`/`env` + `modulate`): the LFO and envelope
+      *sources* are ported from superdough's worklets and golden-tested, and
+      routing is now wired, so they are audible. A modulator is an additive
+      offset on its target control (matching Web Audio, where connecting a node
+      to an `AudioParam` sums with the param's own value); `ModSpecs` resolves
+      each descriptor entry against the built voice (`depthabs ?? depth *
+      currentValue`, the 20Hz..24kHz clamp on frequency params, `sync*cps` vs
+      `rate`, cycle-locked vs `retrig` phase) into a sample-rate-free spec that
+      the mixer instantiates at the device rate. Targets are limited to the
+      parameters Rudel's scalar DSP already varies per sample — oscillator
+      frequency, `gain`, the three filters' cutoff/resonance, and the post-fx
+      amounts; see `docs/UNSUPPORTED.md` for the table.
+- [ ] `bmod` (bus modulation) — needs audio-rate signal buses (`bus`/`busgain`),
+      which Rudel does not have. `subControl` (modulating a modulator) and `fxi`
+      (which link of an `FX` chain to target) are unhandled for the same reason
+      `FX` is: there is no explicit effect graph.
 - [x] `duckorbit`/`duckonset`/`duckattack`/`duckdepth` (sidechain ducking of one
       orbit by another), ported from superdough's `Orbit.duck`: a voice's
       `duckorbit` dips the *target* orbit's output gain to `1 - sqrt(depth)`

@@ -1,4 +1,7 @@
-use crate::envelope::{Adsr, adsr_value};
+use crate::{
+    envelope::{Adsr, adsr_value},
+    modulator::ModTarget,
+};
 use rudel_core::Value;
 use std::f32::consts::TAU;
 
@@ -253,6 +256,8 @@ enum FilterCore {
 pub(crate) struct VoiceFilter {
     kind: FilterKind,
     q: f32,
+    /// The static cutoff, used as the base when a modulator offsets it.
+    base_freq: f32,
     core: FilterCore,
     /// `(adsr, min_hz, max_hz)` when a cutoff envelope is active.
     env: Option<(Adsr, f32, f32)>,
@@ -291,18 +296,52 @@ impl VoiceFilter {
             ),
             FilterModel::Db12 => FilterCore::Biquad(Biquad::new(kind, sample_rate, base, q), None),
         };
-        VoiceFilter { kind, q, core, env }
+        VoiceFilter {
+            kind,
+            q,
+            base_freq: base,
+            core,
+            env,
+        }
     }
 
-    pub(crate) fn process(&mut self, x: f32, t: f32, hold_end: f32, sample_rate: f32) -> f32 {
-        if let Some((adsr, min, max)) = self.env {
-            let shape = adsr_value(&adsr, t, hold_end);
-            let freq = min + shape * (max - min);
+    /// The `(cutoff, resonance)` modulation targets for this slot's kind, so a
+    /// caller holding a mixed filter chain can look up the right offsets.
+    pub(crate) fn mod_targets(&self) -> (ModTarget, ModTarget) {
+        match self.kind {
+            FilterKind::High => (ModTarget::Hcutoff, ModTarget::Hresonance),
+            FilterKind::Band => (ModTarget::Bandf, ModTarget::Bandq),
+            _ => (ModTarget::Cutoff, ModTarget::Resonance),
+        }
+    }
+
+    /// Process one sample. `freq_mod`/`q_mod` are additive modulator offsets on
+    /// the cutoff and resonance (Web Audio sums a connection into the param's
+    /// own value, so modulation is additive); both zero means unmodulated.
+    pub(crate) fn process(
+        &mut self,
+        x: f32,
+        t: f32,
+        hold_end: f32,
+        sample_rate: f32,
+        freq_mod: f32,
+        q_mod: f32,
+    ) -> f32 {
+        let modulated = freq_mod != 0.0 || q_mod != 0.0;
+        if self.env.is_some() || modulated {
+            // The envelope sweep is the base when present, the static cutoff
+            // otherwise; the modulator rides on top of either.
+            let base = match self.env {
+                Some((adsr, min, max)) => min + adsr_value(&adsr, t, hold_end) * (max - min),
+                None => self.base_freq,
+            };
+            let freq = base + freq_mod;
+            let q = (self.q + q_mod).max(0.1);
             match &mut self.core {
                 FilterCore::Biquad(b1, b2) => {
-                    b1.update(self.kind, sample_rate, freq, self.q);
+                    b1.update(self.kind, sample_rate, freq, q);
                     if let Some(b2) = b2 {
-                        b2.update(self.kind, sample_rate, freq, self.q);
+                        b2.update(self.kind, sample_rate, freq, q);
                     }
                 }
                 FilterCore::Ladder(l) => l.set_cutoff(sample_rate, freq),

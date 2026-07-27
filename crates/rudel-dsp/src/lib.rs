@@ -25,7 +25,10 @@ pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::{Adsr, adsr_value};
 pub use filter::{FilterModel, FilterParams, Ladder};
 pub use fm::{FmOp, FmSpec};
-pub use modulator::{Lfo, LfoConfig, waveshape};
+pub use modulator::{
+    EnvConfig, Lfo, LfoConfig, ModBank, ModContext, ModEnv, ModOwner, ModSpec, ModSpecs, ModTarget,
+    waveshape,
+};
 pub use oscillator::{NoiseKind, Waveform};
 pub use params::VoiceParams;
 pub use pitch::{mtof, note_name_to_midi, note_to_freq};
