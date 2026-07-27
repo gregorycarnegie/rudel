@@ -399,6 +399,18 @@ pub(super) fn kpattern_fmap(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
     )))
 }
 
+/// `pat.soundfont(name, n)`: play this pattern with preset `n` of a loaded
+/// SoundFont. `loadSoundfont` returns the name to pass here, and the presets
+/// are registered as ordinary sounds, so this is `.s(name).n(n)` — the shape
+/// `sf.presets[n % sf.presets.length]` takes upstream.
+pub(super) fn kpattern_soundfont(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let name = arg_to_raw_str(&method_arg(&ctx, 0)).unwrap_or_default();
+    let n = method_pattern_arg(&ctx, 1);
+    with_instance(&ctx, |pat| {
+        pat.s(rudel_core::Value::Str(name.clone())).n(n.clone())
+    })
+}
+
 /// `pat.tag(name)`: mark every hap with an identifier, which a later `filter`
 /// can select on (`hap.tags.contains(name)`).
 pub(super) fn kpattern_tag(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

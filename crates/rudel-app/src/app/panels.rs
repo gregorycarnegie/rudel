@@ -12,6 +12,7 @@ use eframe::egui;
 impl eframe::App for RudelApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         pump_input_bus(ui.ctx());
+        self.poll_font_requests();
         self.poll_sample_jobs(ui.ctx());
         let midi_connecting = self.poll_midi_connect() | self.poll_midi_in_connect();
 

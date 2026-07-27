@@ -422,6 +422,8 @@ kpattern_methods! {
         #[koto_method]
         tag => kpattern_tag,
         #[koto_method]
+        soundfont => kpattern_soundfont,
+        #[koto_method]
         filter => kpattern_filter,
         #[koto_method(alias = "filterWhen")]
         filter_when => kpattern_filter_when,

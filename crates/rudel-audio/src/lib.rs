@@ -13,10 +13,15 @@ pub mod events;
 mod sample_map;
 /// In-memory audio sample bank and decoding utilities.
 pub mod samples;
+/// SoundFont 2 (`.sf2`) file reading.
+pub mod sf2;
+/// General MIDI soundfont playback (WebAudioFont presets).
+pub mod soundfont;
 
 pub use clock::Clock;
 pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
 pub use samples::SampleBank;
+pub use soundfont::{gm_names, set_soundfont_url, take_font_requests};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use fundsp::prelude32::{AudioUnit, reverb_stereo};
@@ -832,6 +837,41 @@ impl Engine {
         std::thread::spawn(move || {
             let loaded = SampleBank::load_samples_source_entries(&source)?;
             Ok(write_lock(&bank).extend_loaded(loaded))
+        })
+    }
+
+    /// Start a background soundfont load: fetch the preset backing `(name, n)`,
+    /// decode its zones and register it. HTTP responses go through the same
+    /// on-disk cache as sample downloads, so a font is fetched once per machine.
+    pub fn spawn_soundfont(&self, name: String, n: i64) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            let preset = soundfont::load_gm_preset(
+                &name,
+                n,
+                samples::fetch_cached_text,
+                samples::decode_bytes,
+            )?;
+            let zones = preset.zones.len();
+            write_lock(&bank).register_font(&name, n, preset);
+            Ok(zones)
+        })
+    }
+
+    /// Start a background SoundFont (`.sf2`) load: read the file, parse its
+    /// presets and register each one under `name` at its own index, so `n`
+    /// selects the preset.
+    pub fn spawn_sf2(&self, path: String, name: String) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+            let presets = sf2::parse(&bytes)?.into_presets();
+            let count = presets.len();
+            let mut bank = write_lock(&bank);
+            for (i, (_, preset)) in presets.into_iter().enumerate() {
+                bank.register_font(&name, i as i64, preset);
+            }
+            Ok(count)
         })
     }
 

@@ -183,3 +183,56 @@ fn alias_bank_collects_pairs() {
         ]
     );
 }
+
+#[test]
+fn soundfont_helpers_collect_their_effects() {
+    // `setSoundfontUrl` / `loadSoundfont` are side effects the host applies,
+    // like `samples()`; `loadSoundfont` hands back the sound name to play.
+    let (_, effects) = eval_with_samples(
+        r#"
+setSoundfontUrl('https://example.test/sf')
+sf = loadSoundfont('/packs/Nice Piano.sf2')
+note("c e g").soundfont(sf, 1)
+"#,
+    )
+    .expect("eval");
+    assert_eq!(
+        effects.soundfont_url.as_deref(),
+        Some("https://example.test/sf")
+    );
+    // The default sound name is the file stem, normalised to be typeable.
+    assert_eq!(
+        effects.soundfonts,
+        vec![(
+            "/packs/Nice Piano.sf2".to_string(),
+            "nice_piano".to_string()
+        )]
+    );
+}
+
+#[test]
+fn soundfont_method_selects_a_preset_by_name_and_index() {
+    let pat = eval(r#"note("c").soundfont('nice_piano', 2)"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("s").and_then(|v| v.as_str()), Some("nice_piano"));
+            assert_eq!(m.get("n").and_then(|v| v.as_f64()), Some(2.0));
+        }
+        other => panic!("expected a control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn registering_soundfonts_is_accepted() {
+    // Rudel knows the General MIDI names from its built-in table and fetches on
+    // first use, so this is a no-op kept for parity.
+    assert!(eval("registerSoundfonts()").is_ok());
+    let pat = eval(
+        r#"
+registerSoundfonts()
+note("c").s("gm_piano")
+"#,
+    )
+    .expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 1);
+}

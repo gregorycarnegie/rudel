@@ -2,7 +2,7 @@
 // Decoding uses fundsp's Wave (Symphonia under the hood).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::sample_map;
+use crate::{sample_map, soundfont::Preset};
 use fundsp::wave::Wave;
 use rudel_dsp::Sample;
 use std::{
@@ -25,9 +25,25 @@ struct SampleGroup {
 #[derive(Default)]
 pub struct SampleBank {
     map: HashMap<String, Vec<SampleGroup>>,
+    /// Loaded soundfont presets, keyed by sound name and `n` variant. Kept
+    /// apart from `map` because a preset picks its recording by MIDI key range
+    /// and detunes in cents, where a sample group picks the nearest tuning and
+    /// repitches in semitones.
+    fonts: HashMap<(String, i64), Arc<Preset>>,
     /// Bank aliases (`alias -> canonical`), so `s("bd").bank("tr909")` can find
     /// a pack registered as `RolandTR909_bd`. See [`alias_bank`](Self::alias_bank).
     bank_aliases: HashMap<String, String>,
+}
+
+/// A soundfont zone resolved for one note: what to play, how fast, and where
+/// it loops.
+pub struct FontVoice {
+    /// The zone's recording.
+    pub sample: Arc<Sample>,
+    /// Playback rate that puts the recording at the requested pitch.
+    pub rate: f32,
+    /// Loop region as fractions of the buffer, when the zone sustains.
+    pub loop_region: Option<(f32, f32)>,
 }
 
 /// A sample structure parsed and loaded, but not yet merged into a SampleBank.
@@ -141,6 +157,27 @@ impl SampleBank {
             let sample = group.samples[wrap_index(index, group.samples.len())].clone();
             Some((sample, midi.map(|m| m - 36.0).unwrap_or(0.0)))
         }
+    }
+
+    /// Register a loaded soundfont preset for `name` at variant `n`.
+    pub fn register_font(&mut self, name: &str, n: i64, preset: Preset) {
+        self.fonts.insert((name.to_string(), n), Arc::new(preset));
+    }
+
+    /// Whether a preset is already loaded for `(name, n)`.
+    pub fn has_font(&self, name: &str, n: i64) -> bool {
+        self.fonts.contains_key(&(name.to_string(), n))
+    }
+
+    /// Resolve a soundfont voice: the zone covering `midi`, the playback rate
+    /// that puts it at that pitch, and its loop region if it sustains on one.
+    pub fn resolve_font(&self, name: &str, n: i64, midi: f64) -> Option<FontVoice> {
+        let zone = self.fonts.get(&(name.to_string(), n))?.zone_for(midi)?;
+        Some(FontVoice {
+            sample: zone.sample.clone(),
+            rate: zone.playback_rate(midi) as f32,
+            loop_region: zone.loop_fractions(),
+        })
     }
 
     /// Load a single audio file and register it under `name`.
@@ -414,6 +451,35 @@ fn fetch_text(url: &str) -> Result<String, String> {
     resp.body_mut()
         .read_to_string()
         .map_err(|e| format!("read body {url}: {e}"))
+}
+
+/// Fetch a text file (http(s) URL or local path), caching HTTP responses on
+/// disk like the sample downloads. Preset files are ~1MB each, so a font is
+/// fetched once per machine rather than once per session.
+pub(crate) fn fetch_cached_text(url: &str) -> Result<String, String> {
+    if !is_http(url) {
+        return std::fs::read_to_string(url).map_err(|e| format!("read {url}: {e}"));
+    }
+    let cache = cache_path(url);
+    if let Some(path) = &cache
+        && let Ok(text) = std::fs::read_to_string(path)
+    {
+        return Ok(text);
+    }
+    let text = fetch_text(url)?;
+    // Best-effort cache write; a failed write just re-downloads next time.
+    if let Some(path) = &cache
+        && let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_ok()
+    {
+        let _ = std::fs::write(path, &text);
+    }
+    Ok(text)
+}
+
+/// Decode in-memory audio bytes (a soundfont zone's payload, say).
+pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<Sample, String> {
+    decode_sample_bytes(bytes.to_vec())
 }
 
 /// Fetch a single sample file (http(s) URL or local path) and decode it.

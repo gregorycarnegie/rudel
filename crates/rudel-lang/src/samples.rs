@@ -14,6 +14,11 @@ pub struct SampleEffects {
     pub bank_aliases: Vec<(String, String)>,
     /// Optional global tempo requested by `setCps`/`setcps`/`setCpm`/`setcpm`.
     pub cps: Option<f64>,
+    /// Where soundfont presets are fetched from (`setSoundfontUrl`).
+    pub soundfont_url: Option<String>,
+    /// Local SoundFont (`.sf2`) files to load (`loadSoundfont`), as
+    /// `(path, sound name)`.
+    pub soundfonts: Vec<(String, String)>,
 }
 
 /// Convert a Koto value into a `serde_json::Value` for an inline sample map.
@@ -78,7 +83,46 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
         Ok(KPattern(rudel_core::silence()).into())
     });
 
+    let effects = tempo_effects.clone();
+    // `setSoundfontUrl(url)`: repoint General MIDI preset loading at another
+    // mirror or a local directory.
+    prelude.add_fn("setSoundfontUrl", move |ctx| {
+        if let Some(url) = ctx.args().first().and_then(arg_to_raw_str) {
+            effects.lock().unwrap().soundfont_url = Some(url);
+        }
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+
+    // `registerSoundfonts()`: upstream registers the `gm_*` names with lazy
+    // loaders at prebake. Rudel knows them from its built-in General MIDI
+    // table and fetches on first use, so this exists for parity and to make
+    // the intent explicit in a script.
+    prelude.add_fn("registerSoundfonts", |_ctx| {
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+
+    let effects = tempo_effects.clone();
+    // `loadSoundfont(path, name?)`: load a local `.sf2` file, exposing its
+    // presets under `name` (defaulting to the file stem).
+    prelude.add_fn("loadSoundfont", move |ctx| {
+        let args = ctx.args();
+        if let Some(path) = args.first().and_then(arg_to_raw_str) {
+            let name = args
+                .get(1)
+                .and_then(arg_to_raw_str)
+                .unwrap_or_else(|| soundfont_stem(&path));
+            effects
+                .lock()
+                .unwrap()
+                .soundfonts
+                .push((path, name.clone()));
+            return Ok(KValue::Str(name.into()));
+        }
+        Ok(KValue::Null)
+    });
+
     // aliasBank(canonical, alias, ...): each extra string is an alias.
+    let effects = tempo_effects.clone();
     prelude.add_fn("aliasBank", move |ctx| {
         let strs: Vec<String> = ctx.args().iter().filter_map(arg_to_raw_str).collect();
         if let Some((canonical, aliases)) = strs.split_first() {
@@ -102,4 +146,24 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
             Ok(KPattern(rudel_core::silence()).into())
         });
     }
+}
+
+/// The default sound name for a `.sf2` file: its stem, lowercased, with
+/// separators normalised so it is typeable in a pattern.
+fn soundfont_stem(path: &str) -> String {
+    let stem = path
+        .rsplit(['/', '\u{5c}'])
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches(".sf2")
+        .trim_end_matches(".SF2");
+    stem.chars()
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

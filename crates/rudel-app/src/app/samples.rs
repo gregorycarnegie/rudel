@@ -57,6 +57,26 @@ impl RudelApp {
         }
     }
 
+    /// Fetch any soundfont a pattern asked for but that is not loaded yet.
+    /// The scheduler records the miss (it can neither block nor spawn); this
+    /// turns each one into a background job, the same way sample sources work.
+    pub(super) fn poll_font_requests(&mut self) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        for (name, n) in rudel_audio::take_font_requests() {
+            if !self.requested_fonts.insert((name.clone(), n)) {
+                continue;
+            }
+            let handle = engine.spawn_soundfont(name.clone(), n);
+            self.sample_jobs.push(SampleJob {
+                key: format!("soundfont:{name}:{n}"),
+                label: format!("soundfont {name:?}"),
+                handle,
+            });
+        }
+    }
+
     fn queue_sample_source(&mut self, source: String) {
         if self.engine.is_none() {
             self.io_error = Some("no audio engine to load samples into".to_string());
@@ -113,6 +133,30 @@ impl RudelApp {
         for (json, base) in &effects.maps {
             self.queue_sample_map(json.clone(), base.clone());
         }
+        if let Some(url) = &effects.soundfont_url {
+            rudel_audio::set_soundfont_url(url);
+        }
+        for (path, name) in &effects.soundfonts {
+            self.queue_soundfont(path.clone(), name.clone());
+        }
+    }
+
+    /// Load a local `.sf2` file in the background, once per path.
+    fn queue_soundfont(&mut self, path: String, name: String) {
+        let Some(engine) = &self.engine else {
+            self.io_error = Some("no audio engine to load a soundfont into".to_string());
+            return;
+        };
+        let key = format!("sf2:{path}:{name}");
+        if !self.loaded_sample_sources.insert(key.clone()) {
+            return;
+        }
+        let handle = engine.spawn_sf2(path.clone(), name);
+        self.sample_jobs.push(SampleJob {
+            key,
+            label: format!("loadSoundfont({path:?})"),
+            handle,
+        });
     }
 
     pub(super) fn load_samples(&mut self) {

@@ -74,6 +74,9 @@ pub(crate) struct RudelApp {
     /// Sources already loaded via `samples(...)`, so re-evaluating doesn't
     /// re-fetch the same pack on every keystroke.
     loaded_sample_sources: HashSet<String>,
+    /// Soundfont presets already queued or loaded, so a pattern asking for one
+    /// every cycle only ever triggers a single fetch.
+    requested_fonts: HashSet<(String, i64)>,
     sample_jobs: Vec<SampleJob>,
 
     // Output routing.
@@ -136,6 +139,7 @@ impl RudelApp {
             sample_dir: String::new(),
             sample_names: Vec::new(),
             loaded_sample_sources: HashSet::new(),
+            requested_fonts: HashSet::new(),
             sample_jobs: Vec::new(),
             output: Output::Audio,
             midi_port: String::new(),
@@ -267,6 +271,7 @@ mod tests {
             sample_dir: String::new(),
             sample_names: Vec::new(),
             loaded_sample_sources: HashSet::new(),
+            requested_fonts: HashSet::new(),
             sample_jobs: Vec::new(),
             output: Output::Audio,
             midi_port: String::new(),

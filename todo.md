@@ -305,6 +305,23 @@ Function-by-function audit against the Strudel learn pages
       plain strings, which is what upstream examples like
       `.filter(hap => hap.value.s === 'hh')` rely on. Rudel used to rewrite
       both styles.
+- [x] soundfonts, both paths. **General MIDI**: `gm.mjs`'s table is generated
+      into `tools/oracle/gm_table.json` (125 names, 869 preset files) and
+      embedded; `rudel-audio/src/soundfont.rs` reads a WebAudioFont preset's
+      zones directly (no JS eval), base64-decodes each zone's audio through the
+      existing sample decoder, and ports `findZone` (its `keyRangeHigh + 1`
+      off-by-one included) plus the `baseDetune`/playback-rate math and loop
+      handling. Presets are fetched lazily on first use — the scheduler records
+      the miss, the app drains it into the background job queue — and cached on
+      disk, so the first note of a fresh instrument is silent like upstream's
+      async loader. **`.sf2`**: `rudel-audio/src/sf2.rs` replaces `sfumato` with
+      a direct RIFF reader (phdr/pbag/pgen -> inst/ibag/igen -> shdr, layered
+      generators) producing the same `Zone`/`Preset` types, so both formats
+      share one playback path. `loadSoundfont`/`setSoundfontUrl`/
+      `registerSoundfonts`/`.soundfont(name, n)` are bound.
+- [ ] soundfont zone envelopes: a zone's own ADSR/vibrato/pitch-envelope are
+      ignored in favour of Rudel's voice controls. Loading a `.sf2` over HTTP is
+      not wired up either (local paths only).
 - [ ] `ifp`
 
 ## learn/accumulation

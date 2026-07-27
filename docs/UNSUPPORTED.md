@@ -148,6 +148,40 @@ Not implemented: **`bmod`** (bus modulation) needs audio-rate signal buses
 modulator at another modulator's parameters) is ignored; and **`fxi`** (which
 link of an `FX` chain to target) is moot while `FX` itself is unported.
 
+### Soundfonts — supported, but General MIDI fetches over the network
+
+Both of Strudel's soundfont paths work.
+
+**General MIDI (`gm_*`).** The 125 `gm_*` sound names play, backed by the same
+[WebAudioFont](https://github.com/surikov/webaudiofont) presets Strudel uses.
+Presets are fetched **on first use** from
+`https://felixroos.github.io/webaudiofontdata/sound` — the same default
+Strudel has — so:
+
+- Rudel makes an HTTP request the first time a pattern plays a given
+  instrument. This is the only feature that reaches the network at play time.
+- That first note is **silent** while the fetch runs, exactly as it is upstream
+  (there the loader is async and the note is missed). It sounds from the next
+  one on.
+- Presets are ~1MB each and are cached on disk alongside downloaded samples, so
+  each is fetched once per machine.
+- `setSoundfontUrl(url)` repoints this at another mirror or a local directory
+  if you would rather not use the CDN.
+
+`registerSoundfonts()` exists and is accepted, but is a no-op: Rudel knows the
+General MIDI names from a built-in table and loads them on demand, so there is
+nothing to register up front.
+
+**`.sf2` files.** `loadSoundfont(path)` reads a local SoundFont and returns the
+sound name to play it with; each preset in the file is an `n` index, so
+`loadSoundfont('/packs/piano.sf2')` then `s('piano').n(2)` — or
+`.soundfont('piano', 2)` — plays its third preset. No network involved.
+
+What is **not** ported: a zone's own amplitude envelope, vibrato and pitch
+envelope are ignored in favour of Rudel's voice controls (`attack`/`decay`/…,
+`vib`, `penv`), which apply to soundfonts as they do to every other sound.
+Loading a `.sf2` over HTTP is not wired up — local paths only.
+
 ### `stretch`, `bytebeat`, wavetable oscillator — not yet ported
 
 `stretch` (superdough's `phase-vocoder-processor`), `s("bytebeat")` with

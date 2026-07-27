@@ -2,12 +2,13 @@
 // This is the pure, testable core of the scheduler (no audio device needed).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::{clock::Clock, samples::SampleBank};
+use crate::{clock::Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx, SamplerParams,
+    DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx, Sample, SamplerParams,
     VoiceParams, VoiceSpec, ZzfxParams,
 };
+use std::sync::Arc;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
 pub use rudel_core::to_control_map;
@@ -90,6 +91,33 @@ fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank) -> VoiceSpec {
                 return VoiceSpec::Sampler(params);
             }
         }
+        // Soundfont sounds (`gm_*`). A preset picks its recording by MIDI key
+        // range and detunes in cents, so it resolves separately from the
+        // nearest-tuning sample groups above. A loaded pack of the same name
+        // still wins, matching the loaded-samples-first order.
+        if let Some(voice) = bank.resolve_font(name, index, midi.unwrap_or(60.0)) {
+            let mut params = SamplerParams::new(voice.sample);
+            params.apply_controls(map);
+            params.speed *= voice.rate;
+            if let Some((begin, end)) = voice.loop_region {
+                // A looping zone sustains for the hap rather than playing to
+                // its natural end.
+                params.loop_on = true;
+                params.loop_begin = begin;
+                params.loop_end = end;
+                params.duration = duration;
+            }
+            return VoiceSpec::Sampler(params);
+        }
+        if soundfont::gm_variants(name) > 0 {
+            // Known but not loaded: ask for it and stay silent this time, the
+            // same first-note miss upstream's async loader has.
+            soundfont::request_font(name, index);
+            return VoiceSpec::Sampler(SamplerParams::new(Arc::new(Sample {
+                data: Vec::new(),
+                sample_rate: 44100.0,
+            })));
+        }
         if let Some(kind) = DrumKind::from_name(name) {
             let mut params = DrumParams::new(kind);
             params.apply_controls(map);
@@ -165,6 +193,7 @@ pub fn collect_events_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::soundfont as rudel_audio_preset;
     use rudel_core::{Value, pure, s, sequence, silence};
     use rudel_dsp::{Sample, VoiceSpec};
     use std::sync::Arc;
@@ -351,6 +380,85 @@ mod tests {
             ),
             _ => panic!("expected a sampler voice"),
         }
+    }
+
+    /// A one-zone preset covering every key, tuned to MIDI 60.
+    fn test_preset(loops: bool) -> rudel_audio_preset::Preset {
+        use rudel_audio_preset::{Preset, Zone};
+        Preset {
+            zones: vec![Zone {
+                sample: Arc::new(Sample {
+                    data: vec![0.5; 1000],
+                    sample_rate: 44100.0,
+                }),
+                key_low: 0,
+                key_high: 127,
+                original_pitch: 6000.0,
+                coarse_tune: 0.0,
+                fine_tune: 0.0,
+                sample_rate: 44100.0,
+                loop_start: if loops { 100.0 } else { 0.0 },
+                loop_end: if loops { 900.0 } else { 0.0 },
+            }],
+        }
+    }
+
+    #[test]
+    fn a_loaded_soundfont_plays_at_the_requested_pitch() {
+        let mut bank = SampleBank::new();
+        bank.register_font("gm_piano", 0, test_preset(false));
+        let pat = s(Value::Str("gm_piano".into())).note(Value::Str("c5".into()));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Sampler(p) => {
+                // The zone is tuned to MIDI 60; c5 is 72, an octave up.
+                assert!((p.speed - 2.0).abs() < 1e-5, "speed {}", p.speed);
+                assert!(!p.loop_on);
+            }
+            _ => panic!("expected a sampler voice"),
+        }
+    }
+
+    #[test]
+    fn a_looping_soundfont_zone_sustains_for_the_hap() {
+        let mut bank = SampleBank::new();
+        bank.register_font("gm_pad", 0, test_preset(true));
+        let pat = s(Value::Str("gm_pad".into())).note(Value::Int(60));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Sampler(p) => {
+                assert!(p.loop_on);
+                assert!(p.loop_begin > 0.0 && p.loop_end > p.loop_begin);
+                assert!(p.duration > 0.0, "a looping zone plays for the hap");
+            }
+            _ => panic!("expected a sampler voice"),
+        }
+    }
+
+    #[test]
+    fn an_unloaded_soundfont_is_requested_and_stays_silent() {
+        // Upstream loads fonts asynchronously, so the first note of a fresh
+        // instrument is missed; here the miss is recorded for the app to fetch.
+        let _ = crate::soundfont::take_font_requests(); // drain other tests
+        let bank = SampleBank::new();
+        let pat = s(Value::Str("gm_piano".into())).note(Value::Int(60));
+        let events = collect_events(&pat, 1.0, 0.0, 1.0, &bank);
+        match &events[0].spec {
+            VoiceSpec::Sampler(p) => assert!(p.sample.data.is_empty(), "silent placeholder"),
+            _ => panic!("expected a silent sampler"),
+        }
+        let requests = crate::soundfont::take_font_requests();
+        assert!(
+            requests.contains(&("gm_piano".to_string(), 0)),
+            "{requests:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_sound_is_not_mistaken_for_a_soundfont() {
+        let bank = SampleBank::new();
+        let events = collect_events(&pure(Value::Str("sine".into())), 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Synth(_)));
     }
 
     #[test]
