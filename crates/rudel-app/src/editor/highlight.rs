@@ -113,15 +113,23 @@ pub(super) fn highlighted_editor_job(
         {
             format.background = color.map_or(flash, unpack_color);
         }
-        // Reserve the vertical gap for block widgets: make the widget's line tall
-        // and top-align its glyphs so the gap opens below the text (and the next
-        // line is pushed down). The trailing newline keeps its normal height so
-        // the following empty row is not also inflated.
+        // Reserve the vertical gap for block widgets: make the widget's line
+        // tall and top-align its glyphs so the gap opens below the text (and the
+        // next line is pushed down). The trailing newline keeps its normal
+        // height so the following empty row is not also inflated.
+        //
+        // Only glyphs *without* a background carry the tall line height. epaint
+        // sizes a background rect from the glyph's own `line_height`
+        // (`Glyph::logical_rect`), not the row's, so inflating a flashed glyph
+        // paints the active-event highlight as a bar running down through the
+        // widget's gap. The row still takes its height from the tallest glyph.
         if piece != "\n"
             && let Some(&row_height) = reservations.line_heights.get(&line)
         {
-            format.line_height = Some(row_height);
             format.valign = egui::Align::TOP;
+            if format.background == egui::Color32::TRANSPARENT {
+                format.line_height = Some(row_height);
+            }
         }
         // Reserve horizontal space for an inline slider: widen the advance of
         // the glyph just before the value literal (the `(` of `slider(`) so a
@@ -353,6 +361,52 @@ mod tests {
         let toks = classify(r#"note("c#4 -1.5")"#);
         assert!(toks.contains(&("c#4", Token::MiniWord)));
         assert!(toks.contains(&("-1.5", Token::Number)));
+    }
+
+    #[test]
+    fn a_widget_line_reserves_its_gap_without_stretching_the_flash() {
+        // A line hosting a block widget is made tall so the gap opens below it.
+        // epaint sizes a background rect from the glyph's own `line_height`
+        // (`Glyph::logical_rect`), not the row's, so a flashed section must keep
+        // its normal height or the active-event highlight paints as a bar
+        // running down through the widget's gap.
+        let code = r#"s("bd*4").spiral()"#;
+        let line_heights = HashMap::from([(0usize, 220.0f32)]);
+        let brackets: [(usize, usize); 0] = [];
+        let job = highlighted_editor_job(
+            code,
+            400.0,
+            &[(3, 7, None)], // the mini-notation leaf inside the string
+            &brackets,
+            None,
+            &test_idents(),
+            &EditorSettings::default(),
+            LayoutReservations {
+                line_heights: &line_heights,
+                sliders: &[],
+            },
+        );
+
+        let flashed: Vec<_> = job
+            .sections
+            .iter()
+            .filter(|s| s.format.background != egui::Color32::TRANSPARENT)
+            .collect();
+        assert!(
+            !flashed.is_empty(),
+            "the active span should flash something"
+        );
+        assert!(
+            flashed.iter().all(|s| s.format.line_height.is_none()),
+            "a flashed section must not carry the widget's tall line height"
+        );
+        // The row still gets its height from the unflashed sections.
+        assert!(
+            job.sections
+                .iter()
+                .any(|s| s.format.line_height == Some(220.0)),
+            "the line must still reserve the widget gap"
+        );
     }
 
     #[test]
