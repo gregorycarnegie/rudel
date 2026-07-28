@@ -83,7 +83,7 @@ pub(super) fn paint_spiral(
 }
 
 #[derive(Clone, Copy)]
-struct SpiralSegment {
+pub(super) struct SpiralSegment {
     from: f32,
     to: f32,
     margin: f32,
@@ -95,7 +95,7 @@ struct SpiralSegment {
 }
 
 fn paint_spiral_segment(painter: &egui::Painter, center: egui::Pos2, segment: SpiralSegment) {
-    let mut points = Vec::new();
+    let mut points: Vec<egui::Pos2> = Vec::new();
     let mut angle = segment.from;
     while angle <= segment.to {
         points.push(spiral_point(
@@ -115,36 +115,69 @@ fn paint_spiral_segment(painter: &egui::Painter, center: egui::Pos2, segment: Sp
         segment.stretch,
     ));
     if points.len() >= 2 {
-        // egui polylines have no line-cap setting, so `round`/`square` are
-        // drawn on: a disc at each end, or an extension of half the stroke
-        // width along the end direction. `butt` (the default) needs neither.
-        let radius = segment.thickness / 2.0;
-        match segment.cap {
-            SpiralCap::Round => {
-                for end in [points[0], points[points.len() - 1]] {
-                    painter.circle_filled(end, radius, segment.color);
-                }
-            }
-            SpiralCap::Square => {
-                let last = points.len() - 1;
-                let extend = |from: egui::Pos2, toward: egui::Pos2| {
-                    let delta = from - toward;
-                    (delta.length() > f32::EPSILON).then(|| from + delta.normalized() * radius)
-                };
-                if let Some(end) = extend(points[0], points[1]) {
-                    points[0] = end;
-                }
-                if let Some(end) = extend(points[last], points[last - 1]) {
-                    points[last] = end;
-                }
-            }
-            SpiralCap::Butt => {}
-        }
+        let last = points.len() - 1;
         painter.add(egui::Shape::line(
-            points,
+            points.clone(),
             egui::Stroke::new(segment.thickness, segment.color),
         ));
+        for (end, inward) in [(points[0], points[1]), (points[last], points[last - 1])] {
+            if let Some(shape) = cap_shape(end, end - inward, segment.thickness, segment) {
+                painter.add(shape);
+            }
+        }
     }
+}
+
+/// Points used to trace a round cap's half-circle. Eight is smooth enough at
+/// the stroke widths a spiral uses and keeps the polygon cheap.
+const ROUND_CAP_STEPS: usize = 8;
+
+/// The cap drawn at one end of a segment, or `None` for `butt`.
+///
+/// egui polylines carry no line-cap setting, so the cap is a separate shape —
+/// which means it must not overlap the stroke. Two translucent shapes drawn on
+/// top of each other composite twice and read brighter than the segment they
+/// cap, and spiral haps are translucent whenever `fade` is on (the default).
+/// So the geometry lives entirely *beyond* the line's butt end, and is convex,
+/// which is what egui's tessellator fills correctly and with anti-aliasing.
+pub(super) fn cap_shape(
+    end: egui::Pos2,
+    outward: egui::Vec2,
+    thickness: f32,
+    segment: SpiralSegment,
+) -> Option<egui::Shape> {
+    if segment.cap == SpiralCap::Butt || outward.length() <= f32::EPSILON {
+        return None;
+    }
+    let radius = thickness / 2.0;
+    let outward = outward.normalized();
+    let across = outward.rot90() * radius;
+    let points = match segment.cap {
+        // A half-disc swept from one side of the stroke to the other.
+        SpiralCap::Round => {
+            let base = outward.angle();
+            (0..=ROUND_CAP_STEPS)
+                .map(|step| {
+                    let turn = std::f32::consts::PI * step as f32 / ROUND_CAP_STEPS as f32;
+                    let angle = base - std::f32::consts::FRAC_PI_2 + turn;
+                    end + egui::vec2(angle.cos(), angle.sin()) * radius
+                })
+                .collect()
+        }
+        // A half-stroke-width extension: the stroke's own end, pushed out.
+        SpiralCap::Square => vec![
+            end + across,
+            end + across + outward * radius,
+            end - across + outward * radius,
+            end - across,
+        ],
+        SpiralCap::Butt => return None,
+    };
+    Some(egui::Shape::convex_polygon(
+        points,
+        segment.color,
+        egui::Stroke::NONE,
+    ))
 }
 
 /// Line-end style for spiral segments, matching the canvas `lineCap` values
@@ -158,6 +191,20 @@ pub(super) enum SpiralCap {
 }
 
 impl SpiralCap {
+    #[cfg(test)]
+    pub(super) fn test_segment(cap: SpiralCap, thickness: f32) -> SpiralSegment {
+        SpiralSegment {
+            from: 0.0,
+            to: 1.0,
+            margin: 1.0,
+            rotate: 0.0,
+            stretch: 1.0,
+            thickness,
+            color: egui::Color32::WHITE,
+            cap,
+        }
+    }
+
     pub(super) fn from_name(name: &str) -> SpiralCap {
         match name {
             "round" => SpiralCap::Round,
@@ -182,4 +229,70 @@ pub(super) fn spiral_point(
         center.x + radians.cos() * radius,
         center.y + radians.sin() * radius,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cap_points(cap: SpiralCap, thickness: f32) -> Vec<egui::Pos2> {
+        let segment = SpiralCap::test_segment(cap, thickness);
+        let end = egui::pos2(10.0, 4.0);
+        let outward = egui::vec2(1.0, 0.0);
+        match cap_shape(end, outward, thickness, segment) {
+            Some(egui::Shape::Path(path)) => path.points,
+            other => panic!("expected a filled path, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn butt_draws_no_cap() {
+        let segment = SpiralCap::test_segment(SpiralCap::Butt, 8.0);
+        assert!(cap_shape(egui::pos2(1.0, 1.0), egui::vec2(1.0, 0.0), 8.0, segment).is_none());
+        // A degenerate direction (a zero-length segment) is skipped too.
+        let round = SpiralCap::test_segment(SpiralCap::Round, 8.0);
+        assert!(cap_shape(egui::pos2(1.0, 1.0), egui::Vec2::ZERO, 8.0, round).is_none());
+    }
+
+    #[test]
+    fn caps_stay_beyond_the_stroke_end() {
+        // The whole point of the shape: it must sit on the outward side of the
+        // line's butt end. Overlapping the stroke would composite twice and
+        // make the cap read brighter than the segment it caps.
+        let thickness = 8.0;
+        let end = egui::pos2(10.0, 4.0);
+        for cap in [SpiralCap::Round, SpiralCap::Square] {
+            for point in cap_points(cap, thickness) {
+                let along = (point - end).x; // outward is +x here
+                assert!(
+                    along >= -1e-3,
+                    "{cap:?} point {point:?} falls behind the stroke end"
+                );
+                // and never reaches further out than a half stroke width
+                assert!(along <= thickness / 2.0 + 1e-3, "{cap:?} overshoots");
+            }
+        }
+    }
+
+    #[test]
+    fn caps_span_the_stroke_width() {
+        // Both caps must meet the stroke edge-to-edge, or a seam shows.
+        let thickness = 8.0;
+        for cap in [SpiralCap::Round, SpiralCap::Square] {
+            let points = cap_points(cap, thickness);
+            let (min, max) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+                (lo.min(p.y), hi.max(p.y))
+            });
+            assert!(
+                (max - min - thickness).abs() < 1e-3,
+                "{cap:?} spans {} across a {thickness} stroke",
+                max - min
+            );
+        }
+        // The round cap bulges out to a half width at its apex; square is flat.
+        let apex = cap_points(SpiralCap::Round, 8.0)
+            .iter()
+            .fold(f32::MIN, |acc, p| acc.max(p.x - 10.0));
+        assert!((apex - 4.0).abs() < 1e-3, "round apex at {apex}");
+    }
 }
