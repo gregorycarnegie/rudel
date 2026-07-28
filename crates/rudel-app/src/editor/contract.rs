@@ -128,7 +128,11 @@ fn block_eval_preserves_decorations_outside_the_evaluated_range() {
         "the pianoroll outside the range must survive block eval"
     );
     assert_eq!(state.widgets()[0].id, widget_id, "and keep its id");
-    assert_eq!(state.sliders().len(), 1, "the in-range slider is re-scanned");
+    assert_eq!(
+        state.sliders().len(),
+        1,
+        "the in-range slider is re-scanned"
+    );
     let slider = &state.sliders()[0];
     assert_eq!(
         &src[slider.range.from..slider.range.to],

@@ -447,7 +447,9 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
             let text = std::str::from_utf8(&self.src[start + 2..self.pos]).ok()?;
-            return i64::from_str_radix(text, 16).ok().map(|v| Node::Num(v as f64));
+            return i64::from_str_radix(text, 16)
+                .ok()
+                .map(|v| Node::Num(v as f64));
         }
         while self.pos < self.src.len()
             && (self.src[self.pos].is_ascii_digit() || self.src[self.pos] == b'.')
@@ -712,7 +714,9 @@ mod tests {
         for (i, src) in DEFAULT_BEATS.iter().enumerate() {
             let expr = ByteBeatExpr::parse(src);
             // A parse failure degrades to the constant 0; make sure none does.
-            let varied = (0..64).map(|t| expr.eval(t as f64 * 37.0)).collect::<Vec<_>>();
+            let varied = (0..64)
+                .map(|t| expr.eval(t as f64 * 37.0))
+                .collect::<Vec<_>>();
             assert!(
                 varied.iter().all(|v| !v.is_nan()),
                 "beat {i} ({src}) produced NaN"

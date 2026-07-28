@@ -2,10 +2,10 @@ use eframe::egui;
 use std::collections::HashSet;
 
 pub(crate) mod blocks;
-#[cfg(test)]
-mod contract;
 mod brackets;
 mod completion;
+#[cfg(test)]
+mod contract;
 pub(crate) mod decorations;
 mod edit;
 mod highlight;

@@ -222,7 +222,10 @@ mod tests {
         let p = PitchMod::from_controls(&map);
         assert!(!p.is_idle());
         let start = p.semitones(0.001, 1.0);
-        assert!((start - 12.0).abs() < 0.1, "expected ~12 semitones, got {start}");
+        assert!(
+            (start - 12.0).abs() < 0.1,
+            "expected ~12 semitones, got {start}"
+        );
         assert!(p.semitones(0.5, 1.0).abs() < 0.1);
     }
 }

@@ -91,7 +91,11 @@ impl PhaseVocoder {
     /// `stretch` is the raw control value; upstream maps it to a pitch factor as
     /// `max(0, (v < 0 ? v * 0.25 : v) + 1)`.
     pub fn new(stretch: f32) -> PhaseVocoder {
-        let pitch_factor = if stretch < 0.0 { stretch * 0.25 } else { stretch };
+        let pitch_factor = if stretch < 0.0 {
+            stretch * 0.25
+        } else {
+            stretch
+        };
         let hann = (0..BLOCK_SIZE)
             .map(|i| 0.5 * (1.0 - (TAU * i as f32 / BLOCK_SIZE as f32).cos()))
             .collect();
@@ -335,8 +339,6 @@ mod tests {
             .unwrap();
         best as f32 * 44100.0 / n as f32
     }
-
-
 
     #[test]
     fn unity_stretch_passes_the_pitch_through() {

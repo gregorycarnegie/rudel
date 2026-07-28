@@ -184,7 +184,9 @@ pub fn adjust_length(
 
     ImpulseResponse {
         left: (0..new_len).map(|i| read(src_l, i)).collect(),
-        right: (0..new_len).map(|i| read(if src_r.is_empty() { src_l } else { src_r }, i)).collect(),
+        right: (0..new_len)
+            .map(|i| read(if src_r.is_empty() { src_l } else { src_r }, i))
+            .collect(),
     }
 }
 
@@ -362,7 +364,9 @@ mod tests {
             left: (0..ir_len)
                 .map(|i| (i as f32 * 0.37).sin() * (-(i as f32) / 100.0).exp())
                 .collect(),
-            right: (0..ir_len).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect(),
+            right: (0..ir_len)
+                .map(|i| if i == 0 { 1.0 } else { 0.0 })
+                .collect(),
         };
         let input: Vec<f32> = (0..PARTITION * 4)
             .map(|i| (i as f32 * 0.11).sin())
@@ -376,8 +380,10 @@ mod tests {
 
         for n in 0..PARTITION * 3 {
             // The convolver's output at `n + LATENCY` is the convolution at `n`.
-            let want: f32 =
-                (0..ir_len.min(n + 1)).map(|k| ir.left[k] * input[n - k]).sum::<f32>() * scale;
+            let want: f32 = (0..ir_len.min(n + 1))
+                .map(|k| ir.left[k] * input[n - k])
+                .sum::<f32>()
+                * scale;
             let got = got[n + Convolver::LATENCY];
             assert!((got - want).abs() < 1e-5, "sample {n}: {got} != {want}");
         }
@@ -482,7 +488,10 @@ mod tests {
 
         // Speed 2 reads every other sample.
         let fast = adjust_length(&src, &src, 10.0, 1.0, 2.0, 0.0);
-        assert_eq!(fast.left, (0..10).map(|i| (i * 2) as f32).collect::<Vec<_>>());
+        assert_eq!(
+            fast.left,
+            (0..10).map(|i| (i * 2) as f32).collect::<Vec<_>>()
+        );
 
         // Reading past the end wraps rather than going silent.
         let long = adjust_length(&src, &src, 10.0, 30.0, 1.0, 0.0);
@@ -539,7 +548,15 @@ mod tests {
             right: vec![0.0; 1000],
         };
         assert!(normalization_scale(&silent, sr).is_finite());
-        assert!(normalization_scale(&ImpulseResponse { left: vec![], right: vec![] }, sr) == 1.0);
+        assert!(
+            normalization_scale(
+                &ImpulseResponse {
+                    left: vec![],
+                    right: vec![]
+                },
+                sr
+            ) == 1.0
+        );
     }
 
     #[test]
@@ -559,7 +576,10 @@ mod tests {
             peak < 1.0,
             "the wet return of a unit impulse should not exceed unity, got {peak}"
         );
-        assert!(peak > 1e-4, "but it must not be inaudible either, got {peak}");
+        assert!(
+            peak > 1e-4,
+            "but it must not be inaudible either, got {peak}"
+        );
     }
 
     #[test]

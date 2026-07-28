@@ -34,9 +34,10 @@ fn every_documented_example_runs_or_is_allowlisted() {
     let corpus: serde_json::Value =
         serde_json::from_str(include_str!("../../../tools/oracle/examples_golden.json"))
             .expect("parse examples_golden.json");
-    let allow: BTreeMap<String, String> =
-        serde_json::from_str(include_str!("../../../tools/oracle/examples_allowlist.json"))
-            .expect("parse examples_allowlist.json");
+    let allow: BTreeMap<String, String> = serde_json::from_str(include_str!(
+        "../../../tools/oracle/examples_allowlist.json"
+    ))
+    .expect("parse examples_allowlist.json");
 
     let cases = corpus["cases"].as_array().expect("cases array");
     assert!(

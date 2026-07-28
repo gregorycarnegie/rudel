@@ -27,7 +27,11 @@ fn bytebeat_expressions_match_javascript() {
         .collect();
 
     let cases = golden["cases"].as_object().expect("cases object");
-    assert!(cases.len() > 30, "expected the full case set, got {}", cases.len());
+    assert!(
+        cases.len() > 30,
+        "expected the full case set, got {}",
+        cases.len()
+    );
 
     let mut failures = Vec::new();
     for (label, entry) in cases {
@@ -56,9 +60,7 @@ fn bytebeat_expressions_match_javascript() {
             };
             let tol = EPS * want.abs().max(1.0);
             if (got - want).abs() > tol {
-                failures.push(format!(
-                    "{label} ({src}) at t={t}: value {got} != {want}"
-                ));
+                failures.push(format!("{label} ({src}) at t={t}: value {got} != {want}"));
             }
         }
     }

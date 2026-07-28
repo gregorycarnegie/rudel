@@ -120,12 +120,12 @@ fn vibrato_and_pitch_env_detune_a_sample() {
         p.pitch = PitchMod::new(
             None,
             0.0,
-            Some(12.0),   // penv: +12 semitones
-            Some(0.0),    // pattack
-            Some(0.0),    // pdecay
-            Some(1.0),    // psustain: hold at the top
+            Some(12.0), // penv: +12 semitones
+            Some(0.0),  // pattack
+            Some(0.0),  // pdecay
+            Some(1.0),  // psustain: hold at the top
             None,
-            Some(0.0),    // panchor: 0 so the range is 0..+12
+            Some(0.0), // panchor: 0 so the range is 0..+12
             false,
         );
     });

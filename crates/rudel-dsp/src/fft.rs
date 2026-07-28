@@ -7,7 +7,6 @@
 // `inverseTransform` does).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-
 /// An in-place iterative radix-2 Cooley-Tukey FFT over a fixed power-of-two
 /// size, with the bit-reversal permutation and twiddle factors precomputed.
 pub(crate) struct Fft {
@@ -130,8 +129,12 @@ mod tests {
         // Multiplying spectra convolves the time-domain signals (circularly).
         let n = 16;
         let fft = Fft::new(n);
-        let a: Vec<f32> = (0..n).map(|i| if i < 4 { i as f32 + 1.0 } else { 0.0 }).collect();
-        let b: Vec<f32> = (0..n).map(|i| if i < 3 { (i as f32) * 0.5 } else { 0.0 }).collect();
+        let a: Vec<f32> = (0..n)
+            .map(|i| if i < 4 { i as f32 + 1.0 } else { 0.0 })
+            .collect();
+        let b: Vec<f32> = (0..n)
+            .map(|i| if i < 3 { (i as f32) * 0.5 } else { 0.0 })
+            .collect();
 
         let (mut ar, mut ai) = (a.clone(), vec![0.0; n]);
         let (mut br, mut bi) = (b.clone(), vec![0.0; n]);
