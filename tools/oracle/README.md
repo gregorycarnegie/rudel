@@ -55,7 +55,14 @@ node gen_mini_oracle.mjs        # -> mini_golden.json
 node gen_core_oracle.mjs        # -> core_golden.json
 node gen_tonal_oracle.mjs       # -> tonal_golden.json  (needs the tonal/xen/edo deps above)
 node gen_tune_table_oracle.mjs  # -> tune_table_golden.json  (whole tune.js archive)
+node gen_examples_oracle.mjs    # -> examples_golden.json  (every jsdoc @example)
 ```
+
+`gen_examples_oracle.mjs` is a source scan, like `gen_reference_oracle.mjs`: it
+reconstructs the corpus upstream's `test/examples.test.mjs` walks (509 snippets
+across 10 packages) without needing the unchecked-in `doc.json`. Its consumer,
+`crates/rudel-lang/tests/doc_examples.rs`, runs each snippet through Rudel and
+asserts the failing set equals `examples_allowlist.json` exactly.
 
 `gen_zzfx_oracle.mjs` is independent — it inlines superdough's `buildSamples`
 (only the `getAudioContext().sampleRate` line is replaced with a fixed rate), so
@@ -67,7 +74,14 @@ node gen_lfo_oracle.mjs         # -> lfo_golden.json   (LFO modulator-source gol
 node gen_adsr_oracle.mjs        # -> adsr_golden.json  (linear ADSR gain-envelope golden)
 node gen_distortion_oracle.mjs  # -> distortion_golden.json  (waveshaping distortion golden)
 node gen_warp_oracle.mjs        # -> warp_golden.json  (wavetable phase-warp golden)
+node gen_bytebeat_oracle.mjs    # -> bytebeat_golden.json  (bytebeat expressions vs V8)
 ```
+
+`gen_bytebeat_oracle.mjs` is the odd one out: it does not sample audio, it pins
+an *evaluator*. Upstream compiles a bytebeat with `new Function`, so the
+reference is JavaScript itself — the golden records what V8 returns for every
+built-in beat plus 26 operator-surface cases over 63 values of `t`, and
+`crates/rudel-dsp/tests/bytebeat_golden.rs` checks Rudel's own parser against it.
 
 ### Web Audio graph oracle (`OfflineAudioContext`)
 

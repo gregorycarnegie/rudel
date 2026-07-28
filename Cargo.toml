@@ -19,4 +19,7 @@ num-integer = "0.1.46"
 num-traits = "0.2.19"
 phf = { version = "0.14.0", features = ["macros"] }
 proptest = "1.11.0"
-serde_json = "1.0.151"
+# `float_roundtrip`: serde_json's default float parser can land one ulp off the
+# correctly-rounded value, which is enough to flip a golden comparison against
+# JS-produced numbers (it did, on the bytebeat oracle).
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }

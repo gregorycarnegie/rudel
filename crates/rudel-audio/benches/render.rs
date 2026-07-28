@@ -3,11 +3,13 @@
 //!   cargo bench -p rudel-audio --bench render
 //!
 //! Unlike rudel-dsp's `mixer` bench (which times the voice-mix inner loop in
-//! isolation), this drives the *full* `Mixer` — including the global fundsp
-//! reverb and the stereo delay line, whose per-frame cost is fixed regardless
-//! of voice count and is unaffected by the `process_block` refactor. It is the
-//! end-to-end baseline: how many ns/frame the audio callback actually spends
-//! mixing N active synth+post-fx voices plus the global effects.
+//! isolation), this drives the *full* `Mixer` — including the per-orbit
+//! convolution reverb and the stereo delay line, whose per-frame cost is fixed
+//! regardless of voice count and is unaffected by the `process_block` refactor.
+//! It is the end-to-end baseline: how many ns/frame the audio callback actually
+//! spends mixing N active synth+post-fx voices plus the global effects. The
+//! fixed part is the intercept of the ns/frame curve — worth watching, since
+//! the convolver's cost scales with the impulse response length (`size`).
 //!
 //! Dependency-free `harness = false` main, matching the other rudel benches.
 

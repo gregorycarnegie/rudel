@@ -1,0 +1,3567 @@
+{
+ "cases": [
+  {
+   "id": "_euclidRot#0",
+   "name": "_euclidRot",
+   "index": 0,
+   "package": "core",
+   "code": "// A thirteenth-century Persian rhythm called Khafif-e-ramal.\nnote(\"c3\").euclid(2,5)"
+  },
+  {
+   "id": "_euclidRot#1",
+   "name": "_euclidRot",
+   "index": 1,
+   "package": "core",
+   "code": "// The archetypal pattern of the Cumbia from Colombia, as well as a Calypso rhythm from Trinidad.\nnote(\"c3\").euclid(3,4)"
+  },
+  {
+   "id": "_euclidRot#10",
+   "name": "_euclidRot",
+   "index": 10,
+   "package": "core",
+   "code": "// The Cuban cinquillo pattern.\nnote(\"c3\").euclid(5,8)"
+  },
+  {
+   "id": "_euclidRot#11",
+   "name": "_euclidRot",
+   "index": 11,
+   "package": "core",
+   "code": "// A popular Arab rhythm called Agsag-Samai.\nnote(\"c3\").euclid(5,9)"
+  },
+  {
+   "id": "_euclidRot#12",
+   "name": "_euclidRot",
+   "index": 12,
+   "package": "core",
+   "code": "// The metric pattern used by Moussorgsky in Pictures at an Exhibition.\nnote(\"c3\").euclid(5,11)"
+  },
+  {
+   "id": "_euclidRot#13",
+   "name": "_euclidRot",
+   "index": 13,
+   "package": "core",
+   "code": "// The Venda clapping pattern of a South African children’s song.\nnote(\"c3\").euclid(5,12)"
+  },
+  {
+   "id": "_euclidRot#14",
+   "name": "_euclidRot",
+   "index": 14,
+   "package": "core",
+   "code": "// The Bossa-Nova rhythm necklace of Brazil.\nnote(\"c3\").euclid(5,16)"
+  },
+  {
+   "id": "_euclidRot#15",
+   "name": "_euclidRot",
+   "index": 15,
+   "package": "core",
+   "code": "// A typical rhythm played on the Bendir (frame drum).\nnote(\"c3\").euclid(7,8)"
+  },
+  {
+   "id": "_euclidRot#16",
+   "name": "_euclidRot",
+   "index": 16,
+   "package": "core",
+   "code": "// A common West African bell pattern.\nnote(\"c3\").euclid(7,12)"
+  },
+  {
+   "id": "_euclidRot#17",
+   "name": "_euclidRot",
+   "index": 17,
+   "package": "core",
+   "code": "// A Samba rhythm necklace from Brazil.\nnote(\"c3\").euclidRot(7,16,14)"
+  },
+  {
+   "id": "_euclidRot#18",
+   "name": "_euclidRot",
+   "index": 18,
+   "package": "core",
+   "code": "// A rhythm necklace used in the Central African Republic.\nnote(\"c3\").euclid(9,16)"
+  },
+  {
+   "id": "_euclidRot#19",
+   "name": "_euclidRot",
+   "index": 19,
+   "package": "core",
+   "code": "// A rhythm necklace of the Aka Pygmies of Central Africa.\nnote(\"c3\").euclidRot(11,24,14)"
+  },
+  {
+   "id": "_euclidRot#2",
+   "name": "_euclidRot",
+   "index": 2,
+   "package": "core",
+   "code": "// Another thirteenth century Persian rhythm by the name of Khafif-e-ramal, as well as a Rumanian folk-dance rhythm.\nnote(\"c3\").euclidRot(3,5,2)"
+  },
+  {
+   "id": "_euclidRot#20",
+   "name": "_euclidRot",
+   "index": 20,
+   "package": "core",
+   "code": "// Another rhythm necklace of the Aka Pygmies of the upper Sangha.\nnote(\"c3\").euclidRot(13,24,5)"
+  },
+  {
+   "id": "_euclidRot#3",
+   "name": "_euclidRot",
+   "index": 3,
+   "package": "core",
+   "code": "// A Ruchenitza rhythm used in a Bulgarian folk dance.\nnote(\"c3\").euclid(3,7)"
+  },
+  {
+   "id": "_euclidRot#4",
+   "name": "_euclidRot",
+   "index": 4,
+   "package": "core",
+   "code": "// The Cuban tresillo pattern.\nnote(\"c3\").euclid(3,8)"
+  },
+  {
+   "id": "_euclidRot#5",
+   "name": "_euclidRot",
+   "index": 5,
+   "package": "core",
+   "code": "// Another Ruchenitza Bulgarian folk-dance rhythm.\nnote(\"c3\").euclid(4,7)"
+  },
+  {
+   "id": "_euclidRot#6",
+   "name": "_euclidRot",
+   "index": 6,
+   "package": "core",
+   "code": "// The Aksak rhythm of Turkey.\nnote(\"c3\").euclid(4,9)"
+  },
+  {
+   "id": "_euclidRot#7",
+   "name": "_euclidRot",
+   "index": 7,
+   "package": "core",
+   "code": "// The metric pattern used by Frank Zappa in his piece titled Outside Now.\nnote(\"c3\").euclid(4,11)"
+  },
+  {
+   "id": "_euclidRot#8",
+   "name": "_euclidRot",
+   "index": 8,
+   "package": "core",
+   "code": "// Yields the York-Samai pattern, a popular Arab rhythm.\nnote(\"c3\").euclid(5,6)"
+  },
+  {
+   "id": "_euclidRot#9",
+   "name": "_euclidRot",
+   "index": 9,
+   "package": "core",
+   "code": "// The Nawakhat pattern, another popular Arab rhythm.\nnote(\"c3\").euclid(5,7)"
+  },
+  {
+   "id": "absoluteOrientationAlpha#0",
+   "name": "absoluteOrientationAlpha",
+   "index": 0,
+   "package": "motion",
+   "code": "n(absoluteOrientationAlpha.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "absoluteOrientationBeta#0",
+   "name": "absoluteOrientationBeta",
+   "index": 0,
+   "package": "motion",
+   "code": "n(absoluteOrientationBeta.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "absoluteOrientationGamma#0",
+   "name": "absoluteOrientationGamma",
+   "index": 0,
+   "package": "motion",
+   "code": "n(absoluteOrientationGamma.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "accelerate#0",
+   "name": "accelerate",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"sax\").accelerate(\"<0 1 2 4 8 16>\").slow(2).osc()"
+  },
+  {
+   "id": "accelerationX#0",
+   "name": "accelerationX",
+   "index": 0,
+   "package": "motion",
+   "code": "n(accelerationX.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "accelerationY#0",
+   "name": "accelerationY",
+   "index": 0,
+   "package": "motion",
+   "code": "n(accelerationY.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "accelerationZ#0",
+   "name": "accelerationZ",
+   "index": 0,
+   "package": "motion",
+   "code": "n(accelerationZ.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "add#0",
+   "name": "add",
+   "index": 0,
+   "package": "core",
+   "code": "// Here, the triad 0, 2, 4 is shifted by different amounts\nn(\"0 2 4\".add(\"<0 3 4 0>\")).scale(\"C:major\")\n// Without add, the equivalent would be:\n// n(\"<[0 2 4] [3 5 7] [4 6 8] [0 2 4]>\").scale(\"C:major\")"
+  },
+  {
+   "id": "add#1",
+   "name": "add",
+   "index": 1,
+   "package": "core",
+   "code": "// You can also use add with notes:\nnote(\"c3 e3 g3\".add(\"<0 5 7 0>\"))\n// Behind the scenes, the notes are converted to midi numbers:\n// note(\"48 52 55\".add(\"<0 5 7 0>\"))"
+  },
+  {
+   "id": "addVoicings#0",
+   "name": "addVoicings",
+   "index": 0,
+   "package": "tonal",
+   "code": "addVoicings('cookie', {\n  7: ['3M 7m 9M 12P 15P', '7m 10M 13M 16M 19P'],\n  '^7': ['3M 6M 9M 12P 14M', '7M 10M 13M 16M 19P'],\n  m7: ['8P 11P 14m 17m 19P', '5P 8P 11P 14m 17m'],\n  m7b5: ['3m 5d 8P 11P 14m', '5d 8P 11P 14m 17m'],\n  o7: ['3m 6M 9M 11A 15P'],\n  '7alt': ['3M 7m 10m 13m 15P'],\n  '7#11': ['7m 10m 13m 15P 17m'],\n}, ['C3', 'C6'])\n\"<C^7 A7 Dm7 G7>\".voicings('cookie').note()"
+  },
+  {
+   "id": "adsr#0",
+   "name": "adsr",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"[c3 bb2 f3 eb3]*2\").sound(\"sawtooth\").lpf(600).adsr(\".1:.1:.5:.2\")"
+  },
+  {
+   "id": "almostAlways#0",
+   "name": "almostAlways",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").almostAlways(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "almostNever#0",
+   "name": "almostNever",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").almostNever(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "always#0",
+   "name": "always",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").always(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "amp#0",
+   "name": "amp",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd*8\").amp(\".1*2 .5 .1*2 .5 .1 .5\").osc()"
+  },
+  {
+   "id": "anchor#0",
+   "name": "anchor",
+   "index": 0,
+   "package": "core",
+   "code": "anchor(\"<c4 g4 c5 g5>\").chord(\"C\").voicing()"
+  },
+  {
+   "id": "anchor#1",
+   "name": "anchor",
+   "index": 1,
+   "package": "core",
+   "code": "n(\"0 .. 7\").anchor(\"<c4 g4 c5 g5>\").scale(\"<C:major F:minor>\")"
+  },
+  {
+   "id": "apply#0",
+   "name": "apply",
+   "index": 0,
+   "package": "core",
+   "code": "\"<c3 eb3 g3>\".scale('C minor').apply(scaleTranspose(\"0,2,4\")).note()"
+  },
+  {
+   "id": "arp#0",
+   "name": "arp",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<[c,eb,g]!2 [c,f,ab] [d,f,ab]>\")\n.arp(\"0 [0,2] 1 [0,2]\")"
+  },
+  {
+   "id": "arpWith#0",
+   "name": "arpWith",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<[c,eb,g]!2 [c,f,ab] [d,f,ab]>\")\n.arpWith(haps => haps[2])"
+  },
+  {
+   "id": "arrange#0",
+   "name": "arrange",
+   "index": 0,
+   "package": "core",
+   "code": "arrange(\n  [4, \"<c a f e>(3,8)\"],\n  [2, \"<g a>(5,8)\"]\n).note()"
+  },
+  {
+   "id": "as#0",
+   "name": "as",
+   "index": 0,
+   "package": "core",
+   "code": "\"c:.5 a:1 f:.25 e:.8\".as(\"note:clip\")"
+  },
+  {
+   "id": "as#1",
+   "name": "as",
+   "index": 1,
+   "package": "core",
+   "code": "\"{0@2 0.25 0 0.5 .3 .5}%8\".as(\"begin\").s(\"sax_vib\").clip(1)"
+  },
+  {
+   "id": "attack#0",
+   "name": "attack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 e3 f3 g3\").attack(\"<0 .1 .5>\")"
+  },
+  {
+   "id": "bank#0",
+   "name": "bank",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").bank('RolandTR909') // = s(\"RolandTR909_bd RolandTR909_sd\")"
+  },
+  {
+   "id": "beat#0",
+   "name": "beat",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd\").beat(\"0,7,10\", 16)"
+  },
+  {
+   "id": "beat#1",
+   "name": "beat",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"sd\").beat(\"4,12\", 16)"
+  },
+  {
+   "id": "begin#0",
+   "name": "begin",
+   "index": 0,
+   "package": "core",
+   "code": "samples({ rave: 'rave/AREUREADY.wav' }, 'github:tidalcycles/dirt-samples')\ns(\"rave\").begin(\"<0 .25 .5 .75>\").fast(2)"
+  },
+  {
+   "id": "berlin#0",
+   "name": "berlin",
+   "index": 0,
+   "package": "core",
+   "code": "// ascending arpeggios\nn(\"0!16\".add(berlin.fast(4).mul(14))).scale(\"d:minor\")"
+  },
+  {
+   "id": "binary#0",
+   "name": "binary",
+   "index": 0,
+   "package": "core",
+   "code": "\"hh\".s().struct(binary(5))\n// \"hh\".s().struct(\"1 0 1\")"
+  },
+  {
+   "id": "binaryN#0",
+   "name": "binaryN",
+   "index": 0,
+   "package": "core",
+   "code": "\"hh\".s().struct(binaryN(55532, 16))\n// \"hh\".s().struct(\"1 1 0 1 1 0 0 0 1 1 1 0 1 1 0 0\")"
+  },
+  {
+   "id": "bite#0",
+   "name": "bite",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"0 1 2 3 4 5 6 7\".scale('c:mixolydian'))\n.bite(4, \"3 2 1 0\")"
+  },
+  {
+   "id": "bite#1",
+   "name": "bite",
+   "index": 1,
+   "package": "core",
+   "code": "sound(\"bd - bd bd*2, - sd:6 - sd:5 sd:1 - [- sd:2] -, hh [- cp:7]\")\n  .bank(\"RolandTR909\").speed(1.2)\n  .bite(4, \"0 0 [1 2] <3 2> 0 0 [2 1] 3\")"
+  },
+  {
+   "id": "bmod#0",
+   "name": "bmod",
+   "index": 0,
+   "package": "core",
+   "code": "modulator: s(\"one\").seg(64).gain(slider(0, 0, 1)).bus(1).dry(0)\ncarrier: s(\"saw\").bmod({ b: 1 })"
+  },
+  {
+   "id": "bpattack#0",
+   "name": "bpattack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.bpf(500)\n.bpa(\"<.5 .25 .1 .01>/4\")\n.bpenv(4)"
+  },
+  {
+   "id": "bpdecay#0",
+   "name": "bpdecay",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.bpf(500)\n.bpd(\"<.5 .25 .1 0>/4\")\n.bps(0.2)\n.bpenv(4)"
+  },
+  {
+   "id": "bpdepthfrequency#0",
+   "name": "bpdepthfrequency",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c c c# c c c4>*16\").s(\"sawtooth\").lpf(600).bpdepthfrequency(\"<200 500 100 0>\")"
+  },
+  {
+   "id": "bpenv#0",
+   "name": "bpenv",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.bpf(500)\n.bpa(.5)\n.bpenv(\"<4 2 1 0 -1 -2 -4>/4\")"
+  },
+  {
+   "id": "bpf#0",
+   "name": "bpf",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*6\").bpf(\"<1000 2000 4000 8000>\")"
+  },
+  {
+   "id": "bpq#0",
+   "name": "bpq",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").bpf(500).bpq(\"<0 1 2 3>\")"
+  },
+  {
+   "id": "bprelease#0",
+   "name": "bprelease",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.clip(.5)\n.bpf(500)\n.bpenv(4)\n.bpr(\"<.5 .25 .1 0>/4\")\n.release(.5)"
+  },
+  {
+   "id": "bpsustain#0",
+   "name": "bpsustain",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.bpf(500)\n.bpd(.5)\n.bps(\"<0 .25 .5 1>/4\")\n.bpenv(4)"
+  },
+  {
+   "id": "brand#0",
+   "name": "brand",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*10\").pan(brand)"
+  },
+  {
+   "id": "brandBy#0",
+   "name": "brandBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*10\").pan(brandBy(0.2))"
+  },
+  {
+   "id": "byteBeatExpression#0",
+   "name": "byteBeatExpression",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bytebeat\").bbexpr('t*(t>>15^t>>66)')"
+  },
+  {
+   "id": "byteBeatStartTime#0",
+   "name": "byteBeatStartTime",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3!8\".add(\"{0 0 12 0 7 5 3}%8\")).s(\"bytebeat:5\").bbst(\"<3 1>\".mul(10000))._scope()"
+  },
+  {
+   "id": "cat#0",
+   "name": "cat",
+   "index": 0,
+   "package": "core",
+   "code": "cat(\"e5\", \"b4\", [\"d5\", \"c5\"]).note()\n// \"<e5 b4 [d5 c5]>\".note()"
+  },
+  {
+   "id": "cat#1",
+   "name": "cat",
+   "index": 1,
+   "package": "core",
+   "code": "// As a chained function:\ns(\"hh*4\").cat(\n   note(\"c4(5,8)\")\n)"
+  },
+  {
+   "id": "ceil#0",
+   "name": "ceil",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"42 42.1 42.5 43\".ceil())"
+  },
+  {
+   "id": "channels#0",
+   "name": "channels",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"e a d b g\").channels(\"3:4\")"
+  },
+  {
+   "id": "choose#0",
+   "name": "choose",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 g2!2 d2 f1\").s(choose(\"sine\", \"triangle\", \"bd:6\"))"
+  },
+  {
+   "id": "chooseCycles#0",
+   "name": "chooseCycles",
+   "index": 0,
+   "package": "core",
+   "code": "chooseCycles(\"bd\", \"hh\", \"sd\").s().fast(8)"
+  },
+  {
+   "id": "chooseCycles#1",
+   "name": "chooseCycles",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd | hh | sd\").fast(8)"
+  },
+  {
+   "id": "chooseWith#0",
+   "name": "chooseWith",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 g2!2 d2 f1\").s(chooseWith(sine.fast(2), [\"sawtooth\", \"triangle\", \"bd:6\"]))"
+  },
+  {
+   "id": "chop#0",
+   "name": "chop",
+   "index": 0,
+   "package": "core",
+   "code": "samples({ rhodes: 'https://cdn.freesound.org/previews/132/132051_316502-lq.mp3' })\ns(\"rhodes\")\n .chop(4)\n .rev() // reverse order of chops\n .loopAt(2) // fit sample into 2 cycles"
+  },
+  {
+   "id": "chord#0",
+   "name": "chord",
+   "index": 0,
+   "package": "core",
+   "code": "chord(\"<Am C D F Am E Am E>\").voicing()"
+  },
+  {
+   "id": "chorus#0",
+   "name": "chorus",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d d a# a\").s(\"sawtooth\").chorus(.5)"
+  },
+  {
+   "id": "chunk#0",
+   "name": "chunk",
+   "index": 0,
+   "package": "core",
+   "code": "\"0 1 2 3\".chunk(4, x=>x.add(7))\n.scale(\"A:minor\").note()"
+  },
+  {
+   "id": "chunkBack#0",
+   "name": "chunkBack",
+   "index": 0,
+   "package": "core",
+   "code": "\"0 1 2 3\".chunkBack(4, x=>x.add(7))\n.scale(\"A:minor\").note()"
+  },
+  {
+   "id": "chunkBackInto#0",
+   "name": "chunkBackInto",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"bd sd ht lt bd - cp lt\").chunkInto(4, hurry(2))\n  .bank(\"tr909\")"
+  },
+  {
+   "id": "chunkInto#0",
+   "name": "chunkInto",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"bd sd ht lt bd - cp lt\").chunkInto(4, hurry(2))\n  .bank(\"tr909\")"
+  },
+  {
+   "id": "clearScope#0",
+   "name": "clearScope",
+   "index": 0,
+   "package": "core",
+   "code": "// After defining variables in blocks:\n// let myVar = 5\n// function myFunc() { return 10; }\nclearScope() // removes myVar and myFunc from scope"
+  },
+  {
+   "id": "clip#0",
+   "name": "clip",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c a f e\").s(\"piano\").clip(\"<.5 1 2>\")"
+  },
+  {
+   "id": "coarse#0",
+   "name": "coarse",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").coarse(\"<1 4 8 16 32>\")"
+  },
+  {
+   "id": "compress#0",
+   "name": "compress",
+   "index": 0,
+   "package": "core",
+   "code": "cat(\n  s(\"bd sd\").compress(.25,.75),\n  s(\"~ bd sd ~\")\n)"
+  },
+  {
+   "id": "compressor#0",
+   "name": "compressor",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\")\n.compressor(\"-20:20:10:.002:.02\")"
+  },
+  {
+   "id": "contract#0",
+   "name": "contract",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"tha dhi thom nam\").bank(\"mridangam\").contract(\"3 2 1 1 2 3\").pace(8)"
+  },
+  {
+   "id": "cosine#0",
+   "name": "cosine",
+   "index": 0,
+   "package": "core",
+   "code": "n(stack(sine,cosine).segment(16).range(0,15))\n.scale(\"C:minor\")"
+  },
+  {
+   "id": "crush#0",
+   "name": "crush",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"<bd sd>,hh*3\").fast(2).crush(\"<16 8 7 6 5 4 3 2>\")"
+  },
+  {
+   "id": "cut#0",
+   "name": "cut",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[oh hh]*4\").cut(1)"
+  },
+  {
+   "id": "cyclesPer#0",
+   "name": "cyclesPer",
+   "index": 0,
+   "package": "core",
+   "code": "// Shorter events are lower in pitch\nsound(\"saw saw [saw saw] saw\")\n  .note(cyclesPer.range(50, 100))"
+  },
+  {
+   "id": "cyclesPer#1",
+   "name": "cyclesPer",
+   "index": 1,
+   "package": "core",
+   "code": "sound(\"bd sd [bd bd] sd*4 [- sd] [bd [bd bd]]\")\n  .note(cyclesPer.add(20))"
+  },
+  {
+   "id": "decay#0",
+   "name": "decay",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 e3 f3 g3\").decay(\"<.1 .2 .3 .4>\").sustain(0)"
+  },
+  {
+   "id": "defaultmidimap#0",
+   "name": "defaultmidimap",
+   "index": 0,
+   "package": "midi",
+   "code": "defaultmidimap({ lpf: 74 })\n$: note(\"c a f e\").midi();\n$: lpf(sine.slow(4).segment(16)).midi();"
+  },
+  {
+   "id": "degrade#0",
+   "name": "degrade",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").degrade()"
+  },
+  {
+   "id": "degrade#1",
+   "name": "degrade",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"[hh?]*8\")"
+  },
+  {
+   "id": "degradeBy#0",
+   "name": "degradeBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").degradeBy(0.2)"
+  },
+  {
+   "id": "degradeBy#1",
+   "name": "degradeBy",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"[hh?0.2]*8\")"
+  },
+  {
+   "id": "degradeBy#2",
+   "name": "degradeBy",
+   "index": 2,
+   "package": "core",
+   "code": "//beat generator\ns(\"bd\").segment(16).degradeBy(.5).ribbon(16,1)"
+  },
+  {
+   "id": "delay#0",
+   "name": "delay",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd bd\").delay(\"<0 .25 .5 1>\")"
+  },
+  {
+   "id": "delay#1",
+   "name": "delay",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd bd\").delay(\"0.65:0.25:0.9 0.65:0.125:0.7\")"
+  },
+  {
+   "id": "delayfeedback#0",
+   "name": "delayfeedback",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd\").delay(.25).delayfeedback(\"<.25 .5 .75 1>\")"
+  },
+  {
+   "id": "delayspeed#0",
+   "name": "delayspeed",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d d a# a\".fast(2)).s(\"sawtooth\").delay(.8).delaytime(1/2).delayspeed(\"<2 .5 -1 -2>\")"
+  },
+  {
+   "id": "delaysync#0",
+   "name": "delaysync",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd bd\").delay(.25).delaysync(\"<1 2 3 5>\".div(8))"
+  },
+  {
+   "id": "delaytime#0",
+   "name": "delaytime",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d d a# a\".fast(2))\n.s(\"sawtooth\")\n.delay(.8)\n.delaytime(1/2)\n.delayspeed(\"<2 .5 -1 -2>\")"
+  },
+  {
+   "id": "density#0",
+   "name": "density",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"crackle*4\").density(\"<0.01 0.04 0.2 0.5>\".slow(4))"
+  },
+  {
+   "id": "detune#0",
+   "name": "detune",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d f a a# a d3\").fast(2).s(\"supersaw\").detune(\"<.1 .2 .5 24.1>\")"
+  },
+  {
+   "id": "dictionary#0",
+   "name": "dictionary",
+   "index": 0,
+   "package": "core",
+   "code": "addVoicings('house', {\n'': ['7 12 16', '0 7 16', '4 7 12'],\n'm': ['0 3 7']\n})\nchord(\"<Am C D F Am E Am E>\")\n.dict('house').anchor(66)\n.voicing().room(.5)"
+  },
+  {
+   "id": "distort#0",
+   "name": "distort",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").distort(\"<0 2 3 10:.5>\")"
+  },
+  {
+   "id": "distort#1",
+   "name": "distort",
+   "index": 1,
+   "package": "core",
+   "code": "note(\"d1!8\").s(\"sine\").penv(36).pdecay(.12).decay(.23).distort(\"8:.4\")"
+  },
+  {
+   "id": "distort#2",
+   "name": "distort",
+   "index": 2,
+   "package": "core",
+   "code": "s(\"bd:4*4\").bank(\"tr808\").distort(\"3:0.5:diode\")"
+  },
+  {
+   "id": "distorttype#0",
+   "name": "distorttype",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd*4\").bank(\"tr909\").distort(2).distorttype(\"<0 1 2>\")"
+  },
+  {
+   "id": "distorttype#1",
+   "name": "distorttype",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"sine\").note(\"F1*2\").release(1)\n  .penv(24).pdecay(0.05)\n  .distort(rand.range(1, 8))\n  .distorttype(\"<fold chebyshev scurve diode asym sinefold>\")"
+  },
+  {
+   "id": "distortvol#0",
+   "name": "distortvol",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd*4\").bank(\"tr909\").distort(2).distortvol(0.8)"
+  },
+  {
+   "id": "djf#0",
+   "name": "djf",
+   "index": 0,
+   "package": "core",
+   "code": "n(irand(16).seg(8)).scale(\"d:phrygian\").s(\"supersaw\").djf(\"<.5 .3 .2 .75>\")"
+  },
+  {
+   "id": "drawLine#0",
+   "name": "drawLine",
+   "index": 0,
+   "package": "core",
+   "code": "const line = drawLine(\"0 [1 2 3]\", 10); // |0--123|0--123\nconsole.log(line);\nsilence;"
+  },
+  {
+   "id": "drive#0",
+   "name": "drive",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f g g c d a a#}%16\".sub(17)).s(\"supersaw\").lpenv(8).lpf(150).lpq(.8).ftype('ladder').drive(\"<.5 4>\")"
+  },
+  {
+   "id": "drop#0",
+   "name": "drop",
+   "index": 0,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".drop(\"1\").sound().bank(\"mridangam\")"
+  },
+  {
+   "id": "drop#1",
+   "name": "drop",
+   "index": 1,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".drop(\"-1\").sound().bank(\"mridangam\")"
+  },
+  {
+   "id": "drop#2",
+   "name": "drop",
+   "index": 2,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".drop(\"0 1 2 3\").sound().bank(\"mridangam\")"
+  },
+  {
+   "id": "drop#3",
+   "name": "drop",
+   "index": 3,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".drop(\"0 -1 -2 -3\").sound().bank(\"mridangam\")"
+  },
+  {
+   "id": "dry#0",
+   "name": "dry",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"[0,3,7](3,8)\").s(\"superpiano\").room(.7).dry(\"<0 .5 .75 1>\").osc()"
+  },
+  {
+   "id": "duckattack#0",
+   "name": "duckattack",
+   "index": 0,
+   "package": "core",
+   "code": "sound: n(run(8)).scale(\"c:minor\").s(\"sawtooth\").delay(.7).orbit(2)\nducker: s(\"bd:4!4\").beat(\"0,4,8,11,14\",16).duckorbit(2).duckattack(\"<0.2 0 0.4>\").duckdepth(1)"
+  },
+  {
+   "id": "duckattack#1",
+   "name": "duckattack",
+   "index": 1,
+   "package": "core",
+   "code": "moreduck: n(run(8)).scale(\"c:minor\").s(\"sawtooth\").delay(.7).orbit(2)\nlessduck: s(\"hh*16\").orbit(5)\nducker: s(\"bd:4!4\").beat(\"0,4,8,11,14\",16).duckorbit(\"2:5\").duckattack(\"0.4:0.1\")"
+  },
+  {
+   "id": "duckdepth#0",
+   "name": "duckdepth",
+   "index": 0,
+   "package": "core",
+   "code": "stack( n(run(8)).scale(\"c:minor\").s(\"sawtooth\").delay(.7).orbit(2), s(\"bd:4!4\").beat(\"0,4,8,11,14\",16).duckorbit(2).duckattack(0.2).duckdepth(\"<1 .9 .6 0>\"))"
+  },
+  {
+   "id": "duckdepth#1",
+   "name": "duckdepth",
+   "index": 1,
+   "package": "core",
+   "code": "$: n(run(16)).scale(\"c:minor:pentatonic\").s(\"sawtooth\").delay(.7).orbit(2)\n$: s(\"hh*16\").orbit(3)\n$: s(\"bd:4!4\").beat(\"0,4,8,11,14\",16).duckorbit(\"2:3\").duckattack(0.2).duckdepth(\"1:0.5\")"
+  },
+  {
+   "id": "duckonset#0",
+   "name": "duckonset",
+   "index": 0,
+   "package": "core",
+   "code": "// Clicks\nsound: freq(\"63.2388\").s(\"sine\").orbit(2).gain(4)\nduckerWithClick: s(\"bd*4\").duckorbit(2).duckattack(0.3).duckonset(0).postgain(0)"
+  },
+  {
+   "id": "duckonset#1",
+   "name": "duckonset",
+   "index": 1,
+   "package": "core",
+   "code": "// No clicks\nsound: freq(\"63.2388\").s(\"sine\").orbit(2).gain(4)\nduckerWithoutClick: s(\"bd*4\").duckorbit(2).duckattack(0.3).duckonset(0.01).postgain(0)"
+  },
+  {
+   "id": "duckonset#2",
+   "name": "duckonset",
+   "index": 2,
+   "package": "core",
+   "code": "// Rhythmic\nnoise: s(\"pink\").distort(\"2:1\").orbit(4) // used rhythmically with 0.3 onset below\nhhat: s(\"hh*16\").orbit(7)\nducker: s(\"bd*4\").bank(\"tr909\").duckorbit(\"4:7\").duckonset(\"0.3:0.003\").duckattack(0.25)"
+  },
+  {
+   "id": "duckorbit#0",
+   "name": "duckorbit",
+   "index": 0,
+   "package": "core",
+   "code": "$: n(run(16)).scale(\"c:minor:pentatonic\").s(\"sawtooth\").delay(.7).orbit(2)\n$: s(\"bd:4!4\").beat(\"0,4,8,11,14\",16).duckorbit(2).duckattack(0.2).duckdepth(1)"
+  },
+  {
+   "id": "duckorbit#1",
+   "name": "duckorbit",
+   "index": 1,
+   "package": "core",
+   "code": "$: n(run(16)).scale(\"c:minor:pentatonic\").s(\"sawtooth\").delay(.7).orbit(2)\n$: s(\"hh*16\").orbit(3)\n$: s(\"bd:4!4\").beat(\"0,4,8,11,14\",16).duckorbit(\"2:3\").duckattack(0.2).duckdepth(1)"
+  },
+  {
+   "id": "duration#0",
+   "name": "duration",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c a f e\").s(\"piano\").dur(\"<.5 1 2>\")"
+  },
+  {
+   "id": "early#0",
+   "name": "early",
+   "index": 0,
+   "package": "core",
+   "code": "\"bd ~\".stack(\"hh ~\".early(.1)).s()"
+  },
+  {
+   "id": "echo#0",
+   "name": "echo",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd\").echo(3, 1/6, .8)"
+  },
+  {
+   "id": "echoWith#0",
+   "name": "echoWith",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 [2 4]>\"\n.echoWith(4, 1/8, (p,n) => p.add(n*2))\n.scale(\"C:minor\").note()"
+  },
+  {
+   "id": "edoScale#0",
+   "name": "edoScale",
+   "index": 0,
+   "package": "edo",
+   "code": "n(\"0 2 4 6 4 2\").edoScale(\"C:LLsLLLs:2:1\")"
+  },
+  {
+   "id": "edoScale#1",
+   "name": "edoScale",
+   "index": 1,
+   "package": "edo",
+   "code": "n(\"[0,7] 4 [2,7] 4\")\n.edoScale(\"G2:<LLsLLL LLLLsL>:3:1\")\n.s(\"piano\")._pitchwheel()"
+  },
+  {
+   "id": "edoScale#2",
+   "name": "edoScale",
+   "index": 2,
+   "package": "edo",
+   "code": "n(rand.range(0,5).segment(6))\n.edoScale(\"<G2 C3>:LLsLL:3:1\")\n.s(\"piano\")._pitchwheel()"
+  },
+  {
+   "id": "end#0",
+   "name": "end",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd*2,oh*4\").end(\"<.1 .2 .5 1>\").fast(2)"
+  },
+  {
+   "id": "env#0",
+   "name": "env",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"saw\").note(\"F1\").lpf(500).env({ a: 1 })"
+  },
+  {
+   "id": "env#1",
+   "name": "env",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"saw\").env({ d: 1 }).note(\"F1\")\n  .lpq(4).lpf(50)\n  .env({ a: 0.1, d: 1, ac: 0.8, dc: 0.3, depth: 50 })"
+  },
+  {
+   "id": "env#2",
+   "name": "env",
+   "index": 2,
+   "package": "core",
+   "code": "s(\"saw\").lpf(500).diode(0.3)\n  .env({ c: \"lpf\", a: 0.5, d: 0.5 })"
+  },
+  {
+   "id": "env#3",
+   "name": "env",
+   "index": 3,
+   "package": "core",
+   "code": "s(\"pulse\").lpf(500).env({ a: 1 })\n  .env({ c: \"s\", a: 1 })\n  .diode(0.3)\n  .sometimes(x => x.env({ a: \"0.5\" }, 1)) // envelope #1 (0-indexed)"
+  },
+  {
+   "id": "env#4",
+   "name": "env",
+   "index": 4,
+   "package": "core",
+   "code": "s(\"pulse\").lpf(500).env({ a: 1 }, 'lpf_mod')\n  .env({ c: \"s\", a: 1 })\n  .diode(0.3)\n  .sometimes(x => x.env({ a: \"0.5\" }, 'lpf_mod'))"
+  },
+  {
+   "id": "euclid#0",
+   "name": "euclid",
+   "index": 0,
+   "package": "core",
+   "code": "// The Cuban tresillo pattern.\nnote(\"c3\").euclid(3,8)"
+  },
+  {
+   "id": "euclidish#0",
+   "name": "euclidish",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"hh\").euclidish(7,12,sine.slow(8))\n.pan(sine.slow(8))"
+  },
+  {
+   "id": "euclidLegato#0",
+   "name": "euclidLegato",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3\").euclidLegato(3,8)"
+  },
+  {
+   "id": "euclidLegatoRot#0",
+   "name": "euclidLegatoRot",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3\").euclidLegatoRot(3,5,2)"
+  },
+  {
+   "id": "euclidRot#0",
+   "name": "euclidRot",
+   "index": 0,
+   "package": "core",
+   "code": "// A Samba rhythm necklace from Brazil\nnote(\"c3\").euclidRot(3,16,14)"
+  },
+  {
+   "id": "every#0",
+   "name": "every",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 d3 e3 g3\").every(4, x=>x.rev())"
+  },
+  {
+   "id": "expand#0",
+   "name": "expand",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"tha dhi thom nam\").bank(\"mridangam\").expand(\"3 2 1 1 2 3\").pace(8)"
+  },
+  {
+   "id": "extend#0",
+   "name": "extend",
+   "index": 0,
+   "package": "core",
+   "code": "stepcat(\n  sound(\"bd bd - cp\").extend(2),\n  sound(\"bd - sd -\")\n).pace(8)"
+  },
+  {
+   "id": "fadeTime#0",
+   "name": "fadeTime",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"oh*4\").end(.1).fadeTime(\"<0 .2 .4 .8>\").osc()"
+  },
+  {
+   "id": "fanchor#0",
+   "name": "fanchor",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f g g c d a a#}%8\").s(\"sawtooth\").lpf(\"{1000}%2\")\n.lpenv(8).fanchor(\"<0 .5 1>\")"
+  },
+  {
+   "id": "fast#0",
+   "name": "fast",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd hh sd hh\").fast(2) // s(\"[bd hh sd hh]*2\")"
+  },
+  {
+   "id": "fastChunk#0",
+   "name": "fastChunk",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 8> 1 2 3 4 5 6 7\"\n.scale(\"C2:major\").note()\n.fastChunk(4, x => x.color('red')).slow(2)"
+  },
+  {
+   "id": "fastGap#0",
+   "name": "fastGap",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd\").fastGap(2)"
+  },
+  {
+   "id": "filter#0",
+   "name": "filter",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh!7 oh\").filter(hap => hap.value.s === 'hh')"
+  },
+  {
+   "id": "filterWhen#0",
+   "name": "filterWhen",
+   "index": 0,
+   "package": "core",
+   "code": "oneCycle: s(\"bd*4\").filterWhen((t) => t < 1)"
+  },
+  {
+   "id": "firstOf#0",
+   "name": "firstOf",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 d3 e3 g3\").firstOf(4, x=>x.rev())"
+  },
+  {
+   "id": "fit#0",
+   "name": "fit",
+   "index": 0,
+   "package": "core",
+   "code": "samples({ rhodes: 'https://cdn.freesound.org/previews/132/132051_316502-lq.mp3' })\ns(\"rhodes/2\").fit()"
+  },
+  {
+   "id": "floor#0",
+   "name": "floor",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"42 42.1 42.5 43\".floor())"
+  },
+  {
+   "id": "fmattack#0",
+   "name": "fmattack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(4)\n.fmattack(\"<0 .05 .1 .2>\")\n._scope()"
+  },
+  {
+   "id": "fmdecay#0",
+   "name": "fmdecay",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(4)\n.fmdecay(\"<.01 .05 .1 .2>\")\n.fmsustain(.4)\n._scope()"
+  },
+  {
+   "id": "fmenv#0",
+   "name": "fmenv",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(4)\n.fmdecay(.2)\n.fmsustain(0)\n.fmenv(\"<exp lin>\")\n._scope()"
+  },
+  {
+   "id": "fmh#0",
+   "name": "fmh",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(4)\n.fmh(\"<1 2 1.5 1.61>\")\n._scope()"
+  },
+  {
+   "id": "fmi#0",
+   "name": "fmi",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(\"<0 1 2 8 32>\")\n._scope()"
+  },
+  {
+   "id": "fmi#1",
+   "name": "fmi",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"sine\").note(\"F1\").seg(8)\n .fm(4).fm2(rand.mul(4)).fm3(saw.mul(8).slow(8))\n .fmh(1.06).fmh2(10).fmh3(0.1)"
+  },
+  {
+   "id": "fmsustain#0",
+   "name": "fmsustain",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(4)\n.fmdecay(.1)\n.fmsustain(\"<1 .75 .5 0>\")\n._scope()"
+  },
+  {
+   "id": "fmwave#0",
+   "name": "fmwave",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0 1 2 3\".fast(4)).scale(\"d:minor\").s(\"sine\").fmwave(\"<sine square sawtooth crackle>\").fm(4).fmh(2.01)"
+  },
+  {
+   "id": "fmwave#1",
+   "name": "fmwave",
+   "index": 1,
+   "package": "core",
+   "code": "n(\"0 1 2 3\".fast(4)).chord(\"<Dm Am F G>\").voicing().s(\"sawtooth\").fmwave(\"brown\").fm(.6)"
+  },
+  {
+   "id": "focus#0",
+   "name": "focus",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd hh sd hh\").focus(1/4, 3/4)"
+  },
+  {
+   "id": "freq#0",
+   "name": "freq",
+   "index": 0,
+   "package": "core",
+   "code": "freq(\"220 110 440 110\").s(\"superzow\").osc()"
+  },
+  {
+   "id": "freq#1",
+   "name": "freq",
+   "index": 1,
+   "package": "core",
+   "code": "freq(\"110\".mul.out(\".5 1.5 .6 [2 3]\")).s(\"superzow\").osc()"
+  },
+  {
+   "id": "fscope#0",
+   "name": "fscope",
+   "index": 0,
+   "package": "webaudio",
+   "code": "s(\"sawtooth\").fscope()"
+  },
+  {
+   "id": "ftranspose#0",
+   "name": "ftranspose",
+   "index": 0,
+   "package": "xen",
+   "code": "i(\"0 1 2\").xen(\"12edo\").ftrans(\"7\")\n// n(\"0 1 2\").scale(\"A:chromatic\").trans(\"7\")"
+  },
+  {
+   "id": "ftranspose#1",
+   "name": "ftranspose",
+   "index": 1,
+   "package": "xen",
+   "code": "i(\"0 8 18\").xen(\"31edo\").ftrans(\"<8 -8>\")"
+  },
+  {
+   "id": "ftranspose#2",
+   "name": "ftranspose",
+   "index": 2,
+   "package": "xen",
+   "code": "// to transpose by steps of an edo, use \"step:edo\" :\ni(\"0 7 8 18\").xen(\"31edo\").ftrans(\"<0 1:31 1:12>\")"
+  },
+  {
+   "id": "ftranspose#3",
+   "name": "ftranspose",
+   "index": 3,
+   "package": "xen",
+   "code": "// it can also work with frequency values directly\nfreq(\"200 300 400\").ftrans(\"<0 7:31 7>\")"
+  },
+  {
+   "id": "ftype#0",
+   "name": "ftype",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f g g c d a a#}%8\").s(\"sawtooth\").lpenv(4).lpf(500).ftype(\"<0 1 2>\").lpq(1)"
+  },
+  {
+   "id": "ftype#1",
+   "name": "ftype",
+   "index": 1,
+   "package": "core",
+   "code": "note(\"c f g g a c d4\").fast(2)\n.sound('sawtooth')\n.lpf(200).fanchor(0)\n.lpenv(3).lpq(1)\n.ftype(\"<ladder 12db 24db>\")"
+  },
+  {
+   "id": "FX#0",
+   "name": "FX",
+   "index": 0,
+   "package": "core",
+   "code": "$: s(\"[sbd <hh [bd | lt | oh]>]*4\").dec(.4)\n  .FX(\n    phaser(0.5).gain(2),\n    bpf(800),\n    distort(1.3),\n    room(0.2),\n    delay(0.5).gain(1.25),\n    distort(0.3),\n  ).fxr(1.7) // sets release time of effects (like delay)"
+  },
+  {
+   "id": "FX#1",
+   "name": "FX",
+   "index": 1,
+   "package": "core",
+   "code": "$: s(\"saw\").fm(0.5)\n  .delay(0.3) // outer effects are applied *last*\n  .FX(coarse(4)) // first coarse\n  .FX(lpf(500).lpe(4).lpa(1).lpd(2)) // then lpf\n  .FX(distort(1)) // then distort"
+  },
+  {
+   "id": "gain#0",
+   "name": "gain",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").gain(\".4!2 1 .4!2 1 .4 1\").fast(2)"
+  },
+  {
+   "id": "gap#0",
+   "name": "gap",
+   "index": 0,
+   "package": "core",
+   "code": "gap(3) // \"~@3\""
+  },
+  {
+   "id": "getDuration,getDur#0",
+   "name": "getDuration,getDur",
+   "index": 0,
+   "package": "superdough",
+   "code": "// Set a patterns cycle length to exactly the length of the sample\nsamples('github:tidalcycles/dirt-samples')\nlet k = await getDuration('sax')\ns(\"sax\").cps(1/k)"
+  },
+  {
+   "id": "gravityX#0",
+   "name": "gravityX",
+   "index": 0,
+   "package": "motion",
+   "code": "n(gravityX.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "gravityY#0",
+   "name": "gravityY",
+   "index": 0,
+   "package": "motion",
+   "code": "n(gravityY.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "gravityZ#0",
+   "name": "gravityZ",
+   "index": 0,
+   "package": "motion",
+   "code": "n(gravityZ.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "grow#0",
+   "name": "grow",
+   "index": 0,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".grow(\"1\").sound()\n.bank(\"mridangam\")"
+  },
+  {
+   "id": "grow#1",
+   "name": "grow",
+   "index": 1,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".grow(\"-1\").sound()\n.bank(\"mridangam\")"
+  },
+  {
+   "id": "grow#2",
+   "name": "grow",
+   "index": 2,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".grow(\"1 -1\").sound().bank(\"mridangam\").pace(4)"
+  },
+  {
+   "id": "grow#3",
+   "name": "grow",
+   "index": 3,
+   "package": "core",
+   "code": "note(\"0 1 2 3 4 5 6 7\".scale(\"C:ritusen\")).sound(\"folkharp\")\n   .grow(\"1 -1\").pace(8)"
+  },
+  {
+   "id": "hpattack#0",
+   "name": "hpattack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.hpf(500)\n.hpa(\"<.5 .25 .1 .01>/4\")\n.hpenv(4)"
+  },
+  {
+   "id": "hpdecay#0",
+   "name": "hpdecay",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.hpf(500)\n.hpd(\"<.5 .25 .1 0>/4\")\n.hps(0.2)\n.hpenv(4)"
+  },
+  {
+   "id": "hpdepthfrequency#0",
+   "name": "hpdepthfrequency",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c c c# c c c4>*16\").s(\"sawtooth\").lpf(600).hpdepthfrequency(\"<200 500 100 0>\")"
+  },
+  {
+   "id": "hpenv#0",
+   "name": "hpenv",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.hpf(500)\n.hpa(.5)\n.hpenv(\"<4 2 1 0 -1 -2 -4>/4\")"
+  },
+  {
+   "id": "hpf#0",
+   "name": "hpf",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").hpf(\"<4000 2000 1000 500 200 100>\")"
+  },
+  {
+   "id": "hpf#1",
+   "name": "hpf",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").hpf(\"<2000 2000:25>\")"
+  },
+  {
+   "id": "hpq#0",
+   "name": "hpq",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").hpf(2000).hpq(\"<0 10 20 30>\")"
+  },
+  {
+   "id": "hprelease#0",
+   "name": "hprelease",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.clip(.5)\n.hpf(500)\n.hpenv(4)\n.hpr(\"<.5 .25 .1 0>/4\")\n.release(.5)"
+  },
+  {
+   "id": "hpsustain#0",
+   "name": "hpsustain",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.hpf(500)\n.hpd(.5)\n.hps(\"<0 .25 .5 1>/4\")\n.hpenv(4)"
+  },
+  {
+   "id": "hurry#0",
+   "name": "hurry",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd:2\").hurry(\"<1 2 4 3>\").slow(1.5)"
+  },
+  {
+   "id": "hush#0",
+   "name": "hush",
+   "index": 0,
+   "package": "core",
+   "code": "stack(\n  s(\"bd\").hush(),\n  s(\"hh*3\")\n)"
+  },
+  {
+   "id": "i#0",
+   "name": "i",
+   "index": 0,
+   "package": "core",
+   "code": "i(\"0 1 2 3 4 5 6 7\").xen(\"<5edo 10edo 15edo hexany15>\")"
+  },
+  {
+   "id": "inhabit#0",
+   "name": "inhabit",
+   "index": 0,
+   "package": "core",
+   "code": "let a = s(\"bd(3,8)\")\nlet b = s(\"cp sd\")\n\"<a b [a,b]>\".inhabit({ a, b })"
+  },
+  {
+   "id": "inhabit#1",
+   "name": "inhabit",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"a@2 [a b] a\"\n.inhabit({a: \"bd(3,8)\", b: \"sd sd\"}))\n.slow(4)"
+  },
+  {
+   "id": "inside#0",
+   "name": "inside",
+   "index": 0,
+   "package": "core",
+   "code": "\"0 1 2 3 4 3 2 1\".inside(4, rev).scale('C major').note()\n// \"0 1 2 3 4 3 2 1\".slow(4).rev().fast(4).scale('C major').note()"
+  },
+  {
+   "id": "into#0",
+   "name": "into",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"bd sd ht lt\").into(\"1 0\", hurry(2))"
+  },
+  {
+   "id": "invert#0",
+   "name": "invert",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd\").struct(\"1 0 0 1 0 0 1 0\".lastOf(4, invert))"
+  },
+  {
+   "id": "irand#0",
+   "name": "irand",
+   "index": 0,
+   "package": "core",
+   "code": "// randomly select scale notes from 0 - 7 (= C to C)\nn(irand(8)).struct(\"x x*2 x x*3\").scale(\"C:minor\")"
+  },
+  {
+   "id": "irbegin#0",
+   "name": "irbegin",
+   "index": 0,
+   "package": "core",
+   "code": "samples('github:switchangel/pad')\n$: s(\"brk/2\").fit().scrub(irand(16).div(16).seg(8)).ir(\"swpad:4\").room(.65).irspeed(\"-2\").irbegin(\"<0 .5 .75>/2\").roomsize(.6)"
+  },
+  {
+   "id": "iresponse#0",
+   "name": "iresponse",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(.8).ir(\"<shaker_large:0 shaker_large:2>\")"
+  },
+  {
+   "id": "irspeed#0",
+   "name": "irspeed",
+   "index": 0,
+   "package": "core",
+   "code": "samples('github:switchangel/pad')\n$: s(\"brk/2\").fit().scrub(irand(16).div(16).seg(8)).ir(\"swpad:4\").room(.2).irspeed(\"<2 1 .5>/2\").irbegin(.5).roomsize(.5)"
+  },
+  {
+   "id": "isaw#0",
+   "name": "isaw",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c3 [eb3,g3] g2 [g3,bb3]>*8\")\n.clip(isaw.slow(2))"
+  },
+  {
+   "id": "isaw#1",
+   "name": "isaw",
+   "index": 1,
+   "package": "core",
+   "code": "n(isaw.range(0,8).segment(8))\n.scale('C major')"
+  },
+  {
+   "id": "iter#0",
+   "name": "iter",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"0 1 2 3\".scale('A minor')).iter(4)"
+  },
+  {
+   "id": "iterBack#0",
+   "name": "iterBack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"0 1 2 3\".scale('A minor')).iterBack(4)"
+  },
+  {
+   "id": "itri#0",
+   "name": "itri",
+   "index": 0,
+   "package": "core",
+   "code": "n(itri.segment(8).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "jux#0",
+   "name": "jux",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").jux(rev)"
+  },
+  {
+   "id": "jux#1",
+   "name": "jux",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").jux(press)"
+  },
+  {
+   "id": "jux#2",
+   "name": "jux",
+   "index": 2,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").jux(iter(4))"
+  },
+  {
+   "id": "juxBy#0",
+   "name": "juxBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").juxBy(\"<0 .5 1>/2\", rev)"
+  },
+  {
+   "id": "juxFlip#0",
+   "name": "juxFlip",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").juxFlip(rev)"
+  },
+  {
+   "id": "juxFlip#1",
+   "name": "juxFlip",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").juxFlip(press)"
+  },
+  {
+   "id": "juxFlip#2",
+   "name": "juxFlip",
+   "index": 2,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").juxFlip(iter(4))"
+  },
+  {
+   "id": "juxFlipBy#0",
+   "name": "juxFlipBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd lt [~ ht] mt cp ~ bd hh\").juxFlipBy(\".8\", rev)"
+  },
+  {
+   "id": "K#0",
+   "name": "K",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"A c e\".fast(4)).transpose(\"<0 2 4 6 8>\")\n  .scale(\"F:minor\").transpose(\"12\")\n  .s(\"saw\")\n  .K(\n    // audioin().mul(sGate.adsr(0.001, 0.3, 0, 0.2)) // as effect\n    saw(saw(sFreq / \"2!3 16\").mul(8).add(sFreq).lag(\"0!3 0.1\")).mul(0.3) // as source\n    .mul(sGate.adsr(0, 0.15, 0.5, \"0.1!3 1\"))\n    .lpf(sGate.adsr(0, 0.2, 0.3, 0.2).mul(1).add(0))\n    .add(x => x.delay(S(\"0.3 0.2\".fast(2))).mul(0.7))\n    .add(x => x.delay(\"0.03 [0.08 0.01] 0.01 0.013\").mul(0.77)).mul(0.7)\n    .add(x => x.delay(.13).mul(0.7))\n    .out()\n  )"
+  },
+  {
+   "id": "K#1",
+   "name": "K",
+   "index": 1,
+   "package": "core",
+   "code": "n(\"<0 1 <2 3 2 4>>*16\")\n  .scale(\"G#2:minor\").sometimes(x => x.transpose(\"12 | 24\"))\n  .K(() => {\n    const att = S(rand.range(0, 0.05))\n    const dec = S(rand.range(0.05, 0.2))\n    let f = n(sFreq);\n    const mod = sine(f).mul(\"0.1 | 0.2 | 0.3\")\n      .add(\"[[1.5 1] | 1 | 2 | 4 | [6 4@3]]*2\")\n    saw(f.mul(mod))\n    .mul(sGate.ad(att, dec))\n    .add(x => x.delay(0.4).mul(0.3))\n    .out()\n  }).fxr(1).room(0.3)"
+  },
+  {
+   "id": "keep#0",
+   "name": "keep",
+   "index": 0,
+   "package": "core",
+   "code": "// notes, already defined, will stay \"c a f e\",\n// while \"s\", not defined, will be set to \"piano\"\nnote(\"c a f e\").keep(note(\"e f a c\").s(\"piano\"))"
+  },
+  {
+   "id": "keyDown#0",
+   "name": "keyDown",
+   "index": 0,
+   "package": "core",
+   "code": "keyDown(\"Control:j\").pick([s(\"bd(5,8)\"), s(\"cp(3,8)\")])"
+  },
+  {
+   "id": "lastOf#0",
+   "name": "lastOf",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 d3 e3 g3\").lastOf(4, x=>x.rev())"
+  },
+  {
+   "id": "late#0",
+   "name": "late",
+   "index": 0,
+   "package": "core",
+   "code": "\"bd ~\".stack(\"hh ~\".late(.1)).s()"
+  },
+  {
+   "id": "layer#0",
+   "name": "layer",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 2 4 6 ~ 4 ~ 2 0!3 ~!5>*8\"\n  .layer(x=>x.add(\"0,2\"))\n  .scale('C minor').note()"
+  },
+  {
+   "id": "leslie#0",
+   "name": "leslie",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0,4,7\").s(\"supersquare\").leslie(\"<0 .4 .6 1>\").osc()"
+  },
+  {
+   "id": "lfo#0",
+   "name": "lfo",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"saw\").note(\"F1\").lpf(500).lfo()"
+  },
+  {
+   "id": "lfo#1",
+   "name": "lfo",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"saw\").lfo().lpf(500).lfo({ s: 0.3 })"
+  },
+  {
+   "id": "lfo#2",
+   "name": "lfo",
+   "index": 2,
+   "package": "core",
+   "code": "s(\"saw\").lpf(500).diode(0.3)\n  .lfo({ c: \"lpf\" })"
+  },
+  {
+   "id": "lfo#3",
+   "name": "lfo",
+   "index": 3,
+   "package": "core",
+   "code": "s(\"pulse\").lpf(500).lfo()\n  .lfo({ c: \"s\" })\n  .diode(0.3)\n  .sometimes(x => x.lfo({ s: \"8\" }, 1)) // lfo #1 (0-indexed)"
+  },
+  {
+   "id": "lfo#4",
+   "name": "lfo",
+   "index": 4,
+   "package": "core",
+   "code": "s(\"pulse\").lpf(500).lfo({ depth: 4 }, 'lpf_mod')\n  .lfo({ c: \"s\" })\n  .diode(0.3)\n  .sometimes(x => x.lfo({ s: \"8\" }, 'lpf_mod'))"
+  },
+  {
+   "id": "linger#0",
+   "name": "linger",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"lt ht mt cp, [hh oh]*2\").linger(\"<1 .5 .25 .125>\")"
+  },
+  {
+   "id": "lock#0",
+   "name": "lock",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"sd\").delay().lock(1).osc()"
+  },
+  {
+   "id": "log#0",
+   "name": "log",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd\").log()"
+  },
+  {
+   "id": "logValues#0",
+   "name": "logValues",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd\").gain(\"0.25 0.5 1\").n(\"2 1 0\").logValues()"
+  },
+  {
+   "id": "loop#0",
+   "name": "loop",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"casio\").loop(1)"
+  },
+  {
+   "id": "loopAt#0",
+   "name": "loopAt",
+   "index": 0,
+   "package": "core",
+   "code": "samples({ rhodes: 'https://cdn.freesound.org/previews/132/132051_316502-lq.mp3' })\ns(\"rhodes\").loopAt(2)"
+  },
+  {
+   "id": "loopAtCps#0",
+   "name": "loopAtCps",
+   "index": 0,
+   "package": "core",
+   "code": "samples({ rhodes: 'https://cdn.freesound.org/previews/132/132051_316502-lq.mp3' })\ns(\"rhodes\").loopAtCps(4,1.5).cps(1.5)"
+  },
+  {
+   "id": "loopBegin#0",
+   "name": "loopBegin",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"space\").loop(1)\n.loopBegin(\"<0 .125 .25>\")._scope()"
+  },
+  {
+   "id": "loopEnd#0",
+   "name": "loopEnd",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"space\").loop(1)\n.loopEnd(\"<1 .75 .5 .25>\")._scope()"
+  },
+  {
+   "id": "lpattack#0",
+   "name": "lpattack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.lpf(300)\n.lpa(\"<.5 .25 .1 .01>/4\")\n.lpenv(4)"
+  },
+  {
+   "id": "lpdecay#0",
+   "name": "lpdecay",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.lpf(300)\n.lpd(\"<.5 .25 .1 0>/4\")\n.lpenv(4)"
+  },
+  {
+   "id": "lpdepth#0",
+   "name": "lpdepth",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c c c# c c c4>*16\").s(\"sawtooth\").lpf(600).lpdepth(\"<1 .5 1.8 0>\")"
+  },
+  {
+   "id": "lpdepthfrequency#0",
+   "name": "lpdepthfrequency",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c c c# c c c4>*16\").s(\"sawtooth\").lpf(600).lpdepthfrequency(\"<200 500 100 0>\")"
+  },
+  {
+   "id": "lpenv#0",
+   "name": "lpenv",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.lpf(300)\n.lpa(.5)\n.lpenv(\"<4 2 1 0 -1 -2 -4>/4\")"
+  },
+  {
+   "id": "lpf#0",
+   "name": "lpf",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*6\").lpf(\"<4000 2000 1000 500 200 100>\")"
+  },
+  {
+   "id": "lpf#1",
+   "name": "lpf",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd*16\").lpf(\"1000:0 1000:10 1000:20 1000:30\")"
+  },
+  {
+   "id": "lpq#0",
+   "name": "lpq",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").lpf(2000).lpq(\"<0 10 20 30>\")"
+  },
+  {
+   "id": "lprate#0",
+   "name": "lprate",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c c c# c c c4>*16\").s(\"sawtooth\").lpf(600).lprate(\"<4 8 2 1>\")"
+  },
+  {
+   "id": "lprelease#0",
+   "name": "lprelease",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.clip(.5)\n.lpf(300)\n.lpenv(4)\n.lpr(\"<.5 .25 .1 0>/4\")\n.release(.5)"
+  },
+  {
+   "id": "lpsustain#0",
+   "name": "lpsustain",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.lpf(300)\n.lpd(.5)\n.lps(\"<0 .25 .5 1>/4\")\n.lpenv(4)"
+  },
+  {
+   "id": "lpsync#0",
+   "name": "lpsync",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c c c# c c c4>*16\").s(\"sawtooth\").lpf(600).lpsync(\"<4 8 2 1>\")"
+  },
+  {
+   "id": "lrate#0",
+   "name": "lrate",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0,4,7\").s(\"supersquare\").leslie(1).lrate(\"<1 2 4 8>\").osc()"
+  },
+  {
+   "id": "lsize#0",
+   "name": "lsize",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0,4,7\").s(\"supersquare\").leslie(1).lrate(2).lsize(\"<.1 .5 1>\").osc()"
+  },
+  {
+   "id": "markcss#0",
+   "name": "markcss",
+   "index": 0,
+   "package": "codemirror",
+   "code": "note(\"c a f e\")\n.markcss('text-decoration:underline')"
+  },
+  {
+   "id": "mask#0",
+   "name": "mask",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c [eb,g] d [eb,g]\").mask(\"<1 [0 1]>\")"
+  },
+  {
+   "id": "midi#0",
+   "name": "midi",
+   "index": 0,
+   "package": "midi",
+   "code": "note(\"c4\").midichan(1).midi('IAC Driver Bus 1')"
+  },
+  {
+   "id": "midi#1",
+   "name": "midi",
+   "index": 1,
+   "package": "midi",
+   "code": "note(\"c4\").midichan(1).midi('IAC Driver Bus 1', { controller: true, latency: 50 })"
+  },
+  {
+   "id": "midibend#0",
+   "name": "midibend",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").midibend(sine.slow(4).range(-0.4,0.4)).midi()"
+  },
+  {
+   "id": "midichan#0",
+   "name": "midichan",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").midichan(1).midi()"
+  },
+  {
+   "id": "midicmd#0",
+   "name": "midicmd",
+   "index": 0,
+   "package": "core",
+   "code": "midicmd(\"clock*48,<start stop>/2\").midi()"
+  },
+  {
+   "id": "midikeys#0",
+   "name": "midikeys",
+   "index": 0,
+   "package": "midi",
+   "code": "const kb = await midikeys('Arturia KeyStep 32')\nkb().s(\"tri\").lpf(80).lpe(6).lpd(0.1).room(2).delay(0.35)"
+  },
+  {
+   "id": "midikeys#1",
+   "name": "midikeys",
+   "index": 1,
+   "package": "midi",
+   "code": "const kb = await midikeys('Arturia KeyStep 32')\nkb(\"0.5 1\")\n  .s(\"saw\")\n  .add(note(rand.mul(0.3)))\n  .lpf(1000).lpe(2).room(0.5)"
+  },
+  {
+   "id": "midin#0",
+   "name": "midin",
+   "index": 0,
+   "package": "midi",
+   "code": "const cc = await midin('IAC Driver Bus 1')\nnote(\"c a f e\").lpf(cc(0).range(0, 1000)).lpq(cc(1).range(0, 10)).sound(\"sawtooth\")"
+  },
+  {
+   "id": "midin#1",
+   "name": "midin",
+   "index": 1,
+   "package": "midi",
+   "code": "const allCC = await midin('IAC Driver Bus 1')\nconst cc = (ccNum) => allCC(ccNum, 2) // just channel 2\nnote(\"c a f e\").s(\"saw\")\n  .when(cc(0).gt(0), x => x.postgain(0))"
+  },
+  {
+   "id": "midiport#0",
+   "name": "midiport",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c a f e\").midiport(\"<0 1 2 3>\").midi()"
+  },
+  {
+   "id": "miditouch#0",
+   "name": "miditouch",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").miditouch(sine.slow(4).range(0,1)).midi()"
+  },
+  {
+   "id": "mode#0",
+   "name": "mode",
+   "index": 0,
+   "package": "core",
+   "code": "mode(\"<below above duck root>\").chord(\"C\").voicing()"
+  },
+  {
+   "id": "morph#0",
+   "name": "morph",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"hh\").struct(morph([1,0,1,0,1,0,1,0], // straight rhythm\n                         [1,1,0,1,0,1,0], // wonky rhythm\n                         0.25 // creates a slightly wonky rhythm\n                        )\n                  )"
+  },
+  {
+   "id": "morph#1",
+   "name": "morph",
+   "index": 1,
+   "package": "core",
+   "code": "sound(\"hh\").struct(morph(\"1:0:1:0:1:0:1:0\", // straight rhythm\n                         \"1:1:0:1:0:1:0\", // wonky rhythm\n                         sine.slow(8) // slowly morph between the rhythms\n                        )\n                  )"
+  },
+  {
+   "id": "mousex#0",
+   "name": "mousex",
+   "index": 0,
+   "package": "core",
+   "code": "n(mousex.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "mousey#0",
+   "name": "mousey",
+   "index": 0,
+   "package": "core",
+   "code": "n(mousey.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "mul#0",
+   "name": "mul",
+   "index": 0,
+   "package": "core",
+   "code": "\"<1 1.5 [1.66, <2 2.33>]>*4\".mul(150).freq()"
+  },
+  {
+   "id": "n#0",
+   "name": "n",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*6\").n(\"<0 1>\")"
+  },
+  {
+   "id": "never#0",
+   "name": "never",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").never(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "noise#0",
+   "name": "noise",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"<white pink brown>/2\")"
+  },
+  {
+   "id": "note#0",
+   "name": "note",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c a f e\")"
+  },
+  {
+   "id": "note#1",
+   "name": "note",
+   "index": 1,
+   "package": "core",
+   "code": "note(\"c4 a4 f4 e4\")"
+  },
+  {
+   "id": "note#2",
+   "name": "note",
+   "index": 2,
+   "package": "core",
+   "code": "note(\"60 69 65 64\")"
+  },
+  {
+   "id": "note#3",
+   "name": "note",
+   "index": 3,
+   "package": "core",
+   "code": "note(\"fbb1 a#0 cbbb-1 e##-2\").sound(\"saw\")"
+  },
+  {
+   "id": "nrpnn#0",
+   "name": "nrpnn",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").nrpnn(\"1:8\").nrpv(\"123\").midichan(1).midi()"
+  },
+  {
+   "id": "nrpv#0",
+   "name": "nrpv",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").nrpnn(\"1:8\").nrpv(\"123\").midichan(1).midi()"
+  },
+  {
+   "id": "octave#0",
+   "name": "octave",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0,4,7\").scale(\"F:minor\").s('supersaw').octave(\"<0 1 2 3>\")"
+  },
+  {
+   "id": "octaves#0",
+   "name": "octaves",
+   "index": 0,
+   "package": "core",
+   "code": "chord(\"<Am C D F Am E Am E>\").octaves(\"<2 4>\").voicing()"
+  },
+  {
+   "id": "off#0",
+   "name": "off",
+   "index": 0,
+   "package": "core",
+   "code": "\"c3 eb3 g3\".off(1/8, x=>x.add(7)).note()"
+  },
+  {
+   "id": "offset#0",
+   "name": "offset",
+   "index": 0,
+   "package": "core",
+   "code": "chord(\"<Am C D F Am E Am E>\").offset(\"<0 1 2 3 4 5>\") // alter the voicing each time"
+  },
+  {
+   "id": "often#0",
+   "name": "often",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").often(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "onTriggerTime#0",
+   "name": "onTriggerTime",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd!8\").onTriggerTime((hap) => {console.log(hap)})"
+  },
+  {
+   "id": "orbit#0",
+   "name": "orbit",
+   "index": 0,
+   "package": "core",
+   "code": "stack(\n  s(\"hh*6\").delay(.5).delaytime(.25).orbit(1),\n  s(\"~ sd ~ sd\").delay(.5).delaytime(.125).orbit(2)\n)"
+  },
+  {
+   "id": "orientationAlpha#0",
+   "name": "orientationAlpha",
+   "index": 0,
+   "package": "motion",
+   "code": "n(orientationAlpha.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "orientationBeta#0",
+   "name": "orientationBeta",
+   "index": 0,
+   "package": "motion",
+   "code": "n(orientationBeta.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "orientationGamma#0",
+   "name": "orientationGamma",
+   "index": 0,
+   "package": "motion",
+   "code": "n(orientationGamma.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "oschost#0",
+   "name": "oschost",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").oschost('127.0.0.1').oscport(57120).osc();"
+  },
+  {
+   "id": "oscport#0",
+   "name": "oscport",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").oschost('127.0.0.1').oscport(57120).osc();"
+  },
+  {
+   "id": "outside#0",
+   "name": "outside",
+   "index": 0,
+   "package": "core",
+   "code": "\"<[0 1] 2 [3 4] 5>\".outside(4, rev).scale('C major').note()\n// \"<[0 1] 2 [3 4] 5>\".fast(4).rev().slow(4).scale('C major').note()"
+  },
+  {
+   "id": "pace#0",
+   "name": "pace",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"bd sd cp\").pace(4)\n// The same as sound(\"{bd sd cp}%4\") or sound(\"<bd sd cp>*4\")"
+  },
+  {
+   "id": "palindrome#0",
+   "name": "palindrome",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c d e g\").palindrome()"
+  },
+  {
+   "id": "pan#0",
+   "name": "pan",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[bd hh]*2\").pan(\"<.5 1 .5 0>\")"
+  },
+  {
+   "id": "pan#1",
+   "name": "pan",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd rim sd rim bd ~ cp rim\").pan(sine.slow(2))"
+  },
+  {
+   "id": "panchor#0",
+   "name": "panchor",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c c4\").penv(12).panchor(\"<0 .5 1 .5>\")"
+  },
+  {
+   "id": "panspan#0",
+   "name": "panspan",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[bd hh]*2\").pan(\"<.5 1 .5 0>\").panspan(\"<0 .5 1>\").osc()"
+  },
+  {
+   "id": "pansplay#0",
+   "name": "pansplay",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[bd hh]*2\").pan(\"<.5 1 .5 0>\").pansplay(\"<0 .5 1>\").osc()"
+  },
+  {
+   "id": "partials#0",
+   "name": "partials",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"user\").seg(16).n(irand(8)).scale(\"A:major\")\n  .partials([1, 0, 1, 0, 0, 1])"
+  },
+  {
+   "id": "partials#1",
+   "name": "partials",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"saw\").seg(8).n(irand(12)).scale(\"G#:minor\")\n  .partials(binaryL(irand(256).add(\"1\")))"
+  },
+  {
+   "id": "pattack#0",
+   "name": "pattack",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c eb g bb\").pattack(\"0 .1 .25 .5\").slow(2)"
+  },
+  {
+   "id": "pcurve#0",
+   "name": "pcurve",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"g1*4\")\n.s(\"sine\").pdec(.5)\n.penv(32)\n.pcurve(\"<0 1>\")"
+  },
+  {
+   "id": "pdecay#0",
+   "name": "pdecay",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c eb g bb>\").pdecay(\"<0 .1 .25 .5>\")"
+  },
+  {
+   "id": "penv#0",
+   "name": "penv",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c\")\n.penv(\"<12 7 1 .5 0 -1 -7 -12>\")"
+  },
+  {
+   "id": "per#0",
+   "name": "per",
+   "index": 0,
+   "package": "core",
+   "code": "// Shorter events are more distorted\nn(\"0 0*2 0 0*2 0 [0 0 0]@2\").sound(\"bd\")\n .distort(per.div(2))"
+  },
+  {
+   "id": "perlin#0",
+   "name": "perlin",
+   "index": 0,
+   "package": "core",
+   "code": "// randomly change the cutoff\ns(\"bd*4,hh*8\").cutoff(perlin.range(500,8000))"
+  },
+  {
+   "id": "phaser#0",
+   "name": "phaser",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"sawtooth\").release(0.5)\n.phaser(\"<1 2 4 8>\")"
+  },
+  {
+   "id": "phasercenter#0",
+   "name": "phasercenter",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"sawtooth\").release(0.5)\n.phaser(2).phasercenter(\"<800 2000 4000>\")"
+  },
+  {
+   "id": "phaserdepth#0",
+   "name": "phaserdepth",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"sawtooth\").release(0.5)\n.phaser(2).phaserdepth(\"<0 .5 .75 1>\")"
+  },
+  {
+   "id": "phasersweep#0",
+   "name": "phasersweep",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"sawtooth\").release(0.5)\n.phaser(2).phasersweep(\"<800 2000 4000>\")"
+  },
+  {
+   "id": "phases#0",
+   "name": "phases",
+   "index": 0,
+   "package": "core",
+   "code": "// Phase cancellation\ns(\"saw\").seg(8).n(irand(12)).scale(\"G#1:minor\")\n  .partials(partials([1, 1, 1]))\n  .superimpose(x => x.phases([0.5, 0.5, 0.5]))"
+  },
+  {
+   "id": "pianoroll#0",
+   "name": "pianoroll",
+   "index": 0,
+   "package": "draw",
+   "code": "note(\"c2 a2 eb2\")\n.euclid(5,8)\n.s('sawtooth')\n.lpenv(4).lpf(300)\n.pianoroll({ labels: 1 })"
+  },
+  {
+   "id": "pick#0",
+   "name": "pick",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<0 1 2!2 3>\".pick([\"g a\", \"e f\", \"f g f g\" , \"g c d\"]))"
+  },
+  {
+   "id": "pick#1",
+   "name": "pick",
+   "index": 1,
+   "package": "core",
+   "code": "sound(\"<0 1 [2,0]>\".pick([\"bd sd\", \"cp cp\", \"hh hh\"]))"
+  },
+  {
+   "id": "pick#2",
+   "name": "pick",
+   "index": 2,
+   "package": "core",
+   "code": "sound(\"<0!2 [0,1] 1>\".pick([\"bd(3,8)\", \"sd sd\"]))"
+  },
+  {
+   "id": "pick#3",
+   "name": "pick",
+   "index": 3,
+   "package": "core",
+   "code": "s(\"<a!2 [a,b] b>\".pick({a: \"bd(3,8)\", b: \"sd sd\"}))"
+  },
+  {
+   "id": "pickF#0",
+   "name": "pickF",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd [rim hh]\").pickF(\"<0 1 2>\", [rev,jux(rev),fast(2)])"
+  },
+  {
+   "id": "pickF#1",
+   "name": "pickF",
+   "index": 1,
+   "package": "core",
+   "code": "note(\"<c2 d2>(3,8)\").s(\"square\")\n.pickF(\"<0 2> 1\", [jux(rev), fast(2), x=>x.lpf(800)])"
+  },
+  {
+   "id": "pickF#2",
+   "name": "pickF",
+   "index": 2,
+   "package": "core",
+   "code": "note(\"<c2 d2>(3,8)\").s(\"square\")\n.pickF(\"<jr l> f\", { jr:jux(rev), f:fast(2), l:x=>x.lpf(800) })"
+  },
+  {
+   "id": "pickmodRestart#0",
+   "name": "pickmodRestart",
+   "index": 0,
+   "package": "core",
+   "code": "\"<a@2 b@2 c@2 d@2>\".pickRestart({\n        a: n(\"0 1 2 0\"),\n        b: n(\"2 3 4 ~\"),\n        c: n(\"[4 5] [4 3] 2 0\"),\n        d: n(\"0 -3 0 ~\")\n      }).scale(\"C:major\").s(\"piano\")"
+  },
+  {
+   "id": "pitchwheel#0",
+   "name": "pitchwheel",
+   "index": 0,
+   "package": "draw",
+   "code": "n(\"0 .. 12\").scale(\"C:chromatic\")\n.s(\"sawtooth\")\n.lpf(500)\n._pitchwheel()"
+  },
+  {
+   "id": "ply#0",
+   "name": "ply",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd ~ sd cp\").ply(\"<1 2 3>\")"
+  },
+  {
+   "id": "plyForEach#0",
+   "name": "plyForEach",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 [2 4]>\"\n.plyForEach(4, (p,n) => p.add(n*2))\n.scale(\"C:minor\").note()"
+  },
+  {
+   "id": "plyWith#0",
+   "name": "plyWith",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 [2 4]>\"\n.plyWith(4, (p) => p.add(2))\n.scale(\"C:minor\").note()"
+  },
+  {
+   "id": "polymeter#0",
+   "name": "polymeter",
+   "index": 0,
+   "package": "core",
+   "code": "// The same as note(\"{c eb g, c2 g2}%6\")\npolymeter(\"c eb g\", \"c2 g2\").note()"
+  },
+  {
+   "id": "postgain#0",
+   "name": "postgain",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\")\n.compressor(\"-20:20:10:.002:.02\").postgain(1.5)"
+  },
+  {
+   "id": "prelease#0",
+   "name": "prelease",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c eb g bb> ~\")\n.release(.5) // to hear the pitch release\n.prelease(\"<0 .1 .25 .5>\")"
+  },
+  {
+   "id": "press#0",
+   "name": "press",
+   "index": 0,
+   "package": "core",
+   "code": "stack(s(\"hh*4\"),\n      s(\"bd mt sd ht\").every(4, press)\n     ).slow(2)"
+  },
+  {
+   "id": "pressBy#0",
+   "name": "pressBy",
+   "index": 0,
+   "package": "core",
+   "code": "stack(s(\"hh*4\"),\n      s(\"bd mt sd ht\").pressBy(\"<0 0.5 0.25>\")\n     ).slow(2)"
+  },
+  {
+   "id": "progNum#0",
+   "name": "progNum",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").progNum(10).midichan(1).midi()"
+  },
+  {
+   "id": "pure#0",
+   "name": "pure",
+   "index": 0,
+   "package": "core",
+   "code": "pure('e4') // \"e4\""
+  },
+  {
+   "id": "pw#0",
+   "name": "pw",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f a c e}%16\").s(\"pulse\").pw(\".8:1:.2\")"
+  },
+  {
+   "id": "pw#1",
+   "name": "pw",
+   "index": 1,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"pulse\").pw(\"0 .75 .5 1\")"
+  },
+  {
+   "id": "pwrate#0",
+   "name": "pwrate",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"pulse\").pw(\"0.5\").pwrate(\"<5 .1 25>\").pwsweep(\"<0.3 .8>\")"
+  },
+  {
+   "id": "pwsweep#0",
+   "name": "pwsweep",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(8)).scale(\"D:pentatonic\").s(\"pulse\").pw(\"0.5\").pwrate(\"<5 .1 25>\").pwsweep(\"<0.3 .8>\")"
+  },
+  {
+   "id": "rand#0",
+   "name": "rand",
+   "index": 0,
+   "package": "core",
+   "code": "// randomly change the cutoff\ns(\"bd*4,hh*8\").cutoff(rand.range(500,8000))"
+  },
+  {
+   "id": "randL#0",
+   "name": "randL",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"saw\").seg(16).n(irand(12)).scale(\"F1:minor\")\n  .partials(randL(8))"
+  },
+  {
+   "id": "range#0",
+   "name": "range",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[bd sd]*2,hh*8\")\n.cutoff(sine.range(500,4000))"
+  },
+  {
+   "id": "range2#0",
+   "name": "range2",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[bd sd]*2,hh*8\")\n.cutoff(sine2.range2(500,4000))"
+  },
+  {
+   "id": "rangex#0",
+   "name": "rangex",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[bd sd]*2,hh*8\")\n.cutoff(sine.rangex(500,4000))"
+  },
+  {
+   "id": "rarely#0",
+   "name": "rarely",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").rarely(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "ratio#0",
+   "name": "ratio",
+   "index": 0,
+   "package": "core",
+   "code": "ratio(\"1, 5:4, 3:2\").mul(110)\n.freq().s(\"piano\")"
+  },
+  {
+   "id": "register#0",
+   "name": "register",
+   "index": 0,
+   "package": "core",
+   "code": "const vlpf = register('vlpf', (freq, pat) => {\n  return pat.fmap((v) => ({...v, cutoff: freq * (v.velocity ?? 1) }));\n})\ns(\"saw\").seg(8).velocity(rand).vlpf(800)"
+  },
+  {
+   "id": "release#0",
+   "name": "release",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 e3 g3 c4\").release(\"<0 .1 .4 .6 1>/2\")"
+  },
+  {
+   "id": "repeatCycles#0",
+   "name": "repeatCycles",
+   "index": 0,
+   "package": "core",
+   "code": "note(irand(12).add(34)).segment(4).repeatCycles(2).s(\"gm_acoustic_guitar_nylon\")"
+  },
+  {
+   "id": "replicate#0",
+   "name": "replicate",
+   "index": 0,
+   "package": "core",
+   "code": "stepcat(\n  sound(\"bd bd - cp\").replicate(2),\n  sound(\"bd - sd -\")\n).pace(8)"
+  },
+  {
+   "id": "reset#0",
+   "name": "reset",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[<bd lt> sd]*2, hh*8\").reset(\"<x@3 x(5,8)>\")"
+  },
+  {
+   "id": "restart#0",
+   "name": "restart",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"[<bd lt> sd]*2, hh*8\").restart(\"<x@3 x(5,8)>\")"
+  },
+  {
+   "id": "rev#0",
+   "name": "rev",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c d e g\").rev()"
+  },
+  {
+   "id": "revv#0",
+   "name": "revv",
+   "index": 0,
+   "package": "core",
+   "code": "// This is the same as `<[g e] [d c]>`. If `rev()` is used, you get\n// the same as `<[d c] [g e]>`, where each cycle reverses, but the order of\n// cycles stays the same.\nnote(\"<[c d] [e g]>\").revv()"
+  },
+  {
+   "id": "ribbon#0",
+   "name": "ribbon",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c d e f>\").ribbon(1, 2)"
+  },
+  {
+   "id": "ribbon#1",
+   "name": "ribbon",
+   "index": 1,
+   "package": "core",
+   "code": "// Looping a portion of randomness\nn(irand(8).segment(4)).scale(\"c:pentatonic\").ribbon(1337, 2)"
+  },
+  {
+   "id": "ribbon#2",
+   "name": "ribbon",
+   "index": 2,
+   "package": "core",
+   "code": "// rhythm generator\ns(\"bd!16?\").ribbon(29,.5)"
+  },
+  {
+   "id": "room#0",
+   "name": "room",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(\"<0 .2 .4 .6 .8 1>\")"
+  },
+  {
+   "id": "room#1",
+   "name": "room",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(\"<0.9:1 0.9:4>\")"
+  },
+  {
+   "id": "roomdim#0",
+   "name": "roomdim",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(0.5).rlp(10000).rdim(8000)"
+  },
+  {
+   "id": "roomdim#1",
+   "name": "roomdim",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(0.5).rlp(5000).rdim(400)"
+  },
+  {
+   "id": "roomfade#0",
+   "name": "roomfade",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(0.5).rlp(10000).rfade(0.5)"
+  },
+  {
+   "id": "roomfade#1",
+   "name": "roomfade",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(0.5).rlp(5000).rfade(4)"
+  },
+  {
+   "id": "roomlp#0",
+   "name": "roomlp",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(0.5).rlp(10000)"
+  },
+  {
+   "id": "roomlp#1",
+   "name": "roomlp",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(0.5).rlp(5000)"
+  },
+  {
+   "id": "roomsize#0",
+   "name": "roomsize",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(.8).rsize(1)"
+  },
+  {
+   "id": "roomsize#1",
+   "name": "roomsize",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd\").room(.8).rsize(4)"
+  },
+  {
+   "id": "rootNotes#0",
+   "name": "rootNotes",
+   "index": 0,
+   "package": "tonal",
+   "code": "\"<C^7 A7 Dm7 G7>\".rootNotes(2).note()"
+  },
+  {
+   "id": "rotationAlpha#0",
+   "name": "rotationAlpha",
+   "index": 0,
+   "package": "motion",
+   "code": "n(rotationAlpha.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "rotationBeta#0",
+   "name": "rotationBeta",
+   "index": 0,
+   "package": "motion",
+   "code": "n(rotationBeta.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "rotationGamma#0",
+   "name": "rotationGamma",
+   "index": 0,
+   "package": "motion",
+   "code": "n(rotationGamma.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "round#0",
+   "name": "round",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0.5 1.5 2.5\".round()).scale(\"C:major\")"
+  },
+  {
+   "id": "run#0",
+   "name": "run",
+   "index": 0,
+   "package": "core",
+   "code": "n(run(4)).scale(\"C4:pentatonic\")\n// n(\"0 1 2 3\").scale(\"C4:pentatonic\")"
+  },
+  {
+   "id": "s#0",
+   "name": "s",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd hh\")"
+  },
+  {
+   "id": "s#1",
+   "name": "s",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd:0 bd:1 bd:0:0.3 bd:1:1.4\")"
+  },
+  {
+   "id": "samples#0",
+   "name": "samples",
+   "index": 0,
+   "package": "superdough",
+   "code": "samples('github:tidalcycles/dirt-samples');\ns(\"[bd ~]*2, [~ hh]*2, ~ sd\")"
+  },
+  {
+   "id": "samples#1",
+   "name": "samples",
+   "index": 1,
+   "package": "superdough",
+   "code": "samples({\n bd: '808bd/BD0000.WAV',\n sd: '808sd/SD0010.WAV'\n }, 'https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/');\ns(\"[bd ~]*2, [~ hh]*2, ~ sd\")"
+  },
+  {
+   "id": "saw#0",
+   "name": "saw",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<c3 [eb3,g3] g2 [g3,bb3]>*8\")\n.clip(saw.slow(2))"
+  },
+  {
+   "id": "saw#1",
+   "name": "saw",
+   "index": 1,
+   "package": "core",
+   "code": "n(saw.range(0,8).segment(8))\n.scale('C major')"
+  },
+  {
+   "id": "scale#0",
+   "name": "scale",
+   "index": 0,
+   "package": "tonal",
+   "code": "n(\"0 2 4 6 4 2\").scale(\"C:major\")"
+  },
+  {
+   "id": "scale#1",
+   "name": "scale",
+   "index": 1,
+   "package": "tonal",
+   "code": "n(\"[0,7] 4 [2,7] 4\")\n.scale(\"C:<major minor>/2\")\n.s(\"piano\")"
+  },
+  {
+   "id": "scale#2",
+   "name": "scale",
+   "index": 2,
+   "package": "tonal",
+   "code": "n(rand.range(0,12).segment(8))\n.scale(\"C:ritusen\")\n.s(\"piano\")"
+  },
+  {
+   "id": "scale#3",
+   "name": "scale",
+   "index": 3,
+   "package": "tonal",
+   "code": "n(\"<[0,7b] [-4# -4] [-2,7##] 4 [0,7] [-4# -4b] [-2,7###] 4b>*4\")\n.scale(\"C:<major minor>/2\")\n.s(\"piano\")"
+  },
+  {
+   "id": "scale#4",
+   "name": "scale",
+   "index": 4,
+   "package": "tonal",
+   "code": "note(\"C1*16\").transpose(irand(36)).scale('Cb2 major').scaleTranspose(3)"
+  },
+  {
+   "id": "scale#5",
+   "name": "scale",
+   "index": 5,
+   "package": "tonal",
+   "code": "n(\"[0 0] [1 2] [3 4] [5 6]\").scale(\"C:major:blues\")"
+  },
+  {
+   "id": "scaleTranspose#0",
+   "name": "scaleTranspose",
+   "index": 0,
+   "package": "tonal",
+   "code": "\"-8 [2,4,6]\"\n.scale('C4 bebop major')\n.scaleTranspose(\"<0 -1 -2 -3 -4 -5 -6 -4>\")\n.note()"
+  },
+  {
+   "id": "scope#0",
+   "name": "scope",
+   "index": 0,
+   "package": "webaudio",
+   "code": "s(\"sawtooth\")._scope()"
+  },
+  {
+   "id": "scramble#0",
+   "name": "scramble",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c d e f\").sound(\"piano\").scramble(4)"
+  },
+  {
+   "id": "scramble#1",
+   "name": "scramble",
+   "index": 1,
+   "package": "core",
+   "code": "seq(\"c d e f\".scramble(4), \"g\").note().sound(\"piano\")"
+  },
+  {
+   "id": "scrub#0",
+   "name": "scrub",
+   "index": 0,
+   "package": "core",
+   "code": "samples('github:switchangel/pad')\ns(\"swpad:0\").scrub(\"{0.1!2 .25@3 0.7!2 <0.8:1.5>}%8\")"
+  },
+  {
+   "id": "scrub#1",
+   "name": "scrub",
+   "index": 1,
+   "package": "core",
+   "code": "samples('github:yaxu/clean-breaks/main');\ns(\"amen/4\").fit().scrub(\"{0@3 0@2 4@3}%8\".div(16))"
+  },
+  {
+   "id": "seed#0",
+   "name": "seed",
+   "index": 0,
+   "package": "core",
+   "code": "$: s(\"hh*4\").degrade();\n$: s(\"bd*4\").degrade().seed(1); // Will degrade different events from the hi-hat"
+  },
+  {
+   "id": "segment#0",
+   "name": "segment",
+   "index": 0,
+   "package": "core",
+   "code": "note(saw.range(40,52).segment(24))"
+  },
+  {
+   "id": "seq#0",
+   "name": "seq",
+   "index": 0,
+   "package": "core",
+   "code": "seq(\"e5\", \"b4\", [\"d5\", \"c5\"]).note()\n// \"e5 b4 [d5 c5]\".note()"
+  },
+  {
+   "id": "seq#1",
+   "name": "seq",
+   "index": 1,
+   "package": "core",
+   "code": "// As a chained function:\ns(\"hh*4\").seq(\n  note(\"c4(5,8)\")\n)"
+  },
+  {
+   "id": "seqPLoop#0",
+   "name": "seqPLoop",
+   "index": 0,
+   "package": "core",
+   "code": "seqPLoop(\n  [0, 2, \"bd(3,8)\"],\n  [1, 3, \"cp(3,8)\"]\n).sound()"
+  },
+  {
+   "id": "set#0",
+   "name": "set",
+   "index": 0,
+   "package": "core",
+   "code": "// because input pattern has `s` set,\n// it overrides the \"sine\" declared earlier\nnote(\"c a f e\").s(\"sine\").set(s(\"triangle\"))"
+  },
+  {
+   "id": "setcpm#0",
+   "name": "setcpm",
+   "index": 0,
+   "package": "core",
+   "code": "setcpm(140/4) // =140 bpm in 4/4\n$: s(\"bd*4,[- sd]*2\").bank('tr707')"
+  },
+  {
+   "id": "setDefaultJoin#0",
+   "name": "setDefaultJoin",
+   "index": 0,
+   "package": "core",
+   "code": "setDefaultJoin('mix') // also try 'in', 'out', 'squeeze', etc.\ns(\"saw\").vel(\"1 0.5\").note(\"F A C E\").delay(\"0 0.2 0.3\")"
+  },
+  {
+   "id": "setGainCurve#0",
+   "name": "setGainCurve",
+   "index": 0,
+   "package": "superdough",
+   "code": "setGainCurve((x) => x * x) // quadratic gain\ns(\"bd*4\").gain(0.5) // equivalent to 0.25 gain normally"
+  },
+  {
+   "id": "setMaxPolyphony#0",
+   "name": "setMaxPolyphony",
+   "index": 0,
+   "package": "superdough",
+   "code": "setMaxPolyphony(4)\nn(irand(24).seg(8)).scale(\"C#3:minor\").room(1).release(4).gain(0.5)"
+  },
+  {
+   "id": "shape#0",
+   "name": "shape",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd [~ bd] sd,hh*8\").shape(\"<0 .2 .4 .6 .8>\")"
+  },
+  {
+   "id": "shrink#0",
+   "name": "shrink",
+   "index": 0,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".shrink(\"1\").sound()\n.bank(\"mridangam\")"
+  },
+  {
+   "id": "shrink#1",
+   "name": "shrink",
+   "index": 1,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".shrink(\"-1\").sound()\n.bank(\"mridangam\")"
+  },
+  {
+   "id": "shrink#2",
+   "name": "shrink",
+   "index": 2,
+   "package": "core",
+   "code": "\"tha dhi thom nam\".shrink(\"1 -1\").sound().bank(\"mridangam\").pace(4)"
+  },
+  {
+   "id": "shrink#3",
+   "name": "shrink",
+   "index": 3,
+   "package": "core",
+   "code": "note(\"0 1 2 3 4 5 6 7\".scale(\"C:ritusen\")).sound(\"folkharp\")\n   .shrink(\"1 -1\").pace(8)"
+  },
+  {
+   "id": "shuffle#0",
+   "name": "shuffle",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c d e f\").sound(\"piano\").shuffle(4)"
+  },
+  {
+   "id": "shuffle#1",
+   "name": "shuffle",
+   "index": 1,
+   "package": "core",
+   "code": "seq(\"c d e f\".shuffle(4), \"g\").note().sound(\"piano\")"
+  },
+  {
+   "id": "silence#0",
+   "name": "silence",
+   "index": 0,
+   "package": "core",
+   "code": "silence // \"~\""
+  },
+  {
+   "id": "sine#0",
+   "name": "sine",
+   "index": 0,
+   "package": "core",
+   "code": "n(sine.segment(16).range(0,15))\n.scale(\"C:minor\")"
+  },
+  {
+   "id": "slice#0",
+   "name": "slice",
+   "index": 0,
+   "package": "core",
+   "code": "samples('github:tidalcycles/dirt-samples')\ns(\"breaks165\").slice(8, \"0 1 <2 2*2> 3 [4 0] 5 6 7\".every(3, rev)).slow(0.75)"
+  },
+  {
+   "id": "slice#1",
+   "name": "slice",
+   "index": 1,
+   "package": "core",
+   "code": "samples('github:tidalcycles/dirt-samples')\ns(\"breaks125\").fit().slice([0,.25,.5,.75], \"0 1 1 <2 3>\")"
+  },
+  {
+   "id": "slow#0",
+   "name": "slow",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd hh sd hh\").slow(2) // s(\"[bd hh sd hh]/2\")"
+  },
+  {
+   "id": "slowcat#0",
+   "name": "slowcat",
+   "index": 0,
+   "package": "core",
+   "code": "slowcat(\"e5\", \"b4\", [\"d5\", \"c5\"])"
+  },
+  {
+   "id": "someCycles#0",
+   "name": "someCycles",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd,hh*8\").someCycles(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "someCyclesBy#0",
+   "name": "someCyclesBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd,hh*8\").someCyclesBy(.3, x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "sometimes#0",
+   "name": "sometimes",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").sometimes(x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "sometimesBy#0",
+   "name": "sometimesBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").sometimesBy(.4, x=>x.speed(\"0.5\"))"
+  },
+  {
+   "id": "spectrum#0",
+   "name": "spectrum",
+   "index": 0,
+   "package": "webaudio",
+   "code": "n(\"<0 4 <2 3> 1>*3\")\n.off(1/8, add(n(5)))\n.off(1/5, add(n(7)))\n.scale(\"d3:minor:pentatonic\")\n.s('sine')\n.dec(.3).room(.5)\n._spectrum()"
+  },
+  {
+   "id": "speed#0",
+   "name": "speed",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd*6\").speed(\"1 2 4 1 -2 -4\")"
+  },
+  {
+   "id": "speed#1",
+   "name": "speed",
+   "index": 1,
+   "package": "core",
+   "code": "speed(\"1 1.5*2 [2 1.1]\").s(\"piano\").clip(1)"
+  },
+  {
+   "id": "spiral#0",
+   "name": "spiral",
+   "index": 0,
+   "package": "draw",
+   "code": "note(\"c2 a2 eb2\")\n.euclid(5,8)\n.s('sawtooth')\n.lpenv(4).lpf(300)\n._spiral({ steady: .96 })"
+  },
+  {
+   "id": "splice#0",
+   "name": "splice",
+   "index": 0,
+   "package": "core",
+   "code": "samples('github:tidalcycles/dirt-samples')\ns(\"breaks165\")\n.splice(8,  \"0 1 [2 3 0]@2 3 0@2 7\")"
+  },
+  {
+   "id": "spread#0",
+   "name": "spread",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d f a a# a d3\").fast(2).s(\"supersaw\").spread(\"<0 .3 1>\")"
+  },
+  {
+   "id": "square#0",
+   "name": "square",
+   "index": 0,
+   "package": "core",
+   "code": "n(square.segment(4).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "squeeze#0",
+   "name": "squeeze",
+   "index": 0,
+   "package": "core",
+   "code": "note(squeeze(\"<0@2 [1!2] 2>\", [\"g a\", \"f g f g\" , \"g a c d\"]))"
+  },
+  {
+   "id": "squiz#0",
+   "name": "squiz",
+   "index": 0,
+   "package": "core",
+   "code": "squiz(\"2 4/2 6 [8 16]\").s(\"bd\").osc()"
+  },
+  {
+   "id": "stack#0",
+   "name": "stack",
+   "index": 0,
+   "package": "core",
+   "code": "stack(\"g3\", \"b3\", [\"e4\", \"d4\"]).note()\n// \"g3,b3,[e4 d4]\".note()"
+  },
+  {
+   "id": "stack#1",
+   "name": "stack",
+   "index": 1,
+   "package": "core",
+   "code": "// As a chained function:\ns(\"hh*4\").stack(\n  note(\"c4(5,8)\")\n)"
+  },
+  {
+   "id": "stepalt#0",
+   "name": "stepalt",
+   "index": 0,
+   "package": "core",
+   "code": "stepalt([\"bd cp\", \"mt\"], \"bd\").sound()\n// The same as \"bd cp bd mt bd\".sound()"
+  },
+  {
+   "id": "stepcat#0",
+   "name": "stepcat",
+   "index": 0,
+   "package": "core",
+   "code": "stepcat([3,\"e3\"],[1, \"g3\"]).note()\n// the same as \"e3@3 g3\".note()"
+  },
+  {
+   "id": "stepcat#1",
+   "name": "stepcat",
+   "index": 1,
+   "package": "core",
+   "code": "stepcat(\"bd sd cp\",\"hh hh\").sound()\n// the same as \"bd sd cp hh hh\".sound()"
+  },
+  {
+   "id": "stretch#0",
+   "name": "stretch",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"gm_flute\").stretch(\"<2 1 0 -2>\")"
+  },
+  {
+   "id": "striate#0",
+   "name": "striate",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"numbers:0 numbers:1 numbers:2\").striate(6).slow(3)"
+  },
+  {
+   "id": "struct#0",
+   "name": "struct",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c,eb,g\")\n  .struct(\"x ~ x ~ ~ x ~ x ~ ~ ~ x ~ x ~ ~\")\n  .slow(2)"
+  },
+  {
+   "id": "stut#0",
+   "name": "stut",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd\").stut(3, .8, 1/6)"
+  },
+  {
+   "id": "sub#0",
+   "name": "sub",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"0 2 4\".sub(\"<0 1 2 3>\")).scale(\"C4:minor\")\n// See add for more information."
+  },
+  {
+   "id": "superimpose#0",
+   "name": "superimpose",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 2 4 6 ~ 4 ~ 2 0!3 ~!5>*8\"\n  .superimpose(x=>x.add(2))\n  .scale('C minor').note()"
+  },
+  {
+   "id": "sustain#0",
+   "name": "sustain",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c3 e3 f3 g3\").decay(.2).sustain(\"<0 .1 .4 .6 1>\")"
+  },
+  {
+   "id": "swing#0",
+   "name": "swing",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").swing(4)\n// s(\"hh*8\").swingBy(1/3, 4)"
+  },
+  {
+   "id": "swingBy#0",
+   "name": "swingBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").swingBy(1/3, 4)"
+  },
+  {
+   "id": "sysex#0",
+   "name": "sysex",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").sysex([\"0x77\", \"0x01:0x02:0x03:0x04\"]).midichan(1).midi()"
+  },
+  {
+   "id": "sysexdata#0",
+   "name": "sysexdata",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").sysexid(\"0x77\").sysexdata(\"0x01:0x02:0x03:0x04\").midichan(1).midi()"
+  },
+  {
+   "id": "sysexid#0",
+   "name": "sysexid",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c4\").sysexid(\"0x77\").sysexdata(\"0x01:0x02:0x03:0x04\").midichan(1).midi()"
+  },
+  {
+   "id": "tag#0",
+   "name": "tag",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"saw!16\").note(\"F1\")\n  .lpf(tri.range(40, 80).slow(4)).lpenv(5).lpq(4).lpd(0.15)\n  .when(rand.late(0.1).gte(0.5), x => x.transpose(\"12\").tag('altered'))\n  .when(rand.late(0.2).gte(0.5), x => x.s(\"square\").tag('altered'))\n  .when(\"<0 1>\", x => x.filter((hap) => hap.hasTag('altered')))"
+  },
+  {
+   "id": "take#0",
+   "name": "take",
+   "index": 0,
+   "package": "core",
+   "code": "\"bd cp ht mt\".take(\"2\").sound()\n// The same as \"bd cp\".sound()"
+  },
+  {
+   "id": "take#1",
+   "name": "take",
+   "index": 1,
+   "package": "core",
+   "code": "\"bd cp ht mt\".take(\"1 2 3\").sound()\n// The same as \"bd bd cp bd cp ht\".sound()"
+  },
+  {
+   "id": "take#2",
+   "name": "take",
+   "index": 2,
+   "package": "core",
+   "code": "\"bd cp ht mt\".take(\"-1 -2 -3\").sound()\n// The same as \"mt ht mt cp ht mt\".sound()"
+  },
+  {
+   "id": "timeline#0",
+   "name": "timeline",
+   "index": 0,
+   "package": "core",
+   "code": "n(\"<0 1 2 3>(3,8)\")\n  .sound(\"num\")\n  // resets the timeline every two cycles, by negating the timeline.\n  // in a lot of cases this will be edited by a human live coder\n  // rather than patterned!\n  .timeline(\"<2 -2>\".slow(2))"
+  },
+  {
+   "id": "tour#0",
+   "name": "tour",
+   "index": 0,
+   "package": "core",
+   "code": "\"[c g]\".tour(\"e f\", \"e f g\", \"g f e c\").note()\n   .sound(\"folkharp\")\n   .pace(8)"
+  },
+  {
+   "id": "transient#0",
+   "name": "transient",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd\").transient(\"<-1 -0.5 0 0.5 1>\")"
+  },
+  {
+   "id": "transient#1",
+   "name": "transient",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"hh*16\").bank(\"tr909\").transient(\"<-1:1 1:-1>\")"
+  },
+  {
+   "id": "transpose#0",
+   "name": "transpose",
+   "index": 0,
+   "package": "tonal",
+   "code": "\"c2 c3\".fast(2).transpose(\"<0 -2 5 3>\".slow(2)).note()"
+  },
+  {
+   "id": "transpose#1",
+   "name": "transpose",
+   "index": 1,
+   "package": "tonal",
+   "code": "\"c2 c3\".fast(2).transpose(\"<1P -2M 4P 3m>\".slow(2)).note()"
+  },
+  {
+   "id": "tremolo#0",
+   "name": "tremolo",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d d d# d\".fast(4)).s(\"supersaw\").tremolo(\"<3 2 100> \").tremoloskew(\"<.5>\")"
+  },
+  {
+   "id": "tremolodepth#0",
+   "name": "tremolodepth",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"a1 a1 a#1 a1\".fast(4)).s(\"pulse\").tremsync(4).tremolodepth(\"<1 2 .7>\")"
+  },
+  {
+   "id": "tremolophase#0",
+   "name": "tremolophase",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f a c e}%16\").s(\"sawtooth\").tremsync(4).tremolophase(\"<0 .25 .66>\")"
+  },
+  {
+   "id": "tremoloshape#0",
+   "name": "tremoloshape",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f g c d}%16\").tremsync(4).tremoloshape(\"<sine tri square>\").s(\"sawtooth\")"
+  },
+  {
+   "id": "tremoloskew#0",
+   "name": "tremoloskew",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"{f a c e}%16\").s(\"sawtooth\").tremsync(4).tremoloskew(\"<.5 0 1>\")"
+  },
+  {
+   "id": "tremolosync#0",
+   "name": "tremolosync",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d d d# d\".fast(4)).s(\"supersaw\").tremolosync(\"4\").tremoloskew(\"<1 .5 0>\")"
+  },
+  {
+   "id": "tri#0",
+   "name": "tri",
+   "index": 0,
+   "package": "core",
+   "code": "n(tri.segment(8).range(0,7)).scale(\"C:minor\")"
+  },
+  {
+   "id": "tune#0",
+   "name": "tune",
+   "index": 0,
+   "package": "xen",
+   "code": "i(\"0 1 2 3 4 5\").tune(\"hexany15\").mul(\"220\").freq()"
+  },
+  {
+   "id": "tune#1",
+   "name": "tune",
+   "index": 1,
+   "package": "xen",
+   "code": "// You can set your root to be a\n// particular note with getFreq:\ni(\"4 8 9 10 - - 5 7 9 11 - -\").tune(\"tranh3\")\n  .mul(getFreq('c3'))\n  .freq().clip(.5).room(1)"
+  },
+  {
+   "id": "tune#2",
+   "name": "tune",
+   "index": 2,
+   "package": "xen",
+   "code": "// You can also give tune a list of\n// frequencies to use as the scale:\ni(\"0 1 2 3 4\").tune([\n  261.6255653006,\n  302.72962012827,\n  350.29154279212,\n  405.32593044476,\n  469.00678383895,\n  523.2511306012\n]).mul(220).freq();"
+  },
+  {
+   "id": "undegrade#0",
+   "name": "undegrade",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").undegrade()"
+  },
+  {
+   "id": "undegrade#1",
+   "name": "undegrade",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"hh*10\").layer(\n  x => x.degrade().pan(0),\n  x => x.undegrade().pan(1)\n)"
+  },
+  {
+   "id": "undegradeBy#0",
+   "name": "undegradeBy",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\").undegradeBy(0.2)"
+  },
+  {
+   "id": "undegradeBy#1",
+   "name": "undegradeBy",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"hh*10\").layer(\n  x => x.degradeBy(0.2).pan(0),\n  x => x.undegradeBy(0.8).pan(1)\n)"
+  },
+  {
+   "id": "unison#0",
+   "name": "unison",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"d f a a# a d3\").fast(2).s(\"supersaw\").unison(\"<1 2 7>\")"
+  },
+  {
+   "id": "unit#0",
+   "name": "unit",
+   "index": 0,
+   "package": "core",
+   "code": "speed(\"1 2 .5 3\").s(\"bd\").unit(\"c\").osc()"
+  },
+  {
+   "id": "useRNG#0",
+   "name": "useRNG",
+   "index": 0,
+   "package": "core",
+   "code": "useRNG('legacy')\n// Repeats every 300 cycles\n$: n(irand(50)).seg(16).scale(\"C:minor\").ribbon(88, 32)\n$: n(irand(50)).seg(16).scale(\"C:minor\").ribbon(388, 32)"
+  },
+  {
+   "id": "velocity#0",
+   "name": "velocity",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"hh*8\")\n.gain(\".4!2 1 .4!2 1 .4 1\")\n.velocity(\".4 1\")"
+  },
+  {
+   "id": "vib#0",
+   "name": "vib",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"a e\")\n.vib(\"<.5 1 2 4 8 16>\")\n._scope()"
+  },
+  {
+   "id": "vib#1",
+   "name": "vib",
+   "index": 1,
+   "package": "core",
+   "code": "// change the modulation depth with \":\"\nnote(\"a e\")\n.vib(\"<.5 1 2 4 8 16>:12\")\n._scope()"
+  },
+  {
+   "id": "vibmod#0",
+   "name": "vibmod",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"a e\").vib(4)\n.vibmod(\"<.25 .5 1 2 12>\")\n._scope()"
+  },
+  {
+   "id": "vibmod#1",
+   "name": "vibmod",
+   "index": 1,
+   "package": "core",
+   "code": "// change the vibrato frequency with \":\"\nnote(\"a e\")\n.vibmod(\"<.25 .5 1 2 12>:8\")\n._scope()"
+  },
+  {
+   "id": "voicing#0",
+   "name": "voicing",
+   "index": 0,
+   "package": "tonal",
+   "code": "n(\"0 1 2 3\").chord(\"<C Am F G>\").voicing()"
+  },
+  {
+   "id": "voicings#0",
+   "name": "voicings",
+   "index": 0,
+   "package": "tonal",
+   "code": "stack(\"<C^7 A7 Dm7 G7>\".voicings('lefthand'), \"<C3 A2 D3 G2>\").note()"
+  },
+  {
+   "id": "vowel#0",
+   "name": "vowel",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"[c2 <eb2 <g2 g1>>]*2\").s('sawtooth')\n.vowel(\"<a e i <o u>>\")"
+  },
+  {
+   "id": "vowel#1",
+   "name": "vowel",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"bd sd mt ht bd [~ cp] ht lt\").vowel(\"[a|e|i|o|u]\")"
+  },
+  {
+   "id": "warp#0",
+   "name": "warp",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"basique\").bank(\"wt_digital\").seg(8).note(\"F1\").warp(\"0 0.25 0.5 0.75 1\")\n  .warpmode(\"spin\")"
+  },
+  {
+   "id": "warpmode#0",
+   "name": "warpmode",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"morgana\").bank(\"wt_digital\").seg(8).note(\"F1\").warp(\"0 0.25 0.5 0.75 1\")\n  .warpmode(\"<asym bendp spin logistic sync wormhole brownian>*2\")"
+  },
+  {
+   "id": "wchoose#0",
+   "name": "wchoose",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c2 g2!2 d2 f1\").s(wchoose([\"sine\",10], [\"triangle\",1], [\"bd:6\",1]))"
+  },
+  {
+   "id": "wchooseCycles#0",
+   "name": "wchooseCycles",
+   "index": 0,
+   "package": "core",
+   "code": "wchooseCycles([\"bd\",10], [\"hh\",1], [\"sd\",1]).s().fast(8)"
+  },
+  {
+   "id": "wchooseCycles#1",
+   "name": "wchooseCycles",
+   "index": 1,
+   "package": "core",
+   "code": "wchooseCycles([\"c c c\",5], [\"a a a\",3], [\"f f f\",1]).fast(4).note()"
+  },
+  {
+   "id": "wchooseCycles#2",
+   "name": "wchooseCycles",
+   "index": 2,
+   "package": "core",
+   "code": "// The probability can itself be a pattern\nwchooseCycles([\"bd(3,8)\",\"<5 0>\"], [\"hh hh hh\",3]).fast(4).s()"
+  },
+  {
+   "id": "when#0",
+   "name": "when",
+   "index": 0,
+   "package": "core",
+   "code": "\"c3 eb3 g3\".when(\"<0 1>/2\", x=>x.sub(\"5\")).note()"
+  },
+  {
+   "id": "whenKey#0",
+   "name": "whenKey",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd(5,8)\").whenKey(\"Control:j\", x => x.segment(16).color(\"red\")).whenKey(\"Control:i\", x => x.fast(2).color(\"blue\"))"
+  },
+  {
+   "id": "withBase#0",
+   "name": "withBase",
+   "index": 0,
+   "package": "xen",
+   "code": "i(\"[0 1 2 3] [3 4] [4 3 2 1]\").xen(\"hexany23\").withBase(\"<220 [300 200]>\")"
+  },
+  {
+   "id": "withBase#1",
+   "name": "withBase",
+   "index": 1,
+   "package": "xen",
+   "code": "mini([1 / 1, 16 / 15, 9 / 8, 6 / 5, 5 / 4].join(' ')).withBase(\"220:1\")\n// mini([1 / 1, 16 / 15, 9 / 8, 6 / 5, 5 / 4].join(' ')).mul(220).freq()"
+  },
+  {
+   "id": "wt#0",
+   "name": "wt",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"squelch\").bank(\"wt_digital\").seg(8).note(\"F1\").wt(\"0 0.25 0.5 0.75 1\")"
+  },
+  {
+   "id": "wtphaserand#0",
+   "name": "wtphaserand",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"basique\").bank(\"wt_digital\").seg(16).wtphaserand(\"<0 1>\")"
+  },
+  {
+   "id": "xen#0",
+   "name": "xen",
+   "index": 0,
+   "package": "xen",
+   "code": "// A minor triad in 31edo:\ni(\"0 8 18\").xen(\"31edo\").piano()"
+  },
+  {
+   "id": "xen#1",
+   "name": "xen",
+   "index": 1,
+   "package": "xen",
+   "code": "// You can also use xen with frequency ratios.\n// This is equivalent to the above:\ni(\"0 1 2\").xen([\n  Math.pow(2, 0/31),\n  Math.pow(2, 8/31),\n  Math.pow(2, 18/31),\n]).piano()"
+  },
+  {
+   "id": "xen#2",
+   "name": "xen",
+   "index": 2,
+   "package": "xen",
+   "code": "// xen also supports all scale names that\n// tune does:\ni(\"0 1 2 3 4 5\").xen(\"hexany15\")\n// equiv to:\n// \"0 1 2 3 4 5\".tune(\"hexany15\").mul(\"220\").freq()"
+  },
+  {
+   "id": "xen#3",
+   "name": "xen",
+   "index": 3,
+   "package": "xen",
+   "code": "i(\"0 1 2 3 4 5 6 7\").xen(\"<5edo 10edo 15edo hexany15>\")"
+  },
+  {
+   "id": "xfade#0",
+   "name": "xfade",
+   "index": 0,
+   "package": "core",
+   "code": "xfade(s(\"bd*2\"), \"<0 .25 .5 .75 1>\", s(\"hh*8\"))"
+  },
+  {
+   "id": "zip#0",
+   "name": "zip",
+   "index": 0,
+   "package": "core",
+   "code": "zip(\"e f\", \"e f g\", \"g [f e] a f4 c\").note()\n   .sound(\"folkharp\")\n   .pace(8)"
+  },
+  {
+   "id": "zoom#0",
+   "name": "zoom",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd*2 hh*3 [sd bd]*2 perc\").zoom(0.25, 0.75)\n// s(\"hh*3 [sd bd]*2\") // equivalent"
+  }
+ ]
+}

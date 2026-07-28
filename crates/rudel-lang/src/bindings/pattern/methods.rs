@@ -419,10 +419,9 @@ pub(super) fn kpattern_tag(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
 }
 
 /// Marshal a hap into the Koto map a `filter` predicate receives:
-/// `{value, begin, end, wholeBegin, wholeEnd, tags}`. Strudel hands over a
-/// `Hap` object; this is the same information in Koto's shape, so
-/// `hap.value.s == "hh"` reads as it does upstream and `hap.tags.contains(t)`
-/// stands in for `hap.hasTag(t)`.
+/// `{value, begin, end, wholeBegin, wholeEnd, tags, hasTag}`. Strudel hands over
+/// a `Hap` object; this is the same information in Koto's shape, so
+/// `hap.value.s == "hh"` and `hap.hasTag(t)` both read as they do upstream.
 pub(crate) fn hap_to_koto(hap: &rudel_core::Hap) -> KValue {
     let map = koto::runtime::KMap::new();
     map.insert("value", super::convert::value_to_koto(hap.value.clone()));
@@ -445,6 +444,18 @@ pub(crate) fn hap_to_koto(hap: &rudel_core::Hap) -> KValue {
                 .map(|t| KValue::Str(t.as_str().into()))
                 .collect::<Vec<_>>(),
         )),
+    );
+    // `hap.hasTag(name)` — Strudel's `Hap.hasTag`, closed over this hap's tags
+    // so the predicate reads exactly as it does upstream.
+    let tags: Vec<String> = hap.context.tags.iter().map(|t| t.to_string()).collect();
+    map.insert(
+        "hasTag",
+        KValue::NativeFunction(koto::runtime::KNativeFunction::new(move |ctx| {
+            let wanted = ctx.args().first().and_then(arg_to_raw_str);
+            Ok(KValue::Bool(
+                wanted.is_some_and(|w| tags.contains(&w)),
+            ))
+        })),
     );
     KValue::Map(map)
 }

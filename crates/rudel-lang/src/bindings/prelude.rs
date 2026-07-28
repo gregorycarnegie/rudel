@@ -427,6 +427,17 @@ pub(crate) fn register(prelude: &KMap) {
         "squeeze" => (true, PickJoin::Squeeze),
     );
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    // `mini(x)` / `m(x)` parse mini-notation, which `arg_to_pattern` already
+    // does for every pattern-typed argument (mini/mini.mjs `mini`).
+    prelude.add_fn("mini", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    // The list-valued additive-synthesis controls, as standalone factories to
+    // match their method forms.
+    for (name, key) in [("partials", "partials"), ("phases", "phases")] {
+        prelude.add_fn(name, move |ctx| {
+            let v = koto_to_value(&arg0(ctx));
+            Ok(KPattern(rudel_core::control_dyn(key, rudel_core::pure(v))).into())
+        });
+    }
     // m(value, offset): mini-notation with a source offset. Emitted by the
     // preprocessor for every string literal so per-hap locations are absolute
     // to the editor source. Numbers/patterns pass through unchanged. The raw
@@ -742,6 +753,44 @@ pub(crate) fn register(prelude: &KMap) {
             "beat" => beat, "xfade" => xfade,
         ];
     );
+
+    // Every control also gets a standalone factory, matching Strudel: each
+    // `registerControl` call exports a top-level function as well as a method,
+    // so `speed("1 2").s("bd")` reads the same as `s("bd").speed("1 2")`.
+    // Registered last and only for names the prelude has not already claimed,
+    // so hand-written bindings (`note`, `n`, `s`, `i`, `freq`, …) win.
+    register_control_factories(prelude);
+}
+
+/// Register a pattern-valued factory for every control name that is not already
+/// a top-level function. The counterpart of `extend_control_entries`, which does
+/// the same for the method form.
+fn register_control_factories(prelude: &KMap) {
+    for (name, builder) in rudel_core::control_builders() {
+        if prelude.get(name).is_some() {
+            continue;
+        }
+        prelude.insert(
+            name,
+            KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+                Ok(KPattern(builder(arg_to_pattern(&arg0(ctx)))).into())
+            })),
+        );
+    }
+    // The numbered FM/operator controls have no Rust builder fn; their canonical
+    // keys are generated at runtime.
+    for (name, key) in rudel_core::numbered_control_names() {
+        if prelude.get(name.as_str()).is_some() {
+            continue;
+        }
+        prelude.insert(
+            name.as_str(),
+            KValue::NativeFunction(KNativeFunction::new(move |ctx| {
+                let key = key.clone();
+                Ok(KPattern(rudel_core::control_dyn(key, arg_to_pattern(&arg0(ctx)))).into())
+            })),
+        );
+    }
 }
 
 /// `keyDown(names)` as a boolean pattern: true while **every** named key is

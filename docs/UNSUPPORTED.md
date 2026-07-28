@@ -11,6 +11,32 @@ and how Rudel differs where it does provide an equivalent surface.
 This document tracks the *user-visible* contract. The internal parity checklist
 lives in [`FULL_STRUDEL.md`](../FULL_STRUDEL.md).
 
+## Pattern functions
+
+### Names that are documented but have no source in the pinned Strudel
+
+These appear in Strudel documentation or in the wild but are not defined
+anywhere in the vendored checkout this parity work targets (see
+[`STRUDEL_SOURCE.md`](STRUDEL_SOURCE.md) for the pinned revision), so there is no
+reference behaviour to port. They are not available in Rudel:
+
+| Name | Notes |
+| --- | --- |
+| `degreeToNote`, `toScale` | Custom interval-list scales. `scale("C:major")` and the named-scale table cover the documented cases. |
+| `ncat` | Not defined in the pinned checkout. `timecat`/`stepcat` cover weighted concatenation. |
+| `envL`, `envLR`, `envEq`, … | Envelope *signals*. `lfo`/`env` modulators, the per-effect envelopes (`lpenv`, `penv`, `fmenv`, `wtenv`) and `range` over a signal cover the same ground. |
+| `ifp` | Not defined in the pinned checkout. |
+
+If a future Strudel bump introduces them, `crates/rudel-lang/tests/reference_parity.rs`
+fails on the new name and points here.
+
+### `compressSpan`, `focusSpan`, `zoomArc` — internal, not exposed
+
+Upstream these take a `TimeSpan` **object** (with `.begin`/`.end`) and throw on a
+plain array, so they are internal helpers rather than user API. Rudel has no Koto
+span type and exposes the user-facing two-argument forms instead: `compress(a, b)`,
+`focus(a, b)`, `zoom(a, b)`.
+
 ## Drawing and visuals
 
 ### Draw runtime (`@strudel/draw` `draw.mjs`) — partial, by design
@@ -140,29 +166,36 @@ control itself is not exposed — Rudel wires taps through widget ids only.
 
 ## Audio effects
 
-### Reverb — intentionally different (parametric, not convolution)
+### Reverb — convolution, with a seeded impulse response
 
 Strudel's reverb is a `ConvolverNode` fed an impulse response that
 `reverbGen.mjs` *generates from white noise*: an exponentially decaying random
-buffer with an optional fade-in and a gradual lowpass sweep. Rudel instead runs
-a parametric feedback-delay-network reverb (fundsp `reverb_stereo`), one per
-orbit.
+buffer with an optional fade-in and a gradual lowpass sweep. Rudel does the same
+— `crates/rudel-dsp/src/convolver.rs` ports `generateReverb`,
+`applyGradualLowpass` and `adjustLength`, and convolves with a
+uniform-partitioned overlap-save FFT convolver, one reverb per orbit.
 
-The controls behave the same way, which is what matters for patterns:
-`size`/`roomsize` is the -60dB decay time on both sides, and the IR's
-`roomlp` → `roomdim` lowpass sweep becomes the FDN's high-frequency damping
-(log-scaled, so the defaults `roomlp(15000).roomdim(1000)` land on the same
-damping the engine used before it was parameterised). Because upstream's impulse
-response is literally `Math.random()` per sample, there is no sample-exact target
-to match here — only the parameter semantics.
+All of the controls work: `size`/`roomsize` (the -60dB decay time),
+**`roomfade`** (the IR's fade-in), `roomlp` → `roomdim` (the lowpass sweep across
+the tail), and **`ir` / `iresponse` / `irspeed` / `irbegin`** — pass the name of
+any loaded sample to convolve against it instead of the generated tail.
 
-Two things are **not** available as a result:
+The impulse response is normalized exactly as a `ConvolverNode` does — its
+`normalize` flag defaults to `true` and superdough never turns it off — so the
+wet level stays roughly constant as `size` changes, and `size` alters the tail's
+*length* rather than its loudness.
 
-- **`roomfade`** is accepted but has no effect. It is the impulse response's
-  fade-in time, which has no analogue in an FDN.
-- **`ir` / `iresponse` / `irspeed` / `irbegin`** (reverb from a loaded sample)
-  do nothing. Convolving against an arbitrary IR needs a partitioned FFT
-  convolver, which Rudel does not have.
+Two deliberate differences:
+
+- **The noise is seeded.** Upstream calls `Math.random()` per sample, so its
+  impulse response is different every time it is built; Rudel uses a fixed seed,
+  so a given room setting always sounds the same and rebuilding the reverb
+  mid-session does not change its character. Because upstream's IR is random,
+  there is no sample-exact target to match here anyway — only the parameter
+  semantics.
+- **The wet return is one partition late** (~23ms at 44.1kHz), which is inherent
+  to uniform partitioning; Web Audio's `ConvolverNode` has no such latency. It
+  reads as a short reverb pre-delay.
 
 ### `leslie`, `squiz`, `fshift` — no effect (control-only upstream too)
 
@@ -234,16 +267,46 @@ sound name to play it with; each preset in the file is an `n` index, so
 `loadSoundfont('/packs/piano.sf2')` then `s('piano').n(2)` — or
 `.soundfont('piano', 2)` — plays its third preset. No network involved.
 
-What is **not** ported: a zone's own amplitude envelope, vibrato and pitch
-envelope are ignored in favour of Rudel's voice controls (`attack`/`decay`/…,
-`vib`, `penv`), which apply to soundfonts as they do to every other sound.
-Loading a `.sf2` over HTTP is not wired up — local paths only.
+`loadSoundfont` also accepts an http(s) URL, which is cached on disk like a
+sample pack.
 
-### `stretch`, `bytebeat` — not yet ported
+A zone's own SoundFont amplitude/pitch envelope generators are not read; the
+`attack`/`decay`/`sustain`/`release`, `vib` and `penv` controls shape the note
+instead. That matches upstream, whose soundfont loader also drives the envelope
+from `value.attack`/… rather than from the font (`fontloader.mjs`).
 
-`stretch` (superdough's `phase-vocoder-processor`) and `s("bytebeat")` with
-`byteBeatExpression` have registered controls but no native DSP yet. These are
-ports waiting to be done, not deliberate omissions.
+### `stretch` and `bytebeat` — implemented
+
+**`stretch`** is a pitch shifter: superdough's `phase-vocoder-processor`
+worklet, ported in `crates/rudel-dsp/src/vocoder.rs` along with the overlap-add
+framework it sits on (`ola-processor.js`). The control maps to a pitch factor the
+same way (`max(0, (v < 0 ? v * 0.25 : v) + 1)`), so `stretch(1)` is an octave up
+and `stretch(-1)` is a minor third down. It runs per voice, at the head of the
+post-effect chain, as it does upstream.
+
+Two differences: it is by far Rudel's most expensive per-voice effect (two
+2048-point FFTs per 128 samples per channel — the same cost upstream pays), and
+upstream compensates the vocoder's latency by scheduling a stretched voice 0.04s
+early, which Rudel's scheduler has no per-effect pre-roll for, so a stretched
+voice sounds fractionally late.
+
+**`s("bytebeat")`** plays an integer expression sampled per audio frame, with
+`byteBeatExpression` (`bb`) choosing the formula and `n` selecting one of the 15
+built-in beats. Upstream compiles the expression with `new Function`, i.e. it
+runs real JavaScript; Rudel has no JS engine, so
+`crates/rudel-dsp/src/bytebeat.rs` carries a parser and evaluator for the
+integer-expression subset bytebeats actually use — JS operator precedence, JS
+`ToInt32` coercion on the bitwise operators, 5-bit shift masking, ternaries and
+short-circuiting, and the `Math` functions. It is pinned against V8 by
+`crates/rudel-dsp/tests/bytebeat_golden.rs`.
+
+What that leaves out: the exotic `chyx` helpers upstream injects (`bitC`, `br`,
+`sinf`, `regG`, …), which none of the built-in beats use, and anything needing a
+real JS runtime (string methods, regexes, the `eval(unescape(escape…))`
+compression idiom). An expression that fails to parse falls back to silence.
+
+Note that Rudel treats only *double*-quoted strings as mini-notation, so write a
+bytebeat in single quotes: `s("bytebeat").bb('t&t>>8')`.
 
 ### Wavetable oscillator — implemented
 

@@ -492,3 +492,50 @@ fn process_block_matches_tick_for_memoryless_fx() {
         "process_block diverged from tick (max diff {max_diff:e})"
     );
 }
+
+#[test]
+fn stretch_shifts_a_voice_up_an_octave() {
+    // `stretch(1)` is pitchFactor 2 in superdough's mapping; a 220Hz sine
+    // through the post-fx chain should come out around 440Hz.
+    let sr = 44100.0;
+    let params = VoiceParams {
+        duration: 1.0e9,
+        freq: 220.0,
+        waveform: Waveform::Sine,
+        ..Default::default()
+    };
+    let fx = PostFx {
+        stretch: Some(1.0),
+        ..Default::default()
+    };
+    assert!(fx.is_active(), "stretch must engage the post-fx wrapper");
+
+    let mut voice = PostFxVoice::new(Box::new(Voice::new(params, sr)), fx, sr);
+    // Discard the vocoder's fill-up, then capture a settled window.
+    for _ in 0..8192 {
+        voice.tick();
+    }
+    let n = 4096;
+    let mut buf = Vec::with_capacity(n);
+    for _ in 0..n {
+        buf.push(voice.tick().0);
+    }
+
+    // Goertzel energy at 220Hz vs 440Hz: the shifted partial should dominate.
+    let energy = |hz: f32| -> f32 {
+        let w = TAU * hz / sr;
+        let (mut re, mut im) = (0.0f32, 0.0f32);
+        for (i, s) in buf.iter().enumerate() {
+            // Hann-window so the two bins do not leak into each other.
+            let win = 0.5 * (1.0 - (TAU * i as f32 / n as f32).cos());
+            re += s * win * (w * i as f32).cos();
+            im += s * win * (w * i as f32).sin();
+        }
+        re * re + im * im
+    };
+    let (low, high) = (energy(220.0), energy(440.0));
+    assert!(
+        high > low * 4.0,
+        "expected the octave-up partial to dominate: 220Hz={low:e}, 440Hz={high:e}"
+    );
+}

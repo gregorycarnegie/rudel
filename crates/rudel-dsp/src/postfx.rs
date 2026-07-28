@@ -1,6 +1,7 @@
 use crate::{
     filter::Biquad,
     modulator::{ModBank, ModSpec, ModTarget},
+    vocoder::StretchStage,
     voice::VoiceLike,
 };
 use rudel_core::{Value, ValueMap};
@@ -387,6 +388,8 @@ pub struct PostFx {
     pub phasersweep: f32,
     /// Dynamics-compressor threshold in dB (`compressor`). `None` = off.
     pub compressor: Option<f32>,
+    /// Phase-vocoder pitch shift (`stretch`). `None` = off.
+    pub stretch: Option<f32>,
     /// Transient-shaper attack emphasis (`transient`), -1..1. `None` = off.
     pub transient: Option<f32>,
     /// Transient-shaper sustain emphasis (`transsustain`), -1..1.
@@ -419,6 +422,7 @@ impl Default for PostFx {
             phaserdepth: 0.75,
             phasercenter: 1000.0,
             phasersweep: 2000.0,
+            stretch: None,
             transient: None,
             transsustain: 0.0,
             compressor: None,
@@ -451,6 +455,7 @@ impl PostFx {
                 .and_then(Vowel::from_name),
             tremolo: get("tremolo"),
             tremolodepth: get("tremolodepth").unwrap_or(0.5),
+            stretch: get("stretch"),
             // `phaser` and `phaserrate` are aliases for the LFO rate.
             phaser: get("phaser").or_else(|| get("phaserrate")),
             // superdough's getDefaultValue('phaserdepth') is 0.75.
@@ -497,6 +502,7 @@ impl PostFx {
             || self.phaser.is_some()
             || self.compressor.is_some()
             || self.transient.is_some()
+            || self.stretch.is_some()
     }
 }
 
@@ -515,6 +521,8 @@ pub struct PostFxVoice {
     phaser: Option<(Biquad, Biquad)>,
     /// Per-channel transient shapers when `transient`/`transsustain` is set.
     transient: Option<(TransientShaper, TransientShaper)>,
+    /// Phase-vocoder pitch shifter when `stretch` is set.
+    stretch: Option<StretchStage>,
     /// Modulators targeting the post-fx amounts. Empty for the common case, and
     /// then every offset reads as zero.
     mods: ModBank,
@@ -561,6 +569,7 @@ impl PostFxVoice {
             vowel,
             phaser,
             transient,
+            stretch: fx.stretch.map(StretchStage::new),
             mods: ModBank::new(mods, sample_rate as f64),
             comp_gain: 1.0,
         }
@@ -586,6 +595,7 @@ impl PostFxVoice {
             && self.fx.coarse.is_none()
             && self.fx.compressor.is_none()
             && self.fx.transient.is_none()
+            && self.fx.stretch.is_none()
             && (self.fx.distort.is_none() || self.fx.distort_alg == DistortAlgo::Scurve)
     }
 
@@ -680,6 +690,11 @@ impl VoiceLike for PostFxVoice {
         self.mods.tick();
         let (mut l, mut r) = self.inner.tick();
 
+        // stretch: the phase vocoder is the first insert in superdough's FX
+        // chain, ahead of the transient shaper and the gain stage.
+        if let Some(pv) = &mut self.stretch {
+            (l, r) = pv.process(l, r);
+        }
         // transient shaper. superdough inserts this before the gain stage and
         // the filters; Rudel's voices already contain their own gain/filters, so
         // it runs here at the earliest point the post-chain reaches — the same

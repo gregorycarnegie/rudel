@@ -1,6 +1,7 @@
 use crate::{
     filter::{FilterKind, FilterModel, FilterParams, VoiceFilter},
     modulator::{ModBank, ModSpec, ModTarget},
+    pitch::PitchMod,
     voice::VoiceLike,
 };
 use rudel_core::ValueMap;
@@ -43,6 +44,9 @@ pub struct SamplerParams {
     /// Loop region start/end as fractions of the sample (0..1).
     pub loop_begin: f32,
     pub loop_end: f32,
+    /// Vibrato + pitch envelope (`vib`/`vibmod`/`penv`/...), which superdough
+    /// applies to a sampler's `detune` exactly as it does to a synth's.
+    pub pitch: PitchMod,
 }
 
 impl SamplerParams {
@@ -65,6 +69,7 @@ impl SamplerParams {
             loop_on: false,
             loop_begin: 0.0,
             loop_end: 1.0,
+            pitch: PitchMod::default(),
         }
     }
 
@@ -115,6 +120,7 @@ impl SamplerParams {
         if let Some(r) = map.get("release").and_then(|v| v.as_f64()) {
             self.release = r as f32;
         }
+        self.pitch = PitchMod::from_controls(map);
     }
 }
 
@@ -142,6 +148,9 @@ pub struct SamplerVoice {
     loop_on: bool,
     loop_start: f64,
     loop_end: f64,
+    /// Vibrato / pitch envelope, scaling the read step per sample. `None` when
+    /// neither is set, which is the overwhelmingly common case.
+    pitch: Option<PitchMod>,
 }
 
 impl SamplerVoice {
@@ -214,6 +223,7 @@ impl SamplerVoice {
             loop_on,
             loop_start,
             loop_end,
+            pitch: (!params.pitch.is_idle()).then_some(params.pitch),
         }
     }
 
@@ -263,7 +273,13 @@ impl VoiceLike for SamplerVoice {
         }
         s *= self.envelope() * (self.gain + self.mods.get(ModTarget::Gain));
 
-        self.pos += self.step;
+        // Vibrato / pitch envelope detune the playback rate, which is what
+        // superdough's `getVibratoOscillator`/`getPitchEnvelope` do to a
+        // sampler's `detune`.
+        self.pos += match &self.pitch {
+            Some(p) => self.step * p.multiplier(self.t, self.hold_end) as f64,
+            None => self.step,
+        };
         self.t += 1.0 / self.sample_rate;
         if self.t >= self.hold_end + self.release {
             self.done = true;

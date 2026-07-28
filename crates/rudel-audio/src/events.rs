@@ -5,8 +5,8 @@
 use crate::{clock::Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx, Sample, SamplerParams,
-    VoiceParams, VoiceSpec, ZzfxParams,
+    ByteBeatParams, DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx, Sample,
+    SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
 
@@ -129,6 +129,10 @@ fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank, cps: f64, cycle: f
         if name == "zzfx" || name.starts_with("z_") {
             return VoiceSpec::Zzfx(Box::new(ZzfxParams::from_controls(name, map, duration)));
         }
+        // The `bytebeat` synth: an integer expression sampled per audio frame.
+        if name == "bytebeat" {
+            return VoiceSpec::ByteBeat(Box::new(ByteBeatParams::from_controls(map, duration)));
+        }
     }
     let mut params = VoiceParams::from_controls_at(map, duration, cps, cycle);
     // A wavetable collection loaded by `tables(...)` turns `s("name")` into the
@@ -190,12 +194,23 @@ pub fn collect_events_at(
                 note_seconds: ev.duration_seconds,
             };
             let mods = ModSpecs::from_controls(&ev.controls, &ctx, |t| spec.mod_base(t, &fx));
+            let mut send = OrbitSend::from_controls(&ev.controls, clock.cps());
+            // `ir`/`iresponse` names a loaded sample to use as the reverb's
+            // impulse response. `OrbitSend` cannot resolve it (rudel-dsp has no
+            // bank), so it is filled in here.
+            send.reverb.ir = ev
+                .controls
+                .get("ir")
+                .or_else(|| ev.controls.get("iresponse"))
+                .and_then(|v| v.as_str())
+                .and_then(|name| bank.resolve(name, 0, None))
+                .map(|(sample, _transpose)| sample);
             NoteEvent {
                 onset_seconds: clock.seconds_at(ev.onset_cycle),
                 spec,
                 fx,
                 mods,
-                send: OrbitSend::from_controls(&ev.controls, clock.cps()),
+                send,
                 duck: Duck::from_controls(&ev.controls),
                 cut: ev
                     .controls

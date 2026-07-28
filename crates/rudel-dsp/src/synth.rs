@@ -1,14 +1,15 @@
 use crate::{
-    envelope::{Adsr, adsr_value},
+    envelope::adsr_value,
     filter::{FilterKind, VoiceFilter},
     fm::FM_OPS,
     modulator::{ModBank, ModSpec, ModTarget},
     oscillator::{NoiseGen, NoiseKind, Waveform, sample_table},
     params::VoiceParams,
+    pitch::PitchMod,
     voice::VoiceLike,
     wavetable::{ParamModRunner, WavetableOsc},
 };
-use std::f32::consts::{FRAC_PI_2, TAU};
+use std::f32::consts::FRAC_PI_2;
 use wide::f32x8;
 
 /// SIMD lane count used to render the super-saw unison voices in parallel.
@@ -33,46 +34,6 @@ fn rand_phase() -> f32 {
 /// a linear fade across the other. `wetfade(d<0.5)=1`, then ramps down to 0.
 fn wetfade(d: f32) -> f32 {
     if d < 0.5 { 1.0 } else { 1.0 - (d - 0.5) / 0.5 }
-}
-
-/// Exponential (geometric) interpolation between `a` and `b` over progress `p`,
-/// matching Web Audio's `exponentialRampToValueAtTime`. Zeros are nudged off the
-/// axis; if the endpoints straddle zero (undefined for an exp ramp) it falls
-/// back to linear.
-fn geo(a: f32, b: f32, p: f32) -> f32 {
-    let nz = |x: f32| if x == 0.0 { 0.001 } else { x };
-    let (a, b) = (nz(a), nz(b));
-    if a.signum() != b.signum() {
-        a + (b - a) * p
-    } else {
-        a * (b / a).powf(p)
-    }
-}
-
-/// The pitch-envelope value (in semitones) at time `t`. Linear by default;
-/// `exp` switches to exponential ramp segments (`pcurve`).
-fn pitch_env_value(adsr: &Adsr, t: f32, hold_end: f32, min: f32, max: f32, exp: bool) -> f32 {
-    if !exp {
-        return min + adsr_value(adsr, t, hold_end) * (max - min);
-    }
-    let Adsr {
-        attack,
-        decay,
-        sustain,
-        release,
-    } = *adsr;
-    let sustain_val = min + sustain * (max - min);
-    if t < attack {
-        geo(min, max, t / attack.max(1e-9))
-    } else if t < attack + decay {
-        geo(max, sustain_val, (t - attack) / decay.max(1e-9))
-    } else if t < hold_end {
-        sustain_val
-    } else if t < hold_end + release {
-        geo(sustain_val, min, (t - hold_end) / release.max(1e-9))
-    } else {
-        min
-    }
 }
 
 pub struct Voice {
@@ -103,7 +64,7 @@ pub struct Voice {
     /// stateful and mono, so the stereo pair needs independent state).
     filters_r: Vec<VoiceFilter>,
     /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
-    pitch_env: Option<(Adsr, f32, f32)>,
+    pitch: PitchMod,
     /// Wavetable source with its `wt` position and `warp` amount modulators.
     wavetable: Option<(WavetableOsc, ParamModRunner, ParamModRunner)>,
     /// Modulators targeting this voice (frequency, gain, the filters). Empty
@@ -183,27 +144,19 @@ impl Voice {
         } else {
             Vec::new()
         };
-        // Pitch envelope (superdough getPitchEnvelope): sweep detune in cents.
-        let pitch_active = params.penv.is_some()
-            || params.pattack.is_some()
-            || params.pdecay.is_some()
-            || params.psustain.is_some()
-            || params.prelease.is_some();
-        let pitch_env = if pitch_active {
-            let adsr = Adsr {
-                attack: params.pattack.unwrap_or(0.2),
-                decay: params.pdecay.unwrap_or(0.001),
-                sustain: params.psustain.unwrap_or(1.0),
-                release: params.prelease.unwrap_or(0.001),
-            };
-            let penv = params.penv.unwrap_or(1.0); // semitones
-            let anchor = params.panchor.unwrap_or(adsr.sustain);
-            let min = -penv * anchor;
-            let max = penv - penv * anchor;
-            Some((adsr, min, max))
-        } else {
-            None
-        };
+        // Vibrato + pitch envelope (superdough's getVibratoOscillator +
+        // getPitchEnvelope), shared with the sampler.
+        let pitch = PitchMod::new(
+            params.vib,
+            params.vibmod,
+            params.penv,
+            params.pattack,
+            params.pdecay,
+            params.psustain,
+            params.prelease,
+            params.panchor,
+            params.pcurve_exp,
+        );
         // Wavetable source: the unison stack mirrors the super-saw's, and the
         // `wt`/`warp` params get their own envelope+LFO runners.
         let wavetable = params.wavetable.clone().map(|table| {
@@ -243,7 +196,7 @@ impl Voice {
             super_gain_l,
             super_gain_r,
             filters_r,
-            pitch_env,
+            pitch,
             wavetable,
             mods: ModBank::new(mods, sample_rate as f64),
             done: false,
@@ -256,27 +209,7 @@ impl Voice {
 
     /// Pitch multiplier from vibrato + pitch envelope (applied to the carrier).
     fn pitch_mult(&self) -> f32 {
-        let mut semis = 0.0;
-        if let Some(rate) = self.params.vib
-            && rate > 0.0
-        {
-            semis += self.params.vibmod * (TAU * rate * self.t).sin();
-        }
-        if let Some((adsr, min, max)) = self.pitch_env {
-            semis += pitch_env_value(
-                &adsr,
-                self.t,
-                self.hold_end,
-                min,
-                max,
-                self.params.pcurve_exp,
-            );
-        }
-        if semis == 0.0 {
-            1.0
-        } else {
-            2f32.powf(semis / 12.0)
-        }
+        self.pitch.multiplier(self.t, self.hold_end)
     }
 
     /// Advance the FM operators one sample and return the carrier's frequency

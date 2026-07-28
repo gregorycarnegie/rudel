@@ -620,6 +620,25 @@ impl Pattern {
         self.stack_with(&other.into_pattern())
     }
 
+    /// `pat.cat(other)` — the chained form of [`slowcat`]: play this pattern for
+    /// a cycle, then `other`. (Strudel installs `cat`/`seq`/`stack` as methods
+    /// taking `this` as the first pattern.)
+    pub fn cat_with(&self, other: impl crate::transforms::IntoPattern) -> Pattern {
+        slowcat(&[self.clone(), other.into_pattern()])
+    }
+
+    /// `pat.seq(other)` — the chained form of [`fastcat`]: squeeze this pattern
+    /// and `other` into one cycle.
+    pub fn seq_with(&self, other: impl crate::transforms::IntoPattern) -> Pattern {
+        fastcat(&[self.clone(), other.into_pattern()])
+    }
+
+    /// `pat.hush()` — silence. Upstream's `Pattern.prototype.hush` discards the
+    /// pattern, which is how a voice in a `stack` gets muted in place.
+    pub fn hush(&self) -> Pattern {
+        silence()
+    }
+
     /// Speed the pattern up/down so it has `target` steps per cycle, preserving
     /// its step count metadata (`pace`). A pattern with no step count, or zero
     /// steps, is returned unchanged / as silence respectively.

@@ -70,8 +70,10 @@ Function-by-function audit against the Strudel learn pages
       generated into a Rust static table, named scales normalized to ratios with
       the octave endpoint dropped, `xen("31edo")` tagging EDO size for later
       `ftrans`, ratio arrays for `xen([...])`, frequency arrays for `tune([...])`.
-- [ ] `degreeToNote`, `toScale` (custom interval-list scales) — not in the local
-      Strudel clone, so no reference source to port from
+- [x] `degreeToNote`, `toScale` (custom interval-list scales) — **unsupported**:
+      neither is defined anywhere in the pinned Strudel checkout, so there is no
+      reference behaviour to port. Documented in `docs/UNSUPPORTED.md`;
+      `reference_parity.rs` will flag them if a Strudel bump introduces them.
 
 ## learn/sounds & learn/samples
 
@@ -149,6 +151,10 @@ Function-by-function audit against the Strudel learn pages
       sampled with linear interpolation. Koto `partials`/`phases` take a list.
 - [x] `zzfx` — ported (`rudel-dsp/zzfx.rs`, golden-tested against superdough's
       `zzfx.mjs`); `s("zzfx")` and the `z_<wave>` family resolve to it.
+- [x] `s("bytebeat")` — ported (`rudel-dsp/bytebeat.rs`). `bb`/`byteBeatExpression`
+      chooses the formula and `n` picks one of the 15 built-in beats. Note that
+      only double-quoted strings are mini-notation, so write the expression in
+      single quotes: `s("bytebeat").bb('t&t>>8')`.
 - [x] wavetable oscillator: `tables(url[, frameLen])` loads a collection of
       `.wav` wavetables (same source forms as `samples`), each sliced into
       `frameLen`-sample single-cycle frames (default 2048), and `s("name")`
@@ -163,7 +169,10 @@ Function-by-function audit against the Strudel learn pages
       and the `warp*` twins). The table is attached in `events.rs` after loaded
       samples win, and `fm` applies to the wavetable frequency like upstream.
 - [x] vibrato (`vib` rate + `vibmod` depth, LFO on pitch) and pitch envelope
-      (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`)
+      (`penv` semitones + `p{attack,decay,sustain,release}`/`panchor`) — on
+      **samplers and soundfonts too**, not just the oscillator synth, matching
+      superdough (which wires both onto every source node's `detune`). Shared
+      `PitchMod` in `rudel-dsp/pitch.rs`.
 - [x] `pw` pulse-width (`s("pulse")` + `pw` duty cycle; 0.5 == square),
       `noise` mix amount (pink-noise blended into the oscillator via
       superdough's `wetfade` dry/wet crossfade), and `pcurve` (pitch-envelope
@@ -183,6 +192,9 @@ Function-by-function audit against the Strudel learn pages
 - [x] filter envelopes `lpenv`/`lpattack`/`lpdecay`/`lpsustain`/`lprelease`
       (+ `hp*`/`bp*` and `fanchor`): per-sample cutoff sweep `min..max` =
       `2^-offset·f .. 2^(|env|-offset)·f` driven by the filter's own ADSR
+- [x] `stretch` (phase-vocoder pitch shift) — `rudel-dsp/vocoder.rs`, ported from
+      superdough's `phase-vocoder-processor` + `ola-processor.js`. Runs at the
+      head of the post-fx chain like upstream; `stretch(1)` is an octave up.
 - [x] `tremolo` (+`tremolodepth`) amplitude LFO; `phaser`/`phaserrate`
       (+`phaserdepth`/`phasercenter`/`phasersweep`) swept-notch — per-voice in
       `PostFx` (notch detune-sweep matching superdough's `getPhaser`)
@@ -215,20 +227,43 @@ Function-by-function audit against the Strudel learn pages
       (`registerControl(['transient','transsustain'])`), as is `shape`
       (`['shape','shapevol']`) — both now spread their `:`-lists rather than
       treating the second name as an alias of the first.
-- [ ] `roomfade` — accepted but ignored. Rudel's reverb is a parametric FDN
-      (fundsp), not superdough's convolution against a generated noise impulse
-      response, and an IR fade-in has no FDN analogue. `size`/`roomlp`/`roomdim`
-      do map onto it (decay time and HF damping); see `build_reverb`.
-- [ ] IR reverb (`ir`/`iresponse`/`irspeed`/`irbegin`) — needs a partitioned
-      FFT convolver, which would also subsume the generated-IR reverb above.
-- [ ] `leslie`, `squiz` (sampler harmonic repeats), `fshift` (frequency shifter)
-      — control-only in Strudel too: superdough has no DSP for them (they exist
-      to be forwarded to SuperDirt over OSC, which Rudel already does), so a
-      native implementation would be original DSP, not a port.
-- [ ] `stretch` (phase vocoder) and `bytebeat` — control registered, worklet
-      (`phase-vocoder-processor` / `byte-beat-processor`) not ported. The
-      bytebeat one also needs an integer-expression evaluator for
-      `byteBeatExpression`.
+- [x] `roomfade` and IR reverb (`ir`/`iresponse`/`irspeed`/`irbegin`): the FDN
+      reverb was replaced by a real convolution reverb, so both now work.
+      `rudel-dsp/convolver.rs` ports `reverbGen.generateReverb` +
+      `applyGradualLowpass` (seeded noise, exponential decay, fade-in ramp, the
+      `roomlp`→`roomdim` lowpass sweep) and `adjustLength` (fitting a loaded
+      sample to `size` via `irspeed`/`irbegin`), and convolves with a
+      uniform-partitioned overlap-save FFT convolver sharing `fft.rs` with the
+      phase vocoder. `ReverbConfig` carries the resolved IR (`events.rs` looks
+      `ir`/`iresponse` up in the bank). The impulse response is normalized like a `ConvolverNode` (whose `normalize` defaults to `true`), so the wet level tracks upstream's. Deliberate differences: the noise is
+      seeded (upstream re-randomises on every rebuild) and the wet return is one
+      partition late (~23ms), inherent to uniform partitioning. Covered by
+      `convolver.rs` unit tests and the engine-level
+      `roomfade_delays_the_onset_of_the_reverb_tail` /
+      `ir_uses_a_loaded_sample_as_the_impulse_response`.
+- [x] `leslie`, `squiz` (sampler harmonic repeats), `fshift` (frequency shifter)
+      — **unsupported, matching upstream**: control-only in Strudel too
+      (superdough has no DSP for them; they exist to be forwarded to SuperDirt
+      over OSC, which Rudel already does). A native implementation would be
+      original DSP, not a port. Documented in `docs/UNSUPPORTED.md`.
+- [x] `stretch` (phase vocoder): `rudel-dsp/vocoder.rs` ports the
+      `phase-vocoder-processor` worklet and the `ola-processor.js` overlap-add
+      framework it sits on — Hann-windowed 2048-sample frames at a 128-sample
+      hop, spectral peak finding, region-of-influence shifting with phase
+      correction. Wired in as the first insert of `PostFx`, matching superdough's
+      chain order, via a per-sample `StretchStage` adapter.
+- [x] `bytebeat`: `rudel-dsp/bytebeat.rs` ports the `byte-beat-processor`
+      worklet plus the `registerSound('bytebeat')` wrapper (the 15 `defaultBeats`
+      selected by `n`, the ADSR gain stage). Upstream compiles the expression
+      with `new Function`, so the port carries its own parser/evaluator for the
+      integer-expression subset: JS operator precedence, `ToInt32` coercion on
+      the bitwise ops, 5-bit shift masking, ternaries, short-circuiting and the
+      `Math` calls. Pinned against V8 by `tests/bytebeat_golden.rs` (every
+      built-in beat plus 26 operator-surface cases, over 63 `t` values). Not
+      ported: the exotic `chyx` helpers (unused by the built-in beats) and
+      anything needing a real JS runtime. Finding this mismatch also surfaced
+      that serde_json's default float parser is off by one ulp, now fixed
+      workspace-wide with its `float_roundtrip` feature.
 - [x] generic modulators (`lfo`/`env` + `modulate`): the LFO and envelope
       *sources* are ported from superdough's worklets and golden-tested, and
       routing is now wired, so they are audible. A modulator is an additive
@@ -241,10 +276,11 @@ Function-by-function audit against the Strudel learn pages
       parameters Rudel's scalar DSP already varies per sample — oscillator
       frequency, `gain`, the three filters' cutoff/resonance, and the post-fx
       amounts; see `docs/UNSUPPORTED.md` for the table.
-- [ ] `bmod` (bus modulation) — needs audio-rate signal buses (`bus`/`busgain`),
-      which Rudel does not have. `subControl` (modulating a modulator) and `fxi`
-      (which link of an `FX` chain to target) are unhandled for the same reason
-      `FX` is: there is no explicit effect graph.
+- [ ] `bmod` (bus modulation) — **deferred**: needs audio-rate signal buses
+      (`bus`/`busgain`), which Rudel does not have. `subControl` (modulating a
+      modulator) and `fxi` (which link of an `FX` chain to target) are unhandled
+      for the same reason `FX` is: there is no explicit effect graph. Documented
+      in `docs/UNSUPPORTED.md`.
 - [x] `duckorbit`/`duckonset`/`duckattack`/`duckdepth` (sidechain ducking of one
       orbit by another), ported from superdough's `Orbit.duck`: a voice's
       `duckorbit` dips the *target* orbit's output gain to `1 - sqrt(depth)`
@@ -275,8 +311,10 @@ Function-by-function audit against the Strudel learn pages
       `early` + `keep_restart`), `seg` (alias for `segment`)
 - [x] `flux`/`fluxBy` (Strudel's aliases for `juxFlip`/`juxFlipBy`), bound as
       both methods and standalone callback combinators
-- [ ] `compressSpan`/`focusSpan`/`zoomArc` (would just duplicate the two-arg
-      `compress`/`focus`/`zoom` — no Koto span type)
+- [x] `compressSpan`/`focusSpan`/`zoomArc` — **unsupported by design**: upstream
+      these take a `TimeSpan` *object* and throw on a plain array, so they are
+      internal helpers, not user API. The user-facing two-arg
+      `compress`/`focus`/`zoom` are the equivalent surface.
 
 ## learn/signals
 
@@ -285,7 +323,10 @@ Function-by-function audit against the Strudel learn pages
 - [x] bipolar variants `saw2`/`square2`/`tri2`/`isaw2`/`sine2`/`cosine2`
 - [x] `mousex`/`mousey` (+ `mouseX`/`mouseY`): pointer position 0..1 across the
       app window, published to the input bus each frame by the egui app.
-- [ ] `envL`/`envLR`/`envEq`… (envelope signals)
+- [x] `envL`/`envLR`/`envEq`… (envelope signals) — **unsupported**: not defined
+      in the pinned Strudel checkout. `lfo`/`env` modulators, the per-effect
+      envelopes (`lpenv`/`penv`/`fmenv`/`wtenv`) and `range` over a signal cover
+      the same ground.
 
 ## learn/conditional-modifiers
 
@@ -329,9 +370,18 @@ Function-by-function audit against the Strudel learn pages
       generators) producing the same `Zone`/`Preset` types, so both formats
       share one playback path. `loadSoundfont`/`setSoundfontUrl`/
       `registerSoundfonts`/`.soundfont(name, n)` are bound.
-- [ ] soundfont zone envelopes: a zone's own ADSR/vibrato/pitch-envelope are
-      ignored in favour of Rudel's voice controls. Loading a `.sf2` over HTTP is
-      not wired up either (local paths only).
+- [x] soundfont envelopes and remote `.sf2`. Reading `fontloader.mjs` settled
+      the first half: upstream *also* drives a soundfont's envelope from the
+      user's `value.attack`/`decay`/… plus `getVibratoOscillator` /
+      `getPitchEnvelope`, not from the font's own SF2 generators — so Rudel's
+      behaviour was already parity, and the real gap was that its **sampler
+      voices had no vibrato or pitch envelope at all** (superdough applies both
+      to every sampler's `detune`, `sampler.mjs`). Extracted the synth's vibrato
+      + pitch-envelope logic into a shared `PitchMod` (`rudel-dsp/pitch.rs`) and
+      gave `SamplerVoice` the same, so `vib`/`vibmod`/`penv`/`p{adsr}`/`panchor`/
+      `pcurve` now shape samples, soundfonts and wavetables as they do synths.
+      `loadSoundfont` now also accepts an http(s) URL (`fetch_cached_bytes`,
+      factored out of the sample fetch path so both share the disk cache).
 - [x] `log`/`logValues`: the message is decided at build time (one of the two
       built-in formats, or a probe-and-baked string when a formatting callback
       is given) and carried as a `_log` control; the scheduler's shared event
@@ -353,7 +403,7 @@ Function-by-function audit against the Strudel learn pages
       registers it, so the call is synchronous), `clearScope` (a no-op returning
       silence: Rudel evaluates in a fresh VM, so no user scope accumulates), and
       the `dracula` editor theme.
-- [ ] `ifp`
+- [x] `ifp` — **unsupported**: not defined in the pinned Strudel checkout.
 
 ## learn/accumulation
 
@@ -397,7 +447,8 @@ Function-by-function audit against the Strudel learn pages
       (`timeCat`, `steps` = `pace`) and the deprecated `s_*` family (`s_cat`,
       `s_alt`, `s_polymeter`, `s_taper`, `s_add`, `s_sub`, `s_expand`,
       `s_extend`, `s_contract`, `s_tour`, `s_zip`).
-- [ ] `ncat` — not in the local Strudel clone, so no reference source to port
+- [x] `ncat` — **unsupported**: not defined in the pinned Strudel checkout.
+      `timecat`/`stepcat` cover weighted concatenation.
 
 ## learn/mini-notation (parser — parity-tested)
 

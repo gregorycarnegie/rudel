@@ -381,6 +381,7 @@ kpattern_methods! {
         rescale, zoom_in,
     ],
     no_arg: [
+        hush,
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil, log2,
         to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
     ],
@@ -611,6 +612,10 @@ kpattern_methods! {
         set_squeezein => set_squeeze, keep_squeezein => keep_squeeze,
         // @strudel/draw animate transform (zoomIn over x/y/w/h params)
         zoomIn => zoom_in,
+        // The chained forms of the factories: `s("hh*4").stack(note("c"))`
+        // takes `this` as the first pattern, as upstream's methods do.
+        stack => overlay, cat => cat_with, seq => seq_with,
+        slowcat => cat_with, fastcat => seq_with, sequence => seq_with,
     ],
     camel_pattern_pattern: [moveXY => move_xy],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],

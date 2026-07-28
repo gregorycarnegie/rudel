@@ -10,7 +10,8 @@ use mini::annotate_mini_offsets;
 use std::collections::BTreeMap;
 use syntax::{
     indent_dot_continuations, rewrite_arrow_functions, rewrite_const_declarations,
-    rewrite_string_method_chains, strip_line_comments,
+    rewrite_leading_dot_numbers, rewrite_strict_equality, rewrite_string_method_chains,
+    strip_await, strip_line_comments,
 };
 use widgets::rewrite_editor_widgets_with_context;
 
@@ -56,6 +57,9 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let (script, widgets, anchors) = rewrite_editor_widgets_with_context(script, node_offset, "");
     let (script, mini_locations) = annotate_mini_offsets(&script, node_offset, &anchors);
     let script = strip_line_comments(&script);
+    let script = rewrite_leading_dot_numbers(&script);
+    let script = rewrite_strict_equality(&script);
+    let script = strip_await(&script);
     let script = rewrite_arrow_functions(&script);
     let script = rewrite_const_declarations(&script);
     let script = rewrite_string_method_chains(&script);

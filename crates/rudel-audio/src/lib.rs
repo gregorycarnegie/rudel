@@ -24,9 +24,10 @@ pub use samples::SampleBank;
 pub use soundfont::{gm_names, set_soundfont_url, take_font_requests};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use fundsp::prelude32::{AudioUnit, reverb_stereo};
 use rudel_core::Pattern;
-use rudel_dsp::{DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig, VoiceLike};
+use rudel_dsp::{
+    Convolver, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig, VoiceLike,
+};
 use std::{
     collections::HashMap,
     sync::{
@@ -127,7 +128,7 @@ impl StereoDelay {
 struct OrbitBus {
     delay: StereoDelay,
     delay_cfg: DelayConfig,
-    reverb: Box<dyn AudioUnit>,
+    reverb: Convolver,
     reverb_cfg: ReverbConfig,
     /// Per-channel DJ filter; `None` until an event sets `djf`.
     djf: Option<(Djf, Djf)>,
@@ -152,8 +153,8 @@ impl OrbitBus {
         OrbitBus {
             delay: StereoDelay::new(sample_rate, send.delay_cfg),
             delay_cfg: send.delay_cfg,
-            reverb: build_reverb(sample_rate, send.reverb),
-            reverb_cfg: send.reverb,
+            reverb: build_reverb(sample_rate, &send.reverb),
+            reverb_cfg: send.reverb.clone(),
             djf: send
                 .djf
                 .map(|v| (Djf::new(sample_rate, v), Djf::new(sample_rate, v))),
@@ -175,8 +176,8 @@ impl OrbitBus {
     /// every note.
     fn configure(&mut self, send: &OrbitSend) {
         if send.reverb != self.reverb_cfg {
-            self.reverb = build_reverb(self.sample_rate, send.reverb);
-            self.reverb_cfg = send.reverb;
+            self.reverb = build_reverb(self.sample_rate, &send.reverb);
+            self.reverb_cfg = send.reverb.clone();
         }
         if send.delay_cfg != self.delay_cfg {
             self.delay.configure(send.delay_cfg);
@@ -247,10 +248,8 @@ impl OrbitBus {
 
         for (i, frame) in out.iter_mut().enumerate() {
             let (dl, dr) = self.delay.process(self.delay_l[i], self.delay_r[i]);
-            let mut rout = [0.0f32; 2];
-            self.reverb
-                .tick(&[self.room_l[i], self.room_r[i]], &mut rout);
-            let (mut l, mut r) = (self.dry_l[i] + dl + rout[0], self.dry_r[i] + dr + rout[1]);
+            let (rl, rr) = self.reverb.process(self.room_l[i], self.room_r[i]);
+            let (mut l, mut r) = (self.dry_l[i] + dl + rl, self.dry_r[i] + dr + rr);
             if let Some((fl, fr)) = &mut self.djf {
                 l = fl.process(l);
                 r = fr.process(r);
@@ -860,11 +859,12 @@ impl Engine {
 
     /// Start a background SoundFont (`.sf2`) load: read the file, parse its
     /// presets and register each one under `name` at its own index, so `n`
-    /// selects the preset.
+    /// selects the preset. `path` may be a local path (with `~` expansion) or
+    /// an http(s) URL, which is cached on disk like a sample pack.
     pub fn spawn_sf2(&self, path: String, name: String) -> JoinHandle<Result<usize, String>> {
         let bank = self.bank.clone();
         std::thread::spawn(move || {
-            let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+            let bytes = samples::fetch_cached_bytes(&path)?;
             let presets = sf2::parse(&bytes)?.into_presets();
             let count = presets.len();
             let mut bank = write_lock(&bank);
@@ -979,27 +979,34 @@ impl Drop for Engine {
     }
 }
 
-/// Build the global FDN reverb (fundsp), configured for the sample rate.
-fn build_reverb(sample_rate: f32, cfg: ReverbConfig) -> Box<dyn AudioUnit> {
-    // ponytail: a parametric FDN, not superdough's convolution against a
-    // generated noise impulse response. The upstream IR is literally
-    // `Math.random()` per sample (`reverbGen.mjs`), so there is no sample-exact
-    // target to hit; what matters for parity is that the *controls* do what
-    // they say. `roomsize` is the -60dB decay time either way, and the IR's
-    // gradual `roomlp` -> `roomdim` lowpass becomes the FDN's HF damping. The
-    // upgrade path, if `ir`/`iresponse` is ever wanted, is a partitioned FFT
-    // convolver — which would subsume this.
-    //
-    // `roomfade` (the IR's fade-in) has no FDN analogue and is accepted but
-    // ignored; it needs the convolver too.
-    let decay = cfg.size.max(0.01);
-    // Log-scaled so the defaults (lp 15000, dim 1000) land on 0.5 — the damping
-    // the fixed reverb used before — and more `roomdim` closing means more
-    // damping.
-    let damping = ((cfg.lp.max(1.0) / cfg.dim.max(1.0)).log2() / 8.0).clamp(0.0, 1.0);
-    let mut unit = Box::new(reverb_stereo(10.0, decay, damping));
-    unit.set_sample_rate(sample_rate as f64);
-    unit
+/// Build an orbit's convolution reverb, matching superdough's `createReverb`.
+///
+/// With no `ir`, the impulse response is the generated noise tail
+/// (`reverbGen.generateReverb`) shaped by `size`/`roomfade`/`roomlp`/`roomdim`;
+/// with one, the loaded sample is fitted to `size` by `adjustLength` using
+/// `irspeed`/`irbegin`.
+///
+// ponytail: the IR is generated and partitioned on the audio thread, as the
+// fundsp reverb it replaces was allocated there. It only happens when a reverb
+// parameter actually changes (guarded by `!=`), i.e. on an edit rather than per
+// note, but a very long `size` could still cost a buffer. Build it on the
+// background job queue and hand the finished convolver over if that ever bites.
+fn build_reverb(sample_rate: f32, cfg: &ReverbConfig) -> Convolver {
+    let size = cfg.size.max(0.001);
+    let ir = match &cfg.ir {
+        // A loaded impulse response: rudel decodes samples to mono, so the same
+        // buffer feeds both channels.
+        Some(sample) => rudel_dsp::adjust_length(
+            &sample.data,
+            &sample.data,
+            sample_rate,
+            size,
+            cfg.irspeed,
+            cfg.irbegin,
+        ),
+        None => rudel_dsp::generate_reverb_ir(sample_rate, size, cfg.fade, cfg.lp, cfg.dim),
+    };
+    Convolver::new(&ir, sample_rate)
 }
 
 /// Writes rendered mixer output frames into a target slice buffer for cpal playback.
@@ -1219,9 +1226,20 @@ mod tests {
 
     /// Render `secs` seconds of `pat` at `cps` and return the mono frames.
     fn render_pattern(pat: &Pattern, cps: f64, secs: f32) -> Vec<f32> {
+        render_pattern_with_bank(pat, cps, secs, SampleBank::new())
+    }
+
+    /// Like [`render_pattern`], but resolving sounds against `bank` (so a test
+    /// can supply an impulse response or a sample).
+    fn render_pattern_with_bank(
+        pat: &Pattern,
+        cps: f64,
+        secs: f32,
+        bank: SampleBank,
+    ) -> Vec<f32> {
         let (tx, rx) = mpsc::channel::<NoteEvent>();
         let mut mixer = test_mixer(rx);
-        for ev in collect_events(pat, cps, 0.0, 1.0, &SampleBank::new()) {
+        for ev in collect_events(pat, cps, 0.0, 1.0, &bank) {
             tx.send(ev).unwrap();
         }
         drop(tx);
@@ -1306,6 +1324,70 @@ mod tests {
         assert!(
             long > short * 2.0,
             "a 6s room ({long}) should ring far longer than a 0.3s room ({short})"
+        );
+    }
+
+    #[test]
+    fn roomfade_delays_the_onset_of_the_reverb_tail() {
+        // `roomfade` fades the impulse response in, so the wet signal builds
+        // gradually instead of arriving with the note. It was accepted but
+        // ignored while the reverb was an FDN.
+        let wet = |fade: f64| {
+            let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+                .room(rudel_core::Value::F64(1.0))
+                .dry(rudel_core::Value::F64(0.0))
+                .size(rudel_core::Value::F64(2.0))
+                .roomfade(rudel_core::Value::F64(fade));
+            render_pattern(&pat, 4.0, 2.0)
+        };
+        // Energy in the first 200ms of wet signal, past the convolver's own
+        // one-partition latency.
+        let early = |frames: &[f32]| {
+            let from = Convolver::LATENCY + 64;
+            frames[from..from + (44100.0 * 0.2) as usize]
+                .iter()
+                .map(|x| x.abs())
+                .sum::<f32>()
+        };
+        let sharp = early(&wet(0.0));
+        let faded = early(&wet(1.0));
+        assert!(
+            faded < sharp * 0.5,
+            "a 1s fade-in ({faded}) should suppress the early wet signal vs no fade ({sharp})"
+        );
+    }
+
+    #[test]
+    fn ir_uses_a_loaded_sample_as_the_impulse_response() {
+        // `ir`/`iresponse` convolves against a loaded sample instead of the
+        // generated noise tail. A single-spike IR makes the reverb a pure delay
+        // line, which is easy to spot.
+        let spike_at = 4410; // 0.1s at 44.1kHz
+        let mut data = vec![0.0f32; spike_at + 1];
+        data[spike_at] = 1.0;
+        let mut bank = SampleBank::new();
+        bank.register(
+            "spike",
+            Arc::new(rudel_dsp::Sample {
+                data,
+                sample_rate: 44100.0,
+            }),
+        );
+
+        let pat = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+            .room(rudel_core::Value::F64(1.0))
+            .dry(rudel_core::Value::F64(0.0))
+            .size(rudel_core::Value::F64(0.2))
+            .ctrl("ir", rudel_core::Value::Str("spike".into()));
+
+        let frames = render_pattern_with_bank(&pat, 4.0, 1.0, bank);
+        // The wet signal is the note delayed by the spike position, plus the
+        // convolver's own latency.
+        let want = (spike_at + Convolver::LATENCY) as f32 / 44100.0;
+        let got = peak_time(&frames, 0);
+        assert!(
+            (got - want).abs() < 0.02,
+            "the spike IR should place the wet signal at ~{want}s, got {got}s"
         );
     }
 

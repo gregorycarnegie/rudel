@@ -567,33 +567,44 @@ pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<Sample, String> {
     decode_sample_bytes(bytes.to_vec())
 }
 
+/// Fetch a binary file (http(s) URL or local path), caching HTTP responses on
+/// disk. Used for sample files and for `.sf2` SoundFonts, which are large
+/// enough to be worth fetching once per machine.
+pub(crate) fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
+    if !is_http(url) {
+        let path = expand_home(url);
+        return std::fs::read(&path).map_err(|e| format!("read {path}: {e}"));
+    }
+    let cache = cache_path(url);
+    if let Some(path) = &cache
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        return Ok(bytes);
+    }
+    use std::io::Read;
+    let resp = ureq::get(url)
+        .call()
+        .map_err(|e| format!("GET {url}: {e}"))?;
+    // `into_reader()` streams without the 10MB cap that `read_to_vec()` has.
+    let mut bytes = Vec::new();
+    resp.into_body()
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("read {url}: {e}"))?;
+    // Best-effort cache write; a failed write just re-downloads next time.
+    if let Some(path) = &cache
+        && let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_ok()
+    {
+        let _ = std::fs::write(path, &bytes);
+    }
+    Ok(bytes)
+}
+
 /// Fetch a single sample file (http(s) URL or local path) and decode it.
 fn fetch_and_decode(url: &str) -> Result<Sample, String> {
     if is_http(url) {
-        let cache = cache_path(url);
-        if let Some(path) = &cache
-            && let Ok(bytes) = std::fs::read(path)
-        {
-            return decode_sample_bytes(bytes);
-        }
-        use std::io::Read;
-        let resp = ureq::get(url)
-            .call()
-            .map_err(|e| format!("GET {url}: {e}"))?;
-        // `into_reader()` streams without the 10MB cap that `read_to_vec()` has.
-        let mut bytes = Vec::new();
-        resp.into_body()
-            .into_reader()
-            .read_to_end(&mut bytes)
-            .map_err(|e| format!("read {url}: {e}"))?;
-        // Best-effort cache write; a failed write just re-downloads next time.
-        if let Some(path) = &cache
-            && let Some(parent) = path.parent()
-            && std::fs::create_dir_all(parent).is_ok()
-        {
-            let _ = std::fs::write(path, &bytes);
-        }
-        decode_sample_bytes(bytes)
+        decode_sample_bytes(fetch_cached_bytes(url)?)
     } else {
         load_sample(Path::new(url))
     }

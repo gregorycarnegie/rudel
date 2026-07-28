@@ -431,3 +431,105 @@ proptest! {
         prop_assert_eq!(preprocess_strudel(&src), src);
     }
 }
+
+// --- JavaScript literal/operator conveniences ---------------------------------
+
+#[test]
+fn leading_dot_decimals_become_koto_numbers() {
+    // JS allows `.5`; Koto requires `0.5`. The dot starts a number only where a
+    // value cannot already be sitting to its left.
+    assert_eq!(preprocess_strudel("f(.5)"), "f(0.5)");
+    assert_eq!(preprocess_strudel("f(1, .25)"), "f(1, 0.25)");
+    assert_eq!(preprocess_strudel("x = -.5"), "x = -0.5");
+    assert_eq!(preprocess_strudel("f(a * .5)"), "f(a * 0.5)");
+    // Method access and ordinary decimals are untouched.
+    assert_eq!(preprocess_strudel("pat.fast(2)"), "pat.fast(2)");
+    assert_eq!(preprocess_strudel("f(1.5)"), "f(1.5)");
+    assert_eq!(preprocess_strudel("f(x).gain(1)"), "f(x).gain(1)");
+    assert_eq!(preprocess_strudel("f(l[0].gain)"), "f(l[0].gain)");
+    // Inside a string literal it is mini-notation, not code. (Strings get
+    // wrapped in `m(literal, offset)` for source-location tracking.)
+    assert_eq!(preprocess_strudel(r#"f(".5")"#), r#"f(m(".5", 3))"#);
+}
+
+#[test]
+fn strict_equality_becomes_kotos_equality() {
+    assert_eq!(preprocess_strudel("f(a === b)"), "f(a == b)");
+    assert_eq!(preprocess_strudel("f(a !== b)"), "f(a != b)");
+    // Already-Koto spellings and string contents are untouched.
+    assert_eq!(preprocess_strudel("f(a == b)"), "f(a == b)");
+    assert_eq!(preprocess_strudel(r#"f('a === b')"#), r#"f('a === b')"#);
+}
+
+#[test]
+fn await_is_stripped() {
+    // Rudel's `samples`/`midin`/`loadSoundfont` are synchronous host effects,
+    // so the keyword upstream needs is simply dropped.
+    assert_eq!(preprocess_strudel("x = await midin('a')"), "x = midin('a')");
+    assert_eq!(preprocess_strudel("await samples('a')"), "samples('a')");
+    // Identifiers that merely contain or end with `await` are left alone.
+    assert_eq!(preprocess_strudel("awaiting(1)"), "awaiting(1)");
+    assert_eq!(preprocess_strudel("x.await_(1)"), "x.await_(1)");
+    assert_eq!(preprocess_strudel(r#"f('await x')"#), r#"f('await x')"#);
+}
+
+#[test]
+fn js_conveniences_evaluate_end_to_end() {
+    // The combination a Strudel snippet actually arrives in.
+    let pat = eval(r#"s("hh!7 oh").filter(hap => hap.value.s === 'hh').gain(.8)"#)
+        .expect("filter + strict equality + leading-dot decimal");
+    let haps = pat.query_arc(Frac::new(0, 1), Frac::new(1, 1));
+    assert_eq!(haps.len(), 7, "only the `hh` haps survive the filter");
+
+    // `hap.hasTag(...)` reads as it does upstream.
+    let tagged = eval(r#"s("bd sd").tag('x').filter(hap => hap.hasTag('x'))"#)
+        .expect("hasTag on the marshalled hap");
+    assert_eq!(tagged.query_arc(Frac::new(0, 1), Frac::new(1, 1)).len(), 2);
+}
+
+#[test]
+fn chained_factory_methods_take_the_receiver_first() {
+    // Upstream installs `stack`/`cat`/`seq` as methods, with `this` as the
+    // first pattern.
+    let one = |src: &str| {
+        eval(src)
+            .unwrap()
+            .query_arc(Frac::new(0, 1), Frac::new(1, 1))
+            .len()
+    };
+    assert_eq!(one(r#"s("hh*4").stack(s("bd"))"#), 5);
+    assert_eq!(one(r#"s("hh*4").seq(s("bd"))"#), 5);
+    // `cat` alternates per cycle, so the first cycle is just the receiver.
+    assert_eq!(one(r#"s("hh*4").cat(s("bd"))"#), 4);
+    // `hush()` discards the pattern, which is how a stacked voice gets muted.
+    assert_eq!(one(r#"stack(s("bd").hush(), s("hh*3"))"#), 3);
+}
+
+#[test]
+fn every_control_has_a_standalone_factory() {
+    // Strudel's `registerControl` exports a top-level function as well as a
+    // method, so a control name must be callable on its own. (The factory takes
+    // structure from its own argument, as upstream's does — it is not the same
+    // pattern as the method form applied to something else.)
+    let values = |src: &str| -> Vec<String> {
+        eval(src)
+            .unwrap_or_else(|e| panic!("{src}: {e}"))
+            .query_arc(Frac::new(0, 1), Frac::new(1, 1))
+            .into_iter()
+            .map(|h| format!("{:?}", h.value))
+            .collect()
+    };
+    // Registry-generated: `speed` and `squiz` had no standalone form before.
+    assert_eq!(values(r#"speed("1 2")"#), ["{\"speed\": 1}", "{\"speed\": 2}"]);
+    assert_eq!(values(r#"squiz("2 4")"#), ["{\"squiz\": 2}", "{\"squiz\": 4}"]);
+    // Chaining onto a factory reaches the same controls as the method order.
+    let chained = values(r#"speed(2).s("bd")"#);
+    assert_eq!(chained.len(), 1);
+    assert!(chained[0].contains("speed"), "{chained:?}");
+    assert!(chained[0].contains("bd"), "{chained:?}");
+    // Hand-written prelude bindings still win over the generated ones.
+    assert!(eval(r#"note("c e g")"#).is_ok());
+    assert!(eval(r#"n("0 2 4")"#).is_ok());
+    // The list-valued additive controls got explicit factories.
+    assert!(eval(r#"s("saw").partials(partials([1, 1, 1]))"#).is_ok());
+}

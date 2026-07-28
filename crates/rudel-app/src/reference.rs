@@ -1,6 +1,7 @@
 /// Built-in synth waveforms + noise sources (always available as `s(...)`).
 pub(crate) const WAVEFORMS: &[&str] = &[
     "sine", "saw", "square", "triangle", "pulse", "user", "supersaw", "white", "pink", "brown",
+    "zzfx", "bytebeat",
 ];
 
 /// Built-in synthesized drum sounds (always available as `s(...)`).

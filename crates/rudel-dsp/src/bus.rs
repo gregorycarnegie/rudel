@@ -2,13 +2,14 @@
 //! a single voice.
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::sampler::Sample;
 use rudel_core::{Value, ValueMap};
-use std::f32::consts::PI;
+use std::{f32::consts::PI, sync::Arc};
 
 /// Per-orbit reverb settings. These are superdough's `createReverb` arguments
 /// (`roomsize`/`roomfade`/`roomlp`/`roomdim`), which it deliberately leaves
 /// `undefined` until the node is built so the defaults live in one place.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone)]
 pub struct ReverbConfig {
     /// `size`/`roomsize`: the -60dB decay time in seconds.
     pub size: f32,
@@ -18,16 +19,63 @@ pub struct ReverbConfig {
     pub lp: f32,
     /// `roomdim`: the IR's lowpass frequency at the end of the decay.
     pub dim: f32,
+    /// `ir`/`iresponse`: a loaded sample to convolve against instead of the
+    /// generated noise tail. Resolved against the sample bank by the audio
+    /// layer, which owns it; `None` uses the generated IR.
+    pub ir: Option<Arc<Sample>>,
+    /// `irspeed`: playback rate when reading the loaded impulse response.
+    pub irspeed: f32,
+    /// `irbegin`: where in the loaded impulse response to start, 0..1.
+    pub irbegin: f32,
+}
+
+/// Hand-written so the impulse response shows as its length rather than
+/// dumping every sample (`Sample` is deliberately not `Debug`).
+impl std::fmt::Debug for ReverbConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReverbConfig")
+            .field("size", &self.size)
+            .field("fade", &self.fade)
+            .field("lp", &self.lp)
+            .field("dim", &self.dim)
+            .field("ir", &self.ir.as_ref().map(|s| s.data.len()))
+            .field("irspeed", &self.irspeed)
+            .field("irbegin", &self.irbegin)
+            .finish()
+    }
+}
+
+/// Two configs are the same reverb when their numbers match and they point at
+/// the same impulse response — `Arc` identity, since a loaded sample is
+/// registered once and shared.
+impl PartialEq for ReverbConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size
+            && self.fade == other.fade
+            && self.lp == other.lp
+            && self.dim == other.dim
+            && self.irspeed == other.irspeed
+            && self.irbegin == other.irbegin
+            && match (&self.ir, &other.ir) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+    }
 }
 
 impl Default for ReverbConfig {
-    fn default() -> Self {
-        // `convolver.generate(d = 2, fade = 0.1, lp = 15000, dim = 1000)`.
+    /// `convolver.generate(d = 2, fade = 0.1, lp = 15000, dim = 1000)`, plus
+    /// superdough's `irspeed`/`irbegin` defaults.
+    fn default() -> ReverbConfig {
         ReverbConfig {
             size: 2.0,
             fade: 0.1,
             lp: 15000.0,
             dim: 1000.0,
+            ir: None,
+            irspeed: 1.0,
+            irbegin: 0.0,
         }
     }
 }
@@ -58,7 +106,7 @@ impl Default for DelayConfig {
 /// applies them to the orbit's shared nodes, so the most recent event to hit an
 /// orbit configures it (`getReverb`/`getDelay` only rebuild when a value
 /// actually changed). Rudel does the same, at voice onset.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct OrbitSend {
     /// Which orbit bus this voice feeds (`orbit`, default 1).
     pub orbit: i32,
@@ -109,6 +157,11 @@ impl OrbitSend {
                 fade: get("roomfade").unwrap_or(d.reverb.fade),
                 lp: get("roomlp").unwrap_or(d.reverb.lp),
                 dim: get("roomdim").unwrap_or(d.reverb.dim),
+                // The impulse response itself is a sample name, resolved by the
+                // audio layer (which owns the bank) after this call.
+                ir: None,
+                irspeed: get("irspeed").unwrap_or(d.reverb.irspeed),
+                irbegin: get("irbegin").unwrap_or(d.reverb.irbegin),
             },
             delay_cfg: DelayConfig {
                 time: get("delaytime").unwrap_or((delaysync as f64 / cps.max(1e-9)) as f32),

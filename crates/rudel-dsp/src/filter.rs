@@ -40,6 +40,9 @@ impl Biquad {
         b
     }
 
+    pub(crate) fn lowpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
+        Biquad::new(FilterKind::Low, sample_rate, cutoff, q)
+    }
     pub(crate) fn highpass(sample_rate: f32, cutoff: f32, q: f32) -> Biquad {
         Biquad::new(FilterKind::High, sample_rate, cutoff, q)
     }
@@ -53,6 +56,12 @@ impl Biquad {
     /// Recompute notch coefficients in place (used to sweep the phaser).
     pub(crate) fn set_notch(&mut self, sample_rate: f32, freq: f32, q: f32) {
         self.update(FilterKind::Notch, sample_rate, freq, q);
+    }
+
+    /// Recompute lowpass coefficients in place (used to sweep the reverb IR's
+    /// `roomlp` -> `roomdim` filter).
+    pub(crate) fn set_lowpass(&mut self, sample_rate: f32, freq: f32, q: f32) {
+        self.update(FilterKind::Low, sample_rate, freq, q);
     }
 
     /// Recompute the RBJ coefficients in place, preserving the filter state

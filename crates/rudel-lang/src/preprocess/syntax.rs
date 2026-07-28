@@ -250,3 +250,170 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
 
     if changed { out } else { src.to_string() }
 }
+
+/// Rewrite JavaScript's leading-dot decimal literals (`.5`, `-.25`) into the
+/// `0.`-prefixed form Koto requires, so Strudel snippets paste unchanged.
+///
+/// A dot starts a number only when what precedes it cannot be a value: after an
+/// operator, an opening bracket, a comma, or the start of the source. A dot
+/// following an identifier, a number, `)`, `]`, or a string is method access
+/// (`pat.fast`, `1.5`, `f(x).gain`) and is left alone. String literals and
+/// comments are skipped.
+pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    // The last emitted character that is not whitespace, which decides whether a
+    // `.` continues an expression or begins one.
+    let mut prev: Option<char> = None;
+    while i < chars.len() {
+        let (byte, c) = chars[i];
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
+            let end = skip_block_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
+            let end = skip_line_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            let end = skip_string(&chars, i, c);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            prev = Some(c);
+            continue;
+        }
+        if c == '.'
+            && chars.get(i + 1).map(|x| x.1).is_some_and(|d| d.is_ascii_digit())
+            && !prev.is_some_and(|p| p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.'))
+        {
+            out.push('0');
+        }
+        out.push(c);
+        if !c.is_whitespace() {
+            prev = Some(c);
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Strip JavaScript `await`. Strudel's async helpers (`samples`, `midin`,
+/// `loadSoundfont`) return promises the browser REPL awaits; Rudel's equivalents
+/// are synchronous host effects, so the keyword is simply dropped — the same
+/// reasoning as the unported `plugin-sample.mjs` `await`-injection pass, run in
+/// reverse. String literals and comments are skipped.
+pub(super) fn strip_await(src: &str) -> String {
+    if !src.contains("await") {
+        return src.to_string();
+    }
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    // Whether the previous emitted non-whitespace char could end an identifier,
+    // so `myawait` / `x.await` are not touched.
+    let mut prev: Option<char> = None;
+    while i < chars.len() {
+        let (byte, c) = chars[i];
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
+            let end = skip_block_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
+            let end = skip_line_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            let end = skip_string(&chars, i, c);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            prev = Some(c);
+            continue;
+        }
+        let is_word_boundary =
+            !prev.is_some_and(|p| p.is_alphanumeric() || p == '_' || p == '$' || p == '.');
+        if c == 'a' && is_word_boundary && src[byte..].starts_with("await") {
+            let after = chars.get(i + 5).map(|x| x.1);
+            if after.is_none_or(|a| a.is_whitespace() || a == '(') {
+                // Drop the keyword and the whitespace that separated it from
+                // the expression it wrapped.
+                i += 5;
+                while chars.get(i).is_some_and(|x| x.1 == ' ' || x.1 == '\t') {
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        out.push(c);
+        if !c.is_whitespace() {
+            prev = Some(c);
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Rewrite JavaScript's strict equality operators (`===`, `!==`) into the
+/// two-character forms Koto uses. Strudel's docs use them freely in callbacks
+/// (`hap => hap.value.s === 'hh'`); Koto's `==`/`!=` are already strict, so the
+/// rewrite is behaviour-preserving. String literals and comments are skipped.
+pub(super) fn rewrite_strict_equality(src: &str) -> String {
+    if !src.contains("===") && !src.contains("!==") {
+        return src.to_string();
+    }
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let (byte, c) = chars[i];
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
+            let end = skip_block_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
+            let end = skip_line_comment(&chars, i);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            let end = skip_string(&chars, i, c);
+            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
+            out.push_str(&src[byte..end_byte]);
+            i = end;
+            continue;
+        }
+        let three = |a: char, b: char, d: char| {
+            c == a
+                && chars.get(i + 1).map(|x| x.1) == Some(b)
+                && chars.get(i + 2).map(|x| x.1) == Some(d)
+        };
+        if three('=', '=', '=') || three('!', '=', '=') {
+            out.push(c);
+            out.push('=');
+            i += 3;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}

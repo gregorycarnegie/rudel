@@ -84,3 +84,63 @@ fn loop_plays_past_the_buffers_natural_length() {
         "should stop after the hold + release, not loop forever"
     );
 }
+
+#[test]
+fn vibrato_and_pitch_env_detune_a_sample() {
+    // superdough applies `getVibratoOscillator` / `getPitchEnvelope` to a
+    // sampler's `detune` just as it does to a synth's, so `vib`/`penv` must
+    // change how fast the buffer is read.
+    let sr = 44100.0;
+    let n = (sr * 2.0) as usize;
+    let data: Vec<f32> = (0..n).map(|i| i as f32 / n as f32).collect(); // a ramp
+    let sample = Arc::new(Sample {
+        data,
+        sample_rate: sr,
+    });
+
+    // How far into the buffer a voice has read after 0.5s, read off the ramp.
+    let read_position = |apply: &dyn Fn(&mut SamplerParams)| -> f32 {
+        let mut p = SamplerParams::new(sample.clone());
+        p.duration = 1.5;
+        apply(&mut p);
+        let mut v = SamplerVoice::new(p, sr);
+        let mut last = 0.0;
+        for _ in 0..(sr * 0.5) as usize {
+            last = v.tick().0;
+        }
+        last
+    };
+
+    let plain = read_position(&|_p| {});
+    assert!(plain > 0.0, "the ramp should be audible");
+
+    // A pitch envelope that starts an octave up and stays there (long attack)
+    // reads the buffer roughly twice as fast.
+    let up = read_position(&|p| {
+        p.pitch = PitchMod::new(
+            None,
+            0.0,
+            Some(12.0),   // penv: +12 semitones
+            Some(0.0),    // pattack
+            Some(0.0),    // pdecay
+            Some(1.0),    // psustain: hold at the top
+            None,
+            Some(0.0),    // panchor: 0 so the range is 0..+12
+            false,
+        );
+    });
+    assert!(
+        up > plain * 1.8 && up < plain * 2.2,
+        "an octave-up pitch envelope should read ~2x as far: {up} vs {plain}"
+    );
+
+    // Vibrato alone averages out over whole cycles, but it must move the read
+    // position somewhere other than exactly the unmodulated one.
+    let wobbled = read_position(&|p| {
+        p.pitch = PitchMod::new(Some(3.0), 7.0, None, None, None, None, None, None, false);
+    });
+    assert!(
+        (wobbled - plain).abs() > 1e-4,
+        "vibrato should perturb the read position: {wobbled} vs {plain}"
+    );
+}
