@@ -3610,6 +3610,7 @@ version = "0.6.0"
 dependencies = [
  "pest",
  "pest_derive",
+ "proptest",
  "rudel-core",
  "serde_json",
 ]
