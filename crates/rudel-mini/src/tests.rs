@@ -41,11 +41,10 @@ fn numbers_parse_as_numbers() {
 
 #[test]
 fn js_number_tokens() {
-    // mini.mjs classifies atoms with JS Number(): exponents, hex, bare
-    // dots all count; everything else stays a string.
-    assert_eq!(vals("1e3"), vec![Value::Int(1000)]);
-    assert_eq!(vals("0x10"), vec![Value::Int(16)]);
-    assert_eq!(vals(".5"), vec![Value::F64(0.5)]);
+    // Which spellings count as numbers is settled atom by atom in
+    // js_number_semantics_decide_which_atoms_are_numbers; what this checks is
+    // that the grammar hands the classifier whole tokens — a `.`, `-` or `~`
+    // inside a word must not split it.
     assert_eq!(vals("1."), vec![Value::Int(1)]);
     assert_eq!(vals("-3"), vec![Value::Int(-3)]);
     assert_eq!(vals("-x"), vec![Value::Str("-x".into())]);
@@ -291,5 +290,101 @@ fn install_hook_parses_strings_through_core() {
             assert_eq!(m.get("n"), Some(&Value::Int(3)));
         }
         other => panic!("expected map, got {other:?}"),
+    }
+}
+
+// --- gaps found by cargo-mutants -------------------------------------------
+
+/// JavaScript `Number()` semantics, atom by atom. The parity tests exercise
+/// plain integers, which leaves every other branch of the classifier free to
+/// be wrong: mutation testing replaced `is_js_decimal` with `true` and nothing
+/// noticed.
+#[test]
+fn js_number_semantics_decide_which_atoms_are_numbers() {
+    // Tagged, not compared as `Value`: `Value`'s PartialEq deliberately equates
+    // numbers across variants (`Int(3) == F64(3.0)`), so assert_eq! cannot see
+    // the Int/F64 split that `num_value` exists to make — and that split is
+    // load-bearing downstream, where rudel-osc encodes an Int as `i` and an F64
+    // as `f`. Mutation testing is what surfaced the blind spot.
+    fn tag(src: &str) -> String {
+        match crate::atom::atom_value(src) {
+            None => "rest".to_string(),
+            Some(Value::Int(n)) => format!("int {n}"),
+            Some(Value::F64(x)) => format!("f64 {x}"),
+            Some(Value::Str(s)) => format!("str {s}"),
+            Some(other) => format!("other {other:?}"),
+        }
+    }
+
+    assert_eq!(tag("~"), "rest");
+    assert_eq!(tag("-"), "rest");
+
+    // Decimals, including every exponent form JS accepts.
+    assert_eq!(tag("3"), "int 3");
+    assert_eq!(tag("3.5"), "f64 3.5");
+    assert_eq!(tag(".5"), "f64 0.5");
+    assert_eq!(tag("-2.5"), "f64 -2.5");
+    assert_eq!(tag("1e3"), "int 1000");
+    assert_eq!(tag("1E3"), "int 1000");
+    assert_eq!(tag("1e+3"), "int 1000");
+    assert_eq!(tag("1e-3"), "f64 0.001");
+
+    // ...and the near-misses it rejects, which stay strings.
+    assert_eq!(tag("1e"), "str 1e");
+    assert_eq!(tag("."), "str .");
+    assert_eq!(tag("1.2.3"), "str 1.2.3");
+    assert_eq!(tag("bd"), "str bd");
+
+    // Rust's f64 parser accepts these spellings and JS's `Number()` does not,
+    // which is the whole reason the literal is validated before parsing.
+    assert_eq!(tag("inf"), "str inf");
+    assert_eq!(tag("nan"), "str nan");
+    assert_eq!(tag("NaN"), "str NaN");
+    assert_eq!(tag("Infinity"), "f64 inf");
+    assert_eq!(tag("-Infinity"), "f64 -inf");
+
+    // Radix literals in both letter cases; JS rejects a signed one.
+    assert_eq!(tag("0x1f"), "int 31");
+    assert_eq!(tag("0X1f"), "int 31");
+    assert_eq!(tag("0b101"), "int 5");
+    assert_eq!(tag("0B101"), "int 5");
+    assert_eq!(tag("0o17"), "int 15");
+    assert_eq!(tag("0O17"), "int 15");
+    assert_eq!(tag("-0x10"), "str -0x10");
+
+    // A whole float collapses to `Int` only below 2^53, where i64 is exact.
+    assert_eq!(tag("9007199254740991"), "int 9007199254740991");
+    assert_eq!(tag("9007199254740992"), "f64 9007199254740992");
+}
+
+/// Ops inside a euclid argument are discarded — `mini.mjs` enters the slice
+/// and throws the ops away — but the parser still walks them for their random
+/// seeds. Skip that bookkeeping and every later `?` in the pattern silently
+/// draws a different seed.
+#[test]
+fn discarded_ops_inside_euclid_args_still_consume_seeds() {
+    fn rows(src: &str) -> Vec<String> {
+        let pat = parse(src).expect("parse");
+        let mut rows: Vec<String> = pat
+            .query_arc(Frac::zero(), Frac::int(8))
+            .iter()
+            .map(|h| format!("{:?}|{:?}", h.part.begin, h.value))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    // Each pair plays the same notes; only the seed the trailing `?` draws
+    // differs, because the op inside the euclid argument consumed one first.
+    for (with_op, without) in [
+        ("bd(3?,8) sd?", "bd(3,8) sd?"),
+        ("bd(3*[2?],8) sd?", "bd(3*[2],8) sd?"),
+        ("bd(3(2?,4),8) sd?", "bd(3(2,4),8) sd?"),
+    ] {
+        assert_ne!(
+            rows(with_op),
+            rows(without),
+            "{with_op} and {without} must not draw the same seeds"
+        );
     }
 }

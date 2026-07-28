@@ -1,3 +1,6 @@
 /target
 /strudel
 .vscode/
+# cargo-mutants run output
+/mutants.out
+/mutants.out.old
