@@ -858,5 +858,10 @@ pub(super) fn kpattern_visual_widget(ctx: MethodContext<KPattern>) -> KotoResult
     let Some(id) = arg_to_raw_str(&method_arg(&ctx, 0)) else {
         return Ok(KPattern::wrap(pat));
     };
+    // The transpiler passes the call's original option map through as the
+    // second argument, so by now Koto has evaluated it — a computed
+    // `{cycles: n}` is a real number here, where the source scan could only
+    // read literals. Record it for the host to merge over the scanned options.
+    crate::widgets::record_options(&id, crate::widgets::options_from_koto(&method_arg(&ctx, 1)));
     Ok(KPattern::wrap(pat.tag(id)))
 }

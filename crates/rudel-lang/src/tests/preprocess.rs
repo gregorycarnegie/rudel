@@ -520,8 +520,14 @@ fn every_control_has_a_standalone_factory() {
             .collect()
     };
     // Registry-generated: `speed` and `squiz` had no standalone form before.
-    assert_eq!(values(r#"speed("1 2")"#), ["{\"speed\": 1}", "{\"speed\": 2}"]);
-    assert_eq!(values(r#"squiz("2 4")"#), ["{\"squiz\": 2}", "{\"squiz\": 4}"]);
+    assert_eq!(
+        values(r#"speed("1 2")"#),
+        ["{\"speed\": 1}", "{\"speed\": 2}"]
+    );
+    assert_eq!(
+        values(r#"squiz("2 4")"#),
+        ["{\"squiz\": 2}", "{\"squiz\": 4}"]
+    );
     // Chaining onto a factory reaches the same controls as the method order.
     let chained = values(r#"speed(2).s("bd")"#);
     assert_eq!(chained.len(), 1);
@@ -532,4 +538,62 @@ fn every_control_has_a_standalone_factory() {
     assert!(eval(r#"n("0 2 4")"#).is_ok());
     // The list-valued additive controls got explicit factories.
     assert!(eval(r#"s("saw").partials(partials([1, 1, 1]))"#).is_ok());
+}
+
+#[test]
+fn computed_widget_options_reach_the_widget_config() {
+    use crate::WidgetOption;
+
+    // The source scan can only read literals, so a computed option is absent
+    // from the preprocess metadata...
+    let script = "let n = 2 * 4\nnote(\"c\")._pianoroll({ cycles: n, vertical: true })";
+    let scanned = &preprocess_strudel_with_meta(script).meta.widgets[0];
+    assert!(!scanned.options.contains_key("cycles"));
+    // ...while a literal alongside it is picked up as before.
+    assert_eq!(
+        scanned.options.get("vertical"),
+        Some(&WidgetOption::Bool(true))
+    );
+
+    // Running the script fills it in: the transpiler passes the option map
+    // through to the widget method, which records what Koto evaluated.
+    let widget = &crate::eval_result(script).expect("eval").meta.widgets[0];
+    assert_eq!(
+        widget.options.get("cycles"),
+        Some(&WidgetOption::Number(8.0))
+    );
+    assert_eq!(
+        widget.options.get("vertical"),
+        Some(&WidgetOption::Bool(true))
+    );
+
+    // Strings and per-widget isolation both survive the round trip.
+    let two = crate::eval_result(
+        "let shape = 'polygon'\nstack(note(\"c\")._pitchwheel({ mode: shape }), note(\"d\")._spiral())",
+    )
+    .expect("eval");
+    let wheel = two
+        .meta
+        .widgets
+        .iter()
+        .find(|w| w.widget_type == "_pitchwheel")
+        .expect("pitchwheel widget");
+    assert_eq!(
+        wheel.options.get("mode"),
+        Some(&WidgetOption::String("polygon".to_string()))
+    );
+    let spiral = two
+        .meta
+        .widgets
+        .iter()
+        .find(|w| w.widget_type == "_spiral")
+        .expect("spiral widget");
+    assert!(
+        spiral.options.is_empty(),
+        "options must not leak between widgets"
+    );
+
+    // A previous evaluation's options do not survive into the next one.
+    let plain = crate::eval_result(r#"note("c")._pianoroll()"#).expect("eval");
+    assert!(plain.meta.widgets[0].options.is_empty());
 }

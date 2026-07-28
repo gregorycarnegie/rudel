@@ -8,6 +8,7 @@ mod preprocess;
 mod samples;
 mod sliders;
 pub mod triggers;
+mod widgets;
 
 use koto::prelude::*;
 use rudel_core::Pattern;
@@ -197,7 +198,7 @@ fn eval_result_with_preprocessor(
         mini_locations,
         widgets,
     } = preprocessed.meta;
-    let meta = EvalMeta {
+    let mut meta = EvalMeta {
         mini_locations,
         widgets: widgets
             .into_iter()
@@ -220,8 +221,19 @@ fn eval_result_with_preprocessor(
     // they don't leak into this one (Strudel calls `hush()` at eval start).
     reset_slots();
     triggers::reset_hooks();
+    widgets::reset_options();
     let chunk = koto.compile(&script).map_err(|e| e.to_string())?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
+    // Fold in the options the widget calls actually evaluated to. The source
+    // scan above could only read literals, so this is what makes a computed
+    // option (`.pianoroll({cycles: n})`) reach the painter. Evaluated values
+    // win over scanned ones, which agree anyway wherever the option was a
+    // literal.
+    for widget in &mut meta.widgets {
+        if let Some(evaluated) = widgets::recorded_options(&widget.id) {
+            widget.options.extend(evaluated);
+        }
+    }
     let effects = std::mem::take(&mut *effects.lock().unwrap());
     // Combine the script's pattern with any registered slots/labels and the
     // `each`/`all` transforms, mirroring Strudel's `applyPatternTransforms`:

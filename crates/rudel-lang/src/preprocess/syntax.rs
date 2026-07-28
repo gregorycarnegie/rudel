@@ -291,8 +291,12 @@ pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
             continue;
         }
         if c == '.'
-            && chars.get(i + 1).map(|x| x.1).is_some_and(|d| d.is_ascii_digit())
-            && !prev.is_some_and(|p| p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.'))
+            && chars
+                .get(i + 1)
+                .map(|x| x.1)
+                .is_some_and(|d| d.is_ascii_digit())
+            && !prev
+                .is_some_and(|p| p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.'))
         {
             out.push('0');
         }
