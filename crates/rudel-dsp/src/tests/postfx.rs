@@ -29,11 +29,8 @@ fn vowel_formant_shapes_noise() {
     };
     assert!(fx.is_active());
     let mut v = PostFxVoice::new(voice, fx, 44100.0);
-    let mut peak = 0.0f32;
-    for _ in 0..4000 {
-        peak = peak.max(v.tick().0.abs());
-    }
-    assert!(peak > 0.0, "vowel formant should pass some signal");
+    let out: Vec<f32> = (0..4000).map(|_| v.tick().0).collect();
+    assert_is_signal(&out, "white noise through the \"a\" formant");
 }
 
 #[test]

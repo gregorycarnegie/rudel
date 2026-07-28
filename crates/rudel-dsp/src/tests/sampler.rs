@@ -13,13 +13,13 @@ fn sampler_plays_a_buffer_then_finishes() {
         sample_rate: sr,
     });
     let mut v = SamplerVoice::new(SamplerParams::new(sample), sr);
-    let mut peak = 0.0f32;
+    let mut out = Vec::new();
     let mut frames = 0;
     while !v.is_done() && frames < 44100 {
-        peak = peak.max(v.tick().0.abs());
+        out.push(v.tick().0);
         frames += 1;
     }
-    assert!(peak > 0.0, "sampler should produce output");
+    assert_is_signal(&out, "sampler playing a 200 Hz sine");
     assert!(v.is_done(), "sampler should finish at the buffer end");
     assert!(frames < 44100, "sampler should not run forever");
 }
