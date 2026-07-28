@@ -167,20 +167,32 @@ pub fn collect_events(
     end_cycle: f64,
     bank: &SampleBank,
 ) -> Vec<NoteEvent> {
-    collect_events_at(pattern, &Clock::new(cps), begin_cycle, end_cycle, bank)
+    collect_events_at(pattern, &Clock::new(cps), begin_cycle, end_cycle, bank).0
 }
 
 /// Like [`collect_events`], but maps each onset cycle to a trigger time through
 /// `clock`, so an event's seconds honor the clock's current cps anchor. The
 /// scheduler uses this so onsets stay correct after a live cps change.
+///
+/// Also reports the tempo an event in this window asks the transport to take
+/// on — cyclist reads `hap.value.cps` off the query stream the same way, so
+/// `.cps("<0.5 1>")` retunes the transport mid-pattern. The last onset carrying
+/// a usable `cps` wins (upstream applies each in turn, so the last one stands),
+/// and it is the *scheduler's* to act on, not the mixer's: the events here were
+/// already timed against the current clock.
 pub fn collect_events_at(
     pattern: &Pattern,
     clock: &Clock,
     begin_cycle: f64,
     end_cycle: f64,
     bank: &SampleBank,
-) -> Vec<NoteEvent> {
-    query_controls(pattern, clock.cps(), begin_cycle, end_cycle)
+) -> (Vec<NoteEvent>, Option<f64>) {
+    let control_events = query_controls(pattern, clock.cps(), begin_cycle, end_cycle);
+    let cps_change = control_events
+        .iter()
+        .filter_map(|ev| ev.controls.get("cps").and_then(|v| v.as_f64()))
+        .rfind(|cps| cps.is_finite() && *cps > 0.0);
+    let events = control_events
         .into_iter()
         .map(|ev| {
             let spec = spec_for(
@@ -225,7 +237,8 @@ pub fn collect_events_at(
                 tags: ev.tags,
             }
         })
-        .collect()
+        .collect();
+    (events, cps_change)
 }
 
 #[cfg(test)]
@@ -251,6 +264,32 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!((events[0].onset_seconds - 0.0).abs() < 1e-9);
         assert!((events[1].onset_seconds - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_cps_control_is_reported_as_a_tempo_change() {
+        let bank = SampleBank::new();
+        let clock = Clock::new(1.0);
+        let collect = |pat: &Pattern, b, e| collect_events_at(pat, &clock, b, e, &bank).1;
+
+        // No `cps` anywhere -> nothing for the scheduler to do.
+        assert_eq!(collect(&seq3(), 0.0, 1.0), None);
+
+        // A hap carrying `cps` reports it. `.cps("<0.5 2>")` alternates, so each
+        // cycle reports its own value rather than the value at eval time.
+        let pat = s(pure(Value::Str("bd".into()))).ctrl("cps", Value::F64(0.25));
+        assert_eq!(collect(&pat, 0.0, 1.0), Some(0.25));
+
+        // Last onset in the window wins, matching cyclist applying each in turn.
+        let alternating = sequence(&[
+            s(pure(Value::Str("bd".into()))).ctrl("cps", Value::F64(0.25)),
+            s(pure(Value::Str("sd".into()))).ctrl("cps", Value::F64(2.0)),
+        ]);
+        assert_eq!(collect(&alternating, 0.0, 1.0), Some(2.0));
+
+        // A rate that cannot drive a clock is ignored rather than stopping time.
+        let zero = s(pure(Value::Str("bd".into()))).ctrl("cps", Value::F64(0.0));
+        assert_eq!(collect(&zero, 0.0, 1.0), None);
     }
 
     #[test]

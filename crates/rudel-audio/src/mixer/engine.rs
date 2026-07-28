@@ -321,10 +321,22 @@ fn scheduler_loop(
         {
             let pat = read_lock(&pattern).clone();
             let bank = read_lock(&bank);
-            for ev in collect_events_at(&pat, &clock_now, begin_cycle, target_cycle, &bank) {
+            let (events, cps_change) =
+                collect_events_at(&pat, &clock_now, begin_cycle, target_cycle, &bank);
+            for ev in events {
                 let _ = tx.send(ev);
             }
             scheduled_cycle = target_cycle;
+
+            // A hap's `cps` control retunes the transport (cyclist reads
+            // `hap.value.cps` the same way). It takes effect from the end of
+            // the window it appeared in: the events just sent keep the timing
+            // they were given, and the new rate starts exactly where scheduling
+            // resumes, so the cycle counter stays continuous. `set_cps` no-ops
+            // on an unchanged or invalid rate.
+            if let Some(cps) = cps_change {
+                lock_mutex(&clock).set_cps(clock_now.seconds_at(target_cycle), cps);
+            }
         }
         std::thread::sleep(Duration::from_millis(20));
     }

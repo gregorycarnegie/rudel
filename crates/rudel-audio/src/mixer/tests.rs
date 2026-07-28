@@ -862,3 +862,43 @@ fn live_cps_change_does_not_double_schedule_or_jump() {
         next_schedule_window(scheduled, clock.cycle_at(10.2), clock.cycle_at(10.3)).unwrap();
     assert!((begin - scheduled).abs() < 1e-9);
 }
+
+#[test]
+fn a_pattern_cps_control_retunes_the_transport_from_the_window_end() {
+    // Replicates one pass of the scheduler loop: query a window, then apply the
+    // `cps` an event in it asked for. The change lands at the *end* of the
+    // window just scheduled, so already-dispatched onsets keep their timing and
+    // the cycle counter is continuous into the next window.
+    let bank = SampleBank::new();
+    let pat = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("bd".into())))
+        .ctrl("cps", rudel_core::Value::F64(2.0));
+
+    let mut clock = Clock::new(1.0);
+    let (now, lookahead) = (10.0, 0.1);
+    let target_cycle = clock.cycle_at(now + lookahead);
+    let (events, cps_change) = crate::collect_events_at(&pat, &clock, 10.0, target_cycle, &bank);
+    assert_eq!(cps_change, Some(2.0));
+    // The onset was timed against the old clock and is already on its way.
+    let onset = events[0].onset_seconds;
+
+    clock.set_cps(clock.seconds_at(target_cycle), 2.0);
+    // Nothing already scheduled moved, and the cycle counter did not jump:
+    // cycle 10.1 still falls at t=10.1s, where the old clock put it.
+    assert!((clock.seconds_at(target_cycle) - 10.1).abs() < 1e-9);
+    assert!((onset - 10.0).abs() < 1e-9);
+    // From there time runs at the new rate: +1s is now +2 cycles, not +1.
+    assert!((clock.cycle_at(11.1) - (target_cycle + 2.0)).abs() < 1e-9);
+    // And the next pass (20ms later) continues from the cursor rather than
+    // re-covering it or skipping ahead.
+    let next = now + 0.02;
+    let (begin, end) = next_schedule_window(
+        target_cycle,
+        clock.cycle_at(next),
+        clock.cycle_at(next + lookahead),
+    )
+    .unwrap();
+    assert!((begin - target_cycle).abs() < 1e-9);
+    // The window now covers twice the cycles per second of wall time.
+    assert!((end - clock.cycle_at(next + lookahead)).abs() < 1e-9);
+    assert!(end > begin);
+}
