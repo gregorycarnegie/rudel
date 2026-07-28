@@ -817,7 +817,10 @@ mod tests {
             .map(|h| h.value.as_f64().unwrap() as i32)
             .collect();
         vals.sort();
-        assert_eq!(vals, chord_notes("g7").unwrap());
+        // Spelled out, not compared against chord_notes: both sides of that
+        // comparison route through the same function, so it holds however
+        // wrong the function is.
+        assert_eq!(vals, vec![55, 59, 62, 65]); // G B D F (G7 from g3)
     }
 
     #[test]
