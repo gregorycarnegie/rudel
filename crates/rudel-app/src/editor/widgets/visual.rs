@@ -39,7 +39,7 @@ pub(super) fn paint_pattern_widget(
     match widget.widget_type.as_str() {
         "_pianoroll" | "_punchcard" => {
             let haps = widget_haps(pattern, widget, options.window(time));
-            paint_pianoroll(ui, rect, &haps, time, colors, options);
+            paint_pianoroll(ui, rect, &widget.id, &haps, time, colors, options);
             true
         }
         "_wordfall" => {
@@ -47,6 +47,7 @@ pub(super) fn paint_pattern_widget(
             paint_pianoroll(
                 ui,
                 rect,
+                &widget.id,
                 &haps,
                 time,
                 colors,

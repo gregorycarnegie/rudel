@@ -6,6 +6,19 @@ use super::{
 };
 use eframe::egui;
 use rudel_core::{Frac, Hap, Value};
+use std::sync::{Arc, Mutex};
+
+/// Blocks kept for `smear`, and the draw time they were last added at.
+/// ponytail: a flat cap on the trail; a ring buffer only matters if a very
+/// long session makes the redraw cost show up.
+#[derive(Default)]
+pub(super) struct SmearTrail {
+    blocks: Vec<(egui::Rect, egui::Color32)>,
+    last_time: f64,
+}
+
+/// Most smeared blocks kept before the oldest are dropped.
+const MAX_SMEAR_BLOCKS: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum RollValue {
@@ -16,12 +29,42 @@ pub(super) enum RollValue {
 pub(super) fn paint_pianoroll(
     ui: &egui::Ui,
     rect: egui::Rect,
+    widget_id: &str,
     haps: &[Hap],
     time: f64,
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,
 ) {
-    let painter = ui.painter();
+    // Clip to the widget, the way a canvas clips. The note blocks are already
+    // intersected with `rect` below, but a label drawn inside a block that
+    // reaches the edge is not, and would otherwise run over the editor.
+    let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
+
+    // `smear`: Strudel skips the canvas clear, so drawn notes stay put and
+    // build up a solid trace. egui repaints from scratch every frame, so the
+    // blocks are remembered and redrawn underneath the current ones. They are
+    // only recorded when the draw time actually advanced, so a paused
+    // transport does not restack the same blocks forever.
+    let trail: Arc<Mutex<SmearTrail>> = ui.data_mut(|d| {
+        d.get_temp_mut_or_default::<Arc<Mutex<SmearTrail>>>(egui::Id::new((
+            "rudel-pianoroll-smear",
+            widget_id,
+        )))
+        .clone()
+    });
+    let mut trail = trail.lock().unwrap();
+    let smear = options.smear > 0.0;
+    if smear {
+        for (block, color) in &trail.blocks {
+            painter.rect_filled(*block, 1.5, *color);
+        }
+    } else if !trail.blocks.is_empty() {
+        trail.blocks.clear();
+    }
+    let record = smear && time > trail.last_time;
+    if record {
+        trail.last_time = time;
+    }
     let mut haps = haps
         .iter()
         .filter(|hap| {
@@ -98,6 +141,12 @@ pub(super) fn paint_pianoroll(
         let fill = (!active && options.fill) || (active && options.fill_active);
         if fill {
             painter.rect_filled(block, 1.5, color);
+            if record {
+                if trail.blocks.len() >= MAX_SMEAR_BLOCKS {
+                    trail.blocks.remove(0);
+                }
+                trail.blocks.push((block, color));
+            }
         }
         let stroke = options.stroke.unwrap_or(options.stroke_active && active);
         if stroke {

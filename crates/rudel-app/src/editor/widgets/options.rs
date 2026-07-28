@@ -25,6 +25,11 @@ impl DrawWindow {
 pub(super) struct VisualWidgetOptions {
     pub(super) cycles: f64,
     pub(super) playhead: f64,
+    /// Extra cycles queried on each side of the visible window, so notes that
+    /// began before it (or begin just after) are already in hand — Strudel's
+    /// `lookbehind: from - overscan` / `lookahead: to + overscan`. It widens
+    /// the query only; the painter's geometry still spans `cycles`.
+    pub(super) overscan: f64,
     pub(super) vertical: bool,
     pub(super) labels: bool,
     pub(super) flip_time: bool,
@@ -53,6 +58,7 @@ pub(super) struct VisualWidgetOptions {
     pub(super) inset: f32,
     pub(super) playhead_length: f32,
     pub(super) playhead_thickness: Option<f32>,
+    pub(super) spiral_cap: super::spiral::SpiralCap,
     pub(super) padding: f32,
     pub(super) steady: f32,
     pub(super) colorize_spiral_inactive: bool,
@@ -89,6 +95,7 @@ impl VisualWidgetOptions {
         .max(0.001);
         Self {
             cycles: option_f64(options, "cycles").unwrap_or(4.0).max(0.001),
+            overscan: option_f64(options, "overscan").unwrap_or(0.0).max(0.0),
             playhead: option_f64(options, "playhead")
                 .unwrap_or(0.5)
                 .clamp(0.0, 1.0),
@@ -120,6 +127,11 @@ impl VisualWidgetOptions {
             inset: option_f32(options, "inset").unwrap_or(3.0),
             playhead_length: option_f32(options, "playheadLength").unwrap_or(0.02),
             playhead_thickness: option_f32(options, "playheadThickness"),
+            spiral_cap: options
+                .get("cap")
+                .and_then(rudel_lang::WidgetOption::as_str)
+                .map(super::spiral::SpiralCap::from_name)
+                .unwrap_or_default(),
             padding: option_f32(options, "padding").unwrap_or(0.0),
             steady: option_f32(options, "steady").unwrap_or(1.0),
             colorize_spiral_inactive: option_bool(options, "colorizeInactive").unwrap_or(false),
@@ -164,8 +176,8 @@ impl VisualWidgetOptions {
         let from = -self.cycles * self.playhead;
         let to = self.cycles * (1.0 - self.playhead);
         DrawWindow {
-            begin: time + from,
-            end: time + to,
+            begin: time + from - self.overscan,
+            end: time + to + self.overscan,
         }
     }
 }

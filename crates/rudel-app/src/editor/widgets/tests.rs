@@ -364,3 +364,78 @@ fn resolves_css_named_colors_and_hex() {
     // unrecognized names fall back to None (caller uses the theme color)
     assert_eq!(resolve_color("notacolor"), None);
 }
+
+#[test]
+fn overscan_widens_the_query_window_only() {
+    // Strudel widens `lookbehind`/`lookahead` by overscan while the drawn
+    // frame still spans `cycles`, so the geometry must not move.
+    let plain = VisualWidgetOptions::from_widget(&widget_with_options(
+        "_pianoroll",
+        &[("cycles", rudel_lang::WidgetOption::Number(4.0))],
+    ));
+    let scanned = VisualWidgetOptions::from_widget(&widget_with_options(
+        "_pianoroll",
+        &[
+            ("cycles", rudel_lang::WidgetOption::Number(4.0)),
+            ("overscan", rudel_lang::WidgetOption::Number(1.0)),
+        ],
+    ));
+    assert_eq!(plain.overscan, 0.0, "overscan defaults to 0 like upstream");
+    assert_eq!(scanned.overscan, 1.0);
+
+    let (plain, scanned) = (plain.window(10.0), scanned.window(10.0));
+    // cycles=4, playhead=0.5 -> [8, 12], widened by 1 on each side.
+    assert_eq!((plain.begin, plain.end), (8.0, 12.0));
+    assert_eq!((scanned.begin, scanned.end), (7.0, 13.0));
+}
+
+#[test]
+fn spiral_cap_follows_the_canvas_line_cap_names() {
+    use crate::editor::widgets::spiral::SpiralCap;
+    let cap = |name: &str| {
+        VisualWidgetOptions::from_widget(&widget_with_options(
+            "_spiral",
+            &[("cap", rudel_lang::WidgetOption::String(name.to_string()))],
+        ))
+        .spiral_cap
+    };
+    assert_eq!(cap("round"), SpiralCap::Round);
+    assert_eq!(cap("square"), SpiralCap::Square);
+    assert_eq!(cap("butt"), SpiralCap::Butt);
+    // Upstream's default is butt, and an unknown name falls back to it.
+    assert_eq!(cap("nonsense"), SpiralCap::Butt);
+    assert_eq!(
+        VisualWidgetOptions::from_widget(&widget("_spiral", "s", 0, 1)).spiral_cap,
+        SpiralCap::Butt
+    );
+}
+
+#[test]
+fn pitchwheel_interval_labels_index_by_degree_position() {
+    use crate::editor::widgets::pitchwheel::degree_label;
+
+    // `intLabels` is indexed by the degree's position within `degreeIndexes`,
+    // not by the ring degree itself (upstream's `degreeIndexes.indexOf(i)`).
+    let degrees = Some(vec![0, 2, 4, 5, 7, 9, 11]);
+    let labels = Some(vec![
+        "1".to_string(),
+        "2".to_string(),
+        "3".to_string(),
+        "4".to_string(),
+        "5".to_string(),
+        "6".to_string(),
+        "7".to_string(),
+    ]);
+    assert_eq!(degree_label(&degrees, &labels, 0).as_deref(), Some("1"));
+    assert_eq!(degree_label(&degrees, &labels, 4).as_deref(), Some("3"));
+    assert_eq!(degree_label(&degrees, &labels, 11).as_deref(), Some("7"));
+    // A degree outside the scale has no label.
+    assert_eq!(degree_label(&degrees, &labels, 1), None);
+    // Missing or empty data is skipped rather than drawn blank.
+    assert_eq!(degree_label(&degrees, &None, 0), None);
+    assert_eq!(degree_label(&None, &labels, 0), None);
+    assert_eq!(
+        degree_label(&Some(vec![0]), &Some(vec![String::new()]), 0),
+        None
+    );
+}

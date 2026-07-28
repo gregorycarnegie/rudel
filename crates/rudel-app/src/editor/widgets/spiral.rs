@@ -14,7 +14,10 @@ pub(super) fn paint_spiral(
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,
 ) {
-    let painter = ui.painter();
+    // Clip to the widget, the way a canvas clips: with `overscan` (and any
+    // note that began before the window) a hap's geometry can extend past
+    // the rect, and an unclipped painter would draw it over the editor.
+    let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
     let size = options.spiral_size;
     let stretch = options.stretch;
     let margin = size / stretch;
@@ -48,7 +51,7 @@ pub(super) fn paint_spiral(
             1.0
         };
         paint_spiral_segment(
-            painter,
+            &painter,
             rect.center(),
             SpiralSegment {
                 from,
@@ -58,12 +61,13 @@ pub(super) fn paint_spiral(
                 stretch,
                 thickness,
                 color: color_with_alpha(base, opacity * event_alpha(hap)),
+                cap: options.spiral_cap,
             },
         );
     }
 
     paint_spiral_segment(
-        painter,
+        &painter,
         rect.center(),
         SpiralSegment {
             from: inset - options.playhead_length,
@@ -73,6 +77,7 @@ pub(super) fn paint_spiral(
             stretch,
             thickness: options.playhead_thickness.unwrap_or(thickness),
             color: options.playhead_color.unwrap_or(colors.active),
+            cap: options.spiral_cap,
         },
     );
 }
@@ -86,6 +91,7 @@ struct SpiralSegment {
     stretch: f32,
     thickness: f32,
     color: egui::Color32,
+    cap: SpiralCap,
 }
 
 fn paint_spiral_segment(painter: &egui::Painter, center: egui::Pos2, segment: SpiralSegment) {
@@ -109,10 +115,55 @@ fn paint_spiral_segment(painter: &egui::Painter, center: egui::Pos2, segment: Sp
         segment.stretch,
     ));
     if points.len() >= 2 {
+        // egui polylines have no line-cap setting, so `round`/`square` are
+        // drawn on: a disc at each end, or an extension of half the stroke
+        // width along the end direction. `butt` (the default) needs neither.
+        let radius = segment.thickness / 2.0;
+        match segment.cap {
+            SpiralCap::Round => {
+                for end in [points[0], points[points.len() - 1]] {
+                    painter.circle_filled(end, radius, segment.color);
+                }
+            }
+            SpiralCap::Square => {
+                let last = points.len() - 1;
+                let extend = |from: egui::Pos2, toward: egui::Pos2| {
+                    let delta = from - toward;
+                    (delta.length() > f32::EPSILON).then(|| from + delta.normalized() * radius)
+                };
+                if let Some(end) = extend(points[0], points[1]) {
+                    points[0] = end;
+                }
+                if let Some(end) = extend(points[last], points[last - 1]) {
+                    points[last] = end;
+                }
+            }
+            SpiralCap::Butt => {}
+        }
         painter.add(egui::Shape::line(
             points,
             egui::Stroke::new(segment.thickness, segment.color),
         ));
+    }
+}
+
+/// Line-end style for spiral segments, matching the canvas `lineCap` values
+/// Strudel passes through (`butt` default, `round`, `square`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum SpiralCap {
+    #[default]
+    Butt,
+    Round,
+    Square,
+}
+
+impl SpiralCap {
+    pub(super) fn from_name(name: &str) -> SpiralCap {
+        match name {
+            "round" => SpiralCap::Round,
+            "square" => SpiralCap::Square,
+            _ => SpiralCap::Butt,
+        }
     }
 }
 
