@@ -6,7 +6,11 @@
 // buffer back with gain/pan and the reverb/delay sends.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::voice::VoiceLike;
+use crate::{
+    filter::{FilterSet, VoiceFilters},
+    modulator::{ModBank, ModSpec},
+    voice::VoiceLike,
+};
 use rudel_core::{Value, ValueMap};
 use std::{
     f32::consts::FRAC_PI_2,
@@ -217,6 +221,9 @@ pub struct ZzfxParams {
     pub synth: ZzfxSynth,
     pub gain: f32,
     pub pan: f32,
+    /// The hap's length in seconds, which the filter envelopes hold for.
+    pub duration: f32,
+    pub filters: FilterSet,
 }
 
 impl ZzfxParams {
@@ -307,6 +314,8 @@ impl ZzfxParams {
             synth,
             gain: num("gain", 1.0) as f32,
             pan: num("pan", 0.5) as f32,
+            duration: dur as f32,
+            filters: FilterSet::from_controls(map),
         }
     }
 }
@@ -330,6 +339,10 @@ fn next_rand01() -> f64 {
 pub struct ZzfxVoice {
     buffer: Vec<f64>,
     pos: usize,
+    filters: VoiceFilters,
+    mods: ModBank,
+    sample_rate: f32,
+    hold_end: f32,
     gain: f32,
     left_gain: f32,
     right_gain: f32,
@@ -337,11 +350,19 @@ pub struct ZzfxVoice {
 
 impl ZzfxVoice {
     pub fn new(params: ZzfxParams, sample_rate: f32) -> ZzfxVoice {
+        ZzfxVoice::with_mods(params, sample_rate, &[])
+    }
+
+    pub fn with_mods(params: ZzfxParams, sample_rate: f32, mods: &[ModSpec]) -> ZzfxVoice {
         let buffer = build_samples(&params.synth, sample_rate as f64, next_rand01());
         let pan = params.pan.clamp(0.0, 1.0);
         ZzfxVoice {
             buffer,
             pos: 0,
+            filters: VoiceFilters::new(&params.filters, sample_rate, false),
+            mods: ModBank::new(mods, sample_rate as f64),
+            sample_rate,
+            hold_end: params.duration,
             gain: params.gain,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
@@ -354,7 +375,13 @@ impl VoiceLike for ZzfxVoice {
         if self.pos >= self.buffer.len() {
             return (0.0, 0.0);
         }
-        let s = self.buffer[self.pos] as f32 * self.gain;
+        let raw = self.buffer[self.pos] as f32;
+        let t = self.pos as f32 / self.sample_rate;
+        self.mods.tick();
+        let s = self
+            .filters
+            .process(raw, t, self.hold_end, self.sample_rate, &self.mods)
+            * self.gain;
         self.pos += 1;
         (s * self.left_gain, s * self.right_gain)
     }

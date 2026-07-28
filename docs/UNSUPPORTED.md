@@ -231,8 +231,10 @@ already varies per sample:
 
 A modulator naming anything else is skipped and has no effect — the same outcome
 as Strudel's "may not be modulatable" path, which also carries on. For sampler
-voices only `gain`, `cutoff` and `resonance` apply; the drum and ZZFX voices
-render from a fixed recipe and take no modulators at all.
+voices only `gain`, `cutoff` and `resonance` apply. The drum, ZZFX, bytebeat and
+bus voices render from a fixed recipe, so of that table only the **filters** are
+theirs to modulate — `gain` and the oscillator frequency are baked in when the
+voice is built.
 
 `bmod` carries the same restriction, and one more of its own: `.bus(n)` mixes a
 voice's post-effect output into signal bus `n` (scaled by `busgain`) on top of
@@ -245,10 +247,8 @@ level deep: a voice that both sends to a bus and reads one is rendered with the
 senders, and sees a partly-filled bus.
 
 `s("bus").n(n)` plays a bus back as a source, gated by its own linear ADSR
-(`[0.001, 0.05, 1, 0.01]`), so a second pattern can run it through effects.
-Like `zzfx` and `bytebeat`, it reaches Rudel's post-effects (`shape`, `distort`,
-`crush`, `coarse`, `postgain`, the orbit sends) but not the per-voice filters,
-which live in the oscillator voice.
+(`[0.001, 0.05, 1, 0.01]`), so a second pattern can run it through effects —
+the per-voice filters and the post-effects alike.
 
 Not implemented: **`subControl`** (pointing a modulator at another modulator's
 parameters) is ignored; and **`fxi`** (which link of an `FX` chain to target) is

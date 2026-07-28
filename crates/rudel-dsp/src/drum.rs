@@ -1,4 +1,8 @@
-use crate::{filter::Biquad, voice::VoiceLike};
+use crate::{
+    filter::{Biquad, FilterSet, VoiceFilters},
+    modulator::{ModBank, ModSpec},
+    voice::VoiceLike,
+};
 use rudel_core::ValueMap;
 use std::f32::consts::{FRAC_PI_2, TAU};
 
@@ -58,6 +62,11 @@ pub struct DrumParams {
     pub kind: DrumKind,
     pub gain: f32,
     pub pan: f32,
+    /// The hap's length in seconds, which the filter envelopes hold for.
+    pub duration: f32,
+    /// `lpf`/`hpf`/`bpf` and friends, applied to the synthesized drum the same
+    /// way they would be to the sample Strudel plays here.
+    pub filters: FilterSet,
 }
 
 impl DrumParams {
@@ -66,6 +75,8 @@ impl DrumParams {
             kind,
             gain: 1.0,
             pan: 0.5,
+            duration: 0.25,
+            filters: FilterSet::default(),
         }
     }
 
@@ -76,6 +87,7 @@ impl DrumParams {
         if let Some(p) = map.get("pan").and_then(|v| v.as_f64()) {
             self.pan = p as f32;
         }
+        self.filters = FilterSet::from_controls(map);
     }
 }
 
@@ -87,6 +99,11 @@ pub struct DrumVoice {
     phase: f32,
     rng: u32,
     filter: Option<Biquad>,
+    /// The user's `lpf`/`hpf`/`bpf` chain, after the kind's built-in voicing.
+    filters: VoiceFilters,
+    mods: ModBank,
+    sample_rate: f32,
+    hold_end: f32,
     gain: f32,
     left_gain: f32,
     right_gain: f32,
@@ -96,6 +113,10 @@ pub struct DrumVoice {
 
 impl DrumVoice {
     pub fn new(params: DrumParams, sample_rate: f32) -> DrumVoice {
+        DrumVoice::with_mods(params, sample_rate, &[])
+    }
+
+    pub fn with_mods(params: DrumParams, sample_rate: f32, mods: &[ModSpec]) -> DrumVoice {
         let pan = params.pan.clamp(0.0, 1.0);
         let filter = match params.kind {
             DrumKind::Hh | DrumKind::Oh => Some(Biquad::highpass(sample_rate, 7000.0, 0.7)),
@@ -112,6 +133,10 @@ impl DrumVoice {
             phase: 0.0,
             rng: 0x9E37_79B9,
             filter,
+            filters: VoiceFilters::new(&params.filters, sample_rate, false),
+            mods: ModBank::new(mods, sample_rate as f64),
+            sample_rate,
+            hold_end: params.duration,
             gain: params.gain,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
@@ -221,7 +246,13 @@ impl VoiceLike for DrumVoice {
         if self.done {
             return (0.0, 0.0);
         }
-        let s = self.mono() * self.gain * 0.7;
+        let raw = self.mono();
+        self.mods.tick();
+        let s = self
+            .filters
+            .process(raw, self.t, self.hold_end, self.sample_rate, &self.mods)
+            * self.gain
+            * 0.7;
         self.t += self.dt;
         if self.t >= self.done_at {
             self.done = true;

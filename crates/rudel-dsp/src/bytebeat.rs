@@ -12,6 +12,8 @@
 
 use crate::{
     envelope::{Adsr, adsr_value},
+    filter::{FilterSet, VoiceFilters},
+    modulator::{ModBank, ModSpec},
     pitch::note_to_freq,
     voice::VoiceLike,
 };
@@ -530,6 +532,7 @@ pub struct ByteBeatParams {
     pub adsr: Adsr,
     /// Note hold time in seconds, before the release.
     pub duration: f32,
+    pub filters: FilterSet,
 }
 
 impl ByteBeatParams {
@@ -580,6 +583,7 @@ impl ByteBeatParams {
             pan: num("pan").unwrap_or(0.5) as f32,
             adsr,
             duration,
+            filters: FilterSet::from_controls(map),
         }
     }
 }
@@ -588,6 +592,8 @@ impl ByteBeatParams {
 /// `registerSound` wrapper puts after it.
 pub struct ByteBeatVoice {
     params: ByteBeatParams,
+    filters: VoiceFilters,
+    mods: ModBank,
     sample_rate: f32,
     /// The worklet's own sample counter.
     t: f64,
@@ -600,10 +606,16 @@ pub struct ByteBeatVoice {
 
 impl ByteBeatVoice {
     pub fn new(params: ByteBeatParams, sample_rate: f32) -> ByteBeatVoice {
+        ByteBeatVoice::with_mods(params, sample_rate, &[])
+    }
+
+    pub fn with_mods(params: ByteBeatParams, sample_rate: f32, mods: &[ModSpec]) -> ByteBeatVoice {
         let pan = params.pan.clamp(0.0, 1.0);
         // synth.mjs: end = begin + duration + release + 0.01.
         let end = params.duration + params.adsr.release + 0.01;
         ByteBeatVoice {
+            filters: VoiceFilters::new(&params.filters, sample_rate, false),
+            mods: ModBank::new(mods, sample_rate as f64),
             sample_rate,
             t: 0.0,
             elapsed: 0.0,
@@ -628,6 +640,14 @@ impl VoiceLike for ByteBeatVoice {
         // The worklet clamps to ±0.4 to stop a runaway expression blowing up
         // the output.
         let out = (signal * 0.2).clamp(-0.4, 0.4);
+        self.mods.tick();
+        let out = self.filters.process(
+            out,
+            self.elapsed,
+            self.params.duration,
+            self.sample_rate,
+            &self.mods,
+        );
         let env = adsr_value(&self.params.adsr, self.elapsed, self.params.duration);
 
         self.t += 1.0;

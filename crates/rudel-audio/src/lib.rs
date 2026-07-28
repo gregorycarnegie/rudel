@@ -1621,6 +1621,67 @@ mod tests {
         );
     }
 
+    fn rms(frames: &[f32]) -> f32 {
+        (frames.iter().map(|x| x * x).sum::<f32>() / frames.len().max(1) as f32).sqrt()
+    }
+
+    #[test]
+    fn per_voice_filters_reach_the_fixed_recipe_voices() {
+        // The drum, ZZFX, bytebeat and bus voices render from a fixed recipe
+        // rather than from `VoiceParams`, so `lpf`/`hpf`/`bpf` used to pass
+        // straight through them — in Strudel every one of these is a sample or a
+        // node, and gets filtered like anything else. The filters themselves are
+        // the same code the oscillator voice runs and are golden-tested there;
+        // what this checks is that the chain is now *reached*.
+        //
+        // The probe has to suit the source: a bass drum is already almost
+        // entirely below 200Hz, so only a high-pass moves it, while a hi-hat is
+        // 7kHz noise a low-pass all but erases.
+        for (name, control, freq, max_ratio) in [
+            ("bd", "hcutoff", 2000.0, 0.1),
+            ("hh", "cutoff", 200.0, 0.01),
+            ("zzfx", "cutoff", 200.0, 0.5),
+            ("bytebeat", "cutoff", 200.0, 0.7),
+        ] {
+            let plain = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(name.into())));
+            let filtered = plain.clone().ctrl(control, rudel_core::Value::F64(freq));
+            let open = rms(&render_pattern(&plain, 1.0, 0.5));
+            let closed = rms(&render_pattern(&filtered, 1.0, 0.5));
+            assert!(open > 0.0, "{name} should make a sound");
+            assert!(
+                closed < open * max_ratio,
+                "{name}: {control}({freq}) should cut it below {max_ratio}x ({open} -> {closed})"
+            );
+        }
+    }
+
+    #[test]
+    fn per_voice_filters_reach_a_bus_return() {
+        // The point of `s("bus")`: run what another pattern sent you through
+        // your own effects. A 440Hz saw on the bus, low-passed on the way out.
+        let sender = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+            .note(rudel_core::Value::Int(69))
+            .bus(rudel_core::Value::Int(1))
+            .dry(rudel_core::Value::F64(0.0));
+        let player = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("bus".into())))
+            .n(rudel_core::Value::Int(1));
+        let dull = player.clone().cutoff(rudel_core::Value::F64(200.0));
+
+        let level = |p: Pattern| {
+            rms(&render_pattern(
+                &rudel_core::stack(&[sender.clone(), p]),
+                1.0,
+                0.5,
+            ))
+        };
+        let (open, closed) = (level(player), level(dull));
+        assert!(open > 0.0, "the bus return should make a sound");
+        assert!(
+            closed < open * 0.3,
+            "a 200Hz lowpass on the bus return should cut it ({open} -> {closed})"
+        );
+    }
+
     /// Peak level of `frames` over the time window `[from, to)` seconds.
     fn peak_between(frames: &[f32], from: f32, to: f32) -> f32 {
         let idx = |t: f32| ((t * 44100.0) as usize).min(frames.len());

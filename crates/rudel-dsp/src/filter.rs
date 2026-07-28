@@ -1,8 +1,8 @@
 use crate::{
     envelope::{Adsr, adsr_value},
-    modulator::ModTarget,
+    modulator::{ModBank, ModTarget},
 };
-use rudel_core::Value;
+use rudel_core::{Value, ValueMap};
 use std::f32::consts::TAU;
 
 #[derive(Clone, Copy)]
@@ -249,6 +249,160 @@ impl FilterParams {
             || self.sustain.is_some()
             || self.release.is_some()
     }
+}
+
+/// The three filter slots a voice runs, as superdough configures them from one
+/// control map: `cutoff`/`resonance`, `hcutoff`/`hresonance`, `bandf`/`bandq`,
+/// each with its own envelope, plus the shared `fanchor`/`ftype`/`drive`.
+#[derive(Clone, Copy, Debug)]
+pub struct FilterSet {
+    pub lp: FilterParams,
+    pub hp: FilterParams,
+    pub bp: FilterParams,
+}
+
+impl Default for FilterSet {
+    fn default() -> FilterSet {
+        FilterSet {
+            lp: FilterParams::default(),
+            hp: FilterParams::default(),
+            // superdough's band-pass defaults to Q 1 rather than 0.707.
+            bp: FilterParams {
+                q: 1.0,
+                ..FilterParams::default()
+            },
+        }
+    }
+}
+
+impl FilterSet {
+    pub fn from_controls(map: &ValueMap) -> FilterSet {
+        let mut s = FilterSet::default();
+        let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
+        // Low-pass (cutoff/lpf) + its envelope.
+        s.lp.freq = get("cutoff");
+        if let Some(q) = get("resonance") {
+            s.lp.q = q.max(0.1);
+        }
+        s.lp.env = get("lpenv");
+        s.lp.attack = get("lpattack");
+        s.lp.decay = get("lpdecay");
+        s.lp.sustain = get("lpsustain");
+        s.lp.release = get("lprelease");
+        // High-pass (hcutoff/hpf) + its envelope.
+        s.hp.freq = get("hcutoff");
+        if let Some(q) = get("hresonance") {
+            s.hp.q = q.max(0.1);
+        }
+        s.hp.env = get("hpenv");
+        s.hp.attack = get("hpattack");
+        s.hp.decay = get("hpdecay");
+        s.hp.sustain = get("hpsustain");
+        s.hp.release = get("hprelease");
+        // Band-pass (bandf/bpf) + its envelope.
+        s.bp.freq = get("bandf");
+        if let Some(q) = get("bandq") {
+            s.bp.q = q.max(0.1);
+        }
+        s.bp.env = get("bpenv");
+        s.bp.attack = get("bpattack");
+        s.bp.decay = get("bpdecay");
+        s.bp.sustain = get("bpsustain");
+        s.bp.release = get("bprelease");
+        // Shared filter-envelope anchor (`fanchor`).
+        if let Some(a) = get("fanchor") {
+            s.lp.anchor = a;
+            s.hp.anchor = a;
+            s.bp.anchor = a;
+        }
+        // `ftype` selects the filter model for every slot (superdough passes the
+        // same `model` to each `createFilter` call); `drive` feeds the ladder.
+        let model = map
+            .get("ftype")
+            .map(FilterModel::from_value)
+            .unwrap_or_default();
+        let drive = get("drive").unwrap_or(0.69);
+        for f in [&mut s.lp, &mut s.hp, &mut s.bp] {
+            f.model = model;
+            f.drive = drive;
+        }
+        s
+    }
+}
+
+/// A voice's running filter chain: the enabled slots in low → high → band
+/// order, plus a second bank for the right channel when the source is stereo
+/// (a biquad carries state, so the channels cannot share one).
+///
+/// This is the stage every voice needs and only the oscillator and sampler used
+/// to have; keeping it here rather than inside `Voice` is what lets the drum,
+/// ZZFX, bytebeat and bus voices run the same filters from the same controls.
+#[derive(Clone, Default)]
+pub struct VoiceFilters {
+    left: Vec<VoiceFilter>,
+    right: Vec<VoiceFilter>,
+}
+
+impl VoiceFilters {
+    /// Build the enabled slots. `stereo` allocates the second bank; without it
+    /// [`process_stereo`](Self::process_stereo) leaves the right channel dry.
+    pub fn new(set: &FilterSet, sample_rate: f32, stereo: bool) -> VoiceFilters {
+        let mut left = Vec::new();
+        for (kind, fp) in [
+            (FilterKind::Low, &set.lp),
+            (FilterKind::High, &set.hp),
+            (FilterKind::Band, &set.bp),
+        ] {
+            if fp.freq.is_some() {
+                left.push(VoiceFilter::new(kind, fp, sample_rate));
+            }
+        }
+        let right = if stereo { left.clone() } else { Vec::new() };
+        VoiceFilters { left, right }
+    }
+
+    /// Filter one mono sample through every enabled slot.
+    pub fn process(
+        &mut self,
+        x: f32,
+        t: f32,
+        hold_end: f32,
+        sample_rate: f32,
+        mods: &ModBank,
+    ) -> f32 {
+        run(&mut self.left, x, t, hold_end, sample_rate, mods)
+    }
+
+    /// Filter a stereo pair, each channel through its own bank.
+    pub fn process_stereo(
+        &mut self,
+        l: f32,
+        r: f32,
+        t: f32,
+        hold_end: f32,
+        sample_rate: f32,
+        mods: &ModBank,
+    ) -> (f32, f32) {
+        (
+            run(&mut self.left, l, t, hold_end, sample_rate, mods),
+            run(&mut self.right, r, t, hold_end, sample_rate, mods),
+        )
+    }
+}
+
+fn run(
+    bank: &mut [VoiceFilter],
+    mut x: f32,
+    t: f32,
+    hold_end: f32,
+    sample_rate: f32,
+    mods: &ModBank,
+) -> f32 {
+    for f in bank.iter_mut() {
+        let (ft, qt) = f.mod_targets();
+        x = f.process(x, t, hold_end, sample_rate, mods.get(ft), mods.get(qt));
+    }
+    x
 }
 
 /// The resonant core of a filter slot, selected by `ftype`.

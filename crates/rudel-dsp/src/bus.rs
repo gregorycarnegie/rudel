@@ -4,6 +4,8 @@
 
 use crate::{
     envelope::{Adsr, adsr_value},
+    filter::{FilterSet, VoiceFilters},
+    modulator::{ModBank, ModSpec},
     sampler::Sample,
     voice::VoiceLike,
 };
@@ -348,6 +350,9 @@ pub struct BusParams {
     pub duration: f32,
     pub gain: f32,
     pub pan: f32,
+    /// `lpf`/`hpf`/`bpf` on the returned signal, which is most of the reason to
+    /// route a bus through a second pattern in the first place.
+    pub filters: FilterSet,
 }
 
 impl BusParams {
@@ -364,6 +369,7 @@ impl BusParams {
             duration,
             gain: num("gain").unwrap_or(1.0),
             pan: num("pan").unwrap_or(0.5),
+            filters: FilterSet::from_controls(map),
         }
     }
 }
@@ -374,6 +380,9 @@ impl BusParams {
 /// senders just wrote.
 pub struct BusVoice {
     params: BusParams,
+    filters: VoiceFilters,
+    mods: ModBank,
+    sample_rate: f32,
     left: Vec<f32>,
     right: Vec<f32>,
     pos: usize,
@@ -387,10 +396,19 @@ pub struct BusVoice {
 
 impl BusVoice {
     pub fn new(params: BusParams, sample_rate: f32) -> BusVoice {
+        BusVoice::with_mods(params, sample_rate, &[])
+    }
+
+    pub fn with_mods(params: BusParams, sample_rate: f32, mods: &[ModSpec]) -> BusVoice {
         let pan = params.pan.clamp(0.0, 1.0);
         // `end = begin + duration + release + 0.01`, as the sound's timeout uses.
         let end = params.duration + params.adsr.release + 0.01;
         BusVoice {
+            // The bus is stereo, and a filter is stateful and mono, so each
+            // channel needs its own bank.
+            filters: VoiceFilters::new(&params.filters, sample_rate, true),
+            mods: ModBank::new(mods, sample_rate as f64),
+            sample_rate,
             left: Vec::new(),
             right: Vec::new(),
             pos: 0,
@@ -413,6 +431,15 @@ impl VoiceLike for BusVoice {
         // Reading past the block the mixer supplied is silence, not a panic.
         let l = self.left.get(self.pos).copied().unwrap_or(0.0);
         let r = self.right.get(self.pos).copied().unwrap_or(0.0);
+        self.mods.tick();
+        let (l, r) = self.filters.process_stereo(
+            l,
+            r,
+            self.t,
+            self.params.duration,
+            self.sample_rate,
+            &self.mods,
+        );
         self.pos += 1;
         self.t += self.dt;
         (l * env * self.left_gain, r * env * self.right_gain)

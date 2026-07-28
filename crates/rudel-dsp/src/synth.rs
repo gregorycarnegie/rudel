@@ -1,6 +1,6 @@
 use crate::{
     envelope::adsr_value,
-    filter::{FilterKind, VoiceFilter},
+    filter::{FilterSet, VoiceFilters},
     fm::FM_OPS,
     modulator::{ModBank, ModSpec, ModTarget},
     oscillator::{NoiseGen, NoiseKind, Waveform, sample_table},
@@ -45,7 +45,7 @@ pub struct Voice {
     right_gain: f32,
     hold_end: f32,
     /// Filter chain (low/high/band-pass), applied in order to the oscillator.
-    filters: Vec<VoiceFilter>,
+    filters: VoiceFilters,
     noise: NoiseGen,
     /// Per-operator FM phases (index `1..=FM_OPS`).
     fm_phases: [f32; FM_OPS + 1],
@@ -60,9 +60,6 @@ pub struct Voice {
     /// alternates an L-weighted and R-weighted equal-power pair per voice).
     super_gain_l: Vec<f32>,
     super_gain_r: Vec<f32>,
-    /// Second filter bank for the super-saw's right channel (the filters are
-    /// stateful and mono, so the stereo pair needs independent state).
-    filters_r: Vec<VoiceFilter>,
     /// Pitch envelope as `(adsr, min_semitones, max_semitones)`.
     pitch: PitchMod,
     /// Wavetable source with its `wt` position and `warp` amount modulators.
@@ -85,16 +82,6 @@ impl Voice {
         let left_gain = (pan * FRAC_PI_2).cos();
         let right_gain = (pan * FRAC_PI_2).sin();
         let hold_end = (params.duration + params.hold).max(params.adsr.attack);
-        let mut filters = Vec::new();
-        if params.lp.freq.is_some() {
-            filters.push(VoiceFilter::new(FilterKind::Low, &params.lp, sample_rate));
-        }
-        if params.hp.freq.is_some() {
-            filters.push(VoiceFilter::new(FilterKind::High, &params.hp, sample_rate));
-        }
-        if params.bp.freq.is_some() {
-            filters.push(VoiceFilter::new(FilterKind::Band, &params.bp, sample_rate));
-        }
         // Super-saw voices: random initial phases (superdough's worklet uses
         // `Math.random()` per voice), each voice's constant detune ratio
         // `2^(d/12)`, and alternating L/R equal-power gains for the stereo
@@ -137,13 +124,18 @@ impl Voice {
         } else {
             (Vec::new(), Vec::new(), Vec::new(), Vec::new())
         };
-        // The super-saw and wavetable sources are stereo, and the filters are
+        // The super-saw and wavetable sources are stereo, and a filter is
         // stateful and mono, so the right channel needs its own bank.
-        let filters_r = if params.supersaw || params.wavetable.is_some() {
-            filters.clone()
-        } else {
-            Vec::new()
-        };
+        let stereo = params.supersaw || params.wavetable.is_some();
+        let filters = VoiceFilters::new(
+            &FilterSet {
+                lp: params.lp,
+                hp: params.hp,
+                bp: params.bp,
+            },
+            sample_rate,
+            stereo,
+        );
         // Vibrato + pitch envelope (superdough's getVibratoOscillator +
         // getPitchEnvelope), shared with the sampler.
         let pitch = PitchMod::new(
@@ -195,7 +187,6 @@ impl Voice {
             super_incr_ratio,
             super_gain_l,
             super_gain_r,
-            filters_r,
             pitch,
             wavetable,
             mods: ModBank::new(mods, sample_rate as f64),
@@ -369,14 +360,9 @@ impl Voice {
             } else {
                 self.next_supersaw()
             };
-            for f in &mut self.filters {
-                let (ft, qt) = f.mod_targets();
-                l = f.process(l, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));
-            }
-            for f in &mut self.filters_r {
-                let (ft, qt) = f.mod_targets();
-                r = f.process(r, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));
-            }
+            (l, r) = self
+                .filters
+                .process_stereo(l, r, t, hold_end, sr, &self.mods);
             let s = env * gain * 0.3;
             // The pair is already stereo-spread; apply the voice pan as a
             // balance (identity at center, like a StereoPannerNode driven with
@@ -389,11 +375,8 @@ impl Voice {
             };
             (l * s * bl, r * s * br)
         } else {
-            let mut osc = self.next_source();
-            for f in &mut self.filters {
-                let (ft, qt) = f.mod_targets();
-                osc = f.process(osc, t, hold_end, sr, self.mods.get(ft), self.mods.get(qt));
-            }
+            let raw = self.next_source();
+            let osc = self.filters.process(raw, t, hold_end, sr, &self.mods);
             let s = osc * env * gain * 0.3;
             (s * self.left_gain, s * self.right_gain)
         };

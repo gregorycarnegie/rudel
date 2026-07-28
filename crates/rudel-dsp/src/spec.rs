@@ -2,6 +2,7 @@ use crate::{
     bus::{BusParams, BusVoice},
     bytebeat::{ByteBeatParams, ByteBeatVoice},
     drum::{DrumParams, DrumVoice},
+    filter::FilterSet,
     modulator::{ModOwner, ModSpec, ModSpecs, ModTarget},
     params::VoiceParams,
     postfx::{PostFx, PostFxVoice},
@@ -29,13 +30,13 @@ impl VoiceSpec {
         match self {
             VoiceSpec::Synth(p) => Box::new(Voice::with_mods(*p, sample_rate, mods)),
             VoiceSpec::Sampler(p) => Box::new(SamplerVoice::with_mods(p, sample_rate, mods)),
-            // The drum, ZZFX, bytebeat and bus voices render from a fixed recipe
-            // with no per-sample parameters to offset, so they take no
-            // modulators.
-            VoiceSpec::Drum(p) => Box::new(DrumVoice::new(p, sample_rate)),
-            VoiceSpec::Zzfx(p) => Box::new(ZzfxVoice::new(*p, sample_rate)),
-            VoiceSpec::ByteBeat(p) => Box::new(ByteBeatVoice::new(*p, sample_rate)),
-            VoiceSpec::Bus(p) => Box::new(BusVoice::new(p, sample_rate)),
+            // These four render from a fixed recipe, so of the voice-side
+            // targets only the filter chain is theirs to offset; the rest of
+            // their bank ticks and goes unread.
+            VoiceSpec::Drum(p) => Box::new(DrumVoice::with_mods(p, sample_rate, mods)),
+            VoiceSpec::Zzfx(p) => Box::new(ZzfxVoice::with_mods(*p, sample_rate, mods)),
+            VoiceSpec::ByteBeat(p) => Box::new(ByteBeatVoice::with_mods(*p, sample_rate, mods)),
+            VoiceSpec::Bus(p) => Box::new(BusVoice::with_mods(p, sample_rate, mods)),
         }
     }
 
@@ -80,27 +81,35 @@ impl VoiceSpec {
                 VoiceSpec::Bus(p) => p.gain,
             },
             ModTarget::Cutoff => match self {
-                VoiceSpec::Synth(p) => p.lp.freq.unwrap_or(0.0),
                 VoiceSpec::Sampler(p) => p.cutoff.unwrap_or(0.0),
-                _ => 0.0,
+                _ => self.filter_param(|f| f.lp.freq.unwrap_or(0.0)),
             },
             ModTarget::Resonance => match self {
-                VoiceSpec::Synth(p) => p.lp.q,
                 VoiceSpec::Sampler(p) => p.resonance,
-                _ => 0.0,
+                _ => self.filter_param(|f| f.lp.q),
             },
-            ModTarget::Hcutoff => self.synth_param(|p| p.hp.freq.unwrap_or(0.0)),
-            ModTarget::Hresonance => self.synth_param(|p| p.hp.q),
-            ModTarget::Bandf => self.synth_param(|p| p.bp.freq.unwrap_or(0.0)),
-            ModTarget::Bandq => self.synth_param(|p| p.bp.q),
+            ModTarget::Hcutoff => self.filter_param(|f| f.hp.freq.unwrap_or(0.0)),
+            ModTarget::Hresonance => self.filter_param(|f| f.hp.q),
+            ModTarget::Bandf => self.filter_param(|f| f.bp.freq.unwrap_or(0.0)),
+            ModTarget::Bandq => self.filter_param(|f| f.bp.q),
             _ => fx.mod_base(target),
         }
     }
 
-    fn synth_param(&self, f: impl Fn(&VoiceParams) -> f32) -> f32 {
+    /// Read one of the voice's filter slots. Every voice type but the sampler
+    /// (whose filters predate `FilterSet`) carries the same three slots.
+    fn filter_param(&self, f: impl Fn(&FilterSet) -> f32) -> f32 {
         match self {
-            VoiceSpec::Synth(p) => f(p),
-            _ => 0.0,
+            VoiceSpec::Synth(p) => f(&FilterSet {
+                lp: p.lp,
+                hp: p.hp,
+                bp: p.bp,
+            }),
+            VoiceSpec::Drum(p) => f(&p.filters),
+            VoiceSpec::Zzfx(p) => f(&p.filters),
+            VoiceSpec::ByteBeat(p) => f(&p.filters),
+            VoiceSpec::Bus(p) => f(&p.filters),
+            VoiceSpec::Sampler(_) => 0.0,
         }
     }
 }

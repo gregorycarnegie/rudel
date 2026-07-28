@@ -1,6 +1,6 @@
 use crate::{
     envelope::Adsr,
-    filter::{FilterModel, FilterParams},
+    filter::{FilterParams, FilterSet},
     fm::FmSpec,
     oscillator::{AdditiveType, NoiseKind, Waveform, build_additive},
     pitch::note_to_freq,
@@ -102,12 +102,9 @@ impl Default for VoiceParams {
             adsr: Adsr::default(),
             duration: 0.25,
             hold: 0.0,
-            lp: FilterParams::default(),
-            hp: FilterParams::default(),
-            bp: FilterParams {
-                q: 1.0,
-                ..FilterParams::default()
-            },
+            lp: FilterSet::default().lp,
+            hp: FilterSet::default().hp,
+            bp: FilterSet::default().bp,
             wavetable: None,
             wt: ParamMod::default(),
             warp: ParamMod::default(),
@@ -311,54 +308,11 @@ impl VoiceParams {
         if let Some(h) = map.get("hold").and_then(|v| v.as_f64()) {
             p.hold = h as f32;
         }
-        let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
-        // Low-pass (cutoff/lpf) + its envelope.
-        p.lp.freq = get("cutoff");
-        if let Some(q) = get("resonance") {
-            p.lp.q = q.max(0.1);
-        }
-        p.lp.env = get("lpenv");
-        p.lp.attack = get("lpattack");
-        p.lp.decay = get("lpdecay");
-        p.lp.sustain = get("lpsustain");
-        p.lp.release = get("lprelease");
-        // High-pass (hcutoff/hpf) + its envelope.
-        p.hp.freq = get("hcutoff");
-        if let Some(q) = get("hresonance") {
-            p.hp.q = q.max(0.1);
-        }
-        p.hp.env = get("hpenv");
-        p.hp.attack = get("hpattack");
-        p.hp.decay = get("hpdecay");
-        p.hp.sustain = get("hpsustain");
-        p.hp.release = get("hprelease");
-        // Band-pass (bandf/bpf) + its envelope.
-        p.bp.freq = get("bandf");
-        if let Some(q) = get("bandq") {
-            p.bp.q = q.max(0.1);
-        }
-        p.bp.env = get("bpenv");
-        p.bp.attack = get("bpattack");
-        p.bp.decay = get("bpdecay");
-        p.bp.sustain = get("bpsustain");
-        p.bp.release = get("bprelease");
-        // Shared filter-envelope anchor (`fanchor`).
-        if let Some(a) = get("fanchor") {
-            p.lp.anchor = a;
-            p.hp.anchor = a;
-            p.bp.anchor = a;
-        }
-        // `ftype` selects the filter model for every slot (superdough passes the
-        // same `model` to each `createFilter` call); `drive` feeds the ladder.
-        let model = map
-            .get("ftype")
-            .map(FilterModel::from_value)
-            .unwrap_or_default();
-        let drive = get("drive").unwrap_or(0.69);
-        for f in [&mut p.lp, &mut p.hp, &mut p.bp] {
-            f.model = model;
-            f.drive = drive;
-        }
+        // The three filter slots, parsed once for every voice type.
+        let filters = FilterSet::from_controls(map);
+        p.lp = filters.lp;
+        p.hp = filters.hp;
+        p.bp = filters.bp;
         p
     }
 }

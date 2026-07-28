@@ -6,8 +6,7 @@ use crate::{clock::Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
     BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx,
-    Sample,
-    SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
+    Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
 
@@ -122,6 +121,7 @@ fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank, cps: f64, cycle: f
         if let Some(kind) = DrumKind::from_name(name) {
             let mut params = DrumParams::new(kind);
             params.apply_controls(map);
+            params.duration = duration;
             return VoiceSpec::Drum(params);
         }
         // ZzFX synths: `zzfx` and the `z_<wave>` family (superdough's
