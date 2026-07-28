@@ -25,17 +25,17 @@ fn drum_produces_sound_then_finishes() {
         DrumKind::Cr,
     ] {
         let mut v = DrumVoice::new(DrumParams::new(kind), 44100.0);
-        let mut peak = 0.0f32;
+        let mut out = Vec::new();
         let mut ticks = 0;
         for _ in 0..(44100 * 2) {
             let (l, _r) = v.tick();
-            peak = peak.max(l.abs());
+            out.push(l);
             ticks += 1;
             if v.is_done() {
                 break;
             }
         }
-        assert!(peak > 0.0, "{kind:?} should produce sound");
+        assert_is_signal(&out, &format!("{kind:?}"));
         assert!(v.is_done(), "{kind:?} should finish");
         assert!(ticks < 44100 * 2, "{kind:?} should finish within 2s");
     }

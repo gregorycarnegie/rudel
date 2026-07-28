@@ -8,15 +8,15 @@ fn voice_produces_sound_then_finishes() {
         ..Default::default()
     };
     let mut v = Voice::new(p, 44100.0);
-    let mut peak = 0.0f32;
+    let mut out = Vec::new();
     for _ in 0..44100 {
         let (l, _r) = v.tick();
-        peak = peak.max(l.abs());
+        out.push(l);
         if v.is_done() {
             break;
         }
     }
-    assert!(peak > 0.0, "voice should produce non-silent output");
+    assert_is_signal(&out, "default voice");
     assert!(v.is_done(), "voice should finish after its envelope");
 }
 
@@ -41,11 +41,8 @@ fn noise_names_and_sound() {
             ..Default::default()
         };
         let mut v = Voice::new(p, 44100.0);
-        let mut peak = 0.0f32;
-        for _ in 0..2000 {
-            peak = peak.max(v.tick().0.abs());
-        }
-        assert!(peak > 0.0, "{kind:?} noise should produce sound");
+        let out: Vec<f32> = (0..2000).map(|_| v.tick().0).collect();
+        assert_is_signal(&out, &format!("{kind:?} noise"));
     }
 }
 
@@ -60,15 +57,20 @@ fn supersaw_produces_stereo_sound() {
         ..Default::default()
     };
     let mut v = Voice::new(p, 44100.0);
-    let mut peak = 0.0f32;
-    let mut spread = 0.0f32;
+    let mut left = Vec::new();
+    let mut right = Vec::new();
     for _ in 0..4000 {
         let (l, r) = v.tick();
-        peak = peak.max(l.abs());
-        spread = spread.max((l - r).abs());
+        left.push(l);
+        right.push(r);
     }
-    assert!(peak > 0.0, "supersaw should produce sound");
+    assert_is_signal(&left, "supersaw left");
+    assert_is_signal(&right, "supersaw right");
     // The alternating per-voice pan gains must make the channels differ.
+    let spread = left
+        .iter()
+        .zip(&right)
+        .fold(0.0f32, |m, (l, r)| m.max((l - r).abs()));
     assert!(spread > 0.0, "supersaw should be stereo-spread");
 }
 
