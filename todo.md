@@ -276,11 +276,20 @@ Function-by-function audit against the Strudel learn pages
       parameters Rudel's scalar DSP already varies per sample — oscillator
       frequency, `gain`, the three filters' cutoff/resonance, and the post-fx
       amounts; see `docs/UNSUPPORTED.md` for the table.
-- [ ] `bmod` (bus modulation) — **deferred**: needs audio-rate signal buses
-      (`bus`/`busgain`), which Rudel does not have. `subControl` (modulating a
-      modulator) and `fxi` (which link of an `FX` chain to target) are unhandled
-      for the same reason `FX` is: there is no explicit effect graph. Documented
-      in `docs/UNSUPPORTED.md`.
+- [x] `bmod` (bus modulation): `bus`/`busgain` now route a voice's post-effect
+      output into a numbered signal bus in the mixer, on top of its orbit
+      routing (so `dry(0)` makes a pattern a pure modulation source), and
+      `bmod` reads it back as `connectBusModulator` does —
+      `(signal + dc) * depth / 0.3`, with the same frequency-param clamp the
+      waveshaper applies upstream. Buses are mono, which is what Web Audio
+      down-mixes to on the way into an `AudioParam`; the mixer renders sending
+      voices before reading ones so a carrier sees the same block its modulator
+      wrote. `s("bus")` reads a bus back as a source (`registerSound('bus')`:
+      the bus through a linear ADSR gain), so a second pattern can run it
+      through its own effects. Still unhandled: `subControl` (modulating a
+      modulator) and `fxi` (which link of an `FX` chain to target), for the same
+      reason `FX` is — there is no explicit effect graph. Documented in
+      `docs/UNSUPPORTED.md`.
 - [x] `duckorbit`/`duckonset`/`duckattack`/`duckdepth` (sidechain ducking of one
       orbit by another), ported from superdough's `Orbit.duck`: a voice's
       `duckorbit` dips the *target* orbit's output gain to `1 - sqrt(depth)`

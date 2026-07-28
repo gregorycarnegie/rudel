@@ -10,9 +10,9 @@
 // insertion-ordered `ValueMap` (see `value.rs`).
 //
 // Note: this only builds the descriptor in the hap value (parity with Strudel's
-// hap output). Binding a modulation source to a node parameter at render time
-// (superdough's `connectLFO`/`connectEnvelope`/`connectBusModulator`) is a
-// separate audio-graph concern with no current rudel-dsp analog.
+// hap output). Binding a modulation source to a voice parameter at render time
+// (superdough's `connectLFO`/`connectEnvelope`/`connectBusModulator`) lives in
+// `rudel-dsp/modulator.rs`.
 // Copyright (C) 2022 Strudel contributors; 2026 Rudel contributors.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 

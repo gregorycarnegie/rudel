@@ -25,7 +25,7 @@ mod voice;
 mod wavetable;
 mod zzfx;
 
-pub use bus::{DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig};
+pub use bus::{BusParams, BusVoice, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig};
 pub use bytebeat::{ByteBeatExpr, ByteBeatParams, ByteBeatVoice, DEFAULT_BEATS};
 pub use convolver::{Convolver, ImpulseResponse, adjust_length, generate_reverb_ir};
 pub use drum::{DrumKind, DrumParams, DrumVoice};

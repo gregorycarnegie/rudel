@@ -207,9 +207,10 @@ native engine on both sides.
 
 ### Modulators (`lfo`, `env`, `bmod`) — partial
 
-`lfo(...)` and `env(...)` work: both sources are ported from superdough's
-worklets and their output is added to the target control's own value, as Web
-Audio does when a node is connected to an `AudioParam`. `depth`/`depthabs`,
+`lfo(...)`, `env(...)` and `bmod(...)` work: the sources are ported from
+superdough's worklets and their output is added to the target control's own
+value, as Web Audio does when a node is connected to an `AudioParam`.
+`depth`/`depthabs`,
 `rate`/`sync`, `shape`/`skew`/`curve`/`dcoffset`/`phaseoffset`, `retrig`, the
 envelope's `attack`/`decay`/`sustain`/`release` and its `acurve`/`dcurve`/
 `rcurve` curvatures all behave as upstream, including the rule that a modulator
@@ -233,10 +234,25 @@ as Strudel's "may not be modulatable" path, which also carries on. For sampler
 voices only `gain`, `cutoff` and `resonance` apply; the drum and ZZFX voices
 render from a fixed recipe and take no modulators at all.
 
-Not implemented: **`bmod`** (bus modulation) needs audio-rate signal buses
-(`bus`/`busgain`), which Rudel does not have; **`subControl`** (pointing a
-modulator at another modulator's parameters) is ignored; and **`fxi`** (which
-link of an `FX` chain to target) is moot while `FX` itself is unported.
+`bmod` carries the same restriction, and one more of its own: `.bus(n)` mixes a
+voice's post-effect output into signal bus `n` (scaled by `busgain`) on top of
+its normal orbit routing, so `dry(0)` turns a pattern into a pure modulation
+source, and `bmod({ b: n })` reads it back as `(signal + dc) * depth / 0.3`.
+The bus is summed to mono on the way in, which is what Web Audio does on the way
+into an `AudioParam` anyway. Voices that send to a bus are rendered before the
+ones that read it, so a reader sees the same block its sender just wrote — one
+level deep: a voice that both sends to a bus and reads one is rendered with the
+senders, and sees a partly-filled bus.
+
+`s("bus").n(n)` plays a bus back as a source, gated by its own linear ADSR
+(`[0.001, 0.05, 1, 0.01]`), so a second pattern can run it through effects.
+Like `zzfx` and `bytebeat`, it reaches Rudel's post-effects (`shape`, `distort`,
+`crush`, `coarse`, `postgain`, the orbit sends) but not the per-voice filters,
+which live in the oscillator voice.
+
+Not implemented: **`subControl`** (pointing a modulator at another modulator's
+parameters) is ignored; and **`fxi`** (which link of an `FX` chain to target) is
+moot while `FX` itself is unported.
 
 ### Soundfonts — supported, but General MIDI fetches over the network
 

@@ -5,7 +5,8 @@
 use crate::{clock::Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    ByteBeatParams, DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx, Sample,
+    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx,
+    Sample,
     SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
@@ -132,6 +133,10 @@ fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank, cps: f64, cycle: f
         // The `bytebeat` synth: an integer expression sampled per audio frame.
         if name == "bytebeat" {
             return VoiceSpec::ByteBeat(Box::new(ByteBeatParams::from_controls(map, duration)));
+        }
+        // `s("bus")` plays back whatever another pattern sent to `.bus(n)`.
+        if name == "bus" {
+            return VoiceSpec::Bus(BusParams::from_controls(map, duration));
         }
     }
     let mut params = VoiceParams::from_controls_at(map, duration, cps, cycle);

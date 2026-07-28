@@ -422,6 +422,10 @@ struct Mixer {
     played: Arc<AtomicU64>,
     /// Effect buses keyed by `orbit`, created on demand as voices arrive.
     orbits: HashMap<i32, OrbitBus>,
+    /// Signal buses keyed by `bus`, created on demand as sending voices arrive.
+    /// Stereo, like superdough's `getStereoNode`; `bmod` sums to mono on read,
+    /// `s("bus")` plays both channels.
+    signal_buses: HashMap<i32, (Vec<f32>, Vec<f32>)>,
     /// Master output volume, shared with the UI/control thread.
     volume: Arc<AtomicU64>,
     /// Reusable per-block render/accumulation buffers.
@@ -507,6 +511,9 @@ impl Mixer {
                         .or_insert_with(|| OrbitBus::new(sample_rate, &send))
                         .duck(d);
                 }
+                if let Some(b) = ev.send.bus {
+                    self.signal_buses.entry(b).or_default();
+                }
                 self.active.push(ActiveVoice {
                     voice: ev
                         .spec
@@ -536,6 +543,7 @@ impl Mixer {
             active,
             scratch,
             orbits,
+            signal_buses,
             sample_clock,
             taps,
             tag_bufs,
@@ -544,6 +552,25 @@ impl Mixer {
         let MixScratch { src_l, src_r } = scratch;
         for bus in orbits.values_mut() {
             bus.clear(len);
+        }
+        // A bus reader — a `bmod` carrier or an `s("bus")` voice — must see the
+        // signal its sender wrote in the *same* sub-block, so senders render
+        // first. `sort_by_key` is stable and near free once the order holds,
+        // which it does after the first block.
+        //
+        // ponytail: one level deep. A voice that both sends to a bus and reads
+        // one sorts with the senders and sees a partly-filled bus; chaining bus
+        // to bus would need a topological sort, which nothing asks for yet.
+        if !signal_buses.is_empty() {
+            for (l, r) in signal_buses.values_mut() {
+                for b in [l, r] {
+                    if b.len() < len {
+                        b.resize(len, 0.0);
+                    }
+                    b[..len].fill(0.0);
+                }
+            }
+            active.sort_by_key(|av| av.send.bus.is_none());
         }
 
         // Zero an accumulation buffer for every registered widget tap. The
@@ -561,7 +588,20 @@ impl Mixer {
         }
 
         active.retain_mut(|av| {
+            for (id, (l, r)) in signal_buses.iter() {
+                av.voice.set_bus_input(*id, &l[..len], &r[..len]);
+            }
             av.voice.process_block(&mut src_l[..len], &mut src_r[..len]);
+            // `bus` sends the voice's post-fx output on to a signal bus, on top
+            // of (not instead of) its orbit routing. A choked voice sends at its
+            // current fade level.
+            if let Some((l, r)) = av.send.bus.and_then(|b| signal_buses.get_mut(&b)) {
+                let g = av.send.busgain * av.choke_gain.unwrap_or(1.0);
+                for i in 0..len {
+                    l[i] += src_l[i] * g;
+                    r[i] += src_r[i] * g;
+                }
+            }
             // Feed per-widget analyzer taps from the voice's raw output
             // (Strudel taps the sound chain, pre orbit sends / master fx).
             if !named.is_empty() {
@@ -669,6 +709,7 @@ impl OfflineMixer {
             sample_rate,
             played: Arc::new(AtomicU64::new(0)),
             orbits: HashMap::new(),
+            signal_buses: HashMap::new(),
             volume,
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
@@ -751,6 +792,7 @@ impl Engine {
             sample_rate,
             played: played.clone(),
             orbits: HashMap::new(),
+            signal_buses: HashMap::new(),
             volume: volume.clone(),
             scratch: MixScratch::default(),
             taps: taps.clone(),
@@ -1117,6 +1159,7 @@ mod tests {
             sample_rate: 44100.0,
             played: Arc::new(AtomicU64::new(0)),
             orbits: HashMap::new(),
+            signal_buses: HashMap::new(),
             volume,
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
@@ -1499,6 +1542,82 @@ mod tests {
         assert!(
             late > 1.8,
             "the envelope should hold the gain at ~2x once sustained ({late})"
+        );
+    }
+
+    #[test]
+    fn bmod_modulates_a_carrier_from_another_pattern_s_bus() {
+        // The documented shape of `bmod`: one pattern is routed to a signal bus
+        // and silenced with `dry(0)`, another reads that bus as a modulation
+        // source. Here the modulator is a 2Hz sine, so it tremolos the carrier's
+        // gain the way an LFO would — except the waveform comes from a pattern.
+        let modulator = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("sine".into())))
+            .freq(rudel_core::Value::F64(2.0))
+            .bus(rudel_core::Value::Int(1))
+            .dry(rudel_core::Value::F64(0.0));
+        let held = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)))
+            .gain(rudel_core::Value::F64(1.0));
+        // No `control`: like `lfo`, it defaults to `gain`, applied just before.
+        let carrier = modulate(&held, "bmod", &[("bus", rudel_core::Value::Int(1))]);
+
+        // `dry(0)` and no sends: the modulator itself must be inaudible.
+        let alone = render_pattern(&modulator, 1.0, 0.9);
+        let level = alone.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        assert!(level < 1e-6, "a bus-only voice should be silent ({level})");
+
+        let flat = window_peaks(&render_pattern(&held, 1.0, 0.9), 32);
+        assert!(spread(&flat) < 1.2, "unmodulated gain should be steady");
+        // Both orderings: the mixer has to render the sender before the carrier
+        // whichever way round the stack puts them.
+        let render = |pats: [Pattern; 2]| {
+            window_peaks(&render_pattern(&rudel_core::stack(&pats), 1.0, 0.9), 32)
+        };
+        let swept = render([modulator.clone(), carrier.clone()]);
+        assert!(
+            spread(&swept) > 2.0,
+            "the bus signal should swing the carrier's gain ({})",
+            spread(&swept)
+        );
+        assert_eq!(
+            swept,
+            render([carrier, modulator]),
+            "stack order must not change what the carrier reads"
+        );
+    }
+
+    #[test]
+    fn s_bus_plays_back_what_another_pattern_sent_to_the_bus() {
+        // The other half of what `bus` is for: `s("bus").n(1)` reads bus 1 as a
+        // source, so a second pattern can run it through its own effects.
+        let held = rudel_core::note(rudel_core::pure(rudel_core::Value::Int(69)));
+        let sender = held
+            .clone()
+            .bus(rudel_core::Value::Int(1))
+            .dry(rudel_core::Value::F64(0.0));
+        let player = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("bus".into())))
+            .n(rudel_core::Value::Int(1));
+
+        // Alone, the sender is silent and the player has nothing to play.
+        for pat in [&sender, &player] {
+            let level = render_pattern(pat, 1.0, 0.6)
+                .iter()
+                .fold(0.0f32, |m, x| m.max(x.abs()));
+            assert!(level < 1e-6, "expected silence, got {level}");
+        }
+
+        // Together, the player reproduces the sender's signal. Both envelopes
+        // are at sustain across this window, and `s("bus")`'s own is 1 there, so
+        // what is left is its centre-pan gain of cos(pi/4).
+        let direct = peak_between(&render_pattern(&held, 1.0, 0.6), 0.3, 0.5);
+        let piped = peak_between(
+            &render_pattern(&rudel_core::stack(&[sender, player]), 1.0, 0.6),
+            0.3,
+            0.5,
+        );
+        let ratio = piped / direct;
+        assert!(
+            (ratio - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.05,
+            "the bus should play back at the source's level ({ratio})"
         );
     }
 

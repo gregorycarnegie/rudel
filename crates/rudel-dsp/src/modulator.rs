@@ -2,8 +2,9 @@
 // AudioWorklet in strudel/packages/superdough/worklets.mjs (waveshapes + the
 // per-sample process loop) and the `getLfo` defaults in helpers.mjs. This is the
 // deterministic modulation-source core of superdough's modulator engine
-// (modulate/lfo/env/bmod); the per-voice control-target routing that connects a
-// source to a node's AudioParam is a Web Audio graph concern tracked separately.
+// (modulate/lfo/env/bmod), plus the control-target routing that
+// `connectLFO`/`connectEnvelope`/`connectBusModulator` express as Web Audio
+// connections into an AudioParam.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use rudel_core::{Value, ValueMap};
@@ -436,11 +437,28 @@ pub struct ModContext {
     pub note_seconds: f64,
 }
 
+/// Configuration for a [`BusMod`], mirroring `connectBusModulator`'s graph:
+/// a `ConstantSourceNode(dc)` summed with the bus signal, through a gain, then
+/// (for frequency params) a clamping waveshaper.
+#[derive(Clone, Copy, Debug)]
+pub struct BusConfig {
+    /// Which numbered bus to read (`bmod({ b: 1 })`).
+    pub bus: i32,
+    /// DC offset added to the bus signal before scaling.
+    pub dc: f64,
+    /// The depth gain. Upstream builds `sign(d) * abs(d) / 0.3`, i.e. `d / 0.3`
+    /// — the 0.3 assumes a bus carrying a signal of roughly that amplitude.
+    pub gain: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
 /// A resolved but not-yet-running modulation source.
 #[derive(Clone, Debug)]
 enum SourceConfig {
     Lfo(LfoConfig),
     Env(EnvConfig),
+    Bus(BusConfig),
 }
 
 /// One resolved modulator: the control it offsets plus its source config.
@@ -475,11 +493,35 @@ impl ModSpecs {
     }
 }
 
+/// A running bus modulator: it has no oscillator of its own, it just reads the
+/// signal another pattern sent to a bus with `.bus(n)`.
+///
+/// The mixer refills `input` with that bus's samples for the block about to be
+/// rendered ([`ModBank::set_bus_input`]), so a bus modulator is sample-accurate
+/// within a block as long as the sending voices render first.
+#[derive(Clone, Debug)]
+struct BusMod {
+    cfg: BusConfig,
+    input: Vec<f32>,
+    pos: usize,
+}
+
+impl BusMod {
+    fn tick(&mut self) -> f64 {
+        let x = self.input.get(self.pos).copied().unwrap_or(0.0) as f64;
+        self.pos += 1;
+        ((x + self.cfg.dc) * self.cfg.gain)
+            .max(self.cfg.min)
+            .min(self.cfg.max)
+    }
+}
+
 /// A live modulation source bound to a target control.
 #[derive(Clone, Debug)]
 enum ModSource {
     Lfo(Lfo),
     Env(ModEnv),
+    Bus(BusMod),
 }
 
 /// One running modulator.
@@ -494,6 +536,7 @@ impl Modulation {
         match &mut self.source {
             ModSource::Lfo(l) => l.tick(),
             ModSource::Env(e) => e.tick(),
+            ModSource::Bus(b) => b.tick(),
         }
     }
 }
@@ -541,16 +584,37 @@ impl ModBank {
                     source: match &s.source {
                         SourceConfig::Lfo(c) => ModSource::Lfo(Lfo::new(c, sample_rate)),
                         SourceConfig::Env(c) => ModSource::Env(ModEnv::new(c, sample_rate)),
+                        SourceConfig::Bus(c) => ModSource::Bus(BusMod {
+                            cfg: *c,
+                            input: Vec::new(),
+                            pos: 0,
+                        }),
                     },
                 })
                 .collect(),
             offsets: [0.0; ModTarget::ALL.len()],
         }
     }
+
+    /// Hand bus `bus`'s signal for the block about to be rendered to every
+    /// `bmod` modulator reading that bus, and rewind them to its start. Summed
+    /// to mono, as Web Audio does on the way into an `AudioParam`.
+    pub fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {
+        for m in &mut self.mods {
+            if let ModSource::Bus(b) = &mut m.source
+                && b.cfg.bus == bus
+            {
+                b.input.clear();
+                b.input
+                    .extend(left.iter().zip(right).map(|(l, r)| (l + r) * 0.5));
+                b.pos = 0;
+            }
+        }
+    }
 }
 
 impl ModSpecs {
-    /// Resolve a hap's `lfo`/`env` descriptors.
+    /// Resolve a hap's `lfo`/`env`/`bmod` descriptors.
     ///
     /// `base` supplies the target control's own value, which relative `depth`
     /// scales (superdough reads it off the target `AudioParam`). Entries naming
@@ -562,7 +626,7 @@ impl ModSpecs {
         base: impl Fn(ModTarget) -> f32,
     ) -> ModSpecs {
         let mut out = ModSpecs::default();
-        for (kind, is_lfo) in [("lfo", true), ("env", false)] {
+        for kind in ["lfo", "env", "bmod"] {
             let Some(Value::Map(desc)) = map.get(kind) else {
                 continue;
             };
@@ -590,7 +654,7 @@ impl ModSpecs {
                 };
                 let depth = get("depthabs").unwrap_or(get("depth").unwrap_or(1.0) * current);
                 let range = range_for(target, current);
-                let source = if is_lfo {
+                let source = if kind == "lfo" {
                     let d = LfoConfig::default();
                     let dcoffset = get("dcoffset").unwrap_or(d.dcoffset);
                     let (min, max) = range.unwrap_or((dcoffset * depth, dcoffset * depth + depth));
@@ -618,6 +682,18 @@ impl ModSpecs {
                         max,
                     };
                     SourceConfig::Lfo(cfg)
+                } else if kind == "bmod" {
+                    // A `bmod` with no bus reads `getBus(undefined)` upstream,
+                    // which nothing ever sends to; skipping is the same silence.
+                    let Some(bus) = get("bus") else { continue };
+                    let (min, max) = range.unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
+                    SourceConfig::Bus(BusConfig {
+                        bus: bus as i32,
+                        dc: get("dc").unwrap_or(0.0),
+                        gain: depth / 0.3,
+                        min,
+                        max,
+                    })
                 } else {
                     let d = EnvConfig::default();
                     let (min, max) = range.unwrap_or((d.min, d.max));
@@ -700,6 +776,48 @@ mod tests {
         assert!(lo < -0.45, "min not reached: {lo}");
         assert!(hi <= 0.5 + 1e-9, "max too high: {hi}");
         assert!(hi > 0.45, "max not reached: {hi}");
+    }
+
+    #[test]
+    fn a_bus_modulator_offsets_scales_and_clamps_the_bus_signal() {
+        // `connectBusModulator` builds (signal + dc) * depth/0.3 into the target
+        // param. `depthabs` 0.3 makes that gain exactly 1, so the arithmetic is
+        // readable.
+        let entry: ValueMap = [
+            ("control".to_string(), Value::Str("gain".into())),
+            ("bus".to_string(), Value::Int(1)),
+            ("depthabs".to_string(), Value::F64(0.3)),
+            ("dc".to_string(), Value::F64(0.5)),
+        ]
+        .into_iter()
+        .collect();
+        let desc: ValueMap = [
+            ("__ids".to_string(), Value::List(vec![Value::Int(0)])),
+            ("0".to_string(), Value::Map(entry)),
+        ]
+        .into_iter()
+        .collect();
+        let map: ValueMap = [("bmod".to_string(), Value::Map(desc))]
+            .into_iter()
+            .collect();
+        let specs = ModSpecs::from_controls(&map, &ModContext::default(), |_| 1.0);
+        assert_eq!(specs.voice.len(), 1, "gain is a voice-side target");
+
+        let mut bank = ModBank::new(&specs.voice, 44100.0);
+        // The bus is stereo and sums to mono, so a hard-left signal reads half.
+        bank.set_bus_input(1, &[0.0, 2.0, -2.0], &[0.0, 0.0, 0.0]);
+        for expected in [0.5, 1.5, -0.5] {
+            bank.tick();
+            assert!((bank.get(ModTarget::Gain) - expected).abs() < 1e-6);
+        }
+
+        // Nothing writes bus 2, so a modulator pointed at it only ever sees the
+        // dc offset — and reading past the supplied block is silence, not a
+        // panic.
+        let mut bank = ModBank::new(&specs.voice, 44100.0);
+        bank.set_bus_input(2, &[9.0], &[9.0]);
+        bank.tick();
+        assert!((bank.get(ModTarget::Gain) - 0.5).abs() < 1e-6);
     }
 
     #[test]

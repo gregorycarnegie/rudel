@@ -15,5 +15,13 @@ pub trait VoiceLike: Send {
         }
     }
 
+    /// Hand bus `bus`'s stereo signal for the block about to be rendered to
+    /// anything in this voice that reads it — a `bmod` modulator, or a
+    /// [`BusVoice`](crate::BusVoice) playing the bus back as a source. The
+    /// default is a no-op, since most voices read no bus at all.
+    fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {
+        let _ = (bus, left, right);
+    }
+
     fn is_done(&self) -> bool;
 }

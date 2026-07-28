@@ -1,4 +1,5 @@
 use crate::{
+    bus::{BusParams, BusVoice},
     bytebeat::{ByteBeatParams, ByteBeatVoice},
     drum::{DrumParams, DrumVoice},
     modulator::{ModOwner, ModSpec, ModSpecs, ModTarget},
@@ -16,6 +17,7 @@ pub enum VoiceSpec {
     Drum(DrumParams),
     Zzfx(Box<ZzfxParams>),
     ByteBeat(Box<ByteBeatParams>),
+    Bus(BusParams),
 }
 
 impl VoiceSpec {
@@ -27,11 +29,13 @@ impl VoiceSpec {
         match self {
             VoiceSpec::Synth(p) => Box::new(Voice::with_mods(*p, sample_rate, mods)),
             VoiceSpec::Sampler(p) => Box::new(SamplerVoice::with_mods(p, sample_rate, mods)),
-            // The drum, ZZFX and bytebeat voices render from a fixed recipe with
-            // no per-sample parameters to offset, so they take no modulators.
+            // The drum, ZZFX, bytebeat and bus voices render from a fixed recipe
+            // with no per-sample parameters to offset, so they take no
+            // modulators.
             VoiceSpec::Drum(p) => Box::new(DrumVoice::new(p, sample_rate)),
             VoiceSpec::Zzfx(p) => Box::new(ZzfxVoice::new(*p, sample_rate)),
             VoiceSpec::ByteBeat(p) => Box::new(ByteBeatVoice::new(*p, sample_rate)),
+            VoiceSpec::Bus(p) => Box::new(BusVoice::new(p, sample_rate)),
         }
     }
 
@@ -73,6 +77,7 @@ impl VoiceSpec {
                 VoiceSpec::Drum(p) => p.gain,
                 VoiceSpec::Zzfx(p) => p.gain,
                 VoiceSpec::ByteBeat(p) => p.gain,
+                VoiceSpec::Bus(p) => p.gain,
             },
             ModTarget::Cutoff => match self {
                 VoiceSpec::Synth(p) => p.lp.freq.unwrap_or(0.0),

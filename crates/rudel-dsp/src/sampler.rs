@@ -286,6 +286,9 @@ impl VoiceLike for SamplerVoice {
         }
         (s * self.left_gain, s * self.right_gain)
     }
+    fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {
+        self.mods.set_bus_input(bus, left, right);
+    }
     fn is_done(&self) -> bool {
         self.done
     }

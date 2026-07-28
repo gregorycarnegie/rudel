@@ -1,10 +1,17 @@
-//! Orbit-bus effects: DSP that superdough runs on a whole orbit rather than on
-//! a single voice.
+//! Buses: the orbit-bus effects superdough runs on a whole orbit rather than on
+//! a single voice, plus the signal buses `bus`/`bmod`/`s("bus")` route through.
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::sampler::Sample;
+use crate::{
+    envelope::{Adsr, adsr_value},
+    sampler::Sample,
+    voice::VoiceLike,
+};
 use rudel_core::{Value, ValueMap};
-use std::{f32::consts::PI, sync::Arc};
+use std::{
+    f32::consts::{FRAC_PI_2, PI},
+    sync::Arc,
+};
 
 /// Per-orbit reverb settings. These are superdough's `createReverb` arguments
 /// (`roomsize`/`roomfade`/`roomlp`/`roomdim`), which it deliberately leaves
@@ -123,6 +130,12 @@ pub struct OrbitSend {
     pub delay_cfg: DelayConfig,
     /// `djf` knob for the orbit; `None` leaves it as it was.
     pub djf: Option<f32>,
+    /// `bus`: also send this voice's post-fx output to a numbered signal bus,
+    /// where another pattern's `bmod` can read it. Additional to the orbit
+    /// routing, so `dry(0)` makes a voice a pure modulation source.
+    pub bus: Option<i32>,
+    /// `busgain`: level of that send.
+    pub busgain: f32,
 }
 
 impl Default for OrbitSend {
@@ -135,6 +148,8 @@ impl Default for OrbitSend {
             reverb: ReverbConfig::default(),
             delay_cfg: DelayConfig::default(),
             djf: None,
+            bus: None,
+            busgain: 1.0,
         }
     }
 }
@@ -170,6 +185,8 @@ impl OrbitSend {
                     .clamp(0.0, 0.98),
             },
             djf: get("djf"),
+            bus: get("bus").map(|b| b as i32),
+            busgain: get("busgain").unwrap_or(d.busgain),
         }
     }
 }
@@ -311,6 +328,109 @@ impl DuckEnv {
     /// stage can be skipped.
     pub fn is_idle(&self) -> bool {
         self.dip_left == 0 && self.rise_left == 0 && self.gain == 1.0
+    }
+}
+
+/// `s("bus")`: play a signal bus back as a sound source, so a second pattern
+/// can run whatever was sent to it through its own effects.
+///
+/// Ported from superdough's `registerSound('bus')`, which connects the bus node
+/// through a gain node holding a linear ADSR for the hap's duration. The rest of
+/// the voice chain then treats it like any other source.
+#[derive(Clone, Copy, Debug)]
+pub struct BusParams {
+    /// Which bus to read — `value.n ?? 0`, so `s("bus").n(1)`.
+    pub bus: i32,
+    /// The gain envelope. `registerSound('bus')` defaults it to
+    /// `[0.001, 0.05, 1, 0.01]`: sustain 1, unlike the synth voices' 0.6.
+    pub adsr: Adsr,
+    /// The hap's length in seconds — how long the envelope holds.
+    pub duration: f32,
+    pub gain: f32,
+    pub pan: f32,
+}
+
+impl BusParams {
+    pub fn from_controls(map: &ValueMap, duration: f32) -> BusParams {
+        let num = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
+        BusParams {
+            bus: num("n").unwrap_or(0.0) as i32,
+            adsr: Adsr {
+                attack: num("attack").unwrap_or(0.001),
+                decay: num("decay").unwrap_or(0.05),
+                sustain: num("sustain").unwrap_or(1.0),
+                release: num("release").unwrap_or(0.01),
+            },
+            duration,
+            gain: num("gain").unwrap_or(1.0),
+            pan: num("pan").unwrap_or(0.5),
+        }
+    }
+}
+
+/// A playing [`BusParams`]. It has no signal of its own: the mixer refills its
+/// input before every block ([`VoiceLike::set_bus_input`]) and renders the
+/// voices *sending* to a bus first, so what a source reads is the block those
+/// senders just wrote.
+pub struct BusVoice {
+    params: BusParams,
+    left: Vec<f32>,
+    right: Vec<f32>,
+    pos: usize,
+    /// Elapsed seconds, driving the envelope.
+    t: f32,
+    dt: f32,
+    end: f32,
+    left_gain: f32,
+    right_gain: f32,
+}
+
+impl BusVoice {
+    pub fn new(params: BusParams, sample_rate: f32) -> BusVoice {
+        let pan = params.pan.clamp(0.0, 1.0);
+        // `end = begin + duration + release + 0.01`, as the sound's timeout uses.
+        let end = params.duration + params.adsr.release + 0.01;
+        BusVoice {
+            left: Vec::new(),
+            right: Vec::new(),
+            pos: 0,
+            t: 0.0,
+            dt: 1.0 / sample_rate,
+            end,
+            left_gain: (pan * FRAC_PI_2).cos(),
+            right_gain: (pan * FRAC_PI_2).sin(),
+            params,
+        }
+    }
+}
+
+impl VoiceLike for BusVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        if self.is_done() {
+            return (0.0, 0.0);
+        }
+        let env = adsr_value(&self.params.adsr, self.t, self.params.duration) * self.params.gain;
+        // Reading past the block the mixer supplied is silence, not a panic.
+        let l = self.left.get(self.pos).copied().unwrap_or(0.0);
+        let r = self.right.get(self.pos).copied().unwrap_or(0.0);
+        self.pos += 1;
+        self.t += self.dt;
+        (l * env * self.left_gain, r * env * self.right_gain)
+    }
+
+    fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {
+        if bus != self.params.bus {
+            return;
+        }
+        self.left.clear();
+        self.left.extend_from_slice(left);
+        self.right.clear();
+        self.right.extend_from_slice(right);
+        self.pos = 0;
+    }
+
+    fn is_done(&self) -> bool {
+        self.t >= self.end
     }
 }
 
