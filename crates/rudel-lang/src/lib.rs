@@ -185,9 +185,19 @@ pub fn eval_result_with_source_range(
     eval_result_with_preprocessor(|| preprocess_strudel_with_meta_in_range(script, range.0))
 }
 
+/// One evaluation at a time, process-wide. The REPL slots, trigger hooks and
+/// widget options below are process-global registries that an evaluation clears
+/// at its start and reads back at its end, so two concurrent evaluations wipe
+/// each other's recordings. The host only ever evaluates on one thread; this
+/// makes that a rule instead of an assumption (and keeps the parallel test
+/// suite from racing itself).
+static EVAL_LOCK: Mutex<()> = Mutex::new(());
+
 fn eval_result_with_preprocessor(
     preprocess: impl FnOnce() -> preprocess::PreprocessResult,
 ) -> Result<EvalResult, String> {
+    // A script that panics mid-evaluation must not wedge every later one.
+    let _guard = EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let effects = Arc::new(Mutex::new(SampleEffects::default()));
     let mut koto = Koto::default();
     register(koto.prelude());

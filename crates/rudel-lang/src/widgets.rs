@@ -102,6 +102,8 @@ mod tests {
 
     #[test]
     fn recording_is_per_id_and_resettable() {
+        // Same registry an evaluation uses, so take the same lock.
+        let _guard = crate::EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         reset_options();
         record_options(
             "w-test-1",
