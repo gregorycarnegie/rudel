@@ -578,4 +578,50 @@ mod tests {
         assert_eq!(val(cycles_per()), 0.5);
         assert_eq!(val(per()), 2.0);
     }
+
+    /// Every bipolar signal is its unipolar twin mapped onto -1..1. The parity
+    /// oracle pins the unipolar side against Strudel's engine, but nothing
+    /// pinned the mapping, so the `* 2.0 - 1.0` in each of these could be
+    /// corrupted freely — twenty-odd mutants survived across them.
+    #[test]
+    fn bipolar_signals_are_their_unipolar_twins_rescaled() {
+        fn at(pat: Pattern, begin: (i64, i64), end: (i64, i64)) -> f64 {
+            pat.query_arc(Frac::new(begin.0, begin.1), Frac::new(end.0, end.1))[0]
+                .value
+                .as_f64()
+                .unwrap()
+        }
+
+        type Sig = fn() -> Pattern;
+        let pairs: [(Sig, Sig, &str); 8] = [
+            (saw, saw2, "saw"),
+            (isaw, isaw2, "isaw"),
+            (square, square2, "square"),
+            (sine, sine2, "sine"),
+            (cosine, cosine2, "cosine"),
+            (tri, tri2, "tri"),
+            (itri, itri2, "itri"),
+            (rand, rand2, "rand"),
+        ];
+        // Quarter-cycle windows, so each leg of the `fastcat` pairs is queried
+        // on its own; the last one runs into cycle 1 to exercise the wrap.
+        let spans = [
+            ((0, 1), (1, 4)),
+            ((1, 4), (1, 2)),
+            ((1, 2), (3, 4)),
+            ((3, 4), (1, 1)),
+            ((5, 4), (3, 2)),
+        ];
+        for (begin, end) in spans {
+            for (uni, bi, name) in pairs {
+                let u = at(uni(), begin, end);
+                let v = at(bi(), begin, end);
+                assert!(
+                    (v - (2.0 * u - 1.0)).abs() < 1e-12,
+                    "{name}2 over {begin:?}..{end:?}: {v} is not 2 * {u} - 1"
+                );
+                assert!((-1.0..=1.0).contains(&v), "{name}2 left -1..1: {v}");
+            }
+        }
+    }
 }

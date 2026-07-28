@@ -433,4 +433,18 @@ mod tests {
         assert_eq!(maps(&pat, 0, 1).len(), 1);
         let _ = silence();
     }
+
+    /// `cpm` is cycles per minute measured against the live cps, so the same
+    /// cpm means different speeds at different tempos. Five mutants lived in
+    /// that one division, including one that made the guard swallow every
+    /// positive cps.
+    #[test]
+    fn cpm_scales_against_the_live_cps() {
+        let pat = s("bd");
+        assert_eq!(query_cps(&pat.cpm(120.0), 0.5).len(), 4);
+        assert_eq!(query_cps(&pat.cpm(120.0), 1.0).len(), 2);
+        assert_eq!(query_cps(&pat.cpm(60.0), 1.0).len(), 1);
+        // A non-positive cps leaves the pattern alone instead of dividing by it.
+        assert_eq!(query_cps(&pat.cpm(120.0), 0.0).len(), 1);
+    }
 }
