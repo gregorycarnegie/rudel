@@ -864,8 +864,20 @@ mod tests {
             ("-2M", -2), // descending
             ("-5P", -7),
             ("4", 4), // bare number = semitones
+            // Diminished costs one more semitone away from a major/minor
+            // interval than from a perfect one, and both stack.
+            ("3d", 2),
+            ("3dd", 1),
+            ("5dd", 5),
+            ("5AA", 9),
         ] {
             assert_eq!(interval_to_semitones(s), Some(want), "interval {s}");
+        }
+
+        // A quality only applies to its own family: no perfect third, no major
+        // fifth. Anything else is not a quality at all.
+        for s in ["3P", "5M", "5m", "5Ad", "5x"] {
+            assert_eq!(interval_to_semitones(s), None, "interval {s}");
         }
     }
 

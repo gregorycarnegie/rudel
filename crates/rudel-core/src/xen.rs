@@ -622,4 +622,23 @@ mod tests {
         approx_eq(get_freq(&Value::Str("69".into())).unwrap(), 440.0);
         assert!(get_freq(&Value::Str("not-a-note".into())).is_none());
     }
+
+    /// The just-intonation table is only ever reached by name ("12ji"), so a
+    /// corrupted ratio would surface as an out-of-tune note and nothing else —
+    /// twelve of its entries survived mutation. This pins the shape that makes
+    /// it a tuning at all, plus the three intervals that name themselves.
+    #[test]
+    fn the_just_intonation_table_stays_inside_one_ascending_octave() {
+        assert_eq!(JI_12.len(), 12);
+        assert_eq!(JI_12[0], 1.0);
+        for r in JI_12 {
+            assert!((1.0..2.0).contains(r), "ratio {r} escapes the octave");
+        }
+        for pair in JI_12.windows(2) {
+            assert!(pair[0] < pair[1], "ratios must ascend, got {pair:?}");
+        }
+        approx_eq(JI_12[4], 5.0 / 4.0); // major third
+        approx_eq(JI_12[5], 4.0 / 3.0); // fourth
+        approx_eq(JI_12[7], 3.0 / 2.0); // fifth
+    }
 }
