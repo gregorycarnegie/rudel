@@ -1,7 +1,7 @@
 use super::{
     KPattern,
     args::{
-        method_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg,
+        method_arg, method_f64_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg,
         with_pattern_arg,
     },
     callback::{Callback, static_period_pattern},
@@ -411,6 +411,16 @@ pub(super) fn kpattern_soundfont(ctx: MethodContext<KPattern>) -> KotoResult<KVa
     })
 }
 
+/// `pat.degradeByWith(withPat, x)`: drop events where `withPat` is not above
+/// `x`, so an arbitrary signal (`rand.fast(2)`, `perlin`, …) drives the
+/// degradation instead of the built-in `rand`. The engine method is a literal
+/// port of Strudel's `degradeByWith`; only the binding was missing.
+pub(super) fn kpattern_degrade_by_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let with_pat = method_pattern_arg(&ctx, 0);
+    let x = method_f64_arg(&ctx, 1);
+    with_instance(&ctx, |pat| pat.degrade_by_with(with_pat.clone(), x))
+}
+
 /// `pat.tag(name)`: mark every hap with an identifier, which a later `filter`
 /// can select on (`hap.tags.contains(name)`).
 pub(super) fn kpattern_tag(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
@@ -452,9 +462,7 @@ pub(crate) fn hap_to_koto(hap: &rudel_core::Hap) -> KValue {
         "hasTag",
         KValue::NativeFunction(koto::runtime::KNativeFunction::new(move |ctx| {
             let wanted = ctx.args().first().and_then(arg_to_raw_str);
-            Ok(KValue::Bool(
-                wanted.is_some_and(|w| tags.contains(&w)),
-            ))
+            Ok(KValue::Bool(wanted.is_some_and(|w| tags.contains(&w))))
         })),
     );
     KValue::Map(map)

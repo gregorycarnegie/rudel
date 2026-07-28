@@ -397,6 +397,25 @@ rather than being dispatched straight to the audio engine. As upstream does,
 note-*offs* are ignored: a `midikeys` hap's length comes from the pattern
 (`kb(0.25)`), not from when the key is released.
 
+### MIDI output `midicmd` and `midimap` — supported, with two differences
+
+`.midicmd("clock"|"start"|"stop"|"continue")` sends the system-realtime byte,
+and the array forms `["progNum", n]`, `["cc", ccn, ccv]` (with `ccv` in 0..1)
+and `["sysex", id, data]` send a program change, control change and sysex frame
+on the hap's channel. Upstream's `['cc', …]` branch fires at length **2** and
+passes `midicmd[0]` — the literal string `'cc'` — as the controller number, so
+it can only throw; Rudel implements the evidently intended three-element form.
+Upstream also sends a Start from every hap whose whole begins at cycle 0, which
+would mean one Start per hap; Rudel leaves that to its engine-level transport.
+
+`defaultmidimap({lpf: 74})` and `midimaps({mymap: {lpf: {ccn: 74, min: 0, max:
+20000, exp: 0.5}}})` register control-to-CC tables, and a hap picks one with
+`.midimap("mymap")` (or uses `default`). `midimaps("github:user/repo")` reads
+that repo's `midimap.json`, and any other string is used as a URL or a local
+path. The inline form applies during evaluation; a string source is fetched in
+the background like `samples(...)`, so the first cycles after a fresh
+`midimaps(url)` send no mapped CCs (upstream `await`s the fetch instead).
+
 ### Gamepad (`@strudel/gamepad`) — intentionally unsupported (no native input source yet)
 
 `@strudel/gamepad` (`gamepad`, `buttonMap`, `getGamepadStates`,

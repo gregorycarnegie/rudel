@@ -1,8 +1,8 @@
 use crate::{
-    CHANNEL_AFTERTOUCH, CONTROL_CHANGE, DEFAULT_BEND_RANGE, NOTE_OFF, NOTE_ON, PITCH_BEND,
-    PROGRAM_CHANGE, SYSEX_END, SYSEX_START,
+    CHANNEL_AFTERTOUCH, CLOCK, CONTINUE, CONTROL_CHANGE, DEFAULT_BEND_RANGE, NOTE_OFF, NOTE_ON,
+    PITCH_BEND, PROGRAM_CHANGE, START, STOP, SYSEX_END, SYSEX_START,
 };
-use rudel_core::{Value, ValueMap, freq_to_midi, note_to_midi};
+use rudel_core::{Value, ValueMap, freq_to_midi, midimap_ccs, note_to_midi};
 
 /// Clamp a float to a 0..=127 MIDI data byte.
 pub(crate) fn clamp7(x: f64) -> u8 {
@@ -218,13 +218,66 @@ fn nrpn_messages(channel: u8, param: &Value, value: &Value) -> Vec<Vec<u8>> {
     ]
 }
 
+/// System-realtime and array-form `midicmd` messages. Upstream sends transport
+/// and clock commands from a hap's `midicmd`, plus `['progNum'|'cc'|'sysex', …]`
+/// arrays for one-off channel messages.
+fn midicmd_messages(channel: u8, cmd: &Value) -> Vec<Vec<u8>> {
+    match cmd {
+        Value::Str(s) => match s.as_str() {
+            "clock" | "midiClock" => vec![vec![CLOCK]],
+            "start" => vec![vec![START]],
+            "stop" => vec![vec![STOP]],
+            "continue" => vec![vec![CONTINUE]],
+            _ => Vec::new(),
+        },
+        Value::List(items) => {
+            let tail = |i: usize| items.get(i).and_then(Value::as_f64);
+            match (items.first().and_then(|v| v.as_str()), items.len()) {
+                (Some("progNum"), 2) => tail(1)
+                    .map(|p| vec![vec![PROGRAM_CHANGE | channel, clamp7(p)]])
+                    .unwrap_or_default(),
+                // `['cc', ccn, ccv]` with ccv in 0..1. Upstream's branch reads
+                // `midicmd[0]`/`[1]` at length 2, i.e. it passes the literal
+                // string `'cc'` as the controller number and can only throw;
+                // rudel implements the evidently intended three-element form.
+                (Some("cc"), 3) => match (tail(1), tail(2)) {
+                    (Some(n), Some(v)) => {
+                        vec![vec![CONTROL_CHANGE | channel, clamp7(n), clamp7(v * 127.0)]]
+                    }
+                    _ => Vec::new(),
+                },
+                (Some("sysex"), 3) => {
+                    let mut msg = vec![SYSEX_START];
+                    msg.extend(bytes_from_value(&items[1]));
+                    msg.extend(bytes_from_value(&items[2]));
+                    msg.push(SYSEX_END);
+                    vec![msg]
+                }
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Note-independent MIDI messages from a control map, in midi.mjs's handler
-/// order: channel aftertouch (`miditouch`), system exclusive (`sysexid` +
-/// `sysexdata`), NRPN (`nrpnn` + `nrpv`), and raw pitch bend (`midibend`). These
-/// fire whether or not the hap carries a note, matching `Pattern.prototype.midi`.
+/// order: the `midimap` control-to-CC table, system exclusive (`sysexid` +
+/// `sysexdata`), NRPN (`nrpnn` + `nrpv`), raw pitch bend (`midibend`), channel
+/// aftertouch (`miditouch`), and `midicmd`. These fire whether or not the hap
+/// carries a note, matching `Pattern.prototype.midi`.
 pub(crate) fn aux_messages(controls: &ValueMap) -> Vec<Vec<u8>> {
     let channel = channel_of(controls);
     let mut out = Vec::new();
+
+    // midimap: every control the selected table names becomes a CC. The table
+    // is `default` unless the hap picks another with `.midimap("name")`.
+    let map_name = controls
+        .get("midimap")
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "default".to_string());
+    for (ccn, ccv) in midimap_ccs(&map_name, controls) {
+        out.push(vec![CONTROL_CHANGE | channel, ccn, clamp7(ccv * 127.0)]);
+    }
 
     // System exclusive: F0, <manufacturer id bytes>, <data bytes>, F7.
     if let (Some(id), Some(data)) = (controls.get("sysexid"), controls.get("sysexdata")) {
@@ -250,6 +303,11 @@ pub(crate) fn aux_messages(controls: &ValueMap) -> Vec<Vec<u8>> {
     // Channel aftertouch: miditouch in 0..1 -> 7-bit pressure.
     if let Some(t) = get_f64(controls, "miditouch") {
         out.push(vec![CHANNEL_AFTERTOUCH | channel, clamp7(t * 127.0)]);
+    }
+
+    // Transport / clock / one-off channel messages from `midicmd`.
+    if let Some(cmd) = controls.get("midicmd") {
+        out.extend(midicmd_messages(channel, cmd));
     }
 
     out

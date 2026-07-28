@@ -266,3 +266,61 @@ fn on_trigger_time_fires_its_callback_per_event() {
     let plain = crate::eval_result(r#"s("bd")"#).expect("eval");
     assert!(plain.trigger_hooks.is_empty());
 }
+
+#[test]
+fn midimaps_register_control_to_cc_tables() {
+    use rudel_core::{ValueMap, midimap_ccs};
+
+    // `midimaps({ name: { control: ccn | {ccn, min, max, exp} } })` writes the
+    // process-global registry `rudel-midi` reads at schedule time. These tests
+    // run in parallel, so this uses map names no other test touches.
+    eval(
+        r#"midimaps({
+             lang_test_map: { lpf: 74 },
+             lang_test_ranged: { room: { ccn: 91, min: 0, max: 2, exp: 0.5 } },
+           })"#,
+    )
+    .expect("eval");
+
+    let controls = |pairs: &[(&str, f64)]| -> ValueMap {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), Value::F64(*v)))
+            .collect()
+    };
+    // A bare number is `{ ccn }` over 0..1.
+    assert_eq!(
+        midimap_ccs("lang_test_map", &controls(&[("cutoff", 0.25)])),
+        [(74, 0.25)]
+    );
+    // The table form carries the range and curve: 0.5/2 = 0.25, ^0.5 = 0.5.
+    assert_eq!(
+        midimap_ccs("lang_test_ranged", &controls(&[("room", 0.5)])),
+        [(91, 0.5)]
+    );
+
+    // `.midimap(name)` is a control, so it rides along on the hap that selects
+    // the table; the standalone factory form works too.
+    let pat = eval(r#"note("c3").lpf(500).midimap("lang_test_map")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(
+            m.get("midimap").and_then(Value::as_str),
+            Some("lang_test_map")
+        ),
+        other => panic!("expected control map, got {other:?}"),
+    }
+    assert!(eval(r#"defaultmidimap({ lpf: 74 })"#).is_ok());
+
+    // The string form names a JSON source the host fetches, recorded as an
+    // effect like `samples(...)` rather than registered during eval.
+    let (_, effects) = crate::eval_with_samples(r#"midimaps("github:user/repo")"#).expect("eval");
+    assert_eq!(effects.midimaps, vec!["github:user/repo".to_string()]);
+    // The inline form is applied in-process, so it records no host effect.
+    let (_, effects) =
+        crate::eval_with_samples(r#"midimaps({ lang_inline_map: { lpf: 74 } })"#).expect("eval");
+    assert!(effects.midimaps.is_empty());
+    assert_eq!(
+        midimap_ccs("lang_inline_map", &controls(&[("cutoff", 1.0)])),
+        [(74, 1.0)]
+    );
+}

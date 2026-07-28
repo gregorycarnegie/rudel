@@ -90,6 +90,21 @@ fn signal_module_additions_via_koto() {
     // complement, so together they partition all 8 onsets without overlap.
     assert_eq!(kept.len() + dropped.len(), 8);
     assert!(kept.iter().all(|b| !dropped.contains(b)));
+
+    // degradeByWith drives the degradation from an arbitrary pattern instead of
+    // the built-in `rand`, as a method, camelCase, and pattern-last standalone.
+    // `saw` rises 0..1 over the cycle and is sampled at each hap's start, so
+    // the strict `> 0.5` keeps the steps after the midpoint (0.5 itself fails).
+    let expected: Vec<Frac> = (5..8).map(|i| Frac::new(i, 8)).collect();
+    for src in [
+        r#"s("hh*8").degradeByWith(saw, 0.5)"#,
+        r#"s("hh*8").degrade_by_with(saw, 0.5)"#,
+        r#"degradeByWith(saw, 0.5, s("hh*8"))"#,
+        // curried: the trailing pattern arrives in a later call
+        r#"degradeByWith(saw, 0.5)(s("hh*8"))"#,
+    ] {
+        assert_eq!(onsets(src), expected, "degradeByWith: {src}");
+    }
 }
 
 #[test]

@@ -145,6 +145,24 @@ impl RudelApp {
         for (source, frame_len) in &effects.tables {
             self.queue_tables(source.clone(), *frame_len);
         }
+        for source in &effects.midimaps {
+            self.queue_midimaps(source.clone());
+        }
+    }
+
+    /// Fetch a `midimaps(url)` control-to-CC table in the background, once per
+    /// source. The registry it writes lives in `rudel-core`, so this needs no
+    /// audio engine — a script can load a midimap with MIDI-only output.
+    fn queue_midimaps(&mut self, source: String) {
+        let key = format!("midimaps:{source}");
+        if !self.loaded_sample_sources.insert(key.clone()) {
+            return;
+        }
+        self.sample_jobs.push(SampleJob {
+            key,
+            label: format!("midimaps({source:?})"),
+            handle: rudel_audio::spawn_midimaps(source),
+        });
     }
 
     /// Load a wavetable collection in the background, once per

@@ -179,6 +179,86 @@ fn nrpn_emits_canonical_cc_sequence() {
 }
 
 #[test]
+fn midicmd_sends_transport_and_clock() {
+    let cmd = |s: &str| aux_messages(&map(&[("midicmd", Value::Str(s.to_string()))]));
+    assert_eq!(cmd("clock"), vec![vec![CLOCK]]);
+    assert_eq!(cmd("midiClock"), vec![vec![CLOCK]]);
+    assert_eq!(cmd("start"), vec![vec![START]]);
+    assert_eq!(cmd("stop"), vec![vec![STOP]]);
+    assert_eq!(cmd("continue"), vec![vec![CONTINUE]]);
+    // An unrecognised command is dropped rather than emitting a stray byte.
+    assert!(cmd("wat").is_empty());
+}
+
+#[test]
+fn midicmd_array_forms_send_channel_messages() {
+    let cmd = |items: Vec<Value>, chan: i64| {
+        aux_messages(&map(&[
+            ("midicmd", Value::List(items)),
+            ("midichan", Value::Int(chan)),
+        ]))
+    };
+    let s = |x: &str| Value::Str(x.to_string());
+    // ['progNum', n] -> program change on the hap's channel.
+    assert_eq!(
+        cmd(vec![s("progNum"), Value::Int(5)], 3),
+        vec![vec![0xC2, 5]]
+    );
+    // ['cc', ccn, ccv] with ccv in 0..1 -> control change scaled to 7 bits.
+    assert_eq!(
+        cmd(vec![s("cc"), Value::Int(74), Value::F64(0.5)], 1),
+        vec![vec![0xB0, 74, 64]]
+    );
+    // ['sysex', id, data] frames like the sysexid/sysexdata pair.
+    assert_eq!(
+        cmd(
+            vec![
+                s("sysex"),
+                Value::Int(0x7E),
+                Value::List(vec![Value::Int(0x01)])
+            ],
+            1
+        ),
+        vec![vec![0xF0, 0x7E, 0x01, 0xF7]]
+    );
+    // Wrong arity is ignored rather than emitting a truncated message.
+    assert!(cmd(vec![s("cc"), Value::Int(74)], 1).is_empty());
+    assert!(cmd(vec![s("progNum")], 1).is_empty());
+}
+
+#[test]
+fn midimap_turns_mapped_controls_into_ccs() {
+    use rudel_core::{CcMapping, set_midimap};
+    set_midimap(
+        "midi_test_map",
+        [
+            (
+                "lpf".to_string(),
+                CcMapping {
+                    ccn: 74,
+                    min: 0.0,
+                    max: 20000.0,
+                    exp: 1.0,
+                },
+            ),
+            ("gain".to_string(), CcMapping::new(7)),
+        ],
+    );
+    let msgs = aux_messages(&map(&[
+        ("midimap", Value::Str("midi_test_map".to_string())),
+        ("cutoff", Value::F64(10000.0)),
+        ("gain", Value::F64(1.0)),
+        // not in the map, so it produces no CC
+        ("pan", Value::F64(0.25)),
+    ]));
+    // Sorted by controller: gain -> CC 7 full, cutoff -> CC 74 at half range.
+    assert_eq!(msgs, vec![vec![0xB0, 7, 127], vec![0xB0, 74, 64]]);
+
+    // A hap naming no midimap uses `default`, which is unset here.
+    assert!(aux_messages(&map(&[("gain", Value::F64(1.0))])).is_empty());
+}
+
+#[test]
 fn aux_messages_fire_without_a_note() {
     // A hap carrying only sysex (no pitch) still emits the sysex message, and no
     // note-on/off, matching midi.mjs's note-independent handlers.

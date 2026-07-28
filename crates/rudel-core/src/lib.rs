@@ -15,6 +15,7 @@ pub mod hap;
 pub mod host;
 pub mod impure;
 pub mod input;
+pub mod midimap;
 pub mod modulate;
 pub mod pattern;
 pub mod query;
@@ -69,6 +70,8 @@ pub use input::{
     key_down, keys_down, midi_keys, mousex, mousey, push_midi_note, set_cc, set_cc_from,
     set_keys_held, set_pointer, take_midi_notes,
 };
+// MIDI output CC maps (written by the language layer, read by `rudel-midi`).
+pub use midimap::{CcMapping, has_midimap, midimap_ccs, set_midimap};
 // Host-published tables read back by scripts (sample durations, the log ring).
 pub use host::{clear_sample_durations, drain_log, log_line, sample_duration, set_sample_duration};
 // Tonal: note names, scales, chords.

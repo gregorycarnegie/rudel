@@ -71,13 +71,6 @@
         "addVoicings"
       ]
     },
-    "query_path_callback": {
-      "status": "unsupported",
-      "reason": "Takes a per-hap callback evaluated in the query path, which the Koto VM cannot run there (it is not Send/Sync). `filter`/`filterWhen`/`tag` were here too and are now implemented by probing 16 cycles and baking the survivors into a static repeating pattern, the same trick `fmap` uses; `degradeByWith` instead needs an arbitrary *pattern* consulted per hap, which the bake cannot stand in for.",
-      "names": [
-        "degradeByWith"
-      ]
-    },
     "span_arg_internal": {
       "status": "unsupported",
       "reason": "TimeSpan-object variants that throw on a plain array upstream, i.e. internal helpers; the user-facing two-arg compress/focus/zoom are exposed (FULL_STRUDEL.md core/pattern.mjs item).",

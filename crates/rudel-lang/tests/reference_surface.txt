@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=985 methods=1093 controls=666
+# functions=989 methods=1095 controls=666
 
 [functions]
 FXr
@@ -135,9 +135,12 @@ cyclesPer
 datt
 dec
 decay
+defaultmidimap
 degrade
 degradeBy
+degradeByWith
 degrade_by
+degrade_by_with
 degree
 delay
 delayfb
@@ -649,6 +652,7 @@ midichan
 midicmd
 midikeys
 midimap
+midimaps
 midin
 midiport
 miditouch
@@ -1147,7 +1151,9 @@ dec
 decay
 degrade
 degradeBy
+degradeByWith
 degrade_by
+degrade_by_with
 degree
 delay
 delayfb

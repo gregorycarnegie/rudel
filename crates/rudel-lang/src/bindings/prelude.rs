@@ -429,7 +429,10 @@ pub(crate) fn register(prelude: &KMap) {
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
     // `mini(x)` / `m(x)` parse mini-notation, which `arg_to_pattern` already
     // does for every pattern-typed argument (mini/mini.mjs `mini`).
-    prelude.add_fn("mini", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    prelude.add_fn(
+        "mini",
+        |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()),
+    );
     // The list-valued additive-synthesis controls, as standalone factories to
     // match their method forms.
     for (name, key) in [("partials", "partials"), ("phases", "phases")] {
@@ -753,6 +756,18 @@ pub(crate) fn register(prelude: &KMap) {
             "beat" => beat, "xfade" => xfade,
         ];
     );
+
+    // `degradeByWith(withPat, x, pat)` is the only (pattern, f64) transform, so
+    // it is registered directly rather than growing the macro a one-member group.
+    for name in ["degradeByWith", "degrade_by_with"] {
+        add_curried_fn(prelude, name, 3, |a: &[KValue]| {
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+            let with_pat = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
+            let x = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
+            Ok(KPattern(pat.degrade_by_with(with_pat, x)).into())
+        });
+    }
 
     // Every control also gets a standalone factory, matching Strudel: each
     // `registerControl` call exports a top-level function as well as a method,

@@ -422,6 +422,8 @@ kpattern_methods! {
         when_key => kpattern_when_key,
         #[koto_method]
         tag => kpattern_tag,
+        #[koto_method(alias = "degradeByWith")]
+        degrade_by_with => kpattern_degrade_by_with,
         #[koto_method]
         soundfont => kpattern_soundfont,
         #[koto_method]

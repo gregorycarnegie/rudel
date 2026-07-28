@@ -1,5 +1,6 @@
 use crate::bindings::{KPattern, arg_to_f64, arg_to_raw_str, arg0};
 use koto::prelude::*;
+use rudel_core::CcMapping;
 use std::sync::{Arc, Mutex};
 
 /// Side effects collected while evaluating a script: sample-pack loads and bank
@@ -26,6 +27,9 @@ pub struct SampleEffects {
     /// Wavetable collections to load (`tables(url, frameLen)`), as
     /// `(source, frame length)`.
     pub tables: Vec<(String, usize)>,
+    /// `midimaps(src)` string sources to fetch (URL / `github:` / path). The
+    /// inline `midimaps({...})` form needs no I/O and is applied during eval.
+    pub midimaps: Vec<String>,
 }
 
 /// Convert a Koto value into a `serde_json::Value` for an inline sample map.
@@ -67,6 +71,7 @@ fn koto_to_json(value: &KValue) -> Option<serde_json::Value> {
 pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
     let sample_effects = effects.clone();
     let tempo_effects = effects.clone();
+    register_midimaps(prelude, effects.clone());
     prelude.add_fn("samples", move |ctx| {
         let mut eff = sample_effects.lock().unwrap();
         let args = ctx.args();
@@ -207,6 +212,81 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
             Ok(KPattern(rudel_core::silence()).into())
         });
     }
+}
+
+/// Read one midimap entry: a bare CC number (`{ lpf: 74 }`) or a table
+/// (`{ lpf: { ccn: 74, min: 0, max: 20000, exp: 0.5 } }`), matching
+/// `unifyMapping`'s two accepted value shapes.
+fn cc_mapping_from(value: &KValue) -> Option<CcMapping> {
+    let ccn = |x: f64| x.round().clamp(0.0, 127.0) as u8;
+    match value {
+        KValue::Map(m) => {
+            let field = |k: &str, fallback| {
+                m.get(k)
+                    .map(|v| arg_to_f64(&v))
+                    .filter(|x| x.is_finite())
+                    .unwrap_or(fallback)
+            };
+            Some(CcMapping {
+                ccn: ccn(m.get("ccn").map(|v| arg_to_f64(&v))?),
+                min: field("min", 0.0),
+                max: field("max", 1.0),
+                exp: field("exp", 1.0),
+            })
+        }
+        KValue::Number(n) => Some(CcMapping::new(ccn(f64::from(n)))),
+        _ => None,
+    }
+}
+
+/// Collect a `{ control: ccn | { ccn, min, max, exp } }` Koto map into the
+/// entries [`rudel_core::set_midimap`] takes.
+fn midimap_entries(value: &KValue) -> Vec<(String, CcMapping)> {
+    let KValue::Map(m) = value else {
+        return Vec::new();
+    };
+    m.data()
+        .iter()
+        .filter_map(|(k, v)| match k.value() {
+            KValue::Str(key) => Some((key.to_string(), cc_mapping_from(v)?)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The control-to-CC tables `Pattern.prototype.midi` consults, keyed by the
+/// hap's `midimap` control (`default` when it sets none).
+///
+/// `midimaps({ name: { control: ccn } })` and `defaultmidimap({ control: ccn })`
+/// write the process-global registry in `rudel-core` directly — they need no
+/// I/O. `midimaps("github:user/repo")` (or any URL / path) instead records the
+/// source for the host to fetch, since the JSON lives behind a network call;
+/// upstream `await`s a `fetch`, rudel collects the request like `samples(...)`.
+fn register_midimaps(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
+    prelude.add_fn("midimaps", move |ctx| {
+        match ctx.args().first() {
+            Some(KValue::Map(maps)) => {
+                for (name, table) in maps.data().iter() {
+                    if let KValue::Str(name) = name.value() {
+                        rudel_core::set_midimap(name, midimap_entries(table));
+                    }
+                }
+            }
+            Some(arg) => {
+                if let Some(source) = arg_to_raw_str(arg) {
+                    effects.lock().unwrap().midimaps.push(source);
+                }
+            }
+            None => {}
+        }
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+    prelude.add_fn("defaultmidimap", |ctx| {
+        if let Some(table) = ctx.args().first() {
+            rudel_core::set_midimap("default", midimap_entries(table));
+        }
+        Ok(KPattern(rudel_core::silence()).into())
+    });
 }
 
 /// The default sound name for a `.sf2` file: its stem, lowercased, with

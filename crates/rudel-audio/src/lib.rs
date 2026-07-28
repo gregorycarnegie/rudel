@@ -10,6 +10,7 @@
 pub mod clock;
 /// Note event creation and scheduling logic.
 pub mod events;
+mod midimap_source;
 mod mixer;
 mod sample_map;
 /// In-memory audio sample bank and decoding utilities.
@@ -23,6 +24,7 @@ mod sync;
 
 pub use clock::Clock;
 pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
+pub use midimap_source::{load_midimaps, spawn_midimaps};
 pub use mixer::{Engine, OfflineMixer};
 pub use samples::SampleBank;
 pub use scope::{ScopeTap, ScopeTaps};
