@@ -515,3 +515,85 @@ fn short_note_with_long_decay_renders_and_finishes() {
         "voice should finish after the cut decay + release"
     );
 }
+
+/// The additive bases beyond `user`. The existing partials tests only drive
+/// `AdditiveType::User`, so the saw/square/triangle arms of `term` were never
+/// evaluated — mutation testing replaced all three with constants and nothing
+/// failed. The reference series is summed here, independently of the code under
+/// test, and normalized the same way.
+#[test]
+fn additive_bases_build_their_classical_fourier_series() {
+    // Neither is re-exported at the crate root; the tests live inside the crate.
+    use crate::oscillator::{AdditiveType, build_additive};
+
+    fn reference(base: AdditiveType, partials: usize, size: usize) -> Vec<f32> {
+        let mut table: Vec<f32> = (0..size)
+            .map(|i| {
+                let t = i as f32 / size as f32;
+                (1..=partials)
+                    .map(|n| {
+                        let nf = n as f32;
+                        let ang = TAU * nf * t;
+                        let odd = n % 2 == 1;
+                        match base {
+                            // sin terms, every harmonic, falling as 1/n
+                            AdditiveType::Saw => -ang.sin() / nf,
+                            // sin terms, odd harmonics only
+                            AdditiveType::Square if odd => ang.sin() / nf,
+                            // cos terms, odd harmonics, falling as 1/n^2
+                            AdditiveType::Triangle if odd => ang.cos() / (nf * nf),
+                            AdditiveType::User => ang.sin(),
+                            _ => 0.0,
+                        }
+                    })
+                    .sum()
+            })
+            .collect();
+        let peak = table.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+        if peak > 1e-9 {
+            for x in &mut table {
+                *x /= peak;
+            }
+        }
+        table
+    }
+
+    let partials = [1.0f32; 8];
+    for base in [
+        AdditiveType::Saw,
+        AdditiveType::Square,
+        AdditiveType::Triangle,
+        AdditiveType::User,
+    ] {
+        let got = build_additive(&partials, None, base);
+        let want = reference(base, partials.len(), got.len());
+        assert_is_signal(&got, &format!("{base:?} additive table"));
+        for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert!((g - w).abs() < 2e-3, "{base:?} table[{i}]: {g} != {w}");
+        }
+    }
+}
+
+/// A wavetable voice at all. `Voice::next_wavetable` and `WavetableOsc::tick`
+/// were reachable only with `params.wavetable` set, which no test did, so both
+/// could be replaced wholesale.
+#[test]
+fn a_wavetable_voice_sweeps_its_frames_and_sounds() {
+    // Two frames — a sine and a saw — so a `wt` sweep crosses between two
+    // clearly different waveforms.
+    let frame = 512;
+    let mut samples: Vec<f32> = (0..frame)
+        .map(|i| (TAU * i as f32 / frame as f32).sin())
+        .collect();
+    samples.extend((0..frame).map(|i| 2.0 * (i as f32 / frame as f32) - 1.0));
+
+    let p = VoiceParams {
+        wavetable: Some(WaveTable::from_samples(&samples, frame)),
+        freq: 220.0,
+        duration: 0.1,
+        ..Default::default()
+    };
+    let mut v = Voice::new(p, 44100.0);
+    let out: Vec<f32> = (0..4000).map(|_| v.tick().0).collect();
+    assert_is_signal(&out, "wavetable voice");
+}
