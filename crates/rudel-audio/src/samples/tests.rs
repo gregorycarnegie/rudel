@@ -32,9 +32,8 @@ fn write_wav(path: &Path, samples: &[f32], sample_rate: u32) {
 
 #[test]
 fn loads_a_wav_file() {
-    let dir = std::env::temp_dir().join("rudel_sample_test");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("tone.wav");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tone.wav");
     let samples: Vec<f32> = (0..4410)
         .map(|i| (TAU * 220.0 * i as f32 / 44100.0).sin())
         .collect();
@@ -46,7 +45,6 @@ fn loads_a_wav_file() {
     assert_eq!(s.sample_rate, 44100.0);
     assert!(s.data.len() > 4000);
     assert!(s.data.iter().any(|&x| x.abs() > 0.1));
-    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
@@ -116,9 +114,8 @@ fn lenient_decoder_handles_stereo_float32() {
 #[test]
 fn load_sample_map_reads_local_files() {
     // A strudel.json-style map whose files live in a local base directory.
-    let root = std::env::temp_dir().join(format!("rudel_map_test_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
     write_wav(&root.join("a.wav"), &[0.1; 32], 44100);
     write_wav(&root.join("b.wav"), &[0.2; 32], 44100);
     write_wav(&root.join("c.wav"), &[0.3; 32], 44100);
@@ -133,15 +130,12 @@ fn load_sample_map_reads_local_files() {
     assert!((bank.get("bd", 1).unwrap().data[0] - 0.2).abs() < 1e-3);
     assert!((bank.get("sd", 0).unwrap().data[0] - 0.3).abs() < 1e-3);
     assert!(bank.get("bd", 2).is_some()); // index wraps over the 2 bd samples
-
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn load_samples_source_loads_a_local_json_file() {
-    let root = std::env::temp_dir().join(format!("rudel_src_test_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
     write_wav(&root.join("kick.wav"), &[0.4; 32], 44100);
     let json_path = root.join("strudel.json");
     std::fs::write(&json_path, r#"{ "bd": "kick.wav" }"#).unwrap();
@@ -152,8 +146,6 @@ fn load_samples_source_loads_a_local_json_file() {
         .expect("load source");
     assert_eq!(count, 1);
     assert!((bank.get("bd", 0).unwrap().data[0] - 0.4).abs() < 1e-3);
-
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -276,18 +268,16 @@ fn flat_sound_repitches_only_when_a_note_is_set() {
 
 #[test]
 fn load_dir_keeps_sorted_sample_indices() {
-    let root = std::env::temp_dir().join(format!("rudel_sample_dir_test_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
     let sound_dir = root.join("tone");
     std::fs::create_dir_all(&sound_dir).unwrap();
     write_wav(&sound_dir.join("02.wav"), &[0.2; 16], 44100);
     write_wav(&sound_dir.join("01.wav"), &[0.1; 16], 44100);
 
     let mut bank = SampleBank::new();
-    let count = bank.load_dir(&root).expect("load sample dir");
+    let count = bank.load_dir(root).expect("load sample dir");
     assert_eq!(count, 2);
     assert!((bank.get("tone", 0).unwrap().data[0] - 0.1).abs() < 1e-4);
     assert!((bank.get("tone", 1).unwrap().data[0] - 0.2).abs() < 1e-4);
-
-    let _ = std::fs::remove_dir_all(&root);
 }

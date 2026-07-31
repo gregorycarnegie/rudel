@@ -18,6 +18,7 @@ ureq = "3.3.0"
 [dev-dependencies]
 rudel-mini = { path = "../rudel-mini" }
 rudel-lang = { path = "../rudel-lang" }
+tempfile = "3.27.0"
 
 [[bench]]
 name = "render"

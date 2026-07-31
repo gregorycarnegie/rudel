@@ -1,6 +1,8 @@
 mod panels;
 mod routing;
 mod samples;
+#[cfg(test)]
+mod ui_tests;
 
 use crate::{
     editor::{
@@ -122,7 +124,6 @@ pub(crate) struct RudelApp {
 
 impl RudelApp {
     fn new() -> RudelApp {
-        rudel_lang::install_mini();
         let (engine, audio_error) = match Engine::new() {
             Ok(e) => {
                 e.set_cps(0.5);
@@ -131,11 +132,23 @@ impl RudelApp {
             }
             Err(e) => (None, Some(e)),
         };
-        let reference = rudel_lang::reference();
-        let highlight_idents = RudelApp::build_highlight_idents(&reference);
         RudelApp {
             engine,
             audio_error,
+            ..RudelApp::headless()
+        }
+    }
+
+    /// The full app state with no audio device attached. [`RudelApp::new`]
+    /// layers a real [`Engine`] on top; tests build this directly so they never
+    /// need (or block on) audio hardware.
+    fn headless() -> RudelApp {
+        rudel_lang::install_mini();
+        let reference = rudel_lang::reference();
+        let highlight_idents = RudelApp::build_highlight_idents(&reference);
+        RudelApp {
+            engine: None,
+            audio_error: None,
             code: DEFAULT_CODE.to_string(),
             eval_error: None,
             status: "ready".to_string(),
@@ -272,50 +285,10 @@ mod tests {
     use crate::volume::MAX_VOLUME_PERCENT;
 
     fn app_without_engine() -> RudelApp {
-        let reference = rudel_lang::reference();
-        let highlight_idents = RudelApp::build_highlight_idents(&reference);
         RudelApp {
-            engine: None,
-            audio_error: None,
             code: String::new(),
-            eval_error: None,
             status: String::new(),
-            cps: 0.5,
-            volume_percent: DEFAULT_VOLUME_PERCENT,
-            reference,
-            highlight_idents,
-            reference_filter: String::new(),
-            pending_insert: None,
-            playing: false,
-            play_start: None,
-            current: None,
-            eval_meta: rudel_lang::EvalMeta::default(),
-            editor_decorations: EditorDecorationState::default(),
-            editor_settings: EditorSettings::default(),
-            widget_host: WidgetHostState::default(),
-            editor_cursor_byte: 0,
-            block_flash: None,
-            sample_dir: String::new(),
-            sample_names: Vec::new(),
-            loaded_sample_sources: HashSet::new(),
-            requested_fonts: HashSet::new(),
-            sample_jobs: Vec::new(),
-            output: Output::Audio,
-            midi_port: String::new(),
-            osc_target: "127.0.0.1:57120".to_string(),
-            midi: None,
-            midi_pending: None,
-            osc: None,
-            io_error: None,
-            midi_in: None,
-            midi_in_pending: None,
-            midi_in_port: String::new(),
-            clock_sync: false,
-            script_midi_ins: HashMap::new(),
-            script_midi_in_pending: Vec::new(),
-            log_lines: Vec::new(),
-            trigger_hooks: rudel_lang::triggers::TriggerHooks::default(),
-            trigger_fired_upto: None,
+            ..RudelApp::headless()
         }
     }
 

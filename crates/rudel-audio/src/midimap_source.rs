@@ -91,9 +91,8 @@ mod tests {
     fn a_local_json_file_registers_its_maps() {
         // `fetch_cached_bytes` reads non-http sources off disk, so a local
         // midimap.json loads without a network round trip.
-        let dir = std::env::temp_dir().join("rudel_midimap_test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("midimap.json");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("midimap.json");
         std::fs::write(
             &path,
             r#"{ "audio_test_map": { "lpf": { "ccn": 74, "min": 0, "max": 20000, "exp": 0.5 },
@@ -113,17 +112,13 @@ mod tests {
             midimap_ccs("audio_test_map", &controls),
             [(7, 1.0), (74, 0.5)]
         );
-
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn a_non_object_payload_is_an_error() {
-        let dir = std::env::temp_dir().join("rudel_midimap_test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("bad.json");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.json");
         std::fs::write(&path, "[1, 2, 3]").unwrap();
         assert!(load_midimaps(path.to_str().unwrap()).is_err());
-        std::fs::remove_file(&path).ok();
     }
 }

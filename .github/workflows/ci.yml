@@ -40,8 +40,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@nextest
+
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # nextest runs every test in its own process. The engine keeps real
+      # globals — `set_string_parser`, the soundfont statics, the scope
+      # registry — so a test that only passes because a neighbour set one up
+      # fails here instead of hiding behind a shared process. The workspace has
+      # no doctests, so nextest not running them costs nothing.
       - name: Test
-        run: cargo test --workspace
+        run: cargo nextest run --workspace

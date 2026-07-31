@@ -72,8 +72,12 @@ proptest! {
     /// Junk in, `Err` out — never a panic. `parse` is where user text enters the
     /// engine, and callers like `parse_or_silence` turn an `Err` into silence,
     /// so an unexpected panic is the one failure mode they cannot absorb.
+    ///
+    /// The length bound has to be generous: at 40 characters this test could
+    /// not reach the nesting depth that overflowed the stack, which is exactly
+    /// the crash it exists to prevent.
     #[test]
-    fn arbitrary_input_never_panics(src in r"[a-z0-9~<>\[\]{}()*/!@?,.:_ -]{0,40}") {
+    fn arbitrary_input_never_panics(src in r"[a-z0-9~<>\[\]{}()*/!@?,.:_ -]{0,400}") {
         let _ = rudel_mini::parse(&src);
         let _ = rudel_mini::leaf_locations(&src);
     }

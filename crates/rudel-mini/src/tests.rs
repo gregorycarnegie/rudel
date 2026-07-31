@@ -388,3 +388,41 @@ fn discarded_ops_inside_euclid_args_still_consume_seeds() {
         );
     }
 }
+
+#[test]
+fn pathological_nesting_is_an_error_not_a_stack_overflow() {
+    // Both of these used to abort the process: bracket depth blows pest's
+    // generated parser, chained operators blow the pattern builder. A stack
+    // overflow is not catchable, so the live-coding app just died with the
+    // user's buffer. They have to come back as errors (silence, in practice).
+    for src in [
+        format!("{}a{}", "[".repeat(500), "]".repeat(500)),
+        format!("{}a{}", "<".repeat(500), ">".repeat(500)),
+        format!("{}a{}", "{".repeat(500), "}".repeat(500)),
+        format!("a{}", "*2".repeat(2000)),
+        "[".repeat(10_000),
+    ] {
+        assert!(parse(&src).is_err(), "should be rejected: {:.20}...", src);
+        assert!(leaf_locations(&src).is_err());
+        assert_eq!(
+            parse_or_silence(&src).query_arc(Frac::zero(), Frac::one()),
+            vec![]
+        );
+    }
+}
+
+#[test]
+fn nesting_that_anyone_would_actually_play_still_parses() {
+    // The guard has to sit far above real usage. Deeply-but-sanely nested
+    // groups, long flat sequences and per-step operator stacks all pass.
+    assert_eq!(vals("[[[[[[[[bd]]]]]]]]"), vec![Value::Str("bd".into())]);
+    assert!(parse("<[bd sd] {hh cp}%2 bd(3,8,2)>*2").is_ok());
+    assert!(
+        parse(&"bd*2 ".repeat(2000)).is_ok(),
+        "long flat sequences are fine"
+    );
+    assert!(
+        parse("bd:3*2!2?0.5@2").is_ok(),
+        "operator stacks on one step are fine"
+    );
+}
