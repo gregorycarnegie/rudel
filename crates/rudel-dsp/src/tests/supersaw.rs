@@ -41,12 +41,25 @@ fn supersaw_matches_the_superdough_worklet() {
     for case in cases {
         let name = case["name"].as_str().unwrap();
         let voices = case["voices"].as_u64().unwrap() as usize;
+        let opt = |k: &str| case[k].as_f64().map(|x| x as f32);
         let params = VoiceParams {
             supersaw: true,
             unison: voices,
             freqspread: case["freqspread"].as_f64().unwrap() as f32,
             panspread: case["panspread"].as_f64().unwrap() as f32,
             freq: case["frequency"].as_f64().unwrap() as f32,
+            // The moving-pitch cases drive the worklet's `detune` param through
+            // `getPitchEnvelope` + `getVibratoOscillator`; the rest leave it at
+            // 0 and these all stay unset.
+            duration: opt("duration").unwrap_or(1.0),
+            penv: opt("penv"),
+            pattack: opt("pattack"),
+            pdecay: opt("pdecay"),
+            psustain: opt("psustain"),
+            prelease: opt("prelease"),
+            panchor: opt("panchor"),
+            vib: opt("vib"),
+            vibmod: opt("vibmod").unwrap_or(0.5),
             ..Default::default()
         };
         let want_l = floats(&case["left"]);
@@ -66,6 +79,10 @@ fn supersaw_matches_the_superdough_worklet() {
             // `rand_phase`) left. Only the live voices are overwritten; the SIMD
             // padding lanes keep the 0.5 that makes them contribute nothing.
             v.super_phases[..voices].copy_from_slice(&trace[i]);
+            // `next_supersaw` reads `t` for the pitch envelope and vibrato but
+            // never advances it — only `tick` does — so the sample time is set
+            // here, the same way the phases are.
+            v.t = i as f32 / SAMPLE_RATE;
             let (gl, gr) = v.next_supersaw();
 
             for (got, want, which) in [(gl, wl, "L"), (gr, wr, "R")] {
@@ -153,4 +170,76 @@ fn floats(v: &serde_json::Value) -> Vec<f32> {
         .iter()
         .map(|x| x.as_f64().unwrap() as f32)
         .collect()
+}
+
+/// A voice-level LFO on `freq`, in the nested-map shape the Koto side hands
+/// over. `dcoffset: 0` keeps the offset in `0..depth` so it only ever pushes the
+/// pitch up, which is what makes the direction checkable below.
+fn positive_freq_lfo(depth_hz: f64, rate: f64) -> ModSpecs {
+    let mut entry = ValueMap::new();
+    entry.insert("control".to_string(), Value::from("freq"));
+    entry.insert("depthabs".to_string(), Value::F64(depth_hz));
+    entry.insert("frequency".to_string(), Value::F64(rate));
+    entry.insert("dcoffset".to_string(), Value::F64(0.0));
+
+    let mut desc = ValueMap::new();
+    desc.insert("__ids".to_string(), Value::List(vec![Value::from("0")]));
+    desc.insert("0".to_string(), Value::Map(entry));
+
+    let mut map = ValueMap::new();
+    map.insert("lfo".to_string(), Value::Map(desc));
+
+    let ctx = ModContext {
+        cps: 0.5,
+        cycle: 0.0,
+        note_seconds: 1.0,
+    };
+    // The base the depth resolves against is deliberately below 30Hz: above
+    // that, `range_for` replaces the dcoffset/depth band with the frequency
+    // clamp `(20 - current, 24000 - current)`, which spans both signs and would
+    // make the direction of the offset untestable.
+    ModSpecs::from_controls(&map, &ctx, |_| 25.0)
+}
+
+#[test]
+fn a_frequency_modulator_reaches_the_super_saw_and_raises_its_pitch() {
+    // `next_supersaw` reads its base as `freq * pitch_mult() + mods.get(Frequency)`.
+    // The oracle cases cover the multiply, but nothing there attaches a
+    // modulator, so the additive term stays 0 and its sign is unobservable.
+    let specs = positive_freq_lfo(400.0, 3.0);
+    assert!(!specs.voice.is_empty(), "the lfo descriptor should resolve");
+
+    // Driven through `tick` rather than `next_supersaw` directly, because only
+    // `tick` advances the modulator bank — reading the source on its own leaves
+    // every offset at its initial zero.
+    let crossings = |mods: &[ModSpec]| {
+        let mut v = Voice::with_mods(
+            VoiceParams {
+                supersaw: true,
+                unison: 3,
+                freqspread: 0.2,
+                panspread: 0.0,
+                freq: 220.0,
+                duration: 1.0,
+                ..Default::default()
+            },
+            SAMPLE_RATE,
+            mods,
+        );
+        // `rand_phase` draws from a process-global counter, so two voices built
+        // in sequence start decorrelated. Plant the same phases in both or the
+        // runs differ by that instead of by the modulator.
+        v.super_phases[..3].copy_from_slice(&[0.1, 0.4, 0.7]);
+        let out: Vec<f32> = (0..8820).map(|_| v.tick().0).collect();
+        out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+    };
+
+    let plain = crossings(&[]);
+    let modulated = crossings(&specs.voice);
+
+    assert!(
+        modulated > plain,
+        "a positive frequency offset must raise the pitch: {plain} crossings unmodulated, \
+         {modulated} modulated"
+    );
 }

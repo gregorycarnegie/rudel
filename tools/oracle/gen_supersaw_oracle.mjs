@@ -22,11 +22,69 @@
 // the envelope and filter stages.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { writeJson } from './lib.mjs';
+import { MockParam, getParamADSR, nanFallback, writeJson } from './lib.mjs';
 
 const SAMPLE_RATE = 44100;
 const INVSR = 1 / SAMPLE_RATE;
 const N = 512;
+
+// --- verbatim from superdough/helpers.mjs -----------------------------------
+// The worklet's `detune` AudioParam is not static: synth.mjs drives it with
+// `getPitchEnvelope` and `getVibratoOscillator`. Without them every golden case
+// leaves the voice's `freq * pitch_mult() + mods` term at `freq * 1.0 + 0.0`,
+// where a multiply and a divide are indistinguishable.
+const curves = ['linear', 'exponential'];
+
+const getADSRValues = (params, curve = 'linear', defaultValues) => {
+  const envmin = curve === 'exponential' ? 0.001 : 0.001;
+  const releaseMin = 0.01;
+  const envmax = 1;
+  const [a, d, s, r] = params;
+  if (a == null && d == null && s == null && r == null) {
+    return defaultValues ?? [envmin, envmin, envmax, releaseMin];
+  }
+  const sustain = s != null ? s : (a != null && d == null) || (a == null && d == null) ? envmax : envmin;
+  return [Math.max(a ?? 0, envmin), Math.max(d ?? 0, envmin), Math.min(sustain, envmax), Math.max(r ?? 0, releaseMin)];
+};
+
+function pitchEnvelopeParam(value, t, holdEnd) {
+  const hasEnvelope = value.pattack ?? value.pdecay ?? value.psustain ?? value.prelease ?? value.penv;
+  if (hasEnvelope === undefined) {
+    return null;
+  }
+  const penv = nanFallback(value.penv, 1, true);
+  const curve = curves[value.pcurve ?? 0];
+  let [pattack, pdecay, psustain, prelease] = getADSRValues(
+    [value.pattack, value.pdecay, value.psustain, value.prelease],
+    curve,
+    [0.2, 0.001, 1, 0.001],
+  );
+  let panchor = value.panchor ?? psustain;
+  const cents = penv * 100; // penv is in semitones
+  const min = 0 - cents * panchor;
+  const max = cents - cents * panchor;
+  const param = new MockParam();
+  getParamADSR(param, pattack, pdecay, psustain, prelease, min, max, t, holdEnd, curve);
+  return param;
+}
+// --- end verbatim -----------------------------------------------------------
+
+// `getVibratoOscillator` connects a sine at `vib` Hz through a gain of
+// `vibmod * 100` into the same detune param, so the two simply sum in cents.
+function detuneCents(value, holdEnd, n) {
+  const env = pitchEnvelopeParam(value, 0, holdEnd);
+  const { vib, vibmod = 0.5 } = value;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i * INVSR;
+    let cents = env ? env.valueAt(t) : 0;
+    if (vib > 0) {
+      cents += vibmod * 100 * Math.sin(2 * Math.PI * vib * t);
+    }
+    out[i] = cents;
+  }
+  return out;
+}
 
 // --- verbatim from worklets.mjs --------------------------------------------
 const frac = (x) => x - Math.floor(x);
@@ -86,7 +144,7 @@ function render(n, { frequency, voices, freqspread, panspread, detune, phases })
     trace.push(phase.slice());
     let gainL = Math.sqrt(1 - spread);
     let gainR = Math.sqrt(spread);
-    let freq = applySemitoneDetuneToFrequency(frequency, detune / 100);
+    let freq = applySemitoneDetuneToFrequency(frequency, detune[i] / 100);
     const detuner = getDetuner(voices, freqspread);
     for (let v = 0; v < voices; v++) {
       const freqVoice = applySemitoneDetuneToFrequency(freq, detuner(v));
@@ -139,6 +197,23 @@ const cases = [
   // starts picking its other arm. Not a musical pitch, but it is the only way
   // that branch is ever taken.
   { name: 'above_half_nyquist_flips_blep_window', frequency: 30000, voices: 2, freqspread: 0.3, panspread: 0.4 },
+
+  // --- moving pitch -------------------------------------------------------
+  // Everything above holds `detune` at 0, which leaves the voice's frequency
+  // term at `freq * 1.0 + 0.0`. These drive it.
+  //
+  // `penv` alone takes getADSRValues' defaults branch ([0.2, 0.001, 1, 0.001]).
+  { name: 'pitch_envelope_default_adsr', frequency: 220, voices: 3, freqspread: 0.3, panspread: 0.5, duration: 0.4, penv: 12 },
+  // Naming one stage switches getADSRValues to its clamped branch instead,
+  // where the unset release floors at 0.01 rather than 0.001. The note is held
+  // for only 4ms so that release lands inside the sampled window — at the 0.4s
+  // the other cases use, 512 samples never reach it.
+  { name: 'pitch_envelope_partial_adsr', frequency: 220, voices: 3, freqspread: 0.3, panspread: 0.5, duration: 0.004, penv: 7, pattack: 0.05 },
+  // A downward sweep with an explicit anchor, so min/max straddle zero.
+  { name: 'pitch_envelope_anchored_downward', frequency: 440, voices: 4, freqspread: 0.2, panspread: 0.4, duration: 0.3, penv: -5, pattack: 0.02, pdecay: 0.08, psustain: 0.3, prelease: 0.05, panchor: 0.5 },
+  { name: 'vibrato_only', frequency: 330, voices: 3, freqspread: 0.25, panspread: 0.5, duration: 0.4, vib: 6, vibmod: 0.75 },
+  // Both at once: they sum in cents on the same param.
+  { name: 'pitch_envelope_and_vibrato', frequency: 330, voices: 5, freqspread: 0.4, panspread: 0.7, duration: 0.4, penv: 9, pattack: 0.03, pdecay: 0.06, psustain: 0.4, prelease: 0.02, vib: 5, vibmod: 0.5 },
 ];
 
 const out = {
@@ -146,8 +221,11 @@ const out = {
   samples: N,
   cases: cases.map((c, i) => {
     const phases = phasesFor(c.voices, 12345 + i * 7919);
-    const { left, right, phase_trace } = render(N, { ...c, detune: 0, phases });
-    return { ...c, left, right, phase_trace };
+    // `duration` is the note's hold end; only the moving-pitch cases need one.
+    const holdEnd = c.duration ?? 1.0;
+    const detune = detuneCents(c, holdEnd, N);
+    const { left, right, phase_trace } = render(N, { ...c, detune, phases });
+    return { ...c, detune: Array.from(detune), left, right, phase_trace };
   }),
 };
 

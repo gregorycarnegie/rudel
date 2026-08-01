@@ -40,7 +40,6 @@ pub struct Voice {
     params: VoiceParams,
     sample_rate: f32,
     phase: f32,
-    t: f32, // elapsed seconds
     left_gain: f32,
     right_gain: f32,
     hold_end: f32,
@@ -54,6 +53,10 @@ pub struct Voice {
     /// upstream seeds them from `Math.random()`, so a parity golden has to pin
     /// them rather than take whatever `rand_phase` drew.
     pub(crate) super_phases: Vec<f32>,
+    /// Also `pub(crate)` for that test: the source `next_*` methods read `t` but
+    /// only `tick` advances it, so a golden that drives a source directly has to
+    /// set the sample time itself to exercise anything time-varying.
+    pub(crate) t: f32,
     /// Per-voice frequency multipliers for the super-saw source: the constant
     /// `2^(detune/12)` for each unison voice, hoisted out of the per-sample loop
     /// so the render loop only multiplies by the (possibly pitch-modulated) base

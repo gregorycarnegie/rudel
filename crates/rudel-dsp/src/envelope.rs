@@ -18,6 +18,41 @@ impl Default for Adsr {
     }
 }
 
+/// superdough's `getADSRValues` (helpers.mjs), which is **not** a field-wise
+/// "fill in the missing ones with defaults".
+///
+/// The `defaults` array is only used when *none* of the four is set. As soon as
+/// any one of them is named, the others fall to the clamped branch instead:
+/// attack and decay floor at 1ms, release floors at **10ms**, sustain is capped
+/// at 1, and an unset sustain becomes 1 or 0.001 depending on whether decay was
+/// given. So `.attack(0.1)` on its own is *not* "the defaults with a longer
+/// attack" — it also flattens decay to 1ms and takes sustain to full.
+///
+/// Getting this wrong is silent: the envelope still sounds like an envelope,
+/// just not upstream's.
+pub fn adsr_values(
+    attack: Option<f32>,
+    decay: Option<f32>,
+    sustain: Option<f32>,
+    release: Option<f32>,
+    defaults: Adsr,
+) -> Adsr {
+    const ENV_MIN: f32 = 0.001;
+    const RELEASE_MIN: f32 = 0.01;
+    const ENV_MAX: f32 = 1.0;
+
+    if attack.is_none() && decay.is_none() && sustain.is_none() && release.is_none() {
+        return defaults;
+    }
+    let sustain = sustain.unwrap_or(if decay.is_none() { ENV_MAX } else { ENV_MIN });
+    Adsr {
+        attack: attack.unwrap_or(0.0).max(ENV_MIN),
+        decay: decay.unwrap_or(0.0).max(ENV_MIN),
+        sustain: sustain.min(ENV_MAX),
+        release: release.unwrap_or(0.0).max(RELEASE_MIN),
+    }
+}
+
 /// Normalized (min=0, max=1) ADSR envelope value at relative time `t`, with the
 /// note held until `hold_end` (the note duration). Ports superdough's
 /// `getParamADSR(param, a, d, s, r, 0, 1, begin, holdEnd, 'linear')` schedule

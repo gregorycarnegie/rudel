@@ -1,4 +1,4 @@
-use crate::envelope::{Adsr, adsr_value};
+use crate::envelope::{Adsr, adsr_value, adsr_values};
 use rudel_core::{Value, ValueMap};
 use std::f32::consts::TAU;
 
@@ -101,12 +101,23 @@ impl PitchMod {
             || psustain.is_some()
             || prelease.is_some();
         let env = active.then(|| {
-            let adsr = Adsr {
-                attack: pattack.unwrap_or(0.2),
-                decay: pdecay.unwrap_or(0.001),
-                sustain: psustain.unwrap_or(1.0),
-                release: prelease.unwrap_or(0.001),
-            };
+            // `getPitchEnvelope` runs its stages through `getADSRValues` with
+            // the pitch defaults, so naming one stage re-defaults the rest
+            // rather than leaving them at the array below. Filling them in
+            // field-wise instead released the pitch envelope ten times too fast
+            // whenever any stage was set (release floors at 10ms, not 1ms).
+            let adsr = adsr_values(
+                pattack,
+                pdecay,
+                psustain,
+                prelease,
+                Adsr {
+                    attack: 0.2,
+                    decay: 0.001,
+                    sustain: 1.0,
+                    release: 0.001,
+                },
+            );
             let penv = penv.unwrap_or(1.0); // semitones
             let anchor = panchor.unwrap_or(adsr.sustain);
             (adsr, -penv * anchor, penv - penv * anchor)
