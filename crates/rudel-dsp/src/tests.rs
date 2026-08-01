@@ -1,5 +1,7 @@
 mod common;
 
+mod bus;
+
 mod drums;
 mod envelope;
 mod filters;
