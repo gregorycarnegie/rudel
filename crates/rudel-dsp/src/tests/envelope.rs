@@ -85,46 +85,49 @@ fn stages_clamp_to_their_floors_and_ceilings() {
     );
 }
 
+/// The `adsr`/`ad`/`ds`/`ar` shortcuts never reach this layer as themselves —
+/// like upstream they are control setters, and `rudel_core::controls::multi`
+/// expands them into plain stages first (rudel-lang's `controls` tests cover
+/// that expansion, including that the `adsr` key does not survive it). What is
+/// worth pinning here is the envelope each expansion resolves to, because that
+/// is where the surprises are: two of these four leave a stage unnamed, and
+/// which one decides whether the note holds or dies.
 #[test]
-fn the_list_shortcuts_feed_the_same_four_controls() {
-    // `adsr("a:d:s:r")` sets all four outright.
+fn the_envelopes_the_shortcuts_resolve_to() {
+    // `adsr("0.1:0.2:0.3:0.4")` names all four, so nothing is re-defaulted.
     assert_adsr(
-        adsr_from(&[(
-            "adsr",
-            Value::List(vec![
-                Value::F64(0.1),
-                Value::F64(0.2),
-                Value::F64(0.3),
-                Value::F64(0.4),
-            ]),
-        )]),
+        adsr_from(&[
+            ("attack", Value::F64(0.1)),
+            ("decay", Value::F64(0.2)),
+            ("sustain", Value::F64(0.3)),
+            ("release", Value::F64(0.4)),
+        ]),
         [0.1, 0.2, 0.3, 0.4],
-        "adsr list",
+        "adsr(0.1:0.2:0.3:0.4)",
     );
 
-    // `ad(t)` is `[attack, decay = attack]`, and sets no sustain — which lands
-    // on 0.001 because both attack and decay are then present.
+    // `ad("0.05")` expands to attack *and* decay (core defaults the second to
+    // the first). Both present means the unset sustain lands on 0.001 — so `ad`
+    // is percussive without ever naming a sustain.
     assert_adsr(
-        adsr_from(&[("ad", Value::F64(0.05))]),
+        adsr_from(&[("attack", Value::F64(0.05)), ("decay", Value::F64(0.05))]),
         [0.05, 0.05, 0.001, 0.01],
-        "ad with one value",
-    );
-    assert_adsr(
-        adsr_from(&[("ad", Value::List(vec![Value::F64(0.05), Value::F64(0.3)]))]),
-        [0.05, 0.3, 0.001, 0.01],
-        "ad with two values",
+        "ad(0.05)",
     );
 
-    // `ar(t)` is `[attack, release = attack]`, leaving decay unset — so sustain
-    // stays full and the note holds until release.
+    // `ds("0.2:0.4")` names decay and sustain, leaving attack at its floor.
     assert_adsr(
-        adsr_from(&[("ar", Value::F64(0.2))]),
-        [0.2, 0.001, 1.0, 0.2],
-        "ar with one value",
+        adsr_from(&[("decay", Value::F64(0.2)), ("sustain", Value::F64(0.4))]),
+        [0.001, 0.2, 0.4, 0.01],
+        "ds(0.2:0.4)",
     );
+
+    // `ar("0.2")` expands to attack and release, leaving decay unnamed — so
+    // sustain stays full and the note holds until the release, the opposite of
+    // `ad`.
     assert_adsr(
-        adsr_from(&[("ar", Value::List(vec![Value::F64(0.2), Value::F64(0.6)]))]),
-        [0.2, 0.001, 1.0, 0.6],
-        "ar with two values",
+        adsr_from(&[("attack", Value::F64(0.2)), ("release", Value::F64(0.2))]),
+        [0.2, 0.001, 1.0, 0.2],
+        "ar(0.2)",
     );
 }

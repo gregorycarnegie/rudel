@@ -256,42 +256,20 @@ impl VoiceParams {
         // what the others default to. Filling them in field-wise over
         // `Adsr::default()` instead made `.attack(0.1)` keep decay 0.05 /
         // sustain 0.6 where upstream gives decay 0.001 / sustain 1.0.
+        //
+        // The `adsr`/`ad`/`ds`/`ar` shortcuts need no handling here: like
+        // upstream, they are control setters that expand into these same four
+        // keys in `rudel_core::controls::multi` long before the DSP layer sees
+        // them, so `adsr("0.1:0.2:0.3:0.4")` arrives as plain attack/decay/
+        // sustain/release.
         let num = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
-        let (mut attack, mut decay) = (num("attack"), num("decay"));
-        let (mut sustain, mut release) = (num("sustain"), num("release"));
-
-        // ADSR shortcut controls accept a `:`-list, e.g. `adsr("0.1:0.1:0.5:0.2")`.
-        // Upstream these are plain control setters (`pat.set({...})`), so they
-        // feed the same four values rather than resolving an envelope of their own.
-        let list = |k: &str| -> Option<Vec<f32>> {
-            map.get(k).map(|v| match v {
-                Value::List(items) => items
-                    .iter()
-                    .filter_map(|x| x.as_f64().map(|f| f as f32))
-                    .collect(),
-                other => other.as_f64().map(|f| f as f32).into_iter().collect(),
-            })
-        };
-        if let Some(v) = list("adsr") {
-            attack = v.first().copied().or(attack);
-            decay = v.get(1).copied().or(decay);
-            sustain = v.get(2).copied().or(sustain);
-            release = v.get(3).copied().or(release);
-        }
-        if let Some(v) = list("ad") {
-            // `ad(t)` is `[attack, decay = attack]` — it sets no sustain at all,
-            // and `getADSRValues` then lands it on 0.001 because both attack and
-            // decay are present. (The old code forced sustain to 0 by hand,
-            // which is that value rounded off.)
-            attack = v.first().copied().or(attack);
-            decay = v.get(1).copied().or(v.first().copied()).or(decay);
-        }
-        if let Some(v) = list("ar") {
-            // `ar(t)` is `[attack, release = attack]`.
-            attack = v.first().copied().or(attack);
-            release = v.get(1).copied().or(v.first().copied()).or(release);
-        }
-        p.adsr = adsr_values(attack, decay, sustain, release, Adsr::default());
+        p.adsr = adsr_values(
+            num("attack"),
+            num("decay"),
+            num("sustain"),
+            num("release"),
+            Adsr::default(),
+        );
         if let Some(h) = map.get("hold").and_then(|v| v.as_f64()) {
             p.hold = h as f32;
         }

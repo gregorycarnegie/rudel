@@ -428,24 +428,6 @@ fn vibrato_and_pitch_env_change_pitch() {
 }
 
 #[test]
-fn adsr_shortcut_parses_list() {
-    let map = ValueMap::from([(
-        "adsr".to_string(),
-        Value::List(vec![
-            Value::F64(0.1),
-            Value::F64(0.2),
-            Value::F64(0.3),
-            Value::F64(0.4),
-        ]),
-    )]);
-    let p = VoiceParams::from_controls(&map, 0.5);
-    assert_eq!(p.adsr.attack, 0.1);
-    assert_eq!(p.adsr.decay, 0.2);
-    assert_eq!(p.adsr.sustain, 0.3);
-    assert_eq!(p.adsr.release, 0.4);
-}
-
-#[test]
 fn pan_hard_left_silences_right() {
     let p = VoiceParams {
         pan: 0.0,

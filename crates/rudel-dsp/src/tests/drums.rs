@@ -257,18 +257,12 @@ fn hats_are_high_passed_and_the_kick_is_not() {
 }
 
 #[test]
-fn clap_decays_in_three_overlapping_stages() {
-    // The envelope sums exponentials with 12ms, 12ms-from-10ms and 20ms-from-
-    // 20ms time constants. Because the later two are `(t - offset).max(0.0)`,
-    // they sit at exp(0) = 1 until their onset instead of at 0 — so all three
-    // start together and the result decays monotonically rather than
-    // re-attacking. (The comment on the voice says "three quick bursts"; the
-    // arithmetic does not produce bursts. Left alone deliberately — changing it
-    // changes what `cp` sounds like, and there is no upstream to arbitrate.)
-    //
-    // What is checkable is that the extra two stages carry the tail: a single
-    // 12ms exponential would be down to exp(-20/12) = 0.19 of its peak by 20ms,
-    // and this stays well above that.
+fn clap_re_attacks_twice_after_its_first_hit() {
+    // The envelope is three exponentials gated on at t = 0, 10ms and 20ms, so
+    // the amplitude climbs again at each onset instead of decaying straight
+    // through. That is what makes it read as a clap rather than a noise blip;
+    // an ungated version (each stage sitting at exp(0) = 1 before its onset)
+    // fires all three at once and decays monotonically.
     let out = render(DrumKind::Clap, (0.05 * SAMPLE_RATE) as usize);
     let block = (0.001 * SAMPLE_RATE) as usize;
     let env: Vec<f32> = out
@@ -276,26 +270,23 @@ fn clap_decays_in_three_overlapping_stages() {
         .map(|c| c.iter().fold(0.0f32, |m, s| m.max(s.abs())))
         .collect();
 
-    let ratio = env[20] / env[0];
-    assert!(
-        ratio > 0.35,
-        "clap's later stages should fatten the tail well past a single 12ms \
-         decay (0.19); got {ratio:.3}"
-    );
-    // ...and it really is monotone-ish rather than a burst train: no block
-    // recovers by more than a tenth over the one before it.
-    assert!(
-        env.windows(2).all(|w| w[1] <= w[0] * 1.15),
-        "clap envelope should not re-attack: {env:?}"
-    );
-    // The per-block check above is too coarse on its own — a third stage that
-    // grew instead of decaying only gains exp(0.05) = 5% per block, under that
-    // threshold. Anchoring the far end pins the sign and the 0.02 time constant
-    // as well: by 50ms the whole envelope is down to about a tenth.
+    // The onsets are at blocks 10 and 20; allow a block either side for the
+    // noise carrier not peaking on the exact sample the stage switches on.
+    for onset in [10usize, 20] {
+        let before = env[onset - 2];
+        let after = env[onset..=onset + 2].iter().fold(0.0f32, |m, &s| m.max(s));
+        assert!(
+            after > before,
+            "clap should re-attack at {onset}ms: {before:.4} before, {after:.4} after \
+             (envelope {env:?})"
+        );
+    }
+
+    // ...and it is still gone by 50ms rather than ringing on.
     let tail = env[env.len() - 1] / env[0];
     assert!(
-        tail < 0.25,
-        "clap should be most of the way gone by 50ms; tail is {tail:.3} of the peak"
+        tail < 0.5,
+        "clap should be most of the way gone by 50ms; tail is {tail:.3} of the first block"
     );
 }
 

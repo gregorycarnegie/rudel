@@ -198,11 +198,25 @@ impl DrumVoice {
                 s
             }
             DrumKind::Clap => {
-                // three quick bursts then a short tail
-                let env = exp(0.012)
-                    + (-(t - 0.01).max(0.0) / 0.012).exp()
-                    + (-(t - 0.02).max(0.0) / 0.02).exp();
-                let mut n = self.noise() * env * 0.4;
+                // Three quick bursts then a short tail, like the 808 circuit
+                // (and like the recorded clap Strudel plays here — it has no
+                // clap synth of its own, so there is no upstream to copy).
+                //
+                // Each burst has to be silent *before* its onset. Clamping the
+                // time instead of gating it leaves the later two sitting at
+                // exp(0) = 1 until they start, which makes all three fire at
+                // once and the envelope decay smoothly — no bursts at all.
+                let burst = |delay: f32, tau: f32| {
+                    if t < delay {
+                        0.0
+                    } else {
+                        (-(t - delay) / tau).exp()
+                    }
+                };
+                let env = exp(0.012) + burst(0.01, 0.012) + burst(0.02, 0.02);
+                // Peaks at ~1.62 (at the third onset) where the ungated version
+                // peaked at 3.0, so the scale rises to keep the level.
+                let mut n = self.noise() * env * 0.74;
                 // a touch of body
                 n += self.noise() * exp(0.12) * 0.1;
                 n

@@ -614,16 +614,17 @@ Function-by-function audit against the Strudel learn pages
       method). Bound a curated set in Koto; parity-checked against Strudel in
       `transform_parity.rs` (add.out/mix/squeeze/squeezeout/reset/restart/poly,
       mul.out, set.out/mix/squeeze/poly, keep.out).
-- [ ] Decide what `cp` (clap) should actually sound like. `DrumVoice::mono`
-      comments its envelope as "three quick bursts then a short tail", but the
-      later two exponentials are `(t - offset).max(0.0)`, so they sit at
-      `exp(0) = 1` until their onset rather than at 0 — all three stages start
-      together and the envelope decays monotonically. There are no bursts. A
-      real clap re-attacks, so the offsets probably want gating rather than
-      clamping, but these drums are a rudel extension with no upstream to
-      arbitrate and the change alters what `cp` sounds like. Left as-is;
-      `clap_decays_in_three_overlapping_stages` pins current behaviour and says
-      why.
+- [x] `cp` (clap) now actually claps. Its later two exponentials were
+      `(t - offset).max(0.0)`, so they sat at `exp(0) = 1` until their onset
+      rather than at 0 — all three stages fired at once and the envelope decayed
+      monotonically, despite the comment promising "three quick bursts". Gated
+      them on instead, so the amplitude climbs again at 10ms and 20ms like the
+      808 circuit (and like the recorded clap Strudel plays here — it has no
+      clap synth of its own, only two commented-out SuperDirt control names).
+      The peak envelope drops from 3.0 to ~1.62 with the stages no longer
+      stacked, so the scale went 0.4 -> 0.74 to hold the level: rendered peak
+      moves 0.606 -> 0.546, and RMS 0.293 -> 0.174 because the energy is now in
+      three bursts with gaps rather than one continuous blob.
 - [x] Ported `getPitchEnvelope` + `getVibratoOscillator` into the super-saw
       oracle, so the goldens drive a voice with a moving pitch rather than a
       static one. `getParamADSR` and the Web Audio param mock moved from
@@ -651,6 +652,11 @@ Function-by-function audit against the Strudel learn pages
 
       `cargo run -p rudel-dsp --example envelope_ab` renders the before/after
       for listening.
-- [ ] `ds(t)` (`[decay, sustain = 0]`, controls.mjs:2792) is not implemented at
-      all — noticed while porting the other shortcuts. One more `list("ds")`
-      arm feeding `decay`/`sustain`.
+- [x] `ds(t)` was already implemented and correct — `rudel_core::controls::
+      multi::ds`, bound in Koto, covered by a core test and an end-to-end lang
+      test. The earlier note here was wrong: it inferred a gap from the missing
+      `list("ds")` arm in `VoiceParams::from_controls`, but no such arm is
+      needed. Like upstream, `adsr`/`ad`/`ds`/`ar` are control *setters* that
+      expand into plain attack/decay/sustain/release in core, so the raw keys
+      never reach the DSP layer at all — which made the `list("adsr")`/`ad`/`ar`
+      arms there dead code, now deleted.
