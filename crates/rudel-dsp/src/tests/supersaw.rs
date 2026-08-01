@@ -172,35 +172,6 @@ fn floats(v: &serde_json::Value) -> Vec<f32> {
         .collect()
 }
 
-/// A voice-level LFO on `freq`, in the nested-map shape the Koto side hands
-/// over. `dcoffset: 0` keeps the offset in `0..depth` so it only ever pushes the
-/// pitch up, which is what makes the direction checkable below.
-fn positive_freq_lfo(depth_hz: f64, rate: f64) -> ModSpecs {
-    let mut entry = ValueMap::new();
-    entry.insert("control".to_string(), Value::from("freq"));
-    entry.insert("depthabs".to_string(), Value::F64(depth_hz));
-    entry.insert("frequency".to_string(), Value::F64(rate));
-    entry.insert("dcoffset".to_string(), Value::F64(0.0));
-
-    let mut desc = ValueMap::new();
-    desc.insert("__ids".to_string(), Value::List(vec![Value::from("0")]));
-    desc.insert("0".to_string(), Value::Map(entry));
-
-    let mut map = ValueMap::new();
-    map.insert("lfo".to_string(), Value::Map(desc));
-
-    let ctx = ModContext {
-        cps: 0.5,
-        cycle: 0.0,
-        note_seconds: 1.0,
-    };
-    // The base the depth resolves against is deliberately below 30Hz: above
-    // that, `range_for` replaces the dcoffset/depth band with the frequency
-    // clamp `(20 - current, 24000 - current)`, which spans both signs and would
-    // make the direction of the offset untestable.
-    ModSpecs::from_controls(&map, &ctx, |_| 25.0)
-}
-
 #[test]
 fn a_frequency_modulator_reaches_the_super_saw_and_raises_its_pitch() {
     // `next_supersaw` reads its base as `freq * pitch_mult() + mods.get(Frequency)`.

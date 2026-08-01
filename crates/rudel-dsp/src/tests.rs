@@ -8,4 +8,5 @@ mod pitch;
 mod postfx;
 mod sampler;
 mod supersaw;
+mod synth;
 mod voice;

@@ -18,7 +18,7 @@ const SUPER_LANES: usize = 8;
 /// A uniform random phase in [0, 1) for super-saw voices, matching the
 /// worklet's `Math.random()` initial phases. A tiny counter-hash avoids an rng
 /// dependency; quality only needs to be "voices start decorrelated".
-fn rand_phase() -> f32 {
+pub(crate) fn rand_phase() -> f32 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEED: AtomicU32 = AtomicU32::new(0x9E37_79B9);
     let mut x = SEED.fetch_add(0x6D2B_79F5, Ordering::Relaxed);
@@ -32,14 +32,16 @@ fn rand_phase() -> f32 {
 
 /// superdough's dry/wet crossfade gain: full across one half of the range, then
 /// a linear fade across the other. `wetfade(d<0.5)=1`, then ramps down to 0.
-fn wetfade(d: f32) -> f32 {
+pub(crate) fn wetfade(d: f32) -> f32 {
     if d < 0.5 { 1.0 } else { 1.0 - (d - 0.5) / 0.5 }
 }
 
 pub struct Voice {
     params: VoiceParams,
     sample_rate: f32,
-    phase: f32,
+    /// `pub(crate)` for `tests::synth`, which reads it to check the oscillator
+    /// advances at `carrier / sample_rate`.
+    pub(crate) phase: f32,
     left_gain: f32,
     right_gain: f32,
     hold_end: f32,
@@ -206,7 +208,7 @@ impl Voice {
         }
     }
 
-    fn envelope(&self) -> f32 {
+    pub(crate) fn envelope(&self) -> f32 {
         adsr_value(&self.params.adsr, self.t, self.hold_end)
     }
 
@@ -220,7 +222,7 @@ impl Voice {
     /// its targets by `amt[k][j] * freq_k` (classic FM: index × modulator freq =
     /// peak deviation). Operators are sampled before any phase advances, so
     /// cross-modulation uses a one-sample delay.
-    fn fm_deviation(&mut self, carrier: f32) -> f32 {
+    pub(crate) fn fm_deviation(&mut self, carrier: f32) -> f32 {
         let n = self.params.fm.max_op;
         let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         let mut op_out = [0.0f32; FM_OPS + 1];
@@ -324,7 +326,7 @@ impl Voice {
     }
 
     /// Produce the next source sample and advance the oscillator phase(s).
-    fn next_source(&mut self) -> f32 {
+    pub(crate) fn next_source(&mut self) -> f32 {
         let sr = self.sample_rate;
         let pitch = self.pitch_mult();
         if let Some(kind) = self.params.noise {
