@@ -3562,7 +3562,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-app"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "eframe",
  "egui_kittest",
@@ -3576,7 +3576,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-audio"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "cpal",
  "fundsp",
@@ -3591,7 +3591,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "indexmap",
  "num-integer",
@@ -3603,7 +3603,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-dsp"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "proptest",
  "rudel-core",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-lang"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "koto",
  "proptest",
@@ -3624,7 +3624,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-midi"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "midir",
  "rudel-core",
@@ -3632,7 +3632,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-mini"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "pest",
  "pest_derive",
@@ -3643,7 +3643,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-osc"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "proptest",
  "rudel-core",
