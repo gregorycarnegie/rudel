@@ -614,3 +614,23 @@ Function-by-function audit against the Strudel learn pages
       method). Bound a curated set in Koto; parity-checked against Strudel in
       `transform_parity.rs` (add.out/mix/squeeze/squeezeout/reset/restart/poly,
       mul.out, set.out/mix/squeeze/poly, keep.out).
+- [ ] Decide what `cp` (clap) should actually sound like. `DrumVoice::mono`
+      comments its envelope as "three quick bursts then a short tail", but the
+      later two exponentials are `(t - offset).max(0.0)`, so they sit at
+      `exp(0) = 1` until their onset rather than at 0 — all three stages start
+      together and the envelope decays monotonically. There are no bursts. A
+      real clap re-attacks, so the offsets probably want gating rather than
+      clamping, but these drums are a rudel extension with no upstream to
+      arbitrate and the change alters what `cp` sounds like. Left as-is;
+      `clap_decays_in_three_overlapping_stages` pins current behaviour and says
+      why.
+- [ ] Port `getPitchEnvelope` (superdough/synth.mjs) into the audio oracles, so
+      the goldens can drive a voice with a moving pitch instead of a static one.
+      Every voice reads its frequency as `freq * pitch_mult() + mods.get(Frequency)`,
+      and with no pitch envelope or freq modulator in the golden cases that
+      whole term is `freq * 1.0 + 0.0` — so the multiply and the add are
+      untestable there. In `Voice::next_supersaw` they are the only two mutants
+      cargo-mutants still gets away with (2 of 71, 2026-08-01); the same dead
+      term repeats in `next_wavetable` and `next_source`, so one oracle case
+      with a real pitch ramp would cover all three at once. Wants the vibrato
+      oscillator (`getVibratoOscillator`) too, since it feeds the same param.

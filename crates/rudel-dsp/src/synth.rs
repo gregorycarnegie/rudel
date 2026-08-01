@@ -50,7 +50,10 @@ pub struct Voice {
     /// Per-operator FM phases (index `1..=FM_OPS`).
     fm_phases: [f32; FM_OPS + 1],
     /// Per-voice phases for the super-saw source.
-    super_phases: Vec<f32>,
+    /// `pub(crate)` so `tests::supersaw` can plant the oracle's initial phases;
+    /// upstream seeds them from `Math.random()`, so a parity golden has to pin
+    /// them rather than take whatever `rand_phase` drew.
+    pub(crate) super_phases: Vec<f32>,
     /// Per-voice frequency multipliers for the super-saw source: the constant
     /// `2^(detune/12)` for each unison voice, hoisted out of the per-sample loop
     /// so the render loop only multiplies by the (possibly pitch-modulated) base
@@ -93,12 +96,18 @@ impl Voice {
         let (super_phases, super_incr_ratio, super_gain_l, super_gain_r) = if params.supersaw {
             let voices = params.unison.max(1);
             let padded = voices.next_multiple_of(SUPER_LANES);
-            let scale = if voices > 1 {
-                params.freqspread / (voices as f32 - 1.0)
+            // superdough's `getDetuner` bails out to a flat 0 for a single
+            // voice, so the centering offset has to go with the scale — keeping
+            // `center` alive on its own detunes a one-voice super-saw by half
+            // the spread (9 cents flat at the default 0.18).
+            let (scale, center) = if voices > 1 {
+                (
+                    params.freqspread / (voices as f32 - 1.0),
+                    params.freqspread * 0.5,
+                )
             } else {
-                0.0
+                (0.0, 0.0)
             };
-            let center = params.freqspread * 0.5;
             // superdough: panspread is forced to 0 for a single voice, then
             // remapped to [0.5, 1] before the sqrt gain pair.
             let panspread = if voices > 1 { params.panspread } else { 0.0 } * 0.5 + 0.5;
@@ -239,7 +248,7 @@ impl Voice {
     /// Mirrors superdough's supersaw worklet: per-voice polyBLEP saws
     /// (`sawblep`), alternating L/R equal-power gains, summed and normalized
     /// by `1/sqrt(voices)`.
-    fn next_supersaw(&mut self) -> (f32, f32) {
+    pub(crate) fn next_supersaw(&mut self) -> (f32, f32) {
         let sr = self.sample_rate;
         // Main detune arrives via the pitch envelope / vibrato (`pitch_mult`),
         // like the worklet's `detune` AudioParam; the per-voice spread ratios

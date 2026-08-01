@@ -1,6 +1,8 @@
 /target
 /strudel
 .vscode/
-# cargo-mutants run output
+
+# `cargo mutants` output: default location plus the per-shard dirs.
 /mutants.out
 /mutants.out.old
+/mutants-*
