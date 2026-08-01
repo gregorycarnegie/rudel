@@ -639,12 +639,18 @@ Function-by-function audit against the Strudel learn pages
       depending on whether decay was given). `PitchMod::new` used `unwrap_or`
       per field, so `penv(7).pattack(0.05)` released the pitch envelope ten
       times too fast. Now shared as `envelope::adsr_values`.
-- [ ] Route the **gain** ADSR through `envelope::adsr_values` too. Same root
-      cause as the pitch bug above, and more audible: `VoiceParams::
-      apply_controls` starts from `Adsr::default()` and overwrites each field
-      that has a control, so `s("saw").attack(0.1)` keeps decay 0.05 / sustain
-      0.6, where superdough gives decay 0.001 / sustain 1.0 — a note that
-      decays to 60% here and holds at full upstream. Deliberately not changed
-      with the pitch fix: it alters how a lot of existing patterns sound, so it
-      wants a listen first. `adsr("a:d:s:r")` and the other list shortcuts go
-      through the same path and need folding in.
+- [x] Routed the **gain** ADSR through `envelope::adsr_values` too. The four
+      stages now stay `Option` until they are resolved together, so
+      `s("saw").attack(0.1)` gives decay 0.001 / sustain 1.0 (a held note) where
+      it used to keep the defaults' decay 0.05 / sustain 0.6 (a note dropping to
+      60%). The `adsr`/`ad`/`ar` list shortcuts feed the same four controls, as
+      they do upstream, instead of resolving envelopes of their own — which also
+      drops the hand-forced `sustain = 0.0` in `ad` (upstream reaches 0.001
+      there via `getADSRValues`, and `ad(t)` is `[attack, decay = attack]`, not
+      "attack/decay with no sustain").
+
+      `cargo run -p rudel-dsp --example envelope_ab` renders the before/after
+      for listening.
+- [ ] `ds(t)` (`[decay, sustain = 0]`, controls.mjs:2792) is not implemented at
+      all — noticed while porting the other shortcuts. One more `list("ds")`
+      arm feeding `decay`/`sustain`.

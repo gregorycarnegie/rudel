@@ -29,7 +29,7 @@ pub use bus::{BusParams, BusVoice, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, R
 pub use bytebeat::{ByteBeatExpr, ByteBeatParams, ByteBeatVoice, DEFAULT_BEATS};
 pub use convolver::{Convolver, ImpulseResponse, adjust_length, generate_reverb_ir};
 pub use drum::{DrumKind, DrumParams, DrumVoice};
-pub use envelope::{Adsr, adsr_value};
+pub use envelope::{Adsr, adsr_value, adsr_values};
 pub use filter::{FilterModel, FilterParams, FilterSet, Ladder, VoiceFilters};
 pub use fm::{FmOp, FmSpec};
 pub use modulator::{

@@ -1,6 +1,7 @@
 mod common;
 
 mod drums;
+mod envelope;
 mod filters;
 mod oscillator;
 mod pitch;

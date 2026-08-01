@@ -1,5 +1,5 @@
 use crate::{
-    envelope::Adsr,
+    envelope::{Adsr, adsr_values},
     filter::{FilterParams, FilterSet},
     fm::FmSpec,
     oscillator::{AdditiveType, NoiseKind, Waveform, build_additive},
@@ -251,19 +251,18 @@ impl VoiceParams {
         if let Some(pan) = map.get("pan").and_then(|v| v.as_f64()) {
             p.pan = pan as f32;
         }
-        if let Some(a) = map.get("attack").and_then(|v| v.as_f64()) {
-            p.adsr.attack = a as f32;
-        }
-        if let Some(d) = map.get("decay").and_then(|v| v.as_f64()) {
-            p.adsr.decay = d as f32;
-        }
-        if let Some(s) = map.get("sustain").and_then(|v| v.as_f64()) {
-            p.adsr.sustain = s as f32;
-        }
-        if let Some(r) = map.get("release").and_then(|v| v.as_f64()) {
-            p.adsr.release = r as f32;
-        }
+        // The four envelope stages stay `Option` until they are all collected,
+        // because `getADSRValues` resolves them together: naming any one changes
+        // what the others default to. Filling them in field-wise over
+        // `Adsr::default()` instead made `.attack(0.1)` keep decay 0.05 /
+        // sustain 0.6 where upstream gives decay 0.001 / sustain 1.0.
+        let num = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
+        let (mut attack, mut decay) = (num("attack"), num("decay"));
+        let (mut sustain, mut release) = (num("sustain"), num("release"));
+
         // ADSR shortcut controls accept a `:`-list, e.g. `adsr("0.1:0.1:0.5:0.2")`.
+        // Upstream these are plain control setters (`pat.set({...})`), so they
+        // feed the same four values rather than resolving an envelope of their own.
         let list = |k: &str| -> Option<Vec<f32>> {
             map.get(k).map(|v| match v {
                 Value::List(items) => items
@@ -274,37 +273,25 @@ impl VoiceParams {
             })
         };
         if let Some(v) = list("adsr") {
-            if let Some(a) = v.first() {
-                p.adsr.attack = *a;
-            }
-            if let Some(d) = v.get(1) {
-                p.adsr.decay = *d;
-            }
-            if let Some(s) = v.get(2) {
-                p.adsr.sustain = *s;
-            }
-            if let Some(r) = v.get(3) {
-                p.adsr.release = *r;
-            }
+            attack = v.first().copied().or(attack);
+            decay = v.get(1).copied().or(decay);
+            sustain = v.get(2).copied().or(sustain);
+            release = v.get(3).copied().or(release);
         }
         if let Some(v) = list("ad") {
-            // attack/decay with no sustain (percussive)
-            if let Some(a) = v.first() {
-                p.adsr.attack = *a;
-            }
-            if let Some(d) = v.get(1) {
-                p.adsr.decay = *d;
-            }
-            p.adsr.sustain = 0.0;
+            // `ad(t)` is `[attack, decay = attack]` — it sets no sustain at all,
+            // and `getADSRValues` then lands it on 0.001 because both attack and
+            // decay are present. (The old code forced sustain to 0 by hand,
+            // which is that value rounded off.)
+            attack = v.first().copied().or(attack);
+            decay = v.get(1).copied().or(v.first().copied()).or(decay);
         }
         if let Some(v) = list("ar") {
-            if let Some(a) = v.first() {
-                p.adsr.attack = *a;
-            }
-            if let Some(r) = v.get(1) {
-                p.adsr.release = *r;
-            }
+            // `ar(t)` is `[attack, release = attack]`.
+            attack = v.first().copied().or(attack);
+            release = v.get(1).copied().or(v.first().copied()).or(release);
         }
+        p.adsr = adsr_values(attack, decay, sustain, release, Adsr::default());
         if let Some(h) = map.get("hold").and_then(|v| v.as_f64()) {
             p.hold = h as f32;
         }
