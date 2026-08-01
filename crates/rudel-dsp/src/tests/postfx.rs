@@ -536,3 +536,330 @@ fn stretch_shifts_a_voice_up_an_octave() {
         "expected the octave-up partial to dominate: 220Hz={low:e}, 440Hz={high:e}"
     );
 }
+
+// --- the compressor's static curve ------------------------------------------
+//
+// `compressor_attenuates_loud_signal_but_not_quiet` above only checks the
+// direction: loud goes down, quiet does not. That leaves the whole level curve
+// — the ratio, the soft knee, and which branch a level lands in — free to be
+// rewritten. With a constant input the smoothing settles to the target gain, so
+// the steady-state output level *is* the curve's output, in dB.
+
+/// A stereo constant, for checking the detector links the two channels.
+struct StereoConstVoice(f32, f32);
+impl VoiceLike for StereoConstVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        (self.0, self.1)
+    }
+    fn is_done(&self) -> bool {
+        false
+    }
+}
+
+fn compressed_db(amp: f32, threshold: f32, ratio: f32, knee: f32) -> f32 {
+    let fx = PostFx {
+        compressor: Some(threshold),
+        comp_ratio: ratio,
+        comp_knee: knee,
+        comp_attack: 0.0005,
+        comp_release: 0.0005,
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(ConstVoice(amp)), fx, 44100.0);
+    let mut last = 0.0f32;
+    for _ in 0..44100 {
+        last = v.tick().0.abs();
+    }
+    20.0 * last.max(1e-9).log10()
+}
+
+#[test]
+fn the_compressor_follows_its_level_curve_in_every_region() {
+    // out = in below the knee; threshold + over/ratio above it; a quadratic
+    // interpolation across the knee itself.
+    let threshold = -20.0;
+    let ratio = 4.0;
+
+    // Hard knee, well below threshold: untouched.
+    let quiet = compressed_db(0.01, threshold, ratio, 0.0); // -40 dB in
+    assert!(
+        (quiet - -40.0).abs() < 0.2,
+        "below threshold should pass at unity, got {quiet:.2} dB"
+    );
+
+    // Hard knee, well above: `threshold + over / ratio`. 0 dB in is 20 dB over,
+    // so out = -20 + 20/4 = -15 dB.
+    let loud = compressed_db(1.0, threshold, ratio, 0.0);
+    assert!(
+        (loud - -15.0).abs() < 0.2,
+        "above threshold should follow threshold + over/ratio = -15 dB, got {loud:.2}"
+    );
+
+    // The ratio is what sets the slope: at 2:1 the same input gives -10 dB.
+    let gentler = compressed_db(1.0, threshold, 2.0, 0.0);
+    assert!(
+        (gentler - -10.0).abs() < 0.2,
+        "2:1 on 20 dB over should give -10 dB, got {gentler:.2}"
+    );
+    // ...and ratio 1 is no compression at all.
+    let unity = compressed_db(1.0, threshold, 1.0, 0.0);
+    assert!(
+        (unity - 0.0).abs() < 0.2,
+        "ratio 1 should leave the level alone, got {unity:.2}"
+    );
+
+    // Exactly at the threshold with a hard knee: still unity (over = 0 lands in
+    // the `over <= -knee/2` branch when knee is 0).
+    let at_threshold = compressed_db(0.1, threshold, ratio, 0.0);
+    assert!(
+        (at_threshold - -20.0).abs() < 0.2,
+        "at threshold with a hard knee should be unity, got {at_threshold:.2}"
+    );
+}
+
+#[test]
+fn the_compressor_knee_softens_the_corner() {
+    // With a 12 dB knee the curve starts bending 6 dB *below* the threshold and
+    // is fully into the ratio 6 dB above it. At the threshold itself the
+    // quadratic has applied half the knee's worth of reduction, so a level that
+    // a hard knee leaves untouched comes out lower.
+    let threshold = -20.0;
+    let ratio = 4.0;
+    let knee = 12.0;
+
+    let hard = compressed_db(0.1, threshold, ratio, 0.0);
+    let soft = compressed_db(0.1, threshold, ratio, knee);
+    assert!(
+        soft < hard - 0.5,
+        "a soft knee should already be reducing at the threshold: {soft:.2} vs {hard:.2} dB"
+    );
+
+    // Below the knee's lower edge (-26 dB in) both are untouched.
+    let below = compressed_db(0.0501, threshold, ratio, knee); // ~-26 dB
+    assert!(
+        (below - -26.0).abs() < 0.4,
+        "below the knee the soft curve is still unity, got {below:.2}"
+    );
+
+    // The knee is quadratic: at the threshold the reduction is exactly
+    // `(1/ratio - 1) * (knee/2)^2 / (2*knee)` = (0.25-1)*36/24 = -1.125 dB.
+    assert!(
+        (soft - (-20.0 - 1.125)).abs() < 0.3,
+        "the knee formula should give -21.125 dB at the threshold, got {soft:.2}"
+    );
+}
+
+#[test]
+fn the_compressor_detector_links_the_two_channels() {
+    // The level is `max(|l|, |r|)`, so a loud left pulls the quiet right down
+    // with it rather than each side compressing on its own.
+    let fx = PostFx {
+        compressor: Some(-20.0),
+        comp_ratio: 8.0,
+        comp_knee: 0.0,
+        comp_attack: 0.0005,
+        comp_release: 0.0005,
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(StereoConstVoice(1.0, 0.05)), fx, 44100.0);
+    let mut last = (0.0f32, 0.0f32);
+    for _ in 0..44100 {
+        last = v.tick();
+    }
+    // Both sides took the same gain, so their ratio is unchanged from 1.0:0.05.
+    let ratio_out = last.1.abs() / last.0.abs();
+    assert!(
+        (ratio_out - 0.05).abs() < 1e-3,
+        "both channels should take one linked gain, got ratio {ratio_out:.4}"
+    );
+    // ...and that gain is the one the *louder* channel asked for.
+    let left_db = 20.0 * last.0.abs().log10();
+    assert!(
+        (left_db - -17.5).abs() < 0.3,
+        "the loud side should land on the curve (-20 + 20/8), got {left_db:.2}"
+    );
+}
+
+#[test]
+fn the_compressor_attacks_faster_than_it_releases() {
+    // Reduction deepening uses `comp_attack`, recovery uses `comp_release`, and
+    // the smoothing is a one-pole with `exp(-1 / (time * sr))`. A slow attack
+    // must still be on its way down after the same number of samples that a fast
+    // attack has finished in.
+    let after = |attack: f32, n: usize| {
+        let fx = PostFx {
+            compressor: Some(-20.0),
+            comp_ratio: 8.0,
+            comp_knee: 0.0,
+            comp_attack: attack,
+            comp_release: 0.5,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(1.0)), fx, 44100.0);
+        let mut last = 0.0f32;
+        for _ in 0..n {
+            last = v.tick().0.abs();
+        }
+        last
+    };
+    let n = 441; // 10ms
+    let fast = after(0.001, n);
+    let slow = after(0.2, n);
+    assert!(
+        slow > fast * 2.0,
+        "a slow attack should still be well above a fast one at 10ms: {slow:.4} vs {fast:.4}"
+    );
+
+    // Release: once the input drops below the threshold the gain climbs back.
+    // Compare a fast and a slow release from the same compressed state.
+    let recovered = |release: f32| {
+        let fx = PostFx {
+            compressor: Some(-20.0),
+            comp_ratio: 8.0,
+            comp_knee: 0.0,
+            comp_attack: 0.0005,
+            comp_release: release,
+            ..Default::default()
+        };
+        // Loud for long enough to settle, then quiet.
+        let mut v = PostFxVoice::new(Box::new(RampVoice::new(1.0, 0.001, 4410)), fx, 44100.0);
+        let mut last = 0.0f32;
+        for _ in 0..(4410 + 441) {
+            last = v.tick().0.abs();
+        }
+        last / 0.001 // gain applied to the quiet part
+    };
+    let quick = recovered(0.005);
+    let slow_release = recovered(1.0);
+    assert!(
+        quick > slow_release * 1.5,
+        "a fast release should have recovered more gain: {quick:.3} vs {slow_release:.3}"
+    );
+}
+
+/// Loud for `switch` samples, then quiet — for watching the release.
+struct RampVoice {
+    loud: f32,
+    quiet: f32,
+    switch: usize,
+    n: usize,
+}
+impl RampVoice {
+    fn new(loud: f32, quiet: f32, switch: usize) -> RampVoice {
+        RampVoice {
+            loud,
+            quiet,
+            switch,
+            n: 0,
+        }
+    }
+}
+impl VoiceLike for RampVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        let v = if self.n < self.switch {
+            self.loud
+        } else {
+            self.quiet
+        };
+        self.n += 1;
+        (v, v)
+    }
+    fn is_done(&self) -> bool {
+        false
+    }
+}
+
+// --- the shape waveshaper ---------------------------------------------------
+
+#[test]
+fn shape_follows_its_hyperbolic_curve() {
+    // `k = 2s / (1 - s)`, then `y = (1 + k)x / (1 + k|x|)`, times the postgain.
+    // Nothing tested this stage at all.
+    let through = |shape: f32, shapevol: f32, x: f32| {
+        let fx = PostFx {
+            shape: Some(shape),
+            shapevol,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(x)), fx, 44100.0);
+        v.tick().0
+    };
+
+    // Shape 0 is the identity (k = 0 gives y = x).
+    for x in [-0.8f32, -0.2, 0.0, 0.3, 0.9] {
+        assert!(
+            (through(0.0, 1.0, x) - x).abs() < 1e-6,
+            "shape 0 should pass {x} through unchanged"
+        );
+    }
+
+    // The curve is expansive on small signals and saturating on large ones: at
+    // shape 0.5, k = 2, so y = 3x / (1 + 2|x|).
+    let expect = |x: f32| 3.0 * x / (1.0 + 2.0 * x.abs());
+    for x in [0.1f32, 0.5, 1.0] {
+        let got = through(0.5, 1.0, x);
+        assert!(
+            (got - expect(x)).abs() < 1e-5,
+            "shape 0.5 at {x} should be {:.5}, got {got:.5}",
+            expect(x)
+        );
+    }
+
+    // Odd symmetry, and the postgain scales the result.
+    assert!((through(0.5, 1.0, -0.4) + through(0.5, 1.0, 0.4)).abs() < 1e-6);
+    let full = through(0.5, 1.0, 0.6);
+    let half = through(0.5, 0.5, 0.6);
+    assert!(
+        (half - full * 0.5).abs() < 1e-5,
+        "shapevol should scale the output: {half:.5} vs {full:.5}"
+    );
+
+    // Shape is clamped just below 1 so the `1 - shape` divisor cannot blow up.
+    // Upstream's bound is `1.0 - 4e-10`, which rounds back to exactly 1.0 in
+    // f32 and left `.shape(1)` emitting NaN into the mix.
+    for x in [-1.0f32, -0.5, 0.0, 0.5, 1.0] {
+        assert!(
+            through(1.0, 1.0, x).is_finite(),
+            "shape 1 at {x} must not produce a non-finite sample"
+        );
+    }
+    // At the bound it is effectively a hard clipper: everything but silence
+    // comes out near full scale, with the sign kept.
+    assert!((through(1.0, 1.0, 0.1) - 1.0).abs() < 0.01);
+    assert!((through(1.0, 1.0, -0.1) + 1.0).abs() < 0.01);
+    assert_eq!(through(1.0, 1.0, 0.0), 0.0);
+}
+
+// --- postgain ---------------------------------------------------------------
+
+#[test]
+fn postgain_scales_the_whole_chain() {
+    let through = |postgain: f32, x: f32| {
+        let fx = PostFx {
+            postgain,
+            ..Default::default()
+        };
+        // `postgain` alone does not make the chain active, so pair it with a
+        // stage that does; crush at 16 bits is effectively transparent here.
+        let fx = PostFx {
+            crush: Some(16.0),
+            ..fx
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(x)), fx, 44100.0);
+        v.tick().0
+    };
+    let unity = through(1.0, 0.5);
+    assert!(
+        (unity - 0.5).abs() < 1e-3,
+        "unity postgain leaves the level"
+    );
+    assert!(
+        (through(0.5, 0.5) - unity * 0.5).abs() < 1e-3,
+        "postgain should scale linearly"
+    );
+    assert!(
+        (through(2.0, 0.5) - unity * 2.0).abs() < 1e-3,
+        "postgain above 1 should scale too"
+    );
+    assert_eq!(through(0.0, 0.5), 0.0, "zero postgain is silence");
+}

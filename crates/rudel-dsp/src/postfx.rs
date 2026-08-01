@@ -576,7 +576,12 @@ impl PostFxVoice {
     }
 
     fn shape_sample(x: f32, shape: f32, postgain: f32) -> f32 {
-        let shape = if shape < 1.0 { shape } else { 1.0 - 4e-10 };
+        // Upstream writes this bound as `1.0 - 4e-10` (worklets.mjs), which is
+        // fine in JS doubles but rounds straight back to 1.0 in `f32` — leaving
+        // `1 - shape` at zero, `shape` infinite, and the result NaN for
+        // `.shape(1)`. Back off by one `f32` ulp instead, which is the same
+        // thing upstream is reaching for: a divisor that is small but not zero.
+        let shape = shape.min(1.0 - f32::EPSILON);
         let shape = (2.0 * shape) / (1.0 - shape);
         ((1.0 + shape) * x) / (1.0 + shape * x.abs()) * postgain
     }

@@ -33,6 +33,12 @@ existing patterns sound like** — see Migrating below.
   ported: naming any one of `pattack`/`pdecay`/`psustain`/`prelease` sends the
   rest to a clamped branch where release floors at 10ms, but Rudel filled each
   stage in from its own defaults, so an unset release stayed at 1ms.
+- **`.shape(1)` put NaN into the mix.** The waveshaper backs its divisor off
+  from 1 with upstream's `1.0 - 4e-10`, which is fine in JS doubles but rounds
+  straight back to 1.0 in `f32` — so `1 - shape` was zero, the shaping
+  coefficient infinite, and the result `inf/inf`. NaN does not stay local; it
+  propagates through everything downstream of the voice. Now backs off one
+  `f32` ulp, giving the hard clipper the bound was always meant to produce.
 
 ### Changed
 
