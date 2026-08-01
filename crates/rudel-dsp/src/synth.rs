@@ -277,16 +277,17 @@ impl Voice {
             let dt = base_over_sr * r;
             // polyBLEP: smooth the saw's wrap discontinuity inside the dt-wide
             // windows at both cycle edges (the worklet's `sawblep`). Padded
-            // lanes have dt = 0, so neither mask fires there (the garbage the
-            // unselected arms compute is discarded by the bitwise blend) and
-            // their naive-saw value stays 0.
+            // lanes have dt = 0, so `inv` is infinite there and both arms below
+            // compute garbage — neither mask fires on those lanes, and `select`
+            // discards the unselected arm wholesale, so their naive-saw value
+            // stays 0.
             let dtw = dt.min(one - dt);
             let inv = one / dtw;
             let t0 = p * inv;
             let start = two * t0 - t0 * t0 - one;
             let t1 = (p - one) * inv;
             let end = t1 * t1 + two * t1 + one;
-            let blep = p.simd_lt(dtw).blend(start, zero) + p.simd_gt(one - dtw).blend(end, zero);
+            let blep = p.simd_lt(dtw).select(start, zero) + p.simd_gt(one - dtw).select(end, zero);
             let v = two * p - one - blep;
             acc_l += v * gl;
             acc_r += v * gr;
