@@ -458,36 +458,57 @@ fn process_block_matches_tick_for_memoryless_fx() {
     // ticks, and confirm they agree. The block size is a non-multiple of the
     // SIMD width so both the 8-wide body and the scalar remainder are covered.
     let sr = 48_000.0;
-    let fx = PostFx {
-        crush: Some(8.0),
-        shape: Some(0.4),
-        distort: Some(0.5),
-        tremolo: Some(5.0),
-        postgain: 0.8,
-        ..Default::default()
-    };
-    let saw = || VoiceParams {
-        duration: 1.0e9,
-        waveform: Waveform::Saw,
-        ..Default::default()
-    };
-    let mut by_block = PostFxVoice::new(Box::new(Voice::new(saw(), sr)), fx, sr);
-    let mut by_tick = PostFxVoice::new(Box::new(Voice::new(saw(), sr)), fx, sr);
+    // `shape` runs at its extreme in one of the cases below: the block path
+    // builds its coefficients separately from the per-sample path, and the two
+    // copies of the mapping did not agree at the bound.
+    let cases = [
+        PostFx {
+            crush: Some(8.0),
+            shape: Some(0.4),
+            distort: Some(0.5),
+            tremolo: Some(5.0),
+            postgain: 0.8,
+            ..Default::default()
+        },
+        PostFx {
+            shape: Some(1.0),
+            postgain: 0.9,
+            ..Default::default()
+        },
+    ];
+    for fx in cases {
+        let saw = || VoiceParams {
+            duration: 1.0e9,
+            waveform: Waveform::Saw,
+            ..Default::default()
+        };
+        let mut by_block = PostFxVoice::new(Box::new(Voice::new(saw(), sr)), fx, sr);
+        let mut by_tick = PostFxVoice::new(Box::new(Voice::new(saw(), sr)), fx, sr);
 
-    let block = 100;
-    let (mut bl, mut br) = (vec![0.0f32; block], vec![0.0f32; block]);
-    let mut max_diff = 0.0f32;
-    for _ in 0..20 {
-        by_block.process_block(&mut bl, &mut br);
-        for k in 0..block {
-            let (tl, tr) = by_tick.tick();
-            max_diff = max_diff.max((bl[k] - tl).abs()).max((br[k] - tr).abs());
+        let block = 100;
+        let (mut bl, mut br) = (vec![0.0f32; block], vec![0.0f32; block]);
+        let mut max_diff = 0.0f32;
+        for _ in 0..20 {
+            by_block.process_block(&mut bl, &mut br);
+            for k in 0..block {
+                let (tl, tr) = by_tick.tick();
+                // Checked explicitly: `f32::max` drops NaN, so a chain that has
+                // gone non-finite on *both* paths would leave `max_diff` at zero
+                // and sail straight through the comparison below.
+                assert!(
+                    bl[k].is_finite() && br[k].is_finite() && tl.is_finite() && tr.is_finite(),
+                    "non-finite sample at {k}: block ({}, {}), tick ({tl}, {tr})",
+                    bl[k],
+                    br[k]
+                );
+                max_diff = max_diff.max((bl[k] - tl).abs()).max((br[k] - tr).abs());
+            }
         }
+        assert!(
+            max_diff < 1e-4,
+            "process_block diverged from tick (max diff {max_diff:e})"
+        );
     }
-    assert!(
-        max_diff < 1e-4,
-        "process_block diverged from tick (max diff {max_diff:e})"
-    );
 }
 
 #[test]
@@ -862,4 +883,302 @@ fn postgain_scales_the_whole_chain() {
         "postgain above 1 should scale too"
     );
     assert_eq!(through(0.0, 0.5), 0.0, "zero postgain is silence");
+}
+
+// --- dispatch: which effects count, and which take the fast path ------------
+//
+// `is_active` decides whether a voice gets wrapped at all, `mod_base` supplies
+// the value a relative modulation depth scales, and `memoryless_only` decides
+// between the vectorized block path and the per-sample one. All three are pure
+// bookkeeping over the same fields, and a wrong answer is silent: an effect
+// that stops being "active" simply never runs.
+
+#[test]
+fn every_control_makes_the_chain_active() {
+    assert!(!PostFx::default().is_active(), "a bare chain is inert");
+
+    let each: [(&str, PostFx); 11] = [
+        (
+            "crush",
+            PostFx {
+                crush: Some(4.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "shape",
+            PostFx {
+                shape: Some(0.5),
+                ..Default::default()
+            },
+        ),
+        (
+            "distort",
+            PostFx {
+                distort: Some(0.5),
+                ..Default::default()
+            },
+        ),
+        (
+            "coarse",
+            PostFx {
+                coarse: Some(2.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "vowel",
+            PostFx {
+                vowel: Some(Vowel::A),
+                ..Default::default()
+            },
+        ),
+        (
+            "postgain",
+            PostFx {
+                postgain: 0.5,
+                ..Default::default()
+            },
+        ),
+        (
+            "tremolo",
+            PostFx {
+                tremolo: Some(4.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "phaser",
+            PostFx {
+                phaser: Some(1.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "compressor",
+            PostFx {
+                compressor: Some(-20.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "transient",
+            PostFx {
+                transient: Some(0.5),
+                ..Default::default()
+            },
+        ),
+        (
+            "stretch",
+            PostFx {
+                stretch: Some(1.0),
+                ..Default::default()
+            },
+        ),
+    ];
+    for (name, fx) in each {
+        assert!(fx.is_active(), "{name} alone should activate the chain");
+    }
+
+    // `postgain` is the odd one: it is not an Option, so unity has to read as
+    // inactive or every voice would be wrapped.
+    assert!(
+        !PostFx {
+            postgain: 1.0,
+            ..Default::default()
+        }
+        .is_active(),
+        "unity postgain is not an effect"
+    );
+}
+
+#[test]
+fn mod_base_reports_each_targets_own_value() {
+    // A relative modulation depth is scaled by the target control's current
+    // value, so reading the wrong field silently mis-scales the modulation.
+    let fx = PostFx {
+        postgain: 0.7,
+        shape: Some(0.25),
+        shapevol: 0.6,
+        distort: Some(1.5),
+        distortvol: 0.4,
+        crush: Some(6.0),
+        coarse: Some(3.0),
+        ..Default::default()
+    };
+    for (target, want) in [
+        (ModTarget::Postgain, 0.7),
+        (ModTarget::Shape, 0.25),
+        (ModTarget::Shapevol, 0.6),
+        (ModTarget::Distort, 1.5),
+        (ModTarget::Distortvol, 0.4),
+        (ModTarget::Crush, 6.0),
+        (ModTarget::Coarse, 3.0),
+    ] {
+        assert_eq!(fx.mod_base(target), want, "{target:?} base");
+    }
+    // Targets this chain does not own read as zero.
+    assert_eq!(fx.mod_base(ModTarget::Frequency), 0.0);
+    assert_eq!(fx.mod_base(ModTarget::Cutoff), 0.0);
+
+    // The optional ones fall back to zero rather than to their defaults.
+    let bare = PostFx::default();
+    for target in [
+        ModTarget::Shape,
+        ModTarget::Distort,
+        ModTarget::Crush,
+        ModTarget::Coarse,
+    ] {
+        assert_eq!(bare.mod_base(target), 0.0, "{target:?} with nothing set");
+    }
+}
+
+#[test]
+fn only_the_memoryless_chain_takes_the_block_path() {
+    // The block path hoists its coefficients out of the loop, so it is only
+    // valid when nothing is state-recursive and nothing is modulated. Checked
+    // through the observable consequence: `process_block` has to agree with
+    // `tick` for the ones that qualify, and the ones that do not are exactly
+    // the stages that carry state between samples.
+    let sr = 44100.0;
+    let agrees = |fx: PostFx| {
+        let src = || VoiceParams {
+            duration: 1.0e9,
+            waveform: Waveform::Saw,
+            ..Default::default()
+        };
+        let mut by_block = PostFxVoice::new(Box::new(Voice::new(src(), sr)), fx, sr);
+        let mut by_tick = PostFxVoice::new(Box::new(Voice::new(src(), sr)), fx, sr);
+        let n = 64;
+        let (mut bl, mut br) = (vec![0.0f32; n], vec![0.0f32; n]);
+        by_block.process_block(&mut bl, &mut br);
+        let mut worst = 0.0f32;
+        for k in 0..n {
+            let (tl, tr) = by_tick.tick();
+            assert!(bl[k].is_finite() && tl.is_finite(), "non-finite at {k}");
+            worst = worst.max((bl[k] - tl).abs()).max((br[k] - tr).abs());
+        }
+        worst
+    };
+
+    // Memoryless stages, alone and together.
+    for (name, fx) in [
+        (
+            "crush",
+            PostFx {
+                crush: Some(6.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "shape",
+            PostFx {
+                shape: Some(0.4),
+                ..Default::default()
+            },
+        ),
+        (
+            "tremolo",
+            PostFx {
+                tremolo: Some(6.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "postgain",
+            PostFx {
+                postgain: 0.6,
+                ..Default::default()
+            },
+        ),
+        (
+            "default distort",
+            PostFx {
+                distort: Some(0.7),
+                ..Default::default()
+            },
+        ),
+    ] {
+        assert!(
+            agrees(fx) < 1e-4,
+            "{name} should render identically on both paths"
+        );
+    }
+
+    // State-recursive stages must fall back rather than be hoisted; they still
+    // have to agree, because `process_block` defers to `tick` for them.
+    for (name, fx) in [
+        (
+            "coarse",
+            PostFx {
+                coarse: Some(4.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "vowel",
+            PostFx {
+                vowel: Some(Vowel::A),
+                ..Default::default()
+            },
+        ),
+        (
+            "compressor",
+            PostFx {
+                compressor: Some(-20.0),
+                ..Default::default()
+            },
+        ),
+        (
+            "phaser",
+            PostFx {
+                phaser: Some(1.0),
+                ..Default::default()
+            },
+        ),
+    ] {
+        assert!(
+            agrees(fx) < 1e-4,
+            "{name} should fall back to the per-sample path and still agree"
+        );
+    }
+
+    // A non-default distortion curve is not hoistable either, and must still
+    // match.
+    let alt = PostFx {
+        distort: Some(0.7),
+        distort_alg: DistortAlgo::Fold,
+        ..Default::default()
+    };
+    assert!(
+        agrees(alt) < 1e-4,
+        "a non-scurve distortion should still agree across paths"
+    );
+}
+
+#[test]
+fn distort_algo_names_all_resolve() {
+    // Every name a user can type in `distorttype`.
+    for (name, want) in [
+        ("scurve", DistortAlgo::Scurve),
+        ("soft", DistortAlgo::Soft),
+        ("hard", DistortAlgo::Hard),
+        ("cubic", DistortAlgo::Cubic),
+        ("diode", DistortAlgo::Diode),
+        ("asym", DistortAlgo::Asym),
+        ("fold", DistortAlgo::Fold),
+        ("sinefold", DistortAlgo::Sinefold),
+        ("chebyshev", DistortAlgo::Chebyshev),
+    ] {
+        assert_eq!(
+            DistortAlgo::from_value(&Value::Str(name.into())),
+            want,
+            "{name}"
+        );
+    }
+    // An unknown name falls back to the default rather than erroring.
+    assert_eq!(
+        DistortAlgo::from_value(&Value::Str("nope".into())),
+        DistortAlgo::Scurve
+    );
 }

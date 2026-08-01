@@ -576,13 +576,7 @@ impl PostFxVoice {
     }
 
     fn shape_sample(x: f32, shape: f32, postgain: f32) -> f32 {
-        // Upstream writes this bound as `1.0 - 4e-10` (worklets.mjs), which is
-        // fine in JS doubles but rounds straight back to 1.0 in `f32` — leaving
-        // `1 - shape` at zero, `shape` infinite, and the result NaN for
-        // `.shape(1)`. Back off by one `f32` ulp instead, which is the same
-        // thing upstream is reaching for: a divisor that is small but not zero.
-        let shape = shape.min(1.0 - f32::EPSILON);
-        let shape = (2.0 * shape) / (1.0 - shape);
+        let shape = shape_coeff(shape);
         ((1.0 + shape) * x) / (1.0 + shape * x.abs()) * postgain
     }
 
@@ -609,10 +603,10 @@ impl PostFxVoice {
     fn memoryless_coeffs(&self) -> MemorylessFx {
         MemorylessFx {
             crush: self.fx.crush.map(|b| 2f32.powf(b.max(1.0) - 1.0)),
-            shape: self.fx.shape.map(|s| {
-                let s = if s < 1.0 { s } else { 1.0 - 4e-10 };
-                ((2.0 * s) / (1.0 - s), self.fx.shapevol.clamp(0.001, 1.0))
-            }),
+            shape: self
+                .fx
+                .shape
+                .map(|s| (shape_coeff(s), self.fx.shapevol.clamp(0.001, 1.0))),
             distort: self
                 .fx
                 .distort
@@ -624,6 +618,23 @@ impl PostFxVoice {
             postgain: self.fx.postgain,
         }
     }
+}
+
+/// superdough's `shape` control mapped to its shaping coefficient `k = 2s/(1-s)`.
+///
+/// Shared by the per-sample [`PostFxVoice::shape_sample`] and the hoisted
+/// coefficients [`PostFxVoice::memoryless_coeffs`] builds for `process_block` —
+/// they had their own copies, and only one of them got fixed the first time.
+///
+/// Upstream writes the bound as `1.0 - 4e-10` (worklets.mjs). That is fine in JS
+/// doubles but rounds straight back to 1.0 in `f32`, leaving `1 - s` at zero,
+/// `k` infinite and the shaped sample `inf/inf`. `.shape(1)` is an ordinary
+/// thing to ask for, and a NaN does not stay in this voice — it spreads through
+/// everything downstream. Back off one `f32` ulp instead, which is what the
+/// upstream bound is reaching for: small, but not zero.
+fn shape_coeff(shape: f32) -> f32 {
+    let s = shape.min(1.0 - f32::EPSILON);
+    (2.0 * s) / (1.0 - s)
 }
 
 /// Precomputed parameters for the vectorized memoryless post-fx chain.
