@@ -1,0 +1,46 @@
+# cargo-mutants configuration. See CONTRIBUTING.md for how to run it.
+
+# Required on this tree, not a preference. The vendored `strudel/` is a nested
+# git repo, so without this the tree copy descends into its `node_modules` and
+# Windows refuses the npm symlinks — `os error 1314`, at "0 mutants tested".
+gitignore = true
+
+# The drawing code in the app is deliberately not tested: these are widget
+# painting, the window icon and the volume slider geometry, where an assertion
+# would only restate the implementation. Mutating them dragged the headline
+# score down by six points while describing nothing anyone intends to fix.
+# Everything else in rudel-app — the editor logic, the panels, the routing —
+# is still examined.
+exclude_globs = [
+    "crates/rudel-app/src/icon.rs",
+    "crates/rudel-app/src/volume.rs",
+    "crates/rudel-app/src/theme.rs",
+    "crates/rudel-app/src/editor/widgets/analyzer.rs",
+    "crates/rudel-app/src/editor/widgets/pianoroll.rs",
+    "crates/rudel-app/src/editor/widgets/pitchwheel.rs",
+    "crates/rudel-app/src/editor/widgets/spiral.rs",
+    "crates/rudel-app/src/editor/widgets/claviature.rs",
+    "crates/rudel-app/src/editor/widgets/paint.rs",
+    "crates/rudel-app/src/editor/widgets/visual.rs",
+    "crates/rudel-app/src/editor/widgets/style.rs",
+    "crates/rudel-app/src/editor/widgets/geometry.rs",
+]
+
+# The auto-set timeout is derived from the baseline test time, which is short
+# here; a mutant that sends a scheduler into a tight loop needs more headroom
+# than that before it is called a timeout rather than a survivor.
+minimum_test_timeout = 60
+
+# NOT set here, deliberately: the test *scope*.
+#
+# `test_package` is global — it would apply to every mutant, so rudel-app's
+# would be tested against rudel-core's tests. And `test_workspace = true`, while
+# correct, re-runs all 852 tests for every mutant: measured at 9 minutes versus
+# 87 seconds for the same 52 rudel-osc mutants, with 42 of 45 timing out.
+#
+# So scope stays per-invocation. It matters for rudel-core, whose parity suites
+# live in rudel-mini's test directory — without them its score reads about six
+# points low (73.3% rather than 79.2%):
+#
+#   cargo mutants --package rudel-core \
+#       --test-package rudel-core --test-package rudel-mini
