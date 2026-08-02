@@ -669,3 +669,14 @@ Function-by-function audit against the Strudel learn pages
       correctness. Leaving the arrow alone would at least fail on the `=>` the
       user actually typed. Pinned as-is by
       `rewrite_arrow_functions_maps_expression_bodies_only`.
+- [ ] A widget's `from` reaches back past a newline on any line but the first.
+      `call_expression_start` walks back to an expression boundary, and a
+      newline is deliberately not one — a Koto chain continues across lines with
+      a leading dot (see `indent_dot_continuations`), so there is no cheap way
+      to tell "next statement" from "continued chain" there. The result is that
+      in `a._spiral()
+b._pitchwheel()` the second widget reports `from = 0`.
+      Placement keys on `to`, so nothing moves; it only matters wherever `from`
+      is used as the widget's own span. Fixing it properly wants the block
+      splitter's statement boundaries rather than a character scan. Pinned by
+      `widget_ids_are_unique_and_carry_the_source_span`.

@@ -344,3 +344,206 @@ pub(super) fn rewrite_editor_widgets_with_context(
     out.push_str(&src[last..]);
     (out, widgets, anchors)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The survivors here sat in the small helpers that decide *where* a widget
+    // call is — `call_expression_start` walking back to the start of the
+    // expression the method hangs off, `visual_widget_method_at` deciding a dot
+    // begins one, and the option parsers. The existing tests drive the whole
+    // rewrite on well-formed input, which never exercises the boundaries those
+    // helpers are made of.
+
+    fn rewrite(src: &str) -> (String, Vec<PreprocessWidget>) {
+        let (out, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+        (out, widgets)
+    }
+
+    #[test]
+    fn public_and_underscored_widget_spellings_share_a_type() {
+        // `pianoroll` and `_pianoroll` are the same widget; the painter keys on
+        // the underscored form, so both have to land there.
+        for (public, inline) in [
+            ("pianoroll", "_pianoroll"),
+            ("punchcard", "_punchcard"),
+            ("spiral", "_spiral"),
+            ("fscope", "_fscope"),
+            ("pitchwheel", "_pitchwheel"),
+            ("spectrum", "_spectrum"),
+            ("wordfall", "_wordfall"),
+            ("claviature", "_claviature"),
+        ] {
+            assert_eq!(canonical_widget_type(public), inline, "{public}");
+            assert_eq!(canonical_widget_type(inline), inline, "{inline}");
+        }
+        // `scope` has a third spelling.
+        for spelling in ["scope", "tscope", "_scope"] {
+            assert_eq!(canonical_widget_type(spelling), "_scope", "{spelling}");
+        }
+    }
+
+    #[test]
+    fn unquote_string_only_unwraps_a_matched_pair() {
+        assert_eq!(unquote_string(r#""abc""#).as_deref(), Some("abc"));
+        assert_eq!(unquote_string("'abc'").as_deref(), Some("abc"));
+        // Escaped quotes inside come back unescaped.
+        assert_eq!(unquote_string(r#""a\"b""#).as_deref(), Some(r#"a"b"#));
+        // Unquoted, half-quoted and empty input are not strings.
+        assert_eq!(unquote_string("abc"), None);
+        assert_eq!(unquote_string(r#""abc"#), None);
+        assert_eq!(unquote_string(""), None);
+        // A bare pair of quotes is an empty string, not `None`.
+        assert_eq!(unquote_string(r#""""#).as_deref(), Some(""));
+    }
+
+    #[test]
+    fn widget_option_values_keep_their_types() {
+        assert!(matches!(
+            parse_widget_option("true"),
+            Some(WidgetOption::Bool(true))
+        ));
+        assert!(matches!(
+            parse_widget_option("false"),
+            Some(WidgetOption::Bool(false))
+        ));
+        assert!(matches!(
+            parse_widget_option("2"),
+            Some(WidgetOption::Number(n)) if (n - 2.0).abs() < 1e-9
+        ));
+        assert!(matches!(
+            parse_widget_option("-0.5"),
+            Some(WidgetOption::Number(n)) if (n + 0.5).abs() < 1e-9
+        ));
+        assert!(matches!(
+            parse_widget_option(r#""hi""#),
+            Some(WidgetOption::String(ref s)) if s == "hi"
+        ));
+        // A quoted number stays a string, not a number.
+        assert!(matches!(
+            parse_widget_option(r#""2""#),
+            Some(WidgetOption::String(ref s)) if s == "2"
+        ));
+        // Anything else is dropped rather than guessed at.
+        assert!(parse_widget_option("someIdent").is_none());
+    }
+
+    #[test]
+    fn option_keys_accept_identifiers_and_quoted_names_only() {
+        assert_eq!(normalize_option_key("fold").as_deref(), Some("fold"));
+        assert_eq!(normalize_option_key("fold_2").as_deref(), Some("fold_2"));
+        assert_eq!(normalize_option_key("$id").as_deref(), Some("$id"));
+        assert_eq!(normalize_option_key(r#""fold""#).as_deref(), Some("fold"));
+        // A key with punctuation in it is not a key.
+        assert_eq!(normalize_option_key("fold-2"), None);
+        assert_eq!(normalize_option_key("a b"), None);
+    }
+
+    #[test]
+    fn a_widget_method_is_only_matched_as_a_whole_call() {
+        // `.pianoroll(` is a widget; `.pianorollish(` is a different method
+        // that merely starts the same way, and a name with no call after it is
+        // not a widget either.
+        let (out, widgets) = rewrite(r#"note("c").pianoroll()"#);
+        assert_eq!(widgets.len(), 1, "the plain call is a widget: {out}");
+
+        let (_, none) = rewrite(r#"note("c").pianorollish()"#);
+        assert!(none.is_empty(), "a longer method name is not the widget");
+
+        let (_, none) = rewrite(r#"note("c").pianoroll"#);
+        assert!(none.is_empty(), "a widget name with no call is not one");
+
+        // Whitespace between the name and its parenthesis is still a call.
+        let (_, spaced) = rewrite("note(\"c\").pianoroll ()");
+        assert_eq!(spaced.len(), 1, "whitespace before the paren is allowed");
+    }
+
+    #[test]
+    fn the_widget_source_range_covers_the_whole_chained_expression() {
+        // `call_expression_start` walks back past the chain so the editor
+        // highlights the expression the widget belongs to, not just the method.
+        let src = r#"note("c e g").fast(2)._spiral()"#;
+        let (_, widgets) = rewrite(src);
+        let w = &widgets[0];
+        assert_eq!(
+            &src[w.from..w.to],
+            src,
+            "the range should span the whole chain"
+        );
+
+        // Inside an argument list it stops at the comma, not at the start of
+        // the outer call.
+        let src = r#"stack(note("a"), note("b")._spiral())"#;
+        let (_, widgets) = rewrite(src);
+        let w = &widgets[0];
+        assert_eq!(
+            &src[w.from..w.to],
+            r#"note("b")._spiral()"#,
+            "a comma bounds the expression"
+        );
+
+        // An operator bounds it too.
+        let src = r#"x = note("a")._spiral()"#;
+        let (_, widgets) = rewrite(src);
+        let w = &widgets[0];
+        assert_eq!(&src[w.from..w.to], r#"note("a")._spiral()"#);
+
+        // An opening bracket bounds it.
+        let src = r#"[note("a")._spiral()]"#;
+        let (_, widgets) = rewrite(src);
+        let w = &widgets[0];
+        assert_eq!(&src[w.from..w.to], r#"note("a")._spiral()"#);
+    }
+
+    #[test]
+    fn widget_ids_are_unique_and_carry_the_source_span() {
+        // Two widgets in one script must not collide, or the host reuses one
+        // surface for both.
+        let src = r#"note("a")._spiral()
+note("b")._pitchwheel()"#;
+        let (_, widgets) = rewrite(src);
+        assert_eq!(widgets.len(), 2);
+        assert_ne!(widgets[0].id, widgets[1].id, "ids must be distinct");
+        assert_eq!(widgets[0].widget_type, "_spiral");
+        assert_eq!(widgets[1].widget_type, "_pitchwheel");
+        // Each `to` is its own expression's end...
+        assert_eq!(&src[..widgets[0].to], r#"note("a")._spiral()"#);
+        assert_eq!(widgets[1].to, src.len());
+
+        // ...but the second widget's `from` reaches back over the first line.
+        // A newline is deliberately *not* an expression boundary, because a
+        // Koto chain continues across lines with a leading dot — which is what
+        // `indent_dot_continuations` exists for — so there is no cheap way to
+        // tell "next statement" from "continued chain" here. Placement keys on
+        // `to`, so this does not move a widget; it does mean `from` spans more
+        // than the widget's own expression on any line but the first. Recorded
+        // in todo.md; pinned so a change to it is deliberate.
+        assert_eq!(widgets[0].from, 0);
+        assert_eq!(
+            widgets[1].from, 0,
+            "the second widget's start reaches back past the newline"
+        );
+    }
+
+    #[test]
+    fn a_widget_name_inside_a_string_is_not_rewritten() {
+        // The rewriter walks the source; a pattern string mentioning a widget
+        // method must be copied through untouched.
+        let src = r#"s("bd")._spiral()"#;
+        let (out, widgets) = rewrite(src);
+        assert_eq!(widgets.len(), 1);
+        assert!(
+            out.contains(r#""bd""#),
+            "the pattern string survives: {out}"
+        );
+
+        let quoted = r#"s("._spiral()")"#;
+        let (out, none) = rewrite(quoted);
+        assert!(
+            none.is_empty(),
+            "a widget call inside a string is not a widget: {out}"
+        );
+        assert_eq!(out, quoted, "and the source is unchanged");
+    }
+}
