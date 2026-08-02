@@ -902,3 +902,234 @@ fn a_pattern_cps_control_retunes_the_transport_from_the_window_end() {
     assert!((end - clock.cycle_at(next + lookahead)).abs() < 1e-9);
     assert!(end > begin);
 }
+
+// --- send routing arithmetic ------------------------------------------------
+//
+// `mix_sub_block` is where every voice's output is split between its orbit's
+// dry, reverb and delay accumulators, scaled by `dry`/`room`/`delay`. The
+// existing tests check that effects *happen*; these check the levels, because a
+// send scaled wrongly still sounds like a mix.
+
+/// A synth voice at a known level, routed with the given sends.
+fn routed_event(send: OrbitSend) -> NoteEvent {
+    NoteEvent {
+        onset_seconds: 0.0,
+        spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams {
+            waveform: rudel_dsp::Waveform::Sine,
+            freq: 441.0,
+            duration: 10.0,
+            adsr: rudel_dsp::Adsr {
+                attack: 0.0001,
+                decay: 0.0001,
+                sustain: 1.0,
+                release: 0.01,
+            },
+            ..Default::default()
+        })),
+        fx: rudel_dsp::PostFx::default(),
+        cut: None,
+        send,
+        duck: Vec::new(),
+        mods: Default::default(),
+        tags: Vec::new(),
+    }
+}
+
+fn peak_of(out: &[(f32, f32)]) -> f32 {
+    out.iter()
+        .fold(0.0f32, |m, (l, r)| m.max(l.abs()).max(r.abs()))
+}
+
+fn render(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(routed_event(send));
+    let mut out = vec![(0.0f32, 0.0f32); n];
+    mixer.render_block(&mut out);
+    out
+}
+
+#[test]
+fn dry_scales_the_direct_signal() {
+    // `dry` is a straight gain on the direct path, so halving it halves the
+    // output when nothing else is routed.
+    let full = peak_of(&render(
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        4096,
+    ));
+    let half = peak_of(&render(
+        OrbitSend {
+            dry: 0.5,
+            ..Default::default()
+        },
+        4096,
+    ));
+    assert!(full > 0.0, "a dry voice should be audible");
+    assert!(
+        (half - full * 0.5).abs() < full * 0.05,
+        "dry 0.5 should halve the direct signal: {full:.4} -> {half:.4}"
+    );
+
+    // `dry(0)` with no wet sends leaves silence — this is what makes a voice a
+    // pure modulation source.
+    let none = peak_of(&render(
+        OrbitSend {
+            dry: 0.0,
+            ..Default::default()
+        },
+        4096,
+    ));
+    assert!(
+        none < 1e-6,
+        "dry 0 with no sends should be silent, got {none}"
+    );
+}
+
+#[test]
+fn the_wet_sends_are_taken_before_the_dry_gain() {
+    // The reverb and delay sends read the voice's output *pre*-dry, so `dry(0)`
+    // still feeds them — otherwise `room` would silently do nothing whenever a
+    // voice was routed fully wet.
+    let wet_only = peak_of(&render(
+        OrbitSend {
+            dry: 0.0,
+            room: 0.8,
+            ..Default::default()
+        },
+        16384,
+    ));
+    assert!(
+        wet_only > 1e-4,
+        "dry 0 with room 0.8 should still produce reverb, got {wet_only}"
+    );
+
+    // More send, more level.
+    let quiet = peak_of(&render(
+        OrbitSend {
+            dry: 0.0,
+            room: 0.2,
+            ..Default::default()
+        },
+        16384,
+    ));
+    assert!(
+        wet_only > quiet,
+        "a bigger room send should be louder: {quiet:.5} vs {wet_only:.5}"
+    );
+
+    // The delay send behaves the same way.
+    let delayed = peak_of(&render(
+        OrbitSend {
+            dry: 0.0,
+            delay: 0.8,
+            ..Default::default()
+        },
+        16384,
+    ));
+    assert!(
+        delayed > 1e-4,
+        "dry 0 with delay 0.8 should still produce delay, got {delayed}"
+    );
+}
+
+#[test]
+fn a_zero_send_leaves_no_tail_where_a_room_send_does() {
+    // The `room > 0.0` / `delay > 0.0` guards skip the accumulation entirely.
+    // Compared on a *short* note so what is measured after it is a tail rather
+    // than the note still sounding.
+    let tail_after = |send: OrbitSend| {
+        let mut mixer = OfflineMixer::new(44100.0);
+        let mut ev = routed_event(send);
+        ev.spec = rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams {
+            waveform: rudel_dsp::Waveform::Sine,
+            freq: 441.0,
+            duration: 0.02,
+            adsr: rudel_dsp::Adsr {
+                attack: 0.001,
+                decay: 0.001,
+                sustain: 1.0,
+                release: 0.005,
+            },
+            ..Default::default()
+        }));
+        mixer.schedule(ev);
+        let mut out = vec![(0.0f32, 0.0f32); 16384];
+        mixer.render_block(&mut out);
+        // Well past the note's own end (0.025s = ~1100 samples).
+        peak_of(&out[4000..])
+    };
+
+    let dry_only = tail_after(OrbitSend {
+        dry: 1.0,
+        room: 0.0,
+        delay: 0.0,
+        ..Default::default()
+    });
+    let with_room = tail_after(OrbitSend {
+        dry: 1.0,
+        room: 0.8,
+        ..Default::default()
+    });
+    assert!(
+        dry_only < 1e-4,
+        "no sends should leave no tail, got {dry_only}"
+    );
+    assert!(
+        with_room > dry_only * 10.0,
+        "a room send should leave one: {dry_only:.6} vs {with_room:.6}"
+    );
+}
+
+#[test]
+fn a_voice_is_routed_to_its_own_orbit() {
+    // Orbits are independent buses; two voices on different orbits must both
+    // be heard, and a voice on an orbit that does not exist yet has one created
+    // rather than silently disappearing.
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(routed_event(OrbitSend {
+        orbit: 7,
+        dry: 1.0,
+        ..Default::default()
+    }));
+    let mut out = vec![(0.0f32, 0.0f32); 4096];
+    mixer.render_block(&mut out);
+    assert!(
+        peak_of(&out) > 0.0,
+        "a voice on a fresh orbit should still be heard"
+    );
+}
+
+#[test]
+fn a_finished_voice_is_dropped_from_the_active_list() {
+    // `retain_mut` returns `!is_done()`, so a voice that has ended stops being
+    // rendered. Inverted, finished voices would accumulate forever.
+    let mut mixer = OfflineMixer::new(44100.0);
+    let mut ev = routed_event(OrbitSend {
+        dry: 1.0,
+        ..Default::default()
+    });
+    ev.spec = rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams {
+        waveform: rudel_dsp::Waveform::Sine,
+        freq: 441.0,
+        duration: 0.01,
+        adsr: rudel_dsp::Adsr {
+            attack: 0.001,
+            decay: 0.001,
+            sustain: 1.0,
+            release: 0.01,
+        },
+        ..Default::default()
+    }));
+    mixer.schedule(ev);
+    let mut out = vec![(0.0f32, 0.0f32); 4096];
+    mixer.render_block(&mut out);
+    assert!(peak_of(&out) > 0.0, "it should sound first");
+    assert_eq!(mixer.active_len(), 0, "and then be dropped");
+
+    // Rendering on with nothing active is silence, not a panic.
+    let mut more = vec![(0.0f32, 0.0f32); 512];
+    mixer.render_block(&mut more);
+    assert!(peak_of(&more) < 1e-6);
+}
