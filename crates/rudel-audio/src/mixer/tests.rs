@@ -905,12 +905,13 @@ fn a_pattern_cps_control_retunes_the_transport_from_the_window_end() {
 
 // --- send routing arithmetic ------------------------------------------------
 //
-// `mix_sub_block` is where every voice's output is split between its orbit's
-// dry, reverb and delay accumulators, scaled by `dry`/`room`/`delay`. The
-// existing tests check that effects *happen*; these check the levels, because a
-// send scaled wrongly still sounds like a mix.
+// `mix_sub_block` splits every voice's output between its orbit's dry, reverb
+// and delay accumulators. These compare *sample for sample* against a rendering
+// of the same voice at a known routing, rather than comparing peaks: a peak
+// taken over `abs()` is blind to a sign flip, and a tolerance wide enough for
+// float drift is wide enough to hide a scaling error.
 
-/// A synth voice at a known level, routed with the given sends.
+/// A sine voice at a known level, routed with the given sends.
 fn routed_event(send: OrbitSend) -> NoteEvent {
     NoteEvent {
         onset_seconds: 0.0,
@@ -935,11 +936,6 @@ fn routed_event(send: OrbitSend) -> NoteEvent {
     }
 }
 
-fn peak_of(out: &[(f32, f32)]) -> f32 {
-    out.iter()
-        .fold(0.0f32, |m, (l, r)| m.max(l.abs()).max(r.abs()))
-}
-
 fn render(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
     let mut mixer = OfflineMixer::new(44100.0);
     mixer.schedule(routed_event(send));
@@ -948,89 +944,178 @@ fn render(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
     out
 }
 
+fn peak_of(out: &[(f32, f32)]) -> f32 {
+    out.iter()
+        .fold(0.0f32, |m, (l, r)| m.max(l.abs()).max(r.abs()))
+}
+
+/// Largest signed deviation of `got` from `want * scale`, sample for sample.
+/// Signed on purpose: this is what catches an accumulation that subtracts.
+fn worst_scaled_diff(got: &[(f32, f32)], want: &[(f32, f32)], scale: f32) -> f32 {
+    got.iter().zip(want).fold(0.0f32, |m, (g, w)| {
+        m.max((g.0 - w.0 * scale).abs())
+            .max((g.1 - w.1 * scale).abs())
+    })
+}
+
 #[test]
-fn dry_scales_the_direct_signal() {
-    // `dry` is a straight gain on the direct path, so halving it halves the
-    // output when nothing else is routed.
-    let full = peak_of(&render(
+fn dry_scales_the_direct_signal_sample_for_sample() {
+    let full = render(
         OrbitSend {
             dry: 1.0,
             ..Default::default()
         },
         4096,
-    ));
-    let half = peak_of(&render(
+    );
+    let level = peak_of(&full);
+    assert!(level > 0.01, "a dry voice should be audible, got {level}");
+
+    // Every sample of the half-dry rendering is exactly half of the full one —
+    // which a sign flip or a swapped operator cannot satisfy.
+    for scale in [0.5f32, 0.25, 0.75] {
+        let scaled = render(
+            OrbitSend {
+                dry: scale,
+                ..Default::default()
+            },
+            4096,
+        );
+        let worst = worst_scaled_diff(&scaled, &full, scale);
+        assert!(
+            worst < level * 1e-3,
+            "dry {scale} should scale every sample: worst deviation {worst:.6}              against a {level:.4} signal"
+        );
+    }
+
+    // ...and the direct path is genuinely positive-going, not an inverted copy.
+    let first = full
+        .iter()
+        .find(|(l, _)| l.abs() > level * 0.5)
+        .expect("some loud sample");
+    let scaled = render(
         OrbitSend {
             dry: 0.5,
             ..Default::default()
         },
         4096,
-    ));
-    assert!(full > 0.0, "a dry voice should be audible");
+    );
+    let same = scaled
+        .iter()
+        .zip(&full)
+        .find(|((l, _), (fl, _))| fl.abs() > level * 0.5 && l.abs() > 0.0)
+        .expect("a matching sample");
     assert!(
-        (half - full * 0.5).abs() < full * 0.05,
-        "dry 0.5 should halve the direct signal: {full:.4} -> {half:.4}"
+        same.0.0.signum() == same.1.0.signum(),
+        "scaling must not invert the signal ({first:?})"
     );
 
-    // `dry(0)` with no wet sends leaves silence — this is what makes a voice a
-    // pure modulation source.
-    let none = peak_of(&render(
+    // `dry(0)` with no wet sends is exactly silence.
+    let none = render(
         OrbitSend {
             dry: 0.0,
             ..Default::default()
         },
         4096,
-    ));
+    );
     assert!(
-        none < 1e-6,
-        "dry 0 with no sends should be silent, got {none}"
+        none.iter().all(|(l, r)| *l == 0.0 && *r == 0.0),
+        "dry 0 with no sends should be exactly silent"
     );
 }
 
 #[test]
 fn the_wet_sends_are_taken_before_the_dry_gain() {
     // The reverb and delay sends read the voice's output *pre*-dry, so `dry(0)`
-    // still feeds them — otherwise `room` would silently do nothing whenever a
-    // voice was routed fully wet.
-    let wet_only = peak_of(&render(
+    // still feeds them — otherwise `room` would silently do nothing on any
+    // fully-wet voice, which is how a voice is made a pure modulation source.
+    let room_only = render(
         OrbitSend {
             dry: 0.0,
             room: 0.8,
             ..Default::default()
         },
         16384,
-    ));
+    );
     assert!(
-        wet_only > 1e-4,
-        "dry 0 with room 0.8 should still produce reverb, got {wet_only}"
+        peak_of(&room_only) > 1e-4,
+        "dry 0 with room 0.8 should still produce reverb"
     );
 
-    // More send, more level.
-    let quiet = peak_of(&render(
+    // The send is a gain: a quarter of the send is a quarter of the wet signal,
+    // sample for sample.
+    let quarter = render(
         OrbitSend {
             dry: 0.0,
             room: 0.2,
             ..Default::default()
         },
         16384,
-    ));
+    );
+    let level = peak_of(&room_only);
+    let worst = worst_scaled_diff(&quarter, &room_only, 0.25);
     assert!(
-        wet_only > quiet,
-        "a bigger room send should be louder: {quiet:.5} vs {wet_only:.5}"
+        worst < level * 1e-3,
+        "room 0.2 should be a quarter of room 0.8 everywhere: worst {worst:.6}          against {level:.4}"
     );
 
-    // The delay send behaves the same way.
-    let delayed = peak_of(&render(
+    let delay_only = render(
         OrbitSend {
             dry: 0.0,
             delay: 0.8,
             ..Default::default()
         },
         16384,
-    ));
+    );
     assert!(
-        delayed > 1e-4,
-        "dry 0 with delay 0.8 should still produce delay, got {delayed}"
+        peak_of(&delay_only) > 1e-4,
+        "dry 0 with delay 0.8 should still produce delay"
+    );
+    // Reverb and delay are separate paths: neither reproduces the other.
+    let cross = worst_scaled_diff(&delay_only, &room_only, 1.0);
+    assert!(
+        cross > level * 0.1,
+        "the delay send should not render as the reverb send"
+    );
+}
+
+#[test]
+fn the_dry_and_wet_paths_sum_rather_than_replace() {
+    // With both routed, the output is the sum of the two renderings — that is
+    // what pins `+=` in the accumulation loops against a `-=` or a `=`.
+    let dry = render(
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        16384,
+    );
+    let wet = render(
+        OrbitSend {
+            dry: 0.0,
+            room: 0.6,
+            ..Default::default()
+        },
+        16384,
+    );
+    let both = render(
+        OrbitSend {
+            dry: 1.0,
+            room: 0.6,
+            ..Default::default()
+        },
+        16384,
+    );
+    let level = peak_of(&both);
+    let worst = both
+        .iter()
+        .zip(dry.iter().zip(&wet))
+        .fold(0.0f32, |m, (b, (d, w))| {
+            m.max((b.0 - (d.0 + w.0)).abs())
+                .max((b.1 - (d.1 + w.1)).abs())
+        });
+    assert!(
+        worst < level * 1e-3,
+        "dry + wet should sum: worst deviation {worst:.6} against {level:.4}"
     );
 }
 
@@ -1132,4 +1217,390 @@ fn a_finished_voice_is_dropped_from_the_active_list() {
     let mut more = vec![(0.0f32, 0.0f32); 512];
     mixer.render_block(&mut more);
     assert!(peak_of(&more) < 1e-6);
+}
+
+// --- the choked-voice path --------------------------------------------------
+//
+// A voice in a `cut` group is choked when a new one in the same group starts:
+// instead of stopping, it fades over CHOKE_SECS and is dropped once silent.
+// That is a *separate* accumulation loop from the normal one — same routing,
+// but per-sample gain — and nothing above reaches it, because none of those
+// voices are in a cut group.
+
+fn cut_event(cut: i32, send: OrbitSend) -> NoteEvent {
+    let mut ev = routed_event(send);
+    ev.cut = Some(cut);
+    ev
+}
+
+#[test]
+fn a_choked_voice_fades_out_instead_of_stopping() {
+    // Two voices in the same cut group: starting the second chokes the first,
+    // which then ramps down over CHOKE_SECS (10ms) rather than cutting hard.
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(cut_event(
+        1,
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+    ));
+    let mut warm = vec![(0.0f32, 0.0f32); 2048];
+    mixer.render_block(&mut warm);
+    assert_eq!(mixer.active_len(), 1, "the first voice is playing");
+    let before = peak_of(&warm);
+    assert!(before > 0.01, "and audible");
+
+    // The second voice in the group chokes the first.
+    mixer.schedule(cut_event(
+        1,
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+    ));
+    let mut out = vec![(0.0f32, 0.0f32); 2048];
+    mixer.render_block(&mut out);
+    assert_eq!(
+        mixer.active_len(),
+        1,
+        "the choked voice should be gone and only the new one left"
+    );
+    // The fade is 10ms, well inside this block, and it is a fade rather than a
+    // cut: the block still carries audio.
+    assert!(peak_of(&out) > 0.0, "the new voice keeps sounding");
+}
+
+#[test]
+fn a_choked_voice_is_routed_through_the_same_sends() {
+    // The choke branch re-implements the dry/room/delay split with a per-sample
+    // gain. Routing a choked voice fully wet still has to reach the reverb, the
+    // same way the normal path does.
+    let choked_tail = |send: OrbitSend| {
+        let mut mixer = OfflineMixer::new(44100.0);
+        mixer.schedule(cut_event(2, send));
+        let mut warm = vec![(0.0f32, 0.0f32); 1024];
+        mixer.render_block(&mut warm);
+        // Choke it, then let the tail run.
+        mixer.schedule(NoteEvent {
+            onset_seconds: 0.0,
+            spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams {
+                waveform: rudel_dsp::Waveform::Sine,
+                freq: 441.0,
+                duration: 0.001,
+                ..Default::default()
+            })),
+            fx: rudel_dsp::PostFx::default(),
+            cut: Some(2),
+            send: OrbitSend {
+                dry: 0.0,
+                ..Default::default()
+            },
+            duck: Vec::new(),
+            mods: Default::default(),
+            tags: Vec::new(),
+        });
+        let mut out = vec![(0.0f32, 0.0f32); 16384];
+        mixer.render_block(&mut out);
+        peak_of(&out[8000..])
+    };
+
+    let dry_choked = choked_tail(OrbitSend {
+        dry: 1.0,
+        ..Default::default()
+    });
+    let wet_choked = choked_tail(OrbitSend {
+        dry: 0.0,
+        room: 0.9,
+        ..Default::default()
+    });
+    assert!(
+        wet_choked > dry_choked * 5.0,
+        "a choked voice's room send should still feed the reverb: \
+         dry {dry_choked:.6} vs wet {wet_choked:.6}"
+    );
+}
+
+#[test]
+fn a_choked_voice_is_dropped_once_it_has_faded() {
+    // The fade decrements by `1 / (sample_rate * CHOKE_SECS)` per sample and
+    // returns false at zero. If the step were wrong in either direction the
+    // voice would either click off or linger forever.
+    let mut mixer = OfflineMixer::new(44100.0);
+    for _ in 0..3 {
+        mixer.schedule(cut_event(
+            3,
+            OrbitSend {
+                dry: 1.0,
+                ..Default::default()
+            },
+        ));
+        let mut out = vec![(0.0f32, 0.0f32); 1024];
+        mixer.render_block(&mut out);
+    }
+    // Each new voice chokes the previous one, and 1024 samples at 44.1kHz is
+    // more than the 10ms fade, so only the newest survives each time.
+    assert_eq!(mixer.active_len(), 1, "choked voices should not accumulate");
+}
+
+// --- the signal-bus send ----------------------------------------------------
+
+#[test]
+fn the_bus_send_is_additional_to_the_orbit_routing() {
+    // `bus` sends the post-fx output to a numbered signal bus *on top of* the
+    // orbit routing, so `dry(0).bus(n)` is a pure modulation source: silent at
+    // the master, but audible to a voice reading that bus.
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(routed_event(OrbitSend {
+        dry: 0.0,
+        bus: Some(1),
+        busgain: 1.0,
+        ..Default::default()
+    }));
+    // A reader on the same bus.
+    mixer.schedule(NoteEvent {
+        onset_seconds: 0.0,
+        spec: rudel_dsp::VoiceSpec::Bus(rudel_dsp::BusParams {
+            bus: 1,
+            adsr: rudel_dsp::Adsr {
+                attack: 0.0001,
+                decay: 0.0001,
+                sustain: 1.0,
+                release: 0.01,
+            },
+            duration: 10.0,
+            gain: 1.0,
+            pan: 0.5,
+            filters: Default::default(),
+        }),
+        fx: rudel_dsp::PostFx::default(),
+        cut: None,
+        send: OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        duck: Vec::new(),
+        mods: Default::default(),
+        tags: Vec::new(),
+    });
+    let mut out = vec![(0.0f32, 0.0f32); 4096];
+    mixer.render_block(&mut out);
+    assert!(
+        peak_of(&out) > 1e-3,
+        "the bus reader should hear the sender even though it is dry 0"
+    );
+
+    // Without the send there is nothing on the bus, so the reader is silent.
+    let mut quiet = OfflineMixer::new(44100.0);
+    quiet.schedule(routed_event(OrbitSend {
+        dry: 0.0,
+        ..Default::default()
+    }));
+    quiet.schedule(NoteEvent {
+        onset_seconds: 0.0,
+        spec: rudel_dsp::VoiceSpec::Bus(rudel_dsp::BusParams {
+            bus: 1,
+            adsr: rudel_dsp::Adsr {
+                attack: 0.0001,
+                decay: 0.0001,
+                sustain: 1.0,
+                release: 0.01,
+            },
+            duration: 10.0,
+            gain: 1.0,
+            pan: 0.5,
+            filters: Default::default(),
+        }),
+        fx: rudel_dsp::PostFx::default(),
+        cut: None,
+        send: OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        duck: Vec::new(),
+        mods: Default::default(),
+        tags: Vec::new(),
+    });
+    let mut out2 = vec![(0.0f32, 0.0f32); 4096];
+    quiet.render_block(&mut out2);
+    assert!(
+        peak_of(&out2) < 1e-6,
+        "with nothing sent to the bus the reader stays silent"
+    );
+}
+
+/// Render a voice that gets choked part-way through, so the per-sample fade
+/// branch in `mix_sub_block` is the one doing the accumulation. Deterministic:
+/// the offline mixer delivers scheduled events on the next render call, so two
+/// runs with identical scheduling produce identical output.
+fn render_choked(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(cut_event(9, send));
+    // Let it start, then choke it with a silent voice in the same group so the
+    // only thing in the output is the fading first voice.
+    let mut warm = vec![(0.0f32, 0.0f32); 256];
+    mixer.render_block(&mut warm);
+    mixer.schedule(NoteEvent {
+        onset_seconds: 0.0,
+        spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams {
+            waveform: rudel_dsp::Waveform::Sine,
+            freq: 441.0,
+            duration: 0.0001,
+            gain: 0.0,
+            ..Default::default()
+        })),
+        fx: rudel_dsp::PostFx::default(),
+        cut: Some(9),
+        send: OrbitSend {
+            dry: 0.0,
+            ..Default::default()
+        },
+        duck: Vec::new(),
+        mods: Default::default(),
+        tags: Vec::new(),
+    });
+    let mut out = vec![(0.0f32, 0.0f32); n];
+    mixer.render_block(&mut out);
+    out
+}
+
+#[test]
+fn the_choked_path_scales_its_sends_the_same_way() {
+    // The fade branch re-implements the dry/room/delay split with a per-sample
+    // gain, so it needs its own level checks — the earlier ones only reach the
+    // ordinary branch, and bookkeeping assertions (did it drop?) say nothing
+    // about what it accumulated on the way down.
+    let full = render_choked(
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        2048,
+    );
+    let level = peak_of(&full);
+    assert!(
+        level > 1e-3,
+        "a fading voice should still be audible, got {level}"
+    );
+
+    for scale in [0.5f32, 0.25] {
+        let scaled = render_choked(
+            OrbitSend {
+                dry: scale,
+                ..Default::default()
+            },
+            2048,
+        );
+        let worst = worst_scaled_diff(&scaled, &full, scale);
+        assert!(
+            worst < level * 1e-3,
+            "a choked voice's dry {scale} should scale every sample: \
+             worst {worst:.6} against {level:.4}"
+        );
+    }
+
+    // The fade descends: the signal is quieter later in the ramp than at its
+    // start. An accumulation that subtracted, or a step of the wrong sign,
+    // would not produce a monotone envelope.
+    let env: Vec<f32> = full
+        .chunks(64)
+        .map(|c| c.iter().fold(0.0f32, |m, (l, _)| m.max(l.abs())))
+        .collect();
+    let first = env[0];
+    let later = env[env.len().min(8) - 1];
+    assert!(
+        later < first,
+        "the choke should fade downward: {first:.5} -> {later:.5}"
+    );
+
+    // ...and it reaches silence rather than levelling off.
+    assert!(
+        env.last().copied().unwrap_or(1.0) < first * 0.01,
+        "the fade should reach silence within the block"
+    );
+}
+
+#[test]
+fn a_choked_voices_wet_sends_scale_like_its_dry_one() {
+    // Same routing split, same per-sample gain — so a quarter of the room send
+    // is a quarter of the wet signal here too.
+    let loud = render_choked(
+        OrbitSend {
+            dry: 0.0,
+            room: 0.8,
+            ..Default::default()
+        },
+        8192,
+    );
+    let level = peak_of(&loud);
+    assert!(level > 1e-5, "a choked voice should still feed the reverb");
+
+    let quiet = render_choked(
+        OrbitSend {
+            dry: 0.0,
+            room: 0.2,
+            ..Default::default()
+        },
+        8192,
+    );
+    let worst = worst_scaled_diff(&quiet, &loud, 0.25);
+    assert!(
+        worst < level * 1e-3,
+        "room 0.2 should be a quarter of room 0.8 while choked: \
+         worst {worst:.7} against {level:.5}"
+    );
+
+    // The delay send is its own path here too.
+    let delayed = render_choked(
+        OrbitSend {
+            dry: 0.0,
+            delay: 0.8,
+            ..Default::default()
+        },
+        8192,
+    );
+    assert!(
+        peak_of(&delayed) > 1e-5,
+        "a choked voice's delay send should reach the delay"
+    );
+    assert!(
+        worst_scaled_diff(&delayed, &loud, 1.0) > level * 0.1,
+        "delay and reverb stay separate paths while choking"
+    );
+}
+
+#[test]
+fn the_choked_and_open_paths_agree_at_full_gain() {
+    // The fade starts at 1.0, so the first sample a choked voice contributes is
+    // the same one it would have contributed unchoked. That pins the choke
+    // branch's routing against the ordinary branch rather than against itself.
+    let choked = render_choked(
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        64,
+    );
+    let mut open_mixer = OfflineMixer::new(44100.0);
+    open_mixer.schedule(cut_event(
+        11,
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+    ));
+    let mut warm = vec![(0.0f32, 0.0f32); 256];
+    open_mixer.render_block(&mut warm);
+    let mut open = vec![(0.0f32, 0.0f32); 64];
+    open_mixer.render_block(&mut open);
+
+    // One sample in, the fade has only stepped once (1/441 of the way), so the
+    // two renderings are within a fraction of a percent.
+    let level = peak_of(&open).max(1e-9);
+    assert!(
+        (choked[0].0 - open[0].0).abs() < level * 0.02,
+        "the choke should begin at unity: {} vs {}",
+        choked[0].0,
+        open[0].0
+    );
 }
