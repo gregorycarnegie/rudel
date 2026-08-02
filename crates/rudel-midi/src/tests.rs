@@ -1,5 +1,6 @@
 use super::*;
 use crate::note::{aux_messages, bend_value, clamp7, pitch_bend_bytes};
+use crate::schedule::bend_range_key;
 use rudel_core::{Frac, Pattern, Value, ValueMap, note, pure, sequence, silence};
 use std::{
     sync::{Arc, Mutex},
@@ -496,5 +497,273 @@ fn engine_emits_sysex_and_note_through_the_sink() {
         got.iter()
             .any(|m| m.first().map(|b| b & 0xF0) == Some(NOTE_ON)),
         "expected a note-on alongside the sysex, got {got:?}"
+    );
+}
+
+// --- the wire bytes ---------------------------------------------------------
+//
+// Every message is a status nibble OR'd with a channel, and the channel is
+// masked to 4 bits. Getting either wrong sends a valid-looking message to the
+// wrong place, or corrupts the status byte into a different message type — both
+// silent, because nothing on this side reads it back.
+
+fn note_at(channel: u8) -> MidiNote {
+    MidiNote {
+        channel,
+        pitch: 60.0,
+        note: 60,
+        velocity: 100,
+        ccs: Vec::new(),
+        program: None,
+        mpe: false,
+        bend_range: 2.0,
+        bend: None,
+    }
+}
+
+#[test]
+fn status_bytes_carry_the_status_nibble_and_the_channel() {
+    for ch in 0u8..16 {
+        let n = note_at(ch);
+        assert_eq!(
+            n.note_on_bytes(),
+            [0x90 | ch, 60, 100],
+            "note on, channel {ch}"
+        );
+        assert_eq!(
+            n.note_off_bytes(),
+            [0x80 | ch, 60, 0],
+            "note off, channel {ch}"
+        );
+        assert_eq!(
+            n.cc_bytes(74, 42),
+            [0xB0 | ch, 74, 42],
+            "control change, channel {ch}"
+        );
+        assert_eq!(
+            n.program_bytes(7),
+            [0xC0 | ch, 7],
+            "program change, channel {ch}"
+        );
+    }
+    // A note-off is always velocity 0, whatever the note's velocity was.
+    assert_eq!(note_at(0).note_off_bytes()[2], 0);
+}
+
+#[test]
+fn the_channel_is_masked_to_four_bits() {
+    // A channel past 15 wraps into the nibble rather than corrupting the status
+    // byte above it — 16 has to read as channel 0, not as a different message.
+    let over = note_at(16);
+    assert_eq!(over.note_on_bytes()[0], 0x90, "channel 16 wraps to 0");
+    assert_eq!(note_at(17).note_on_bytes()[0], 0x91, "and 17 to 1");
+    assert_eq!(note_at(255).note_on_bytes()[0], 0x9F, "and 255 to 15");
+    // The status nibble survives the mask in every case.
+    for ch in [0u8, 15, 16, 200, 255] {
+        assert_eq!(
+            note_at(ch).note_on_bytes()[0] & 0xF0,
+            0x90,
+            "channel {ch} must not disturb the status nibble"
+        );
+    }
+}
+
+#[test]
+fn a_pitch_bend_splits_into_two_seven_bit_halves() {
+    // 14-bit value, low 7 bits first then the high 7 — swapping them or masking
+    // wrong sends a wildly different pitch.
+    let bytes = pitch_bend_bytes(3, 8192);
+    assert_eq!(bytes[0], 0xE0 | 3, "status and channel");
+    assert_eq!(bytes[1], 0, "centre has a zero LSB");
+    assert_eq!(bytes[2], 64, "and 64 as its MSB");
+
+    // Both data bytes always stay inside 7 bits.
+    for bend in [0u16, 1, 127, 128, 8191, 8192, 16383] {
+        let b = pitch_bend_bytes(0, bend);
+        assert!(b[1] < 128 && b[2] < 128, "data bytes are 7-bit for {bend}");
+        // ...and reassemble to the original value.
+        let round = (b[1] as u16) | ((b[2] as u16) << 7);
+        assert_eq!(
+            round, bend,
+            "{bend} should round-trip through the two halves"
+        );
+    }
+}
+
+#[test]
+fn bend_value_maps_semitones_across_the_range() {
+    // Centre is 8192; a semitone offset of the full range reaches an extreme.
+    assert_eq!(bend_value(60.0, 60, 2.0), 8192, "no offset is centre");
+    assert_eq!(
+        bend_value(62.0, 60, 2.0),
+        16383,
+        "+2 semitones over a 2-semitone range is the top"
+    );
+    assert_eq!(bend_value(58.0, 60, 2.0), 0, "-2 semitones is the bottom");
+    // Half the range is half way up from centre.
+    assert_eq!(bend_value(61.0, 60, 2.0), 12288);
+
+    // A wider range makes the same offset a smaller bend.
+    assert!(
+        bend_value(61.0, 60, 12.0) < bend_value(61.0, 60, 2.0),
+        "a wider bend range should need less bend for the same interval"
+    );
+
+    // A non-positive range falls back to the default rather than dividing by
+    // zero.
+    assert_eq!(bend_value(61.0, 60, 0.0), bend_value(61.0, 60, 2.0));
+    assert_eq!(bend_value(61.0, 60, -5.0), bend_value(61.0, 60, 2.0));
+
+    // Offsets beyond the range clamp into the 14-bit span instead of wrapping.
+    assert_eq!(bend_value(90.0, 60, 2.0), 16383);
+    assert_eq!(bend_value(20.0, 60, 2.0), 0);
+}
+
+#[test]
+fn the_mpe_bend_range_splits_into_semitones_and_cents() {
+    // The RPN pair is (semitones, cents), so 2.5 semitones is (2, 50).
+    assert_eq!(bend_range_key(2.0), (2, 0));
+    assert_eq!(bend_range_key(2.5), (2, 50));
+    assert_eq!(bend_range_key(12.0), (12, 0));
+    assert_eq!(bend_range_key(48.25), (48, 25));
+
+    // Non-positive falls back to the default.
+    assert_eq!(bend_range_key(0.0), bend_range_key(2.0));
+    assert_eq!(bend_range_key(-1.0), bend_range_key(2.0));
+
+    // Both halves stay in range: semitones cap at 96, cents at 99.
+    let (s, c) = bend_range_key(200.0);
+    assert!(s <= 96 && c <= 99, "clamped to ({s}, {c})");
+    let (_, c) = bend_range_key(1.999);
+    assert!(c <= 99, "rounding must not push cents to 100, got {c}");
+}
+
+// --- control mapping --------------------------------------------------------
+
+#[test]
+fn a_note_needs_a_pitch_and_rejects_a_non_finite_one() {
+    let map = |pairs: Vec<(&str, Value)>| -> ValueMap {
+        pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+    };
+    // No note, n or freq at all: nothing to play.
+    assert!(control_to_midi(&map(vec![("gain", Value::F64(1.0))])).is_none());
+    // A non-finite pitch is rejected rather than clamped into a wrong note.
+    assert!(control_to_midi(&map(vec![("note", Value::F64(f64::NAN))])).is_none());
+    assert!(control_to_midi(&map(vec![("note", Value::F64(f64::INFINITY))])).is_none());
+
+    // `freq` wins over `note`, and only when positive — a zero or negative
+    // frequency has no MIDI number.
+    let from_freq = control_to_midi(&map(vec![
+        ("freq", Value::F64(440.0)),
+        ("note", Value::F64(0.0)),
+    ]))
+    .expect("freq should give a note");
+    assert_eq!(from_freq.note, 69, "440Hz is A4 = 69");
+    let zero_freq = control_to_midi(&map(vec![
+        ("freq", Value::F64(0.0)),
+        ("note", Value::F64(60.0)),
+    ]))
+    .expect("a zero freq should fall back to note");
+    assert_eq!(zero_freq.note, 60);
+
+    // `n` is the fallback when `note` is absent.
+    assert_eq!(
+        control_to_midi(&map(vec![("n", Value::F64(64.0))]))
+            .unwrap()
+            .note,
+        64
+    );
+}
+
+#[test]
+fn mpe_engages_for_pitches_between_the_keys() {
+    let map = |pairs: Vec<(&str, Value)>| -> ValueMap {
+        pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+    };
+    // A whole-number note needs no bend.
+    let plain = control_to_midi(&map(vec![("note", Value::F64(60.0))])).unwrap();
+    assert!(!plain.mpe, "a whole note should not need MPE");
+    assert_eq!(plain.bend, None);
+
+    // A fractional one does, and carries a bend off centre.
+    let quarter = control_to_midi(&map(vec![("note", Value::F64(60.5))])).unwrap();
+    assert!(quarter.mpe, "a fractional note should engage MPE");
+    assert!(
+        quarter.bend.is_some_and(|b| b != 8192),
+        "and bend away from centre, got {:?}",
+        quarter.bend
+    );
+
+    // `freq` always goes out as a bend, since it rarely lands on a key.
+    assert!(
+        control_to_midi(&map(vec![("freq", Value::F64(445.0))]))
+            .unwrap()
+            .mpe
+    );
+
+    // An explicit `mpe` control overrides the guess in both directions.
+    assert!(
+        !control_to_midi(&map(vec![
+            ("note", Value::F64(60.5)),
+            ("mpe", Value::Bool(false)),
+        ]))
+        .unwrap()
+        .mpe
+    );
+    assert!(
+        control_to_midi(&map(vec![
+            ("note", Value::F64(60.0)),
+            ("mpe", Value::Bool(true)),
+        ]))
+        .unwrap()
+        .mpe
+    );
+}
+
+#[test]
+fn cc_and_program_controls_reach_the_note() {
+    let map = |pairs: Vec<(&str, Value)>| -> ValueMap {
+        pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+    };
+    // `ccv` is 0..1 scaled to 0..127; both are needed or neither is sent.
+    let n = control_to_midi(&map(vec![
+        ("note", Value::F64(60.0)),
+        ("ccn", Value::F64(74.0)),
+        ("ccv", Value::F64(1.0)),
+    ]))
+    .unwrap();
+    assert_eq!(n.ccs, vec![(74, 127)], "ccv 1.0 should be full scale");
+
+    let half = control_to_midi(&map(vec![
+        ("note", Value::F64(60.0)),
+        ("ccn", Value::F64(1.0)),
+        ("ccv", Value::F64(0.5)),
+    ]))
+    .unwrap();
+    assert_eq!(half.ccs, vec![(1, 64)], "ccv 0.5 is about half of 127");
+
+    // `ccn` on its own sends nothing.
+    let lone = control_to_midi(&map(vec![
+        ("note", Value::F64(60.0)),
+        ("ccn", Value::F64(74.0)),
+    ]))
+    .unwrap();
+    assert!(lone.ccs.is_empty(), "ccn without ccv should send no CC");
+
+    // Program change comes from `progNum`.
+    assert_eq!(
+        control_to_midi(&map(vec![
+            ("note", Value::F64(60.0)),
+            ("progNum", Value::F64(9.0)),
+        ]))
+        .unwrap()
+        .program,
+        Some(9)
+    );
+    assert_eq!(
+        control_to_midi(&map(vec![("note", Value::F64(60.0))]))
+            .unwrap()
+            .program,
+        None
     );
 }

@@ -374,7 +374,7 @@ fn run_scheduler(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use rudel_core::{note, pure, s, sequence};
+    use rudel_core::{Frac, note, pure, s, sequence, silence};
 
     fn osc_string() -> impl Strategy<Value = String> {
         proptest::string::string_regex("[-A-Za-z0-9_ ]{0,12}").unwrap()
@@ -712,5 +712,176 @@ mod tests {
 
             prop_assert_eq!(offset, bytes.len());
         }
+    }
+
+    #[test]
+    fn every_value_kind_maps_to_an_osc_argument() {
+        // SuperDirt only speaks int/float/string, so each `Value` has to pick
+        // one. A dropped arm silently omits the control from the message.
+        let int = value_to_arg(&Value::Int(7)).expect("int maps");
+        assert!(matches!(int, OscArg::Int(7)), "got {int:?}");
+
+        let float = value_to_arg(&Value::F64(0.25)).expect("float maps");
+        assert!(matches!(float, OscArg::Float(f) if (f - 0.25).abs() < 1e-6));
+
+        // A fraction goes out as a float, not truncated to an int.
+        let frac = value_to_arg(&Value::Frac(Frac::new(1, 4))).expect("frac maps");
+        assert!(
+            matches!(frac, OscArg::Float(f) if (f - 0.25).abs() < 1e-6),
+            "a fraction should become its float value, got {frac:?}"
+        );
+
+        // Booleans go out as 0/1 ints, the way SuperDirt reads flags.
+        assert!(matches!(
+            value_to_arg(&Value::Bool(true)).unwrap(),
+            OscArg::Int(1)
+        ));
+        assert!(matches!(
+            value_to_arg(&Value::Bool(false)).unwrap(),
+            OscArg::Int(0)
+        ));
+
+        let s = value_to_arg(&Value::Str("bd".into())).expect("string maps");
+        assert!(matches!(s, OscArg::Str(ref v) if v == "bd"), "got {s:?}");
+
+        // Anything else is dropped rather than guessed at.
+        assert!(value_to_arg(&Value::List(vec![Value::Int(1)])).is_none());
+    }
+
+    #[test]
+    fn an_event_cps_overrides_the_engine_tempo_only_when_positive() {
+        // Strudel spreads `{ cps, ... }` from the hap, so a per-event `cps`
+        // wins — but a zero or negative one would make the `unit: c` division
+        // below nonsense, so it is filtered out.
+        let msg = |controls: Vec<(&str, Value)>| {
+            let map: ValueMap = controls
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect();
+            superdirt_message(&map, 0.5, 0.0, 0.25).args
+        };
+        let cps_of = |args: &[OscArg]| {
+            let i = args
+                .iter()
+                .position(|a| matches!(a, OscArg::Str(s) if s == "cps"))
+                .expect("cps arg present");
+            match &args[i + 1] {
+                OscArg::Float(f) => *f,
+                other => panic!("cps should be a float, got {other:?}"),
+            }
+        };
+
+        // No event cps: the engine's is used.
+        assert!((cps_of(&msg(vec![])) - 0.5).abs() < 1e-6);
+        // A positive event cps wins.
+        assert!((cps_of(&msg(vec![("cps", Value::F64(2.0))])) - 2.0).abs() < 1e-6);
+        // Zero and negative are ignored rather than passed through.
+        assert!((cps_of(&msg(vec![("cps", Value::F64(0.0))])) - 0.5).abs() < 1e-6);
+        assert!((cps_of(&msg(vec![("cps", Value::F64(-1.0))])) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_channels_list_is_serialized_as_json() {
+        // SuperDirt wants `channels` as a JSON array string. Whole numbers go
+        // out without a decimal point, fractional ones keep theirs.
+        let msg = |items: Vec<Value>| {
+            let map: ValueMap = [("channels".to_string(), Value::List(items))]
+                .into_iter()
+                .collect();
+            let args = superdirt_message(&map, 0.5, 0.0, 0.25).args;
+            let i = args
+                .iter()
+                .position(|a| matches!(a, OscArg::Str(s) if s == "channels"))
+                .expect("channels arg");
+            match &args[i + 1] {
+                OscArg::Str(s) => s.clone(),
+                other => panic!("channels should be a string, got {other:?}"),
+            }
+        };
+
+        assert_eq!(msg(vec![Value::Int(1), Value::Int(2)]), "[1,2]");
+        // A whole float is written as an integer, not "1.0" — the `fract() == 0`
+        // guard is what does that.
+        assert_eq!(msg(vec![Value::F64(1.0), Value::F64(2.0)]), "[1,2]");
+        // ...and a fractional one keeps its decimals.
+        assert_eq!(msg(vec![Value::F64(1.5)]), "[1.5]");
+        assert_eq!(msg(vec![Value::F64(0.5), Value::Int(3)]), "[0.5,3]");
+        // A non-numeric entry becomes null rather than being dropped, so the
+        // positions still line up.
+        assert_eq!(msg(vec![Value::Str("x".into()), Value::Int(2)]), "[null,2]");
+    }
+
+    #[test]
+    fn cycle_unit_speed_is_divided_back_out_by_cps() {
+        // SuperDirt re-applies cps to `unit: 'c'` speeds, so Rudel divides it
+        // out first — otherwise the tempo would be applied twice.
+        let speed_of = |unit: &str, speed: f64, cps: f64| {
+            let map: ValueMap = [
+                ("unit".to_string(), Value::Str(unit.into())),
+                ("speed".to_string(), Value::F64(speed)),
+            ]
+            .into_iter()
+            .collect();
+            let args = superdirt_message(&map, cps, 0.0, 0.25).args;
+            let i = args
+                .iter()
+                .position(|a| matches!(a, OscArg::Str(s) if s == "speed"))
+                .expect("speed arg");
+            match &args[i + 1] {
+                OscArg::Float(f) => *f,
+                other => panic!("speed should be a float, got {other:?}"),
+            }
+        };
+
+        // unit "c" at cps 0.5 doubles the speed on the way out.
+        assert!((speed_of("c", 1.0, 0.5) - 2.0).abs() < 1e-5);
+        assert!((speed_of("c", 2.0, 4.0) - 0.5).abs() < 1e-5);
+        // Any other unit passes the speed through untouched.
+        assert!((speed_of("r", 1.0, 0.5) - 1.0).abs() < 1e-5);
+        assert!((speed_of("s", 2.0, 0.25) - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_engine_handles_forward_to_its_shared_state() {
+        // `set_pattern`/`set_cps`/`stop` are the whole live-coding surface: the
+        // app calls them on every evaluation, and a stubbed-out one fails
+        // silently — the previous pattern just keeps playing.
+        let out = OscOut::connect("127.0.0.1:9").expect("target");
+        let engine = OscEngine::start(out, silence(), 1.0);
+        engine.set_cps(2.5);
+        assert_eq!(*engine.cps.lock().unwrap(), 2.5, "set_cps should take");
+
+        let pat = s(pure(Value::Str("bd".into())));
+        engine.set_pattern(pat);
+        let live = engine.pattern.read().unwrap().clone();
+        assert!(
+            !live.query_arc(Frac::zero(), Frac::one()).is_empty(),
+            "set_pattern should install a pattern that produces events"
+        );
+
+        assert!(
+            engine.running.load(Ordering::Relaxed),
+            "a fresh engine is running"
+        );
+        engine.stop();
+        assert!(
+            !engine.running.load(Ordering::Relaxed),
+            "stop should clear the running flag"
+        );
+    }
+
+    #[test]
+    fn dropping_the_engine_stops_its_scheduler_thread() {
+        // Drop has to clear the flag *and* join, or the thread outlives the
+        // engine and keeps sending to the socket.
+        let out = OscOut::connect("127.0.0.1:9").expect("target");
+        let engine = OscEngine::start(out, silence(), 1.0);
+        let running = engine.running.clone();
+        assert!(running.load(Ordering::Relaxed));
+        drop(engine);
+        assert!(
+            !running.load(Ordering::Relaxed),
+            "dropping the engine should stop the scheduler"
+        );
     }
 }

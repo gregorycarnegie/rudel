@@ -72,7 +72,7 @@ impl MpeState {
     }
 }
 
-fn bend_range_key(bend_range: f64) -> (u8, u8) {
+pub(crate) fn bend_range_key(bend_range: f64) -> (u8, u8) {
     let range = if bend_range > 0.0 {
         bend_range
     } else {
