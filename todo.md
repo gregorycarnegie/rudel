@@ -660,3 +660,12 @@ Function-by-function audit against the Strudel learn pages
       expand into plain attack/decay/sustain/release in core, so the raw keys
       never reach the DSP layer at all — which made the `list("adsr")`/`ad`/`ar`
       arms there dead code, now deleted.
+- [ ] `rewrite_arrow_functions` converts block-bodied arrows, which its own doc
+      comment says it does not: "block bodies (`x => { ... }`) are *not*
+      converted — Koto would read `{ ... }` as a map literal". It converts them,
+      and Koto then rejects `|x| { ... }` with "expected '}' at end of map
+      declaration" — pointing at a map the user never wrote. Both forms are
+      errors either way, so this is about which message the user gets, not
+      correctness. Leaving the arrow alone would at least fail on the `=>` the
+      user actually typed. Pinned as-is by
+      `rewrite_arrow_functions_maps_expression_bodies_only`.

@@ -421,3 +421,150 @@ pub(super) fn rewrite_strict_equality(src: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Every rewriter here shares the same guard: skip over strings and comments
+    // so their contents are copied through untouched. Those guards are where the
+    // surviving mutants clustered — five apiece on the two lines that detect a
+    // comment opener — because the existing tests only fed each rewriter the
+    // construct it rewrites, never the same construct quoted or commented out.
+    //
+    // Getting this wrong does not error. It rewrites a mini-notation string or a
+    // comment and hands the user back source they did not write.
+
+    /// Applied to `src`, then to the same `src` with the interesting part
+    /// wrapped in a string, a line comment and a block comment.
+    fn leaves_quoted_and_commented_alone(f: fn(&str) -> String, snippet: &str) {
+        let quoted = format!("x = \"{snippet}\"");
+        assert_eq!(f(&quoted), quoted, "rewrote inside a double-quoted string");
+
+        let single = format!("x = '{snippet}'");
+        assert_eq!(f(&single), single, "rewrote inside a single-quoted string");
+
+        let block = format!("a /* {snippet} */ b");
+        assert_eq!(f(&block), block, "rewrote inside a block comment");
+    }
+
+    #[test]
+    fn strip_line_comments_keeps_structure_and_spares_strings() {
+        // The comment goes, the newline it sat on stays, so line numbers hold.
+        assert_eq!(strip_line_comments("a // note\nb"), "a \nb");
+        assert_eq!(strip_line_comments("a\n// whole line\nb"), "a\n\nb");
+        // A trailing comment with no newline just ends.
+        assert_eq!(strip_line_comments("a // end"), "a ");
+        // `//` inside a string or a block comment is content, not a comment.
+        assert_eq!(strip_line_comments(r#"s("a//b")"#), r#"s("a//b")"#);
+        assert_eq!(strip_line_comments("a /* // */ b"), "a /* // */ b");
+        // A URL in a string survives, which is the case users hit first.
+        let url = r#"samples("https://example.com/x.json")"#;
+        assert_eq!(strip_line_comments(url), url);
+    }
+
+    #[test]
+    fn strip_await_only_removes_the_keyword_itself() {
+        // The keyword and the space after it both go.
+        assert_eq!(strip_await("await foo()"), "foo()");
+        assert_eq!(strip_await("x = await bar"), "x = bar");
+        // Identifiers that merely contain or end with `await` are untouched.
+        assert_eq!(strip_await("myawait()"), "myawait()");
+        assert_eq!(strip_await("awaited"), "awaited");
+        assert_eq!(strip_await("x.await"), "x.await");
+        assert_eq!(strip_await("await_thing"), "await_thing");
+        // Nothing to do at all is returned unchanged.
+        assert_eq!(strip_await("plain source"), "plain source");
+        leaves_quoted_and_commented_alone(strip_await, "await foo");
+    }
+
+    #[test]
+    fn rewrite_strict_equality_loosens_both_operators() {
+        assert_eq!(rewrite_strict_equality("a === b"), "a == b");
+        assert_eq!(rewrite_strict_equality("a !== b"), "a != b");
+        // Already-loose comparisons are left as they are.
+        assert_eq!(rewrite_strict_equality("a == b"), "a == b");
+        assert_eq!(rewrite_strict_equality("a != b"), "a != b");
+        // Source with neither is returned untouched by the early exit.
+        assert_eq!(rewrite_strict_equality("a < b"), "a < b");
+        leaves_quoted_and_commented_alone(rewrite_strict_equality, "a === b");
+        leaves_quoted_and_commented_alone(rewrite_strict_equality, "a !== b");
+    }
+
+    #[test]
+    fn rewrite_leading_dot_numbers_only_fills_in_a_missing_zero() {
+        // A `.5` that begins a value becomes `0.5`...
+        assert_eq!(rewrite_leading_dot_numbers("gain(.5)"), "gain(0.5)");
+        assert_eq!(rewrite_leading_dot_numbers("x = .25"), "x = 0.25");
+        assert_eq!(rewrite_leading_dot_numbers("[.1, .2]"), "[0.1, 0.2]");
+        // ...but a `.` that continues an expression is a method call, not a
+        // number, and must not gain one.
+        assert_eq!(
+            rewrite_leading_dot_numbers("s(\"bd\").fast(2)"),
+            "s(\"bd\").fast(2)"
+        );
+        assert_eq!(rewrite_leading_dot_numbers("x.5"), "x.5");
+        // An already-complete number is untouched.
+        assert_eq!(rewrite_leading_dot_numbers("0.5"), "0.5");
+        leaves_quoted_and_commented_alone(rewrite_leading_dot_numbers, "gain(.5)");
+    }
+
+    #[test]
+    fn rewrite_string_method_chains_wraps_only_chained_literals() {
+        // A literal with a method called on it becomes a pattern.
+        assert_eq!(
+            rewrite_string_method_chains(r#""bd sd".fast(2)"#),
+            r#"pat("bd sd").fast(2)"#
+        );
+        // Whitespace between the literal and the dot still counts as a chain.
+        assert_eq!(
+            rewrite_string_method_chains(r#""bd"  .fast(2)"#),
+            r#"pat("bd")  .fast(2)"#
+        );
+        // A bare literal is left alone — wrapping every string would break
+        // ordinary arguments.
+        assert_eq!(rewrite_string_method_chains(r#"s("bd")"#), r#"s("bd")"#);
+        // A dot that is not a method call does not trigger it either.
+        assert_eq!(rewrite_string_method_chains(r#""bd".5"#), r#""bd".5"#);
+        // A newline between them breaks the chain.
+        assert_eq!(
+            rewrite_string_method_chains("\"bd\"\n.fast(2)"),
+            "\"bd\"\n.fast(2)"
+        );
+        // Contents of a block comment are copied through.
+        let commented = r#"/* "bd".fast(2) */"#;
+        assert_eq!(rewrite_string_method_chains(commented), commented);
+    }
+
+    #[test]
+    fn rewrite_arrow_functions_maps_expression_bodies_only() {
+        assert_eq!(rewrite_arrow_functions("x => x.fast(2)"), "|x| x.fast(2)");
+        assert_eq!(rewrite_arrow_functions("(a, b) => a + b"), "|a, b| a + b");
+        assert_eq!(rewrite_arrow_functions("() => 1"), "|| 1");
+        // A block body *is* converted, despite the doc comment above claiming
+        // otherwise. Koto then rejects `|x| { ... }` with "expected '}' at end
+        // of map declaration", pointing at a map the user never wrote. Both the
+        // converted and unconverted forms are errors, so this is a question of
+        // which message the user sees rather than a correctness bug; recorded in
+        // todo.md. Pinned here so the current behaviour is at least deliberate.
+        assert_eq!(rewrite_arrow_functions("x => { x }"), "|x| { x }");
+        // An `=>` inside a string is pattern text, not a lambda.
+        leaves_quoted_and_commented_alone(rewrite_arrow_functions, "x => y");
+    }
+
+    #[test]
+    fn the_rewriters_compose_without_disturbing_a_pattern_string() {
+        // The realistic case: a mini-notation string carrying characters every
+        // one of these rewriters looks for, inside a chain they all see.
+        let src = r#"s("bd*2 [~ sd]").gain(.5).every(2, x => x.fast(2))"#;
+        let out = rewrite_arrow_functions(&rewrite_leading_dot_numbers(
+            &rewrite_string_method_chains(&strip_await(&rewrite_strict_equality(src))),
+        ));
+        assert!(
+            out.contains(r#""bd*2 [~ sd]""#),
+            "the pattern string must survive intact, got {out}"
+        );
+        assert!(out.contains("gain(0.5)"), "the leading dot is filled in");
+        assert!(out.contains("|x| x.fast(2)"), "the arrow becomes a lambda");
+    }
+}
