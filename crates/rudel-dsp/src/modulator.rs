@@ -757,6 +757,283 @@ fn id_key(id: &Value) -> String {
 mod tests {
     use super::*;
 
+    // --- the name and descriptor tables ------------------------------------
+    //
+    // The 2026-08 mutation run left 80 of modulator.rs's 234 mutants alive, and
+    // the two biggest clusters were lookup tables: `ModTarget::from_control`
+    // (13) and `ModSpecs::from_controls` (13). Both sit between a pattern's
+    // controls and the DSP, so a wrong arm does not error — it modulates
+    // something else, or nothing.
+
+    /// A one-entry modulator descriptor in the nested-map shape Koto hands over.
+    fn descriptor(kind: &str, entries: &[(&str, Value)]) -> ValueMap {
+        let entry: ValueMap = entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        let desc: ValueMap = [
+            ("__ids".to_string(), Value::List(vec![Value::Int(0)])),
+            ("0".to_string(), Value::Map(entry)),
+        ]
+        .into_iter()
+        .collect();
+        [(kind.to_string(), Value::Map(desc))].into_iter().collect()
+    }
+
+    fn ctx() -> ModContext {
+        ModContext {
+            cps: 0.5,
+            cycle: 0.0,
+            note_seconds: 1.0,
+        }
+    }
+
+    #[test]
+    fn every_modulatable_control_names_its_own_target() {
+        for (name, want) in [
+            ("gain", ModTarget::Gain),
+            ("cutoff", ModTarget::Cutoff),
+            ("resonance", ModTarget::Resonance),
+            ("hcutoff", ModTarget::Hcutoff),
+            ("hresonance", ModTarget::Hresonance),
+            ("bandf", ModTarget::Bandf),
+            ("bandq", ModTarget::Bandq),
+            ("postgain", ModTarget::Postgain),
+            ("shape", ModTarget::Shape),
+            ("shapevol", ModTarget::Shapevol),
+            ("distort", ModTarget::Distort),
+            ("distortvol", ModTarget::Distortvol),
+            ("crush", ModTarget::Crush),
+            ("coarse", ModTarget::Coarse),
+        ] {
+            assert_eq!(
+                ModTarget::from_control(name),
+                Some(want),
+                "control {name:?} should modulate {want:?}"
+            );
+        }
+
+        // Pitch has three spellings, all the same target.
+        for name in ["s", "freq", "note"] {
+            assert_eq!(ModTarget::from_control(name), Some(ModTarget::Frequency));
+        }
+
+        // Names are exact: no case folding, no prefixes.
+        for name in ["", "Gain", "gains", "gai", "cut", "lpf", "nonesuch"] {
+            assert_eq!(
+                ModTarget::from_control(name),
+                None,
+                "{name:?} is not a modulation target"
+            );
+        }
+    }
+
+    #[test]
+    fn no_two_controls_share_a_target_and_none_is_unreachable() {
+        // Guards the table against a swapped pair, which leaves every target
+        // reachable and so slips past the list above if one is ever edited to
+        // match the code rather than the intent.
+        let names = [
+            "s",
+            "freq",
+            "note",
+            "gain",
+            "cutoff",
+            "resonance",
+            "hcutoff",
+            "hresonance",
+            "bandf",
+            "bandq",
+            "postgain",
+            "shape",
+            "shapevol",
+            "distort",
+            "distortvol",
+            "crush",
+            "coarse",
+        ];
+        let mut seen: Vec<ModTarget> = Vec::new();
+        for name in names {
+            let t = ModTarget::from_control(name).expect("a target");
+            seen.push(t);
+        }
+        for target in ModTarget::ALL {
+            assert!(
+                seen.contains(&target),
+                "{target:?} cannot be reached by any control name"
+            );
+        }
+        // Every target appears, and only pitch appears more than once.
+        let mut unique = seen.clone();
+        unique.sort_by_key(|t| format!("{t:?}"));
+        unique.dedup();
+        assert_eq!(unique.len(), ModTarget::ALL.len());
+        assert_eq!(
+            seen.iter().filter(|t| **t == ModTarget::Frequency).count(),
+            3,
+            "only the pitch control has aliases"
+        );
+    }
+
+    #[test]
+    fn voice_and_post_fx_modulators_are_kept_apart() {
+        // A modulator has to run in the stage that owns its parameter; landing
+        // in the wrong bank means it is ticked at the wrong point in the chain.
+        for (name, voice_side) in [
+            ("freq", true),
+            ("gain", true),
+            ("cutoff", true),
+            ("resonance", true),
+            ("hcutoff", true),
+            ("hresonance", true),
+            ("bandf", true),
+            ("bandq", true),
+            ("postgain", false),
+            ("shape", false),
+            ("distort", false),
+            ("crush", false),
+            ("coarse", false),
+        ] {
+            let map = descriptor(
+                "lfo",
+                &[
+                    ("control", Value::from(name)),
+                    ("depthabs", Value::F64(0.5)),
+                    ("rate", Value::F64(2.0)),
+                ],
+            );
+            let specs = ModSpecs::from_controls(&map, &ctx(), |_| 25.0);
+            assert!(!specs.is_empty(), "{name} should resolve to a modulator");
+            if voice_side {
+                assert!(!specs.voice.is_empty(), "{name} belongs to the voice");
+                assert!(specs.post.is_empty(), "{name} is not a post-fx modulator");
+            } else {
+                assert!(!specs.post.is_empty(), "{name} belongs to post-fx");
+                assert!(specs.voice.is_empty(), "{name} is not a voice modulator");
+            }
+        }
+
+        // A control that cannot be modulated yields nothing rather than
+        // defaulting onto some other parameter.
+        let map = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from("nonesuch")),
+                ("depthabs", Value::F64(0.5)),
+            ],
+        );
+        assert!(ModSpecs::from_controls(&map, &ctx(), |_| 25.0).is_empty());
+        // ...and so does an empty control map.
+        assert!(ModSpecs::from_controls(&ValueMap::new(), &ctx(), |_| 25.0).is_empty());
+    }
+
+    #[test]
+    fn the_lfo_shape_names_index_the_waveshape_table() {
+        // `shape_index` picks the entry in the `waveshapes` table; the order is
+        // upstream's and a wrong index silently substitutes another waveform.
+        for (name, want) in [("sine", 1), ("ramp", 2), ("saw", 3), ("square", 4)] {
+            assert_eq!(
+                shape_index(Some(&Value::from(name))),
+                want,
+                "shape {name:?}"
+            );
+        }
+        // Triangle is index 0, which is also what anything unrecognised gets.
+        for name in ["tri", "triangle", "nonesuch", ""] {
+            assert_eq!(shape_index(Some(&Value::from(name))), 0, "shape {name:?}");
+        }
+        // A number is the index itself, wrapped into range so it can never
+        // point outside the table.
+        for (n, want) in [(0.0, 0), (1.0, 1), (4.0, 4), (5.0, 0), (7.0, 2), (-1.0, 4)] {
+            assert_eq!(shape_index(Some(&Value::F64(n))), want, "numeric shape {n}");
+        }
+        // Nothing at all is a triangle.
+        assert_eq!(shape_index(None), 0);
+    }
+
+    #[test]
+    fn a_frequency_target_is_clamped_only_when_it_is_audio_rate() {
+        // `getRangeForParam` clamps a frequency parameter to 20Hz..24kHz, but
+        // only when the current value is already audio rate — a low value means
+        // the parameter is itself an LFO and clamping it would pin it.
+        assert_eq!(
+            range_for(ModTarget::Frequency, 440.0),
+            Some((20.0 - 440.0, 24000.0 - 440.0))
+        );
+        assert_eq!(
+            range_for(ModTarget::Cutoff, 1000.0),
+            Some((-980.0, 23000.0))
+        );
+        // The boundary is inclusive at 30.
+        assert!(range_for(ModTarget::Frequency, 30.0).is_some());
+        assert!(range_for(ModTarget::Frequency, 29.9).is_none());
+        // A non-frequency parameter is never clamped, however large.
+        for target in [
+            ModTarget::Gain,
+            ModTarget::Resonance,
+            ModTarget::Crush,
+            ModTarget::Postgain,
+        ] {
+            assert_eq!(range_for(target, 1000.0), None, "{target:?}");
+        }
+        // ...and the frequency-like ones are exactly the four.
+        let clamped: Vec<_> = ModTarget::ALL
+            .into_iter()
+            .filter(|t| range_for(*t, 440.0).is_some())
+            .collect();
+        assert_eq!(
+            clamped,
+            vec![
+                ModTarget::Frequency,
+                ModTarget::Cutoff,
+                ModTarget::Hcutoff,
+                ModTarget::Bandf
+            ]
+        );
+    }
+
+    #[test]
+    fn descriptor_ids_are_keyed_the_way_javascript_writes_them() {
+        // The ids come back as object keys, and JS renders a whole number
+        // without a decimal point. Getting this wrong means the entry is looked
+        // up under a name that is not there and the modulator vanishes.
+        assert_eq!(id_key(&Value::Str("a".into())), "a");
+        assert_eq!(id_key(&Value::Int(2)), "2");
+        assert_eq!(id_key(&Value::F64(2.0)), "2");
+        assert_eq!(id_key(&Value::F64(-3.0)), "-3");
+        assert_eq!(id_key(&Value::F64(2.5)), "2.5");
+    }
+
+    #[test]
+    fn a_static_modulator_is_recognised_and_still_applied() {
+        // An LFO with no movement is a constant offset; `from_controls` still
+        // has to produce it, or `.lfo({rate: 0})` silently does nothing.
+        let map = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from("gain")),
+                ("depthabs", Value::F64(0.5)),
+                ("rate", Value::F64(0.0)),
+                ("dcoffset", Value::F64(0.0)),
+            ],
+        );
+        let specs = ModSpecs::from_controls(&map, &ctx(), |_| 25.0);
+        assert!(!specs.is_empty(), "a zero-rate LFO is still a modulator");
+
+        let mut bank = ModBank::new(&specs.voice, 44100.0);
+        let first = {
+            bank.tick();
+            bank.get(ModTarget::Gain)
+        };
+        for _ in 0..100 {
+            bank.tick();
+        }
+        assert!(
+            (bank.get(ModTarget::Gain) - first).abs() < 1e-6,
+            "a zero-rate LFO should hold its value"
+        );
+    }
+
     #[test]
     fn sine_lfo_is_centered_and_bounded() {
         // a sine LFO (dcoffset -0.5, depth 1) oscillates in [-0.5, 0.5] around 0.

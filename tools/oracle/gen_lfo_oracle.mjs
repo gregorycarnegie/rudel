@@ -110,6 +110,18 @@ const CASES = {
   clamp: { ...base, shape: 1, depth: 2, min: -0.5, max: 0.5 },
   curve2: { ...base, shape: 1, dcoffset: 0, curve: 2 },
   sawblep: { ...base, shape: 6, frequency: 2, skew: 0.01 },
+  // At 2Hz the phase only ever reaches 0.012, so `polyBlep` never leaves its
+  // first branch: the whole `phase > 1 - dt` correction and the flat middle go
+  // unrendered. These sweep the phase right around instead, so all three
+  // branches and both wrap edges appear in the corpus.
+  sawblep_wrapping: { ...base, shape: 6, frequency: 4000, skew: 0.09 },
+  sawblep_narrow: { ...base, shape: 6, frequency: 2205, skew: 0.001 },
+  sawblep_wide: { ...base, shape: 6, frequency: 1000, skew: 0.4 },
+  // The same for the shapes with a `skew` branch of their own: a triangle and a
+  // square are each two cases, and only one side of each was being rendered.
+  tri_low_skew: { ...base, shape: 0, frequency: 1000, skew: 0.05 },
+  tri_high_skew: { ...base, shape: 0, frequency: 1000, skew: 0.95 },
+  square_wrapping: { ...base, shape: 4, frequency: 1000, skew: 0.75 },
 };
 
 const N = 256;
