@@ -634,6 +634,285 @@ impl ParamModRunner {
 mod tests {
     use super::*;
 
+    // --- the render loop and its helpers -----------------------------------
+    //
+    // `warp_golden.rs` pins `warp_phase` against upstream, but nothing drove the
+    // oscillator around it: the 2026-08 run left 23 of `WavetableOsc::tick`'s
+    // mutants alive along with the small helpers it calls. A wrong interpolation
+    // or phase step there still produces a waveform, just not the right one.
+
+    /// A table whose frames are flat DC at the given levels, so the value coming
+    /// out of `tick` reports which frame (or blend of frames) was read.
+    fn flat_table(levels: &[f32]) -> WaveTable {
+        WaveTable {
+            frames: Arc::new(levels.iter().map(|&v| vec![v; 8]).collect()),
+        }
+    }
+
+    /// A single-voice oscillator with no detune, no pan spread and no phase
+    /// randomisation, so `tick` is the only thing moving.
+    fn osc(table: WaveTable, sample_rate: f32) -> WavetableOsc {
+        WavetableOsc::new(table, 1, 0.0, 0.0, 0.0, sample_rate, || 0.0)
+    }
+
+    #[test]
+    fn the_position_blends_between_neighbouring_frames() {
+        let sr = 44100.0;
+        // A single voice is centred, so both channels carry the equal-power
+        // half of it; divide that out to read the table value back.
+        let g = std::f32::consts::FRAC_1_SQRT_2;
+        let read = |position: f32| {
+            let mut o = osc(flat_table(&[0.0, 1.0, 2.0]), sr);
+            o.tick(1.0, position, 0.0, WarpMode::None).0 / g
+        };
+        // Position spans the whole table, so 0 and 1 are the outer frames.
+        assert!(
+            (read(0.0) - 0.0).abs() < 1e-6,
+            "position 0 is the first frame"
+        );
+        assert!(
+            (read(1.0) - 2.0).abs() < 1e-6,
+            "position 1 is the last frame"
+        );
+        // Half-way between them is the middle frame, and a quarter of the way
+        // into a gap is a quarter of the blend.
+        assert!((read(0.5) - 1.0).abs() < 1e-6, "position 0.5 is the middle");
+        assert!((read(0.25) - 0.5).abs() < 1e-6, "a quarter blends the gap");
+        assert!((read(0.75) - 1.5).abs() < 1e-6);
+        // Out-of-range positions clamp rather than reading past the table.
+        assert!((read(-1.0) - 0.0).abs() < 1e-6, "clamped low");
+        assert!((read(9.0) - 2.0).abs() < 1e-6, "clamped high");
+        // A single-frame table has nothing to blend with.
+        let mut one = osc(flat_table(&[0.5]), sr);
+        assert!((one.tick(1.0, 0.7, 0.0, WarpMode::None).0 / g - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_empty_table_is_silence_rather_than_a_panic() {
+        let mut o = osc(
+            WaveTable {
+                frames: Arc::new(Vec::new()),
+            },
+            44100.0,
+        );
+        assert_eq!(o.tick(440.0, 0.5, 0.5, WarpMode::Asym), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_phase_advances_by_the_frequency_over_the_sample_rate() {
+        // A ramp frame reads back as the phase, so the output *is* the phase and
+        // the step between ticks is directly observable.
+        let sr = 1000.0;
+        let ramp: Vec<f32> = (0..100).map(|i| i as f32 / 100.0).collect();
+        let table = WaveTable {
+            frames: Arc::new(vec![ramp]),
+        };
+        let g = std::f32::consts::FRAC_1_SQRT_2;
+        let mut o = osc(table.clone(), sr);
+        let first = o.tick(100.0, 0.0, 0.0, WarpMode::None).0 / g;
+        let second = o.tick(100.0, 0.0, 0.0, WarpMode::None).0 / g;
+        // 100Hz at 1kHz is a tenth of a cycle per sample.
+        assert!(first.abs() < 1e-6, "starts at phase 0, got {first}");
+        assert!(
+            (second - 0.1).abs() < 0.02,
+            "one step is freq/sr, got {second}"
+        );
+
+        // Doubling the frequency doubles the step.
+        let mut o = osc(table.clone(), sr);
+        o.tick(200.0, 0.0, 0.0, WarpMode::None);
+        let doubled = o.tick(200.0, 0.0, 0.0, WarpMode::None).0 / g;
+        assert!(
+            (doubled - 0.2).abs() < 0.02,
+            "double the frequency, double the step: {doubled}"
+        );
+
+        // And the phase wraps rather than running off the end of the frame.
+        let mut o = osc(table, sr);
+        for _ in 0..100 {
+            let v = o.tick(100.0, 0.0, 0.0, WarpMode::None).0 / g;
+            assert!((0.0..=1.0).contains(&v), "phase left the frame: {v}");
+        }
+    }
+
+    #[test]
+    fn flip_inverts_the_sample_below_the_warp_amount() {
+        // FLIP is the one mode that leaves the phase alone and negates the
+        // sample instead, for the part of the cycle below `amt`.
+        let sr = 1000.0;
+        let table = flat_table(&[1.0]);
+        let mut o = osc(table.clone(), sr);
+        // Phase starts at 0, which is below any positive amount.
+        assert!(o.tick(100.0, 0.0, 0.5, WarpMode::Flip).0 < 0.0, "inverted");
+        // With no warp amount there is nothing below it to invert.
+        let mut o = osc(table.clone(), sr);
+        assert!(
+            o.tick(100.0, 0.0, 0.0, WarpMode::Flip).0 > 0.0,
+            "not inverted"
+        );
+
+        // Across a cycle, the inverted share follows the amount.
+        let negatives = |amt: f32| {
+            let mut o = osc(table.clone(), sr);
+            (0..100)
+                .filter(|_| o.tick(10.0, 0.0, amt, WarpMode::Flip).0 < 0.0)
+                .count()
+        };
+        assert!(negatives(0.0) == 0, "nothing inverted at 0");
+        assert!(negatives(1.0) == 100, "everything inverted at 1");
+        let quarter = negatives(0.25);
+        assert!(
+            (20..=30).contains(&quarter),
+            "about a quarter inverted, got {quarter}"
+        );
+    }
+
+    #[test]
+    fn unison_voices_are_summed_and_normalised() {
+        // Each voice adds into both channels through its own pan gains, scaled
+        // by `1/sqrt(voices)` so stacking does not simply get louder.
+        let sr = 44100.0;
+        let peak = |voices: usize| {
+            // No detune and no phase randomisation, so every voice is identical
+            // and the sum is exactly `voices * normalizer`.
+            let mut o = WavetableOsc::new(flat_table(&[1.0]), voices, 0.0, 0.0, 0.0, sr, || 0.0);
+            o.tick(1.0, 0.0, 0.0, WarpMode::None)
+        };
+        let (l1, r1) = peak(1);
+        // A single voice has no pan spread, so both channels carry the same.
+        assert!((l1 - r1).abs() < 1e-6, "one voice is centred: {l1} {r1}");
+
+        let (l4, r4) = peak(4);
+        // Four identical voices at 1/sqrt(4) each: twice one voice, not four.
+        assert!(
+            (l4 / l1 - 2.0).abs() < 0.01,
+            "four voices are 2x one, got {}",
+            l4 / l1
+        );
+        assert!((l4 - r4).abs() < 1e-6, "no pan spread means centred");
+    }
+
+    #[test]
+    fn detune_and_pan_spread_separate_the_voices() {
+        let sr = 44100.0;
+        let ramp: Vec<f32> = (0..64).map(|i| i as f32 / 64.0).collect();
+        let table = WaveTable {
+            frames: Arc::new(vec![ramp]),
+        };
+        let render = |voices: usize, freqspread: f32, panspread: f32, phases: &[f32]| {
+            let mut next = phases.iter().copied().cycle();
+            let mut o = WavetableOsc::new(
+                table.clone(),
+                voices,
+                freqspread,
+                panspread,
+                1.0,
+                sr,
+                || next.next().unwrap(),
+            );
+            (0..200)
+                .map(|_| o.tick(1000.0, 0.0, 0.0, WarpMode::None))
+                .collect::<Vec<_>>()
+        };
+
+        // Identical voices sum to a scaled copy of one voice; detuned ones run
+        // at different rates and beat against each other instead.
+        let together = render(3, 0.0, 0.0, &[0.0]);
+        let detuned = render(3, 12.0, 0.0, &[0.0]);
+        let apart = together
+            .iter()
+            .zip(&detuned)
+            .map(|(a, b)| (a.0 - b.0).abs())
+            .fold(0.0f32, f32::max);
+        assert!(apart > 0.1, "a detune spread should decorrelate: {apart}");
+
+        // Pan spread sends alternate voices to opposite channels, so two voices
+        // starting at different phases land differently in each.
+        let wide = render(2, 0.0, 1.0, &[0.0, 0.5]);
+        let (l, r) = wide[0];
+        assert!(
+            (l - r).abs() > 0.1,
+            "full pan spread should separate the channels: {l} {r}"
+        );
+        // A single voice ignores pan spread entirely.
+        let mono = render(1, 0.0, 1.0, &[0.0]);
+        let (l, r) = mono[0];
+        assert!((l - r).abs() < 1e-6, "one voice stays centred: {l} {r}");
+    }
+
+    #[test]
+    fn sampling_a_frame_interpolates_and_wraps() {
+        // `sample_frame` reads a fractional position, wrapping the last sample
+        // back to the first rather than reading off the end.
+        // The argument is a phase in 0..1; it is scaled by the frame length.
+        let frame = vec![0.0, 1.0, 2.0, 3.0];
+        let at = |phase: f32| sample_frame(&frame, phase);
+        assert!((at(0.0) - 0.0).abs() < 1e-6, "phase 0 is the first sample");
+        assert!((at(0.25) - 1.0).abs() < 1e-6, "a quarter in is sample 1");
+        assert!((at(0.125) - 0.5).abs() < 1e-6, "half-way between 0 and 1");
+        assert!(
+            (at(0.5625) - 2.25).abs() < 1e-6,
+            "a quarter between 2 and 3"
+        );
+        // Past the last sample it interpolates back around to the first.
+        assert!(
+            (at(0.9375) - 0.75).abs() < 1e-6,
+            "wraps 3 -> 0, got {}",
+            at(0.9375)
+        );
+        // An empty frame is silence rather than an index panic.
+        assert_eq!(sample_frame(&[], 0.5), 0.0);
+        // A one-sample frame has only itself to wrap to.
+        assert!((sample_frame(&[2.0], 0.5) - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn value_noise_interpolates_between_its_hash_points() {
+        // `noise` is a hash at each integer with a straight line between, so it
+        // has to be continuous and to actually move.
+        let a = noise(3.0);
+        let b = noise(4.0);
+        assert!((0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&b));
+        assert!((a - b).abs() > 1e-6, "neighbouring hashes should differ");
+        // The midpoint is the average of its ends.
+        assert!(
+            (noise(3.5) - (a + b) * 0.5).abs() < 1e-5,
+            "midpoint should be the mean of {a} and {b}, got {}",
+            noise(3.5)
+        );
+        // A quarter of the way is a quarter of the difference.
+        assert!((noise(3.25) - (a + (b - a) * 0.25)).abs() < 1e-5);
+        // Integer inputs land exactly on their hash, repeatably.
+        assert!((noise(7.0) - noise(7.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn bit_reverse_reverses_exactly_n_bits() {
+        assert_eq!(bit_reverse(0b001, 3), 0b100);
+        assert_eq!(bit_reverse(0b110, 3), 0b011);
+        assert_eq!(bit_reverse(0b1011, 4), 0b1101);
+        // Bits above `n` are dropped, not carried through.
+        assert_eq!(bit_reverse(0b1111, 2), 0b11);
+        assert_eq!(bit_reverse(0b0100, 2), 0b00);
+        // Reversing twice is the identity within the width.
+        for i in 0..16u32 {
+            assert_eq!(bit_reverse(bit_reverse(i, 4), 4), i, "round trip {i}");
+        }
+        assert_eq!(bit_reverse(5, 0), 0, "no bits to reverse");
+    }
+
+    #[test]
+    fn primality_is_exact_at_the_awkward_values() {
+        // The trial-division loop runs while `d * d <= n`, so the squares of
+        // primes are where an off-by-one shows up.
+        for n in [2u32, 3, 5, 7, 11, 13, 23, 29, 31, 97, 101] {
+            assert!(is_prime(n), "{n} is prime");
+        }
+        for n in [0u32, 1, 4, 6, 8, 9, 15, 21, 25, 27, 49, 100, 121] {
+            assert!(!is_prime(n), "{n} is not prime");
+        }
+    }
+
     #[test]
     fn warp_modes_stay_in_range_and_are_identity_at_zero() {
         // Every mode maps 0..1 into 0..1 (the frame sampler assumes it), and
