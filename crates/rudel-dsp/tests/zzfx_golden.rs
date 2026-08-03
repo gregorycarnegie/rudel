@@ -10,6 +10,12 @@ use rudel_dsp::{ZzfxSynth, build_samples};
 
 const SAMPLE_RATE: f64 = 44100.0;
 const EPS: f64 = 1e-9;
+/// zzfx's pseudo-noise is `((sin(i) + 1) * 1e9) % 2`, so it amplifies the last
+/// bits of `sin` a billionfold — and no two libms round `sin` alike, JS engine
+/// against Rust least of all. Cases with `noise != 0` therefore drift from the
+/// oracle by whatever that amplified ulp does to the phase accumulator: fractions
+/// of a bit here, well under -120 dBFS, but far more than [`EPS`].
+const NOISE_EPS: f64 = 1e-6;
 
 fn synth_from_params(p: &[f64]) -> ZzfxSynth {
     ZzfxSynth {
@@ -76,7 +82,8 @@ fn build_samples_matches_superdough() {
                 at = k;
             }
         }
-        if worst > EPS {
+        let eps = if params[13] == 0.0 { EPS } else { NOISE_EPS };
+        if worst > eps {
             failures.push(format!(
                 "{label}: max diff {worst:.3e} at sample {at} (rudel {} vs strudel {})",
                 got[at], want[at]
