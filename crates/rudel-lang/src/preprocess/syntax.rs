@@ -255,7 +255,9 @@ pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
             if c == '.'
                 && rest.peek().is_some_and(|d| d.is_ascii_digit())
                 && !prev.is_some_and(|p| {
-                    p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.')
+                    // A closing quote ends a *value*, so the `.` after it is
+                    // method access like any other — `"bd".5` is not `"bd"0.5`.
+                    p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.' | '"' | '\'')
                 })
             {
                 out.push('0');
@@ -541,6 +543,120 @@ mod tests {
         );
         // An `=>` inside a string is pattern text, not a lambda.
         leaves_quoted_and_commented_alone(rewrite_arrow_functions, "x => y");
+    }
+
+    #[test]
+    fn an_arrow_with_nothing_usable_before_it_is_left_as_it_is() {
+        // The parameter scan walks back over the blanks between the params and
+        // the `=>`; with nothing but blanks there it must stop at the start of
+        // the output rather than stepping off it.
+        assert_eq!(rewrite_arrow_functions("  => x"), "  => x");
+        assert_eq!(rewrite_arrow_functions("=> x"), "=> x");
+        // An operator is not a parameter list either.
+        assert_eq!(rewrite_arrow_functions("+ => x"), "+ => x");
+    }
+
+    #[test]
+    fn an_arrow_needs_no_space_around_it() {
+        // Without a blank before the `=>` the walk back to the matching `(`
+        // starts on the `)` itself.
+        assert_eq!(rewrite_arrow_functions("(a,b)=>x"), "|a,b| x");
+        assert_eq!(rewrite_arrow_functions("x=>x"), "|x| x");
+        assert_eq!(rewrite_arrow_functions("()=>1"), "|| 1");
+    }
+
+    #[test]
+    fn an_arrow_at_the_very_end_has_no_body_to_reach_for() {
+        // The blank-collapsing walk after `=>` must stop at the end of the
+        // source rather than reading past it.
+        assert_eq!(rewrite_arrow_functions("x =>"), "|x|");
+        assert_eq!(rewrite_arrow_functions("x =>   "), "|x|");
+    }
+
+    #[test]
+    fn a_body_on_the_next_line_keeps_its_line_break() {
+        // The space after `|x|` is only for a body that follows on the same
+        // line; adding one before a newline would trail whitespace into every
+        // multi-line callback.
+        assert_eq!(rewrite_arrow_functions("x =>\n  y"), "|x|\n  y");
+        assert_eq!(rewrite_arrow_functions("x =>\r\ny"), "|x|\r\ny");
+        // On the same line it does get exactly one space, however many it had.
+        assert_eq!(rewrite_arrow_functions("x =>     y"), "|x| y");
+    }
+
+    #[test]
+    fn a_literal_with_braces_becomes_a_raw_string() {
+        // Koto reads `{}` inside an ordinary string as interpolation, so a
+        // mini-notation literal using them has to be re-quoted raw or the
+        // pattern is evaluated as code.
+        assert_eq!(
+            rewrite_string_method_chains(r#""{a}".fast(2)"#),
+            r#"pat(r#'{a}'#).fast(2)"#
+        );
+        // Either brace alone is enough to need it.
+        assert_eq!(
+            rewrite_string_method_chains(r#""a{b".fast(2)"#),
+            r#"pat(r#'a{b'#).fast(2)"#
+        );
+        assert_eq!(
+            rewrite_string_method_chains(r#""a}b".fast(2)"#),
+            r#"pat(r#'a}b'#).fast(2)"#
+        );
+        // A literal without them is left in its original quotes.
+        assert_eq!(
+            rewrite_string_method_chains(r#""bd".fast(2)"#),
+            r#"pat("bd").fast(2)"#
+        );
+        // The rewrite applies to bare literals too, not only chained ones.
+        assert_eq!(
+            rewrite_string_method_chains(r#"s("{a}")"#),
+            r#"s(r#'{a}'#)"#
+        );
+    }
+
+    #[test]
+    fn a_comment_does_not_stand_in_for_what_came_before_it() {
+        // Both of these passes track the last *code* character to decide
+        // whether they are at the start of a value. A comment is not one, so it
+        // must leave that decision untouched rather than answering it with `/`.
+        assert_eq!(
+            rewrite_leading_dot_numbers("x /* c */ .5"),
+            "x /* c */ .5",
+            "the dot still continues `x`"
+        );
+        assert_eq!(
+            strip_await("x /* c */ await b"),
+            "x /* c */ await b",
+            "`await` is still inside an identifier boundary"
+        );
+    }
+
+    #[test]
+    fn a_dot_after_a_string_literal_is_method_access() {
+        // A closing quote ends a value, so the dot cannot begin a number.
+        assert_eq!(
+            rewrite_leading_dot_numbers(r#"x = "bd".5"#),
+            r#"x = "bd".5"#
+        );
+        assert_eq!(rewrite_leading_dot_numbers("x = 'bd'.5"), "x = 'bd'.5");
+        // The same dot before a name was already method access.
+        assert_eq!(
+            rewrite_leading_dot_numbers(r#""bd".fast(2)"#),
+            r#""bd".fast(2)"#
+        );
+    }
+
+    #[test]
+    fn await_is_a_word_only_after_something_that_cannot_end_a_name() {
+        // Each character class that ends an identifier has to be listed, or a
+        // keyword is torn out of the middle of a name.
+        assert_eq!(strip_await("_await"), "_await");
+        assert_eq!(strip_await("$await"), "$await");
+        assert_eq!(strip_await("a9await"), "a9await");
+        assert_eq!(strip_await("x.await"), "x.await");
+        // ...and after something that does end one, it is the keyword.
+        assert_eq!(strip_await("(await x)"), "(x)");
+        assert_eq!(strip_await("[await x]"), "[x]");
     }
 
     #[test]
