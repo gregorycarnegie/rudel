@@ -34,6 +34,25 @@ pub(super) fn strip_line_comments(src: &str) -> String {
     out
 }
 
+/// Whether the arrow at `arrow` has a brace-block body (`x => { ... }`).
+///
+/// Those are left alone. Koto's blocks are indentation-based, so `{ ... }` there
+/// is a map literal, and converting produces `|x| { ... }` — which Koto rejects
+/// with "expected '}' at end of map declaration", naming a map the user never
+/// wrote. Leaving the `=>` in place fails on the construct they actually typed
+/// instead. (Strudel needs no equivalent: block-bodied arrows are native JS
+/// there, though without a `return` they still evaluate to `undefined`.)
+///
+/// Converting them properly would mean rewriting the braced block into Koto's
+/// indented form, which is a different job from this one.
+fn body_is_a_block(chars: &[(usize, char)], arrow: usize) -> bool {
+    chars[arrow + 2..]
+        .iter()
+        .map(|(_, c)| *c)
+        .find(|c| !c.is_whitespace())
+        == Some('{')
+}
+
 /// Rewrite JavaScript arrow functions into Koto lambdas so users can paste
 /// Strudel-style callbacks (`x => x.fast(2)`) instead of Koto's `|x| x.fast(2)`.
 ///
@@ -65,7 +84,7 @@ pub(super) fn rewrite_arrow_functions(src: &str) -> String {
         }
         // An arrow is the two-char sequence `=>` (never `>=`, which has the
         // opposite order, so comparison operators are untouched).
-        if c == '=' && chars.get(i + 1).map(|x| x.1) == Some('>') {
+        if c == '=' && chars.get(i + 1).map(|x| x.1) == Some('>') && !body_is_a_block(&chars, i) {
             // Boundary of the parameter list: everything already emitted, minus
             // trailing whitespace between the params and the `=>`.
             let mut end = out.len();
@@ -541,13 +560,31 @@ mod tests {
         assert_eq!(rewrite_arrow_functions("x => x.fast(2)"), "|x| x.fast(2)");
         assert_eq!(rewrite_arrow_functions("(a, b) => a + b"), "|a, b| a + b");
         assert_eq!(rewrite_arrow_functions("() => 1"), "|| 1");
-        // A block body *is* converted, despite the doc comment above claiming
-        // otherwise. Koto then rejects `|x| { ... }` with "expected '}' at end
-        // of map declaration", pointing at a map the user never wrote. Both the
-        // converted and unconverted forms are errors, so this is a question of
-        // which message the user sees rather than a correctness bug; recorded in
-        // todo.md. Pinned here so the current behaviour is at least deliberate.
-        assert_eq!(rewrite_arrow_functions("x => { x }"), "|x| { x }");
+        // A block body is left alone, so the error names the `=>` the user
+        // typed rather than a map literal they did not.
+        for block in [
+            "x => { x }",
+            "(a, b) => { a + b }",
+            "() => {
+  1
+}",
+        ] {
+            assert_eq!(rewrite_arrow_functions(block), block, "{block}");
+        }
+        // Whitespace and a newline before the brace still make it a block.
+        assert_eq!(
+            rewrite_arrow_functions(
+                "x =>
+  { x }"
+            ),
+            "x =>
+  { x }"
+        );
+        // A body that merely *contains* a brace later is still an expression.
+        assert_eq!(
+            rewrite_arrow_functions("x => f(x, { a: 1 })"),
+            "|x| f(x, { a: 1 })"
+        );
         // An `=>` inside a string is pattern text, not a lambda.
         leaves_quoted_and_commented_alone(rewrite_arrow_functions, "x => y");
     }

@@ -660,23 +660,44 @@ Function-by-function audit against the Strudel learn pages
       expand into plain attack/decay/sustain/release in core, so the raw keys
       never reach the DSP layer at all — which made the `list("adsr")`/`ad`/`ar`
       arms there dead code, now deleted.
-- [ ] `rewrite_arrow_functions` converts block-bodied arrows, which its own doc
-      comment says it does not: "block bodies (`x => { ... }`) are *not*
-      converted — Koto would read `{ ... }` as a map literal". It converts them,
-      and Koto then rejects `|x| { ... }` with "expected '}' at end of map
-      declaration" — pointing at a map the user never wrote. Both forms are
-      errors either way, so this is about which message the user gets, not
-      correctness. Leaving the arrow alone would at least fail on the `=>` the
-      user actually typed. Pinned as-is by
-      `rewrite_arrow_functions_maps_expression_bodies_only`.
-- [ ] A widget's `from` reaches back past a newline on any line but the first.
-      `call_expression_start` walks back to an expression boundary, and a
-      newline is deliberately not one — a Koto chain continues across lines with
-      a leading dot (see `indent_dot_continuations`), so there is no cheap way
-      to tell "next statement" from "continued chain" there. The result is that
-      in `a._spiral()
-b._pitchwheel()` the second widget reports `from = 0`.
-      Placement keys on `to`, so nothing moves; it only matters wherever `from`
-      is used as the widget's own span. Fixing it properly wants the block
-      splitter's statement boundaries rather than a character scan. Pinned by
-      `widget_ids_are_unique_and_carry_the_source_span`.
+- [x] `rewrite_arrow_functions` no longer converts block-bodied arrows, which
+      its doc comment always said it did not. It was converting them, and Koto
+      then rejected `|x| { ... }` with "expected '}' at end of map declaration"
+      — naming a map the user never wrote. `body_is_a_block` now skips them, so
+      the error lands on the `=>` they actually typed. Strudel has no
+      equivalent (block-bodied arrows are native JS there, though without a
+      `return` they still evaluate to `undefined`), so there was no upstream
+      behaviour to copy and the decision rested on which error is more useful.
+      Converting them *properly* — rewriting the braced block into Koto's
+      indentation-based form — is still not done and is a separate job.
+- [x] A widget's `from` no longer reaches back past a newline. Strudel gets this
+      right by reading `node.start` off a parsed CallExpression
+      (`transpiler/plugin-widgets.mjs`); `call_expression_start` approximates
+      that with a backwards character scan, and was missing exactly one rule.
+      A newline now ends the expression *unless* the line being scanned begins
+      with a dot, which is the chain-continuation case `indent_dot_continuations`
+      exists for. `a._spiral()` / newline / `b._pitchwheel()` gives the second
+      widget its own start; `note("c")` / newline / `  .fast(2)._spiral()`
+      stays one expression. Covered by
+      `a_chain_continued_on_the_next_line_stays_one_expression`.
+- [ ] Consider giving the preprocessor a real parser, or at least a shared token
+      stream. Strudel transpiles JS with acorn and walks an estree AST, so its
+      plugins get "where does this expression start" and "is this inside a
+      string" for free. Rudel instead runs ~10 independent character scans
+      (`strip_line_comments`, `rewrite_arrow_functions`,
+      `rewrite_string_method_chains`, `rewrite_leading_dot_numbers`,
+      `strip_await`, `rewrite_strict_equality`, `indent_dot_continuations`,
+      `rewrite_editor_widgets_with_context`, `annotate_mini_offsets`, labels),
+      each re-implementing the same skip-strings-and-comments preamble. The
+      2026-08 mutation run put five surviving mutants on the comment-detection
+      lines of *each* rewriter — the same bug repeated per pass, and the reason
+      the widget range needed a hand-written heuristic above rather than an
+      exact answer.
+
+      A full AST is awkward: the input is neither valid Koto nor valid JS but a
+      hybrid (JS arrows and `===`, Koto chains, mini-notation strings), so
+      neither parser accepts it as-is. The cheaper move is to tokenise once —
+      `scanner.rs` already has `skip_string`/`skip_line_comment`/
+      `skip_block_comment`/`parse_call` — and have the rewriters transform a
+      token stream instead of driving their own loop over `char_indices()`.
+      That removes the duplicated guards without committing to a grammar.

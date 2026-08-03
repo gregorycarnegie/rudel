@@ -163,6 +163,22 @@ fn call_expression_start(src: &str, chars: &[(usize, char)], dot: usize) -> usiz
         if depth == 0 && is_expression_boundary(c) {
             return trim_range(src, next_byte(chars, i, src.len()), chars[dot].0).0;
         }
+        // A newline ends the expression *unless* the line we are standing in is
+        // a dot-continuation of the one above (`note("c")` / newline /
+        // `.fast(2)._spiral()`), which `indent_dot_continuations` exists to
+        // support. Strudel gets this for free — it reads `node.start` off a
+        // parsed CallExpression — so this is the one rule a backwards scan has
+        // to encode to reach the same answer.
+        if depth == 0 && c == '\n' {
+            let line_start = next_byte(chars, i, src.len());
+            // The line's own first non-blank character decides it. Note this
+            // has to look at the line, not at the span between the line start
+            // and `dot`: on a line that *is* `._spiral()` that span is only the
+            // indentation, and the dot doing the continuing is `dot` itself.
+            if !src[line_start..].trim_start().starts_with('.') {
+                return trim_range(src, line_start, chars[dot].0).0;
+            }
+        }
         if byte == 0 {
             break;
         }
@@ -511,18 +527,48 @@ note("b")._pitchwheel()"#;
         assert_eq!(&src[..widgets[0].to], r#"note("a")._spiral()"#);
         assert_eq!(widgets[1].to, src.len());
 
-        // ...but the second widget's `from` reaches back over the first line.
-        // A newline is deliberately *not* an expression boundary, because a
-        // Koto chain continues across lines with a leading dot — which is what
-        // `indent_dot_continuations` exists for — so there is no cheap way to
-        // tell "next statement" from "continued chain" here. Placement keys on
-        // `to`, so this does not move a widget; it does mean `from` spans more
-        // than the widget's own expression on any line but the first. Recorded
-        // in todo.md; pinned so a change to it is deliberate.
-        assert_eq!(widgets[0].from, 0);
+        // ...and each `from` is its own expression's start: a newline ends the
+        // expression, so the second widget does not reach back over the first
+        // line. Strudel gets this from `node.start` on a parsed CallExpression;
+        // the scan here has to encode the rule.
         assert_eq!(
-            widgets[1].from, 0,
-            "the second widget's start reaches back past the newline"
+            &src[widgets[0].from..widgets[0].to],
+            r#"note("a")._spiral()"#
+        );
+        assert_eq!(
+            &src[widgets[1].from..widgets[1].to],
+            r#"note("b")._pitchwheel()"#
+        );
+        assert!(
+            widgets[0].to <= widgets[1].from,
+            "the ranges should not overlap"
+        );
+    }
+
+    #[test]
+    fn a_chain_continued_on_the_next_line_stays_one_expression() {
+        // The exception the newline rule has to keep: a leading dot continues
+        // the expression above, so the range covers both lines.
+        let src = "note(\"c\")
+  .fast(2)
+  ._spiral()";
+        let (_, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+        assert_eq!(widgets.len(), 1);
+        assert_eq!(
+            &src[widgets[0].from..widgets[0].to],
+            src,
+            "a dot-continued chain is one expression"
+        );
+
+        // And a statement after such a chain still starts fresh.
+        let src = "note(\"c\")
+  ._spiral()
+note(\"d\")._pitchwheel()";
+        let (_, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+        assert_eq!(widgets.len(), 2);
+        assert_eq!(
+            &src[widgets[1].from..widgets[1].to],
+            r#"note("d")._pitchwheel()"#
         );
     }
 
