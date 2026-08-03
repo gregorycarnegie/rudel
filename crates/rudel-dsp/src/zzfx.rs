@@ -394,6 +394,126 @@ impl VoiceLike for ZzfxVoice {
 mod tests {
     use super::*;
 
+    // --- the parts the golden cannot reach ---------------------------------
+
+    #[test]
+    fn the_random_source_is_uniform_over_the_unit_interval() {
+        // Every golden case runs at `randomness: 0` so the draw is a no-op
+        // there, which left all 16 of `next_rand01`'s mutants alive. It stands
+        // in for `Math.random()`, so there is no oracle for it either — what
+        // can be pinned is that it behaves like one.
+        //
+        // Note the limit: the xorshift triple (13, 17, 5) is a *quality*
+        // parameter. Another triple is still a working generator, so no
+        // behavioural test distinguishes them; what these catch is the
+        // structural damage — a shift that collapses the state, an `^` turned
+        // into `|` or `&`, or a scale that leaves the unit interval.
+        const N: usize = 20_000;
+        let draws: Vec<f64> = (0..N).map(|_| next_rand01()).collect();
+
+        for (i, &v) in draws.iter().enumerate() {
+            assert!(
+                (0.0..1.0).contains(&v),
+                "draw {i} left the unit interval: {v}"
+            );
+        }
+
+        // A uniform source fills every bucket to roughly its share. A generator
+        // that has collapsed to a constant, or to a handful of values, leaves
+        // buckets empty.
+        const BUCKETS: usize = 16;
+        let mut counts = [0usize; BUCKETS];
+        for &v in &draws {
+            counts[(v * BUCKETS as f64) as usize] += 1;
+        }
+        let expected = N / BUCKETS;
+        for (i, &c) in counts.iter().enumerate() {
+            assert!(
+                c > expected / 2 && c < expected * 2,
+                "bucket {i} holds {c} of {N}, expected about {expected}: {counts:?}"
+            );
+        }
+
+        // Mean and variance of a uniform draw on 0..1.
+        let mean = draws.iter().sum::<f64>() / N as f64;
+        assert!((mean - 0.5).abs() < 0.02, "mean {mean} should be near 0.5");
+        let var = draws.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / N as f64;
+        assert!(
+            (var - 1.0 / 12.0).abs() < 0.01,
+            "variance {var} should be near 1/12"
+        );
+
+        // Consecutive draws are not the same value, so the state really moves.
+        let repeats = draws.windows(2).filter(|w| w[0] == w[1]).count();
+        assert_eq!(repeats, 0, "the generator repeated a value immediately");
+    }
+
+    #[test]
+    fn the_random_draw_detunes_the_start_frequency() {
+        // The reason the draw exists. `build_samples` takes it as an argument,
+        // so its effect is deterministic and can be pinned exactly: the start
+        // frequency is scaled by `1 + randomness * 2 * rand - randomness`, so
+        // a draw of 0.5 is the midpoint and lands back on no detune at all.
+        let synth = |randomness: f64| ZzfxSynth {
+            volume: 0.25,
+            randomness,
+            frequency: 440.0,
+            attack: 0.001,
+            sustain: 0.02,
+            release: 0.003,
+            ..ZzfxSynth::default()
+        };
+        let render =
+            |randomness: f64, rand01: f64| build_samples(&synth(randomness), 44100.0, rand01);
+
+        // A draw at the midpoint cancels out, so it matches no randomness.
+        let none = render(0.0, 0.5);
+        assert_eq!(
+            render(0.5, 0.5),
+            none,
+            "a mid draw should leave the frequency alone"
+        );
+        // Draws either side of it detune in opposite directions.
+        let low = render(0.5, 0.0);
+        let high = render(0.5, 1.0);
+        assert!(
+            low != none && high != none && low != high,
+            "the draw should move the start frequency"
+        );
+        // With no randomness the draw is ignored entirely, which is what makes
+        // the golden comparison possible.
+        assert_eq!(render(0.0, 0.0), render(0.0, 1.0));
+    }
+
+    #[test]
+    fn sign_treats_zero_as_negative_the_way_the_fork_does() {
+        // `sign` here is the fork's two-way test, not a three-way signum: zero
+        // goes to -1. The waveshaper leans on that at the start of a cycle.
+        assert_eq!(sign(1.5), 1.0);
+        assert_eq!(sign(1e-12), 1.0);
+        assert_eq!(sign(0.0), -1.0);
+        assert_eq!(sign(-0.0), -1.0);
+        assert_eq!(sign(-1e-12), -1.0);
+        assert_eq!(sign(-3.0), -1.0);
+    }
+
+    #[test]
+    fn the_shape_names_index_the_fork_s_waveform_table() {
+        for (name, want) in [
+            ("sine", 0),
+            ("triangle", 1),
+            ("sawtooth", 2),
+            ("tan", 3),
+            ("noise", 4),
+        ] {
+            assert_eq!(shape_index(name), want, "shape {name}");
+        }
+        // Anything else is -1 rather than silently becoming a sine.
+        for name in ["", "saw", "square", "Sine", "noisey"] {
+            assert_eq!(shape_index(name), -1, "shape {name}");
+        }
+    }
+
     fn map(pairs: &[(&str, Value)]) -> ValueMap {
         pairs
             .iter()

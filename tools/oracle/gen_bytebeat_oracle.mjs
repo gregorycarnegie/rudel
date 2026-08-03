@@ -62,6 +62,33 @@ const extra = [
   't*.25',
   '(t>>4|t>>8)*(t>>16)',
   'round(t/100)',
+  // The remaining built-in functions. `Fun::from_name` is a 19-arm table and
+  // `Fun::eval` a 19-arm match, and the beats above between them name only
+  // nine — so half of each was going unchecked against V8. Domains are kept
+  // valid where they can be; where they cannot (negative `t` into `log`,
+  // `sqrt`) the NaN is itself the thing being compared, since both sides have
+  // to coerce it to the same byte.
+  'cos(t/128)*127',
+  'tan(t/512)*8',
+  'asin(sin(t/128))*81',
+  'acos(cos(t/128))*81',
+  'atan(t/64)*127',
+  'ceil(t/64)*8',
+  'trunc(t/64)*8',
+  'sign(t-12)*64',
+  'log(t+1)*32',
+  'log2(t+1)*32',
+  // Bounded: `exp(t/512)` reaches 1e17, where one ULP of difference between
+  // two `exp` implementations moves the low byte, and the comparison stops
+  // being about the port.
+  'exp(sin(t/128))*64',
+  // Numeric literal forms the number scanner has to agree with V8 on.
+  '0XFF&t',
+  '1E2+t',
+  '.5*t',
+  '1.5e-2*t',
+  '0.0+t',
+  '255',
 ];
 
 // getByteBeatFunc, verbatim from worklets.mjs (minus the `chyx` helpers, which
