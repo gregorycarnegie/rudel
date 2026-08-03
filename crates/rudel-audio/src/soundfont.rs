@@ -669,4 +669,94 @@ mod tests {
         assert_eq!(gm_preset("gm_piano", -count), Some(first));
         assert_eq!(gm_preset("not_a_font", 0), None);
     }
+
+    #[test]
+    fn loop_fractions_divide_by_the_buffers_duration_not_just_its_rate() {
+        // The earlier case used a one-second buffer, where dividing by the
+        // duration and not dividing by it are the same thing. This one is two
+        // seconds long, so both divisions have to be right.
+        let mut z = zone(0, 127);
+        z.sample = Arc::new(Sample {
+            data: vec![0.0; 200],
+            sample_rate: 100.0,
+        });
+        z.sample_rate = 100.0;
+        z.loop_start = 50.0;
+        z.loop_end = 150.0;
+        let (a, b) = z.loop_fractions().expect("a loop");
+        assert!(
+            (a - 0.25).abs() < 1e-6,
+            "50 frames into 2s is a quarter: {a}"
+        );
+        assert!((b - 0.75).abs() < 1e-6, "150 frames into 2s is 3/4: {b}");
+
+        // And the zone's own rate is what the points are counted in, which is
+        // not always the decoded buffer's.
+        let mut z = zone(0, 127);
+        z.sample = Arc::new(Sample {
+            data: vec![0.0; 200],
+            sample_rate: 100.0,
+        });
+        z.sample_rate = 50.0; // points stated at half the decoded rate
+        z.loop_start = 25.0;
+        z.loop_end = 75.0;
+        let (a, b) = z.loop_fractions().expect("a loop");
+        assert!(
+            (a - 0.25).abs() < 1e-6,
+            "25 frames at 50Hz is 0.5s of 2s: {a}"
+        );
+        assert!((b - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn base64_round_trips_and_rejects_what_is_not_base64() {
+        // The zone payloads are base64, so a wrong bit here is a wrong sample.
+        assert_eq!(base64_decode("").unwrap(), Vec::<u8>::new());
+        assert_eq!(base64_decode("QQ==").unwrap(), b"A");
+        assert_eq!(base64_decode("QUI=").unwrap(), b"AB");
+        assert_eq!(base64_decode("QUJD").unwrap(), b"ABC");
+        assert_eq!(base64_decode("QUJDRA==").unwrap(), b"ABCD");
+        // Padding is optional, as the doc comment says.
+        assert_eq!(base64_decode("QQ").unwrap(), b"A");
+        assert_eq!(base64_decode("QUI").unwrap(), b"AB");
+        // Whitespace between groups is skipped, including newlines.
+        assert_eq!(base64_decode("QU\n JD").unwrap(), b"ABC");
+
+        // Every alphabet position has to map to its own value, so a byte with
+        // all the bits set round-trips exactly.
+        assert_eq!(base64_decode("////").unwrap(), vec![0xff, 0xff, 0xff]);
+        assert_eq!(base64_decode("AAAA").unwrap(), vec![0, 0, 0]);
+        // The two non-alphanumeric characters are distinct.
+        assert_eq!(base64_decode("+/+/").unwrap(), vec![0xfb, 0xff, 0xbf]);
+
+        // Anything outside the alphabet is an error rather than silent data.
+        assert!(base64_decode("QU*D").is_err());
+        assert!(base64_decode("QU-D").is_err());
+        assert!(base64_decode("QU_D").is_err());
+    }
+
+    #[test]
+    fn a_preset_url_joins_the_base_to_the_preset_name() {
+        // The base is shared mutable state, so put it back afterwards.
+        let original = preset_url("x");
+        let base = original.strip_suffix("/x.js").expect("a base").to_string();
+
+        set_soundfont_url("https://example.test/fonts");
+        assert_eq!(
+            preset_url("_tone_0000"),
+            "https://example.test/fonts/_tone_0000.js"
+        );
+        // A trailing slash on the base does not become a double slash.
+        set_soundfont_url("https://example.test/fonts/");
+        assert_eq!(
+            preset_url("_tone_0000"),
+            "https://example.test/fonts/_tone_0000.js"
+        );
+        // Several trailing slashes go too.
+        set_soundfont_url("https://example.test/fonts///");
+        assert_eq!(preset_url("a"), "https://example.test/fonts/a.js");
+
+        set_soundfont_url(&base);
+        assert_eq!(preset_url("x"), original, "the base is restored");
+    }
 }

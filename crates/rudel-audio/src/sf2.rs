@@ -809,4 +809,140 @@ mod tests {
         let sf = parse(&tiny_sf2()).expect("parse");
         assert!(!sf.preset(0).unwrap().zones[0].loops());
     }
+
+    #[test]
+    fn the_coarse_offsets_are_in_units_of_32768_frames() {
+        // Each address has a fine and a coarse generator; the coarse one is
+        // scaled. A sample this small cannot show a *forward* coarse offset
+        // (it clamps), so this pushes backwards from a coarse start instead.
+        let mut t = one_sample_tables();
+        // A sample sitting one coarse unit into a large buffer.
+        t.smpl = vec![0i16; 32768 + 64];
+        for (i, s) in t.smpl[32768..].iter_mut().enumerate() {
+            *s = i as i16 * 100;
+        }
+        t.samples[0].start = 32768;
+        t.samples[0].end = 32768 + 64;
+        t.samples[0].start_loop = 32768 + 16;
+        t.samples[0].end_loop = 32768 + 48;
+
+        // Pulling the start back by one coarse unit reaches the zeros before it.
+        let z = build_zone(
+            &t,
+            &izone(&[(op::START_ADDRS_COARSE_OFFSET, (-1i16) as u16)]),
+            &[],
+        )
+        .expect("a zone");
+        assert_eq!(z.sample.data.len(), 32768 + 64, "one coarse unit earlier");
+
+        // The loop offsets are scaled the same way.
+        let z = build_zone(
+            &t,
+            &izone(&[
+                (op::SAMPLE_MODES, 1),
+                (op::STARTLOOP_ADDRS_COARSE_OFFSET, (-1i16) as u16),
+            ]),
+            &[],
+        )
+        .expect("a zone");
+        assert_eq!(
+            z.loop_start, 0.0,
+            "a coarse unit back from frame 16 clamps at the window start"
+        );
+
+        // ...and the two loop generators add rather than replace each other.
+        let z = build_zone(
+            &t,
+            &izone(&[
+                (op::SAMPLE_MODES, 1),
+                (op::STARTLOOP_ADDRS_COARSE_OFFSET, 1),
+                (op::STARTLOOP_ADDRS_OFFSET, (-32768i16) as u16),
+            ]),
+            &[],
+        )
+        .expect("a zone");
+        assert_eq!(
+            z.loop_start, 16.0,
+            "a coarse unit forward and a fine unit back"
+        );
+    }
+
+    #[test]
+    fn a_single_key_zone_is_still_a_zone() {
+        // `low > high` rejects a zone; `low == high` is one key wide and has to
+        // survive, or every drum-map font loses its one-note zones.
+        let range = |low: i32, high: i32| ((high as u16) << 8) | low as u16;
+        let z = zone(&izone(&[(op::KEY_RANGE, range(60, 60))]), &[]).expect("a zone");
+        assert_eq!((z.key_low, z.key_high), (60, 60));
+        // And one narrowed to a single key by the preset.
+        let z = zone(
+            &izone(&[(op::KEY_RANGE, range(48, 72))]),
+            &[(op::KEY_RANGE, range(60, 60))],
+        )
+        .expect("a zone");
+        assert_eq!((z.key_low, z.key_high), (60, 60));
+    }
+
+    #[test]
+    fn the_root_key_override_is_rejected_at_the_first_non_key() {
+        // 0..=127 are MIDI keys; 128 is the first value that is not one.
+        let z = zone(&izone(&[(op::OVERRIDING_ROOT_KEY, 127)]), &[]).expect("a zone");
+        assert!(
+            (z.original_pitch - (127.0 * 100.0 - 7.0)).abs() < 1e-9,
+            "127 is a key"
+        );
+        let z = zone(&izone(&[(op::OVERRIDING_ROOT_KEY, 128)]), &[]).expect("a zone");
+        assert!(
+            (z.original_pitch - (60.0 * 100.0 - 7.0)).abs() < 1e-9,
+            "128 is not a key, so the sample's root is kept"
+        );
+    }
+
+    #[test]
+    fn odd_length_chunks_are_padded_to_a_word_boundary() {
+        // RIFF pads an odd-sized chunk with a byte that is not part of it.
+        // Miss that and every chunk after the first odd one is read from one
+        // byte off, which is the difference between a font loading and not.
+        fn chunk(id: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = id.to_vec();
+            out.extend((body.len() as u32).to_le_bytes());
+            out.extend(body);
+            if body.len() % 2 == 1 {
+                out.push(0);
+            }
+            out
+        }
+        let mut bytes = chunk(b"odd ", &[1, 2, 3]); // odd, so padded
+        bytes.extend(chunk(b"nxt ", &[4, 5, 6, 7]));
+
+        let mut seen: Vec<(String, Vec<u8>)> = Vec::new();
+        walk_chunks(&bytes, &mut |id, data| {
+            seen.push((String::from_utf8_lossy(id).into_owned(), data.to_vec()));
+        });
+        assert_eq!(
+            seen,
+            vec![
+                ("odd ".to_string(), vec![1, 2, 3]),
+                ("nxt ".to_string(), vec![4, 5, 6, 7]),
+            ],
+            "the pad byte belongs to neither chunk"
+        );
+
+        // Two odd chunks in a row, so the padding has to be applied twice.
+        let mut bytes = chunk(b"a   ", &[1]);
+        bytes.extend(chunk(b"b   ", &[2, 3, 4]));
+        bytes.extend(chunk(b"c   ", &[5, 6]));
+        let mut ids = Vec::new();
+        walk_chunks(&bytes, &mut |id, _| {
+            ids.push(String::from_utf8_lossy(id).into_owned())
+        });
+        assert_eq!(ids, vec!["a   ", "b   ", "c   "]);
+
+        // A truncated chunk header stops the walk rather than panicking.
+        let mut ids = Vec::new();
+        walk_chunks(&[b'x'; 5], &mut |id, _| {
+            ids.push(String::from_utf8_lossy(id).into_owned())
+        });
+        assert!(ids.is_empty(), "a truncated header is not a chunk");
+    }
 }
