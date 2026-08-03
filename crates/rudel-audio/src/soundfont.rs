@@ -352,6 +352,185 @@ pub fn load_gm_preset(
 mod tests {
     use super::*;
 
+    // --- preset-file scanning and zone selection ----------------------------
+    //
+    // 36 of soundfont.rs's mutants survived, 14 of them in `zone_bodies`. That
+    // scanner is the reason this module needs no JS evaluator: it finds each
+    // zone's braces while tracking single-quoted strings, so a brace inside
+    // base64 data cannot end a zone early. Nothing was feeding it data that
+    // contained one.
+
+    fn zone(low: i32, high: i32) -> Zone {
+        Zone {
+            sample: Arc::new(Sample {
+                data: vec![0.0; 100],
+                sample_rate: 100.0,
+            }),
+            key_low: low,
+            key_high: high,
+            original_pitch: 6000.0,
+            coarse_tune: 0.0,
+            fine_tune: 0.0,
+            sample_rate: 100.0,
+            loop_start: 0.0,
+            loop_end: 0.0,
+        }
+    }
+
+    #[test]
+    fn zone_bodies_are_split_on_braces_outside_strings() {
+        // The plain shape.
+        let bodies = zone_bodies("x={zones:[{a:1},{b:2}]}");
+        assert_eq!(bodies, vec!["a:1", "b:2"]);
+
+        // A brace inside a quoted value is data, not structure — this is the
+        // case real preset files hit, since base64 contains every punctuation
+        // character there is.
+        let bodies = zone_bodies("x={zones:[{file:'AA}BB{CC',a:1},{b:2}]}");
+        assert_eq!(bodies, vec!["file:'AA}BB{CC',a:1", "b:2"]);
+        // ...including a bracket, which would otherwise end the array.
+        let bodies = zone_bodies("x={zones:[{file:'A]B'},{b:2}]}");
+        assert_eq!(bodies, vec!["file:'A]B'", "b:2"]);
+
+        // An escaped quote does not close the string.
+        let bodies = zone_bodies("x={zones:[{file:'A\\'}B',a:1}]}");
+        assert_eq!(bodies, vec!["file:'A\\'}B',a:1"]);
+
+        // Nested braces belong to their zone rather than splitting it.
+        let bodies = zone_bodies("x={zones:[{a:{b:1}},{c:2}]}");
+        assert_eq!(bodies, vec!["a:{b:1}", "c:2"]);
+
+        // Everything after the zones array is ignored.
+        let bodies = zone_bodies("x={zones:[{a:1}],other:{b:2}}");
+        assert_eq!(bodies, vec!["a:1"]);
+
+        // No zones key, and an empty array, both give nothing.
+        assert!(zone_bodies("x={other:[{a:1}]}").is_empty());
+        assert!(zone_bodies("x={zones:[]}").is_empty());
+        assert!(zone_bodies("").is_empty());
+    }
+
+    #[test]
+    fn a_field_is_read_only_as_a_whole_key() {
+        let body = "file:'AAA',midi:60,loop:true,sfile:'BBB'";
+        assert_eq!(field(body, "midi"), Some("60"));
+        assert_eq!(field(body, "loop"), Some("true"));
+        assert_eq!(field(body, "file"), Some("AAA"));
+        // `file` must not match the tail of `sfile`, and `sfile` is its own key.
+        assert_eq!(field(body, "sfile"), Some("BBB"));
+        // A key that is not there.
+        assert_eq!(field(body, "nope"), None);
+        // A key appearing only as part of a longer name is not a match.
+        assert_eq!(field("sfile:'BBB'", "file"), None);
+
+        // Whitespace either side of the colon is allowed.
+        assert_eq!(field("midi : 60 , x:1", "midi"), Some("60"));
+        // A value runs to the next separator, not past it.
+        assert_eq!(field("a:1}", "a"), Some("1"));
+        assert_eq!(field("a:1\nb:2", "a"), Some("1"));
+        // A quoted value keeps its punctuation.
+        assert_eq!(field("a:'1,2}3'", "a"), Some("1,2}3"));
+        // A key with no value is not a field.
+        assert_eq!(field("midi", "midi"), None);
+    }
+
+    #[test]
+    fn a_key_picks_the_zone_covering_it_or_the_nearest_one() {
+        let preset = Preset {
+            zones: vec![zone(0, 47), zone(48, 71), zone(72, 127)],
+        };
+        let picked = |midi: f64| {
+            let z = preset.zone_for(midi).expect("a zone");
+            (z.key_low, z.key_high)
+        };
+
+        // Inside a range.
+        assert_eq!(picked(60.0), (48, 71));
+        assert_eq!(picked(49.0), (48, 71));
+        assert_eq!(picked(47.0), (0, 47));
+        assert_eq!(picked(0.0), (0, 47));
+        assert_eq!(picked(127.0), (72, 127));
+
+        // On a boundary the *lower* zone wins, because upstream's test is
+        // `keyRangeHigh + 1 >= pitch` — adjacent ranges overlap by a semitone
+        // and the first match is taken. Kept rather than corrected, so this
+        // pins the quirk rather than the tidier answer.
+        assert_eq!(picked(48.0), (0, 47), "the +1 overlap takes the lower zone");
+        assert_eq!(picked(72.0), (48, 71));
+
+        // A fractional key rounds to the nearest MIDI note first.
+        assert_eq!(picked(60.4), (48, 71));
+        assert_eq!(picked(47.6), (0, 47), "rounds to 48, which zone 0 covers");
+        assert_eq!(picked(49.4), (48, 71));
+
+        // Outside every range, the nearest zone by midpoint is used rather than
+        // nothing at all — a note above the top of the font still sounds.
+        assert_eq!(picked(200.0), (72, 127));
+        assert_eq!(picked(-40.0), (0, 47));
+
+        // A preset with no zones has nothing to pick.
+        assert!(Preset::default().zone_for(60.0).is_none());
+    }
+
+    #[test]
+    fn a_zone_loops_only_when_its_points_make_a_region() {
+        let with = |start: f64, end: f64| {
+            let mut z = zone(0, 127);
+            z.loop_start = start;
+            z.loop_end = end;
+            z
+        };
+        // A real region.
+        assert!(with(10.0, 50.0).loops());
+        // Points at the origin mark "no loop" rather than a zero-length one.
+        assert!(!with(0.0, 0.0).loops());
+        assert!(!with(0.0, 50.0).loops());
+        // So does a start of exactly 1, which upstream uses the same way.
+        assert!(!with(1.0, 50.0).loops());
+        assert!(with(1.5, 50.0).loops());
+        // A backwards or empty region is not a loop.
+        assert!(!with(50.0, 10.0).loops());
+        assert!(!with(50.0, 50.0).loops());
+    }
+
+    #[test]
+    fn loop_points_become_fractions_of_the_decoded_buffer() {
+        // The sample here is 100 frames at 100Hz, so one second long, and the
+        // zone states its points against the same rate — a point at frame 25 is
+        // a quarter of the way in.
+        let mut z = zone(0, 127);
+        z.loop_start = 25.0;
+        z.loop_end = 75.0;
+        let (a, b) = z.loop_fractions().expect("a loop");
+        assert!((a - 0.25).abs() < 1e-6, "start fraction {a}");
+        assert!((b - 0.75).abs() < 1e-6, "end fraction {b}");
+
+        // A zone that does not loop has no fractions.
+        let mut z = zone(0, 127);
+        z.loop_start = 0.0;
+        z.loop_end = 0.0;
+        assert!(z.loop_fractions().is_none());
+
+        // Points past the end of the buffer clamp into range rather than
+        // producing a fraction above 1, which would read off the end.
+        let mut z = zone(0, 127);
+        z.loop_start = 25.0;
+        z.loop_end = 500.0;
+        let (a, b) = z.loop_fractions().expect("a loop");
+        assert!((a - 0.25).abs() < 1e-6);
+        assert_eq!(b, 1.0, "clamped to the end of the buffer");
+
+        // An empty buffer has no duration to take a fraction of.
+        let mut z = zone(0, 127);
+        z.sample = Arc::new(Sample {
+            data: Vec::new(),
+            sample_rate: 100.0,
+        });
+        z.loop_start = 25.0;
+        z.loop_end = 75.0;
+        assert!(z.loop_fractions().is_none());
+    }
+
     /// A miniature preset in the real file's shape: a `var` assignment holding
     /// one `zones` array of unquoted-key objects with base64 audio.
     const PRESET: &str = concat!(

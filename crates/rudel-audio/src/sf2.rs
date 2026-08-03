@@ -406,6 +406,268 @@ fn build_zone(t: &Tables, izone: &[(u16, u16)], pzone: &[(u16, u16)]) -> Option<
 mod tests {
     use super::*;
 
+    // --- zone construction ---------------------------------------------------
+    //
+    // `build_zone` turns a pair of generator lists into a playable zone, and 31
+    // of sf2.rs's 44 surviving mutants sat inside it. The round-trip test below
+    // loads a whole file, which reaches the function but only along one path:
+    // every offset is zero, the key range is the default, nothing loops. The
+    // arithmetic joining those is what went unchecked.
+    //
+    // Driving it directly is much cheaper than assembling bytes for each case —
+    // it is a pure function of two generator lists and the sample tables.
+
+    /// Tables holding one 64-frame sample, addressed 0..64, with a loop marked
+    /// at 16..48 and a deliberately odd tuning so every field is distinguishable.
+    fn one_sample_tables() -> Tables {
+        Tables {
+            smpl: (0..64i16).map(|i| i * 100).collect(),
+            presets: Vec::new(),
+            preset_bags: Vec::new(),
+            preset_gens: Generators::new(),
+            instruments: Vec::new(),
+            inst_bags: Vec::new(),
+            inst_gens: Generators::new(),
+            samples: vec![SampleHeader {
+                start: 0,
+                end: 64,
+                start_loop: 16,
+                end_loop: 48,
+                sample_rate: 22050,
+                original_pitch: 60,
+                pitch_correction: 7,
+            }],
+        }
+    }
+
+    /// The instrument-zone generator list for sample 0, plus whatever else.
+    fn izone(extra: &[(u16, u16)]) -> Vec<(u16, u16)> {
+        let mut v = vec![(op::SAMPLE_ID, 0)];
+        v.extend_from_slice(extra);
+        v
+    }
+
+    fn zone(izone: &[(u16, u16)], pzone: &[(u16, u16)]) -> Option<Zone> {
+        build_zone(&one_sample_tables(), izone, pzone)
+    }
+
+    #[test]
+    fn a_zone_needs_a_sample_that_exists() {
+        // No `sampleID` generator at all, and one pointing past the table.
+        assert!(zone(&[], &[]).is_none(), "no sample id");
+        assert!(zone(&[(op::SAMPLE_ID, 1)], &[]).is_none(), "out of range");
+        assert!(zone(&izone(&[]), &[]).is_some(), "sample 0 exists");
+    }
+
+    #[test]
+    fn the_sample_window_is_nudged_by_the_fine_and_coarse_offsets() {
+        // The default window is the whole sample, scaled to -1..1.
+        let z = zone(&izone(&[]), &[]).expect("a zone");
+        assert_eq!(z.sample.data.len(), 64);
+        assert!((z.sample.data[1] - 100.0 / 32768.0).abs() < 1e-9);
+
+        // A fine start offset moves the start forward.
+        let z = zone(&izone(&[(op::START_ADDRS_OFFSET, 8)]), &[]).expect("a zone");
+        assert_eq!(z.sample.data.len(), 56, "start moved 8 frames in");
+        assert!((z.sample.data[0] - 800.0 / 32768.0).abs() < 1e-9);
+
+        // A fine end offset is signed, so pulling the end back is negative.
+        let z = zone(&izone(&[(op::END_ADDRS_OFFSET, (-16i16) as u16)]), &[]).expect("a zone");
+        assert_eq!(z.sample.data.len(), 48, "end pulled back 16 frames");
+
+        // The coarse offsets are in 32768-frame units, so one is far past the
+        // end of this sample and the window clamps to it rather than panicking.
+        let z = zone(&izone(&[(op::END_ADDRS_COARSE_OFFSET, 1)]), &[]).expect("a zone");
+        assert_eq!(z.sample.data.len(), 64, "clamped to the sample data");
+
+        // A window with nothing in it is not a zone.
+        assert!(
+            zone(&izone(&[(op::START_ADDRS_OFFSET, 64)]), &[]).is_none(),
+            "an empty window is not a zone"
+        );
+        assert!(
+            zone(
+                &izone(&[
+                    (op::START_ADDRS_OFFSET, 40),
+                    (op::END_ADDRS_OFFSET, (-40i16) as u16)
+                ]),
+                &[]
+            )
+            .is_none(),
+            "an inverted window is not a zone"
+        );
+    }
+
+    #[test]
+    fn the_key_range_is_the_instruments_narrowed_by_the_presets() {
+        // Packed low in the low byte, high in the high byte.
+        let range = |low: i32, high: i32| ((high as u16) << 8) | low as u16;
+
+        // No range anywhere is the whole keyboard.
+        let z = zone(&izone(&[]), &[]).expect("a zone");
+        assert_eq!((z.key_low, z.key_high), (0, 127));
+
+        // The instrument zone alone.
+        let z = zone(&izone(&[(op::KEY_RANGE, range(36, 72))]), &[]).expect("a zone");
+        assert_eq!((z.key_low, z.key_high), (36, 72));
+
+        // A preset range narrows it from both sides, never widens it.
+        let z = zone(
+            &izone(&[(op::KEY_RANGE, range(36, 72))]),
+            &[(op::KEY_RANGE, range(48, 60))],
+        )
+        .expect("a zone");
+        assert_eq!((z.key_low, z.key_high), (48, 60), "narrowed");
+
+        let z = zone(
+            &izone(&[(op::KEY_RANGE, range(48, 60))]),
+            &[(op::KEY_RANGE, range(0, 127))],
+        )
+        .expect("a zone");
+        assert_eq!((z.key_low, z.key_high), (48, 60), "not widened");
+
+        // Ranges that do not overlap leave no keys, so there is no zone.
+        assert!(
+            zone(
+                &izone(&[(op::KEY_RANGE, range(36, 47))]),
+                &[(op::KEY_RANGE, range(60, 72))]
+            )
+            .is_none(),
+            "disjoint ranges make no zone"
+        );
+    }
+
+    #[test]
+    fn the_root_pitch_comes_from_the_sample_unless_the_zone_overrides_it() {
+        // In cents, with the sample's own correction trimmed off.
+        let z = zone(&izone(&[]), &[]).expect("a zone");
+        assert!(
+            (z.original_pitch - (60.0 * 100.0 - 7.0)).abs() < 1e-9,
+            "sample root 60 less 7 cents, got {}",
+            z.original_pitch
+        );
+
+        // An overriding root key replaces the sample's.
+        let z = zone(&izone(&[(op::OVERRIDING_ROOT_KEY, 69)]), &[]).expect("a zone");
+        assert!((z.original_pitch - (69.0 * 100.0 - 7.0)).abs() < 1e-9);
+
+        // The override only counts as a MIDI key; 255 is the "unset" marker
+        // and has to fall back rather than become key 255.
+        let z = zone(&izone(&[(op::OVERRIDING_ROOT_KEY, 255)]), &[]).expect("a zone");
+        assert!(
+            (z.original_pitch - (60.0 * 100.0 - 7.0)).abs() < 1e-9,
+            "an out-of-range override falls back to the sample"
+        );
+    }
+
+    #[test]
+    fn tuning_adds_the_preset_offsets_to_the_instruments() {
+        let z = zone(&izone(&[]), &[]).expect("a zone");
+        assert_eq!((z.coarse_tune, z.fine_tune), (0.0, 0.0));
+
+        let z = zone(
+            &izone(&[(op::COARSE_TUNE, 2), (op::FINE_TUNE, 30)]),
+            &[(op::COARSE_TUNE, 3), (op::FINE_TUNE, 5)],
+        )
+        .expect("a zone");
+        assert_eq!(z.coarse_tune, 5.0, "coarse tunes add");
+        assert_eq!(z.fine_tune, 35.0, "fine tunes add");
+
+        // Both are signed, so a negative preset offset pulls the pitch down.
+        let z = zone(
+            &izone(&[(op::COARSE_TUNE, 2)]),
+            &[(op::COARSE_TUNE, (-5i16) as u16)],
+        )
+        .expect("a zone");
+        assert_eq!(z.coarse_tune, -3.0, "signed amounts");
+    }
+
+    #[test]
+    fn only_a_zone_with_the_loop_bit_set_carries_loop_points() {
+        // No `sampleModes` at all means no loop.
+        let z = zone(&izone(&[]), &[]).expect("a zone");
+        assert_eq!((z.loop_start, z.loop_end), (0.0, 0.0));
+
+        // Bit 0 clear means no loop either, even though the sample has points.
+        let z = zone(&izone(&[(op::SAMPLE_MODES, 2)]), &[]).expect("a zone");
+        assert_eq!((z.loop_start, z.loop_end), (0.0, 0.0), "bit 0 is the flag");
+
+        // Bit 0 set takes the sample header's points, relative to the window.
+        let z = zone(&izone(&[(op::SAMPLE_MODES, 1)]), &[]).expect("a zone");
+        assert_eq!((z.loop_start, z.loop_end), (16.0, 48.0));
+        let z = zone(&izone(&[(op::SAMPLE_MODES, 3)]), &[]).expect("a zone");
+        assert_eq!(
+            (z.loop_start, z.loop_end),
+            (16.0, 48.0),
+            "other bits ignored"
+        );
+
+        // The points move with the window, so a shifted start shifts them back.
+        let z = zone(
+            &izone(&[(op::SAMPLE_MODES, 1), (op::START_ADDRS_OFFSET, 8)]),
+            &[],
+        )
+        .expect("a zone");
+        assert_eq!((z.loop_start, z.loop_end), (8.0, 40.0), "relative to start");
+
+        // ...and the loop generators nudge them further.
+        let z = zone(
+            &izone(&[
+                (op::SAMPLE_MODES, 1),
+                (op::STARTLOOP_ADDRS_OFFSET, 4),
+                (op::ENDLOOP_ADDRS_OFFSET, (-8i16) as u16),
+            ]),
+            &[],
+        )
+        .expect("a zone");
+        assert_eq!((z.loop_start, z.loop_end), (20.0, 40.0));
+
+        // A loop point pushed below zero clamps there rather than going
+        // negative, which the player would read as a backwards loop.
+        let z = zone(
+            &izone(&[
+                (op::SAMPLE_MODES, 1),
+                (op::STARTLOOP_ADDRS_OFFSET, (-100i16) as u16),
+            ]),
+            &[],
+        )
+        .expect("a zone");
+        assert_eq!(z.loop_start, 0.0, "clamped at the window start");
+    }
+
+    #[test]
+    fn the_zone_keeps_the_samples_own_rate() {
+        let z = zone(&izone(&[]), &[]).expect("a zone");
+        assert_eq!(z.sample.sample_rate, 22050.0);
+        assert_eq!(z.sample_rate, 22050.0);
+
+        // A zero rate would divide by zero in the player, so it floors at 1.
+        let mut t = one_sample_tables();
+        t.samples[0].sample_rate = 0;
+        let z = build_zone(&t, &izone(&[]), &[]).expect("a zone");
+        assert_eq!(z.sample.sample_rate, 1.0);
+    }
+
+    #[test]
+    fn a_repeated_generator_takes_the_last_value() {
+        // The SoundFont spec says a later generator of the same op wins, which
+        // is how preset-level edits override an instrument's defaults.
+        assert_eq!(gen_value(&[(5, 1), (5, 2), (5, 3)], 5), Some(3));
+        assert_eq!(gen_value(&[(5, 1), (6, 2)], 6), Some(2));
+        assert_eq!(gen_value(&[(5, 1)], 6), None);
+        assert_eq!(gen_value(&[], 5), None);
+    }
+
+    #[test]
+    fn generator_amounts_read_as_signed_sixteen_bit() {
+        assert_eq!(signed(0), 0);
+        assert_eq!(signed(1), 1);
+        assert_eq!(signed(32767), 32767);
+        assert_eq!(signed(32768), -32768);
+        assert_eq!(signed(65535), -1);
+        assert_eq!(signed((-100i16) as u16), -100);
+    }
+
     /// Build a minimal but structurally valid SoundFont: one preset, one
     /// instrument, one sample.
     fn tiny_sf2() -> Vec<u8> {
