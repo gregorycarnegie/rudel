@@ -219,10 +219,6 @@ pub(super) fn rewrite_editor_widgets_with_context(
         }
         if let Some((method, open)) = visual_widget_method_at(src, i) {
             let local_from = call_expression_start(src, i);
-            if i < last {
-                i += 1;
-                continue;
-            }
             let Some(call) = parse_call(src, open) else {
                 i += 1;
                 continue;
@@ -545,6 +541,63 @@ note(\"d\")._pitchwheel()";
             &src[widgets[1].from..widgets[1].to],
             r#"note("d")._pitchwheel()"#
         );
+    }
+
+    #[test]
+    fn chained_widgets_each_register_from_where_the_last_one_ended() {
+        // Scanning resumes at the byte after the previous widget's `)`, so a
+        // second widget hanging directly off the first is still seen.
+        let src = r#"note("c")._spiral()._pitchwheel()"#;
+        let (_, widgets) = rewrite(src);
+        assert_eq!(widgets.len(), 2, "both widgets in the chain register");
+        assert_eq!(widgets[0].widget_type, "_spiral");
+        assert_eq!(widgets[1].widget_type, "_pitchwheel");
+        // Three in a row, to pin that it is not just the second one.
+        let (_, three) = rewrite(r#"note("c")._spiral()._pitchwheel()._scope()"#);
+        assert_eq!(three.len(), 3);
+    }
+
+    #[test]
+    fn an_unclosed_widget_call_is_left_alone_rather_than_hanging() {
+        // `parse_call` returns nothing for these, and the scan has to keep
+        // moving or the preprocessor never returns.
+        for src in [
+            r#"note("c")._spiral("#,
+            r#"note("c")._spiral(1, 2"#,
+            "slider(0.5",
+            "slider(",
+        ] {
+            let (out, widgets) = rewrite(src);
+            assert!(widgets.is_empty(), "no widget from {src:?}");
+            assert_eq!(out, src, "source unchanged for {src:?}");
+        }
+    }
+
+    #[test]
+    fn each_widget_type_is_indexed_separately_from_zero() {
+        // `index` is what the host uses to tell two surfaces of the same kind
+        // apart; counting the wrong ones collapses them onto each other.
+        let src = "stack(slider(0.1), slider(0.2))";
+        let found = sliders(src);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].index, 0);
+        assert_eq!(found[1].index, 1, "the second slider is index 1");
+
+        // A different widget type in between does not advance the count.
+        let src = r#"stack(slider(0.1), note("c")._spiral(), slider(0.2))"#;
+        let (_, all) = rewrite(src);
+        let slider_indices: Vec<_> = all
+            .iter()
+            .filter(|w| w.widget_type == "slider")
+            .map(|w| w.index)
+            .collect();
+        assert_eq!(slider_indices, [0, 1], "sliders count only sliders");
+        let spiral: Vec<_> = all
+            .iter()
+            .filter(|w| w.widget_type == "_spiral")
+            .map(|w| w.index)
+            .collect();
+        assert_eq!(spiral, [0], "and the spiral starts its own count");
     }
 
     #[test]

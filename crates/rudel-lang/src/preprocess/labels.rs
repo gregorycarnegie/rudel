@@ -103,3 +103,148 @@ pub(super) fn rewrite_labels(src: &str) -> String {
     }
     out.join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Labels are the last rewrite in the pipeline and had no tests of their
+    // own: the whole module was reached only through end-to-end evaluation,
+    // which cannot tell "the expression ended here" from "the expression ended
+    // one line later" as long as both still parse. That is exactly what the
+    // 2026-08 mutation survivors clustered on — `delimiter_delta`'s bracket
+    // counting and the boundary rules that decide how far a label reaches.
+
+    #[test]
+    fn a_labelled_line_becomes_a_named_pattern_and_a_stack() {
+        assert_eq!(
+            rewrite_labels(r#"a: s("bd")"#),
+            "rudel_label_0_a = rudel_label(\"a\", s(\"bd\"))\nstack(rudel_label_0_a)"
+        );
+        // Several labels stack in source order, each with its own index.
+        let two = rewrite_labels("a: s(\"bd\")\nb: s(\"sd\")");
+        assert!(two.contains("rudel_label_0_a = "), "{two}");
+        assert!(two.contains("rudel_label_1_b = "), "{two}");
+        assert!(
+            two.ends_with("stack(rudel_label_0_a, rudel_label_1_b)"),
+            "{two}"
+        );
+        // Source with no labels is passed through and gains no stack.
+        assert_eq!(rewrite_labels(r#"s("bd")"#), r#"s("bd")"#);
+    }
+
+    #[test]
+    fn only_an_identifier_followed_by_a_colon_is_a_label() {
+        // Digits are allowed after the first character but not as it.
+        assert!(rewrite_labels(r#"a1: s("bd")"#).contains("rudel_label_0_a1"));
+        assert_eq!(rewrite_labels(r#"1a: s("bd")"#), r#"1a: s("bd")"#);
+        // `_` and `$` may lead.
+        assert!(rewrite_labels(r#"_x: s("bd")"#).contains(r#"rudel_label("_x""#));
+        assert!(rewrite_labels(r#"$x: s("bd")"#).contains(r#"rudel_label("$x""#));
+        // A name broken by punctuation is not a label at all.
+        let dashed = r#"my-label: s("bd")"#;
+        assert_eq!(rewrite_labels(dashed), dashed);
+        // An indented line is a continuation, never a label.
+        let indented = "  a: s(\"bd\")";
+        assert_eq!(rewrite_labels(indented), indented);
+        // A colon with no name before it is a map key, not a label.
+        let keyed = r#": s("bd")"#;
+        assert_eq!(rewrite_labels(keyed), keyed);
+    }
+
+    #[test]
+    fn the_generated_variable_name_carries_the_label_through_sanitising() {
+        // Only characters Koto rejects in an identifier are replaced, and the
+        // rest of the name has to survive — a blanket replacement would collide
+        // every label onto the same variable.
+        assert!(rewrite_labels(r#"$a: s("bd")"#).contains("rudel_label_0__a = "));
+        assert!(rewrite_labels(r#"abc: s("bd")"#).contains("rudel_label_0_abc = "));
+        // The quoted name kept for display is the original, not the sanitised
+        // one.
+        assert!(rewrite_labels(r#"$a: s("bd")"#).contains(r#"rudel_label("$a""#));
+    }
+
+    #[test]
+    fn an_unclosed_bracket_carries_the_label_across_lines() {
+        // `delimiter_delta` is what decides this. Miscount and the closing
+        // paren lands outside the call it closes.
+        let src = "drums: stack(\n  s(\"bd\"),\n  s(\"sd\")\n)\nmore";
+        let out = rewrite_labels(src);
+        assert!(
+            out.contains("  s(\"sd\")\n))"),
+            "the closing paren belongs to the label expression: {out}"
+        );
+        assert!(
+            out.contains("\nmore\n"),
+            "the line after it does not: {out}"
+        );
+    }
+
+    #[test]
+    fn a_bracket_inside_a_string_does_not_open_anything() {
+        // The reason `delimiter_delta` walks chunks rather than characters: a
+        // paren in a pattern string is text, and counting it swallows the next
+        // line into the label.
+        let out = rewrite_labels("a: s(\"(\")\nnext");
+        assert!(out.contains("s(\"(\"))\nnext"), "{out}");
+        // Same for a comment.
+        let commented = rewrite_labels("a: s(\"bd\") // (\nnext");
+        assert!(commented.contains("\nnext"), "{commented}");
+    }
+
+    #[test]
+    fn a_dot_continuation_extends_the_label_but_a_new_statement_ends_it() {
+        // An unindented `.fast(2)` is still part of the chain above — the same
+        // rule `indent_dot_continuations` exists to support.
+        let out = rewrite_labels("a: s(\"bd\")\n.fast(2)");
+        assert!(
+            out.contains(".fast(2))"),
+            "the chain is inside the label: {out}"
+        );
+
+        // An unindented ordinary statement is not.
+        let out = rewrite_labels("a: s(\"bd\")\nplain");
+        assert!(out.contains("s(\"bd\"))\nplain"), "{out}");
+
+        // Neither is another label.
+        let out = rewrite_labels("a: s(\"bd\")\nb: s(\"sd\")");
+        assert!(out.contains("s(\"bd\"))\nrudel_label_1_b"), "{out}");
+    }
+
+    #[test]
+    fn a_blank_line_ends_a_label_and_is_consumed_with_it() {
+        // The blank line is the terminator, so it does not survive into the
+        // output as a stray empty statement.
+        let out = rewrite_labels("a: s(\"bd\")\n\nplain");
+        assert_eq!(
+            out,
+            "rudel_label_0_a = rudel_label(\"a\", s(\"bd\"))\nplain\nstack(rudel_label_0_a)"
+        );
+        assert!(!out.contains("\n\n"), "no blank line should remain: {out}");
+    }
+
+    #[test]
+    fn delimiter_delta_counts_only_code_brackets() {
+        assert_eq!(delimiter_delta("f("), 1);
+        assert_eq!(delimiter_delta("f()"), 0);
+        assert_eq!(delimiter_delta(")"), -1);
+        assert_eq!(delimiter_delta("[{("), 3);
+        // Brackets quoted or commented are text.
+        assert_eq!(delimiter_delta(r#"s("([{")"#), 0);
+        assert_eq!(delimiter_delta("f() // ((("), 0);
+        assert_eq!(delimiter_delta("f() /* ((( */"), 0);
+        // Nothing at all is a flat line.
+        assert_eq!(delimiter_delta("plain text"), 0);
+    }
+
+    #[test]
+    fn top_level_boundary_admits_only_an_unindented_non_continuation() {
+        assert!(top_level_boundary("s(\"bd\")"));
+        // Indented, so a continuation of the line above.
+        assert!(!top_level_boundary("  s(\"bd\")"));
+        // Leading dot, so a method chained onto the line above...
+        assert!(!top_level_boundary(".fast(2)"));
+        // ...whether or not it is also indented.
+        assert!(!top_level_boundary("  .fast(2)"));
+    }
+}
