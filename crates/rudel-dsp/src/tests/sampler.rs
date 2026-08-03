@@ -553,3 +553,210 @@ fn the_filter_slot_carries_every_control_it_is_given() {
         "the model changes it: {other_model} vs {base}"
     );
 }
+
+#[test]
+fn apply_controls_maps_the_pattern_names_onto_the_parameters() {
+    // Nothing drove `apply_controls` at all: the mutation run replaced its whole
+    // body with `()` and every test still passed. It is the only path from a
+    // pattern's controls to a sampler voice, so an unread control is a control
+    // that silently does nothing.
+    let sr = 44100.0;
+    let s = ramp(1000, sr);
+    let with = |k: &str, v: Value| {
+        let mut map = ValueMap::new();
+        map.insert(k.to_string(), v);
+        let mut p = SamplerParams::new(s.clone());
+        p.apply_controls(&map);
+        p
+    };
+
+    assert_eq!(with("gain", Value::F64(0.25)).gain, 0.25);
+    assert_eq!(with("pan", Value::F64(0.75)).pan, 0.75);
+    assert_eq!(with("speed", Value::F64(2.5)).speed, 2.5);
+    assert_eq!(with("cutoff", Value::F64(800.0)).cutoff, Some(800.0));
+    assert_eq!(with("drive", Value::F64(3.0)).drive, 3.0);
+    assert_eq!(with("attack", Value::F64(0.2)).attack, 0.2);
+    assert_eq!(with("release", Value::F64(0.3)).release, 0.3);
+
+    // Resonance has a floor: a Q of zero is a divide-by-zero in the biquad.
+    assert_eq!(with("resonance", Value::F64(4.0)).resonance, 4.0);
+    assert_eq!(with("resonance", Value::F64(0.0)).resonance, 0.1);
+
+    // Positions are fractions, clamped rather than read past the buffer.
+    assert_eq!(with("begin", Value::F64(0.3)).begin, 0.3);
+    assert_eq!(with("end", Value::F64(0.8)).end, 0.8);
+    assert_eq!(with("begin", Value::F64(-2.0)).begin, 0.0);
+    assert_eq!(with("end", Value::F64(9.0)).end, 1.0);
+    assert_eq!(with("loopBegin", Value::F64(-1.0)).loop_begin, 0.0);
+    assert_eq!(with("loopEnd", Value::F64(5.0)).loop_end, 1.0);
+
+    // `unit` selects cycle-relative speed, and only the exact string does.
+    assert!(with("unit", Value::from("c")).unit_cycles, "unit: c");
+    assert!(!with("unit", Value::from("s")).unit_cycles, "unit: s");
+    assert!(
+        !with("unit", Value::from("cycles")).unit_cycles,
+        "not a prefix"
+    );
+
+    // `loop` is a number used as a flag, so anything non-zero turns it on.
+    assert!(with("loop", Value::F64(1.0)).loop_on, "loop 1");
+    assert!(
+        with("loop", Value::F64(-1.0)).loop_on,
+        "loop -1 is still on"
+    );
+    assert!(!with("loop", Value::F64(0.0)).loop_on, "loop 0 is off");
+
+    // An empty map changes nothing.
+    let mut untouched = SamplerParams::new(s.clone());
+    let before = (untouched.gain, untouched.speed, untouched.begin);
+    untouched.apply_controls(&ValueMap::new());
+    assert_eq!((untouched.gain, untouched.speed, untouched.begin), before);
+}
+
+#[test]
+fn the_natural_length_is_the_slice_divided_by_the_step() {
+    // `natural` caps the hold, so it only shows up where it is *shorter* than
+    // the buffer would otherwise play for — which needs a slice and a release
+    // long enough to keep the voice ticking past it.
+    let sr = 44100.0;
+    let s = ramp(4410, sr); // 0.1s
+
+    // Half the buffer at unit speed is half the time.
+    let mut p = plain(s.clone());
+    p.begin = 0.5;
+    p.duration = 0.0;
+    let half = play(p, sr);
+    assert!(
+        (half.len() as f32 / sr - 0.05).abs() < 0.005,
+        "half a 0.1s buffer is 0.05s, got {} frames",
+        half.len()
+    );
+
+    // Reading at half speed doubles it.
+    let mut p = plain(s.clone());
+    p.speed = 0.5;
+    p.duration = 0.0;
+    let slow = play(p, sr);
+    assert!(
+        (slow.len() as f32 / sr - 0.2).abs() < 0.01,
+        "0.1s at half speed is 0.2s, got {} frames",
+        slow.len()
+    );
+
+    // And a middle slice is bounded on both sides.
+    let mut p = plain(s);
+    p.begin = 0.25;
+    p.end = 0.75;
+    p.duration = 0.0;
+    let middle = play(p, sr);
+    assert!(
+        (middle.len() as f32 / sr - 0.05).abs() < 0.005,
+        "the middle half is 0.05s, got {} frames",
+        middle.len()
+    );
+}
+
+#[test]
+fn a_one_shot_stops_at_its_end_position_even_with_a_release_running() {
+    // The release keeps the voice ticking after the hold, so without the
+    // position check the read head would carry on past `end` into the rest of
+    // the buffer.
+    let sr = 44100.0;
+    let mut p = plain(ramp(4410, sr));
+    p.end = 0.25;
+    p.release = 0.1; // far longer than the 0.025s slice
+    let out = play(p, sr);
+    let furthest = out.iter().fold(0.0f32, |m, x| m.max(*x));
+    assert!(
+        (furthest - 0.25).abs() < 0.01,
+        "the read stops a quarter in even while releasing, reached {furthest}"
+    );
+}
+
+#[test]
+fn a_stopped_read_head_has_no_natural_length_to_hold_for() {
+    // `step > 0` gates looping; without it a `speed: 0` voice would hold its
+    // first frame for the whole hap instead of ending immediately.
+    let sr = 44100.0;
+    let mut p = plain(ramp(1000, sr));
+    p.begin = 0.5; // a non-zero frame, so silence is not the giveaway
+    p.speed = 0.0;
+    p.loop_on = true;
+    p.duration = 0.2;
+    let out = play(p, sr);
+    assert!(
+        (out.len() as f32) < sr * 0.05,
+        "a stopped read head ends at once, played {} frames",
+        out.len()
+    );
+}
+
+#[test]
+fn a_gain_modulator_adds_to_the_voices_own_gain() {
+    // The LFO is offset to stay positive, so it can only push the level up —
+    // which is what makes the sign of the `gain + mod` term checkable.
+    let sr = 44100.0;
+    let level = |mods: &[ModSpec]| {
+        let mut p = plain(ramp(2000, sr));
+        p.gain = 0.5;
+        let mut v = SamplerVoice::with_mods(p, sr, mods);
+        let mut peak = 0.0f32;
+        while !v.is_done() {
+            peak = peak.max(v.tick().0.abs());
+        }
+        peak
+    };
+    let plain_level = level(&[]);
+    let modulated = level(&positive_lfo("gain", 0.5, 3.0).voice);
+    assert!(
+        modulated > plain_level * 1.05,
+        "a positive gain LFO raises the level: {modulated} vs {plain_level}"
+    );
+}
+
+#[test]
+fn bus_input_reaches_the_voices_modulators() {
+    // A sampler can be modulated by another orbit's output; the mixer hands
+    // that over through `set_bus_input`, and dropping it leaves the modulator
+    // reading silence.
+    let sr = 44100.0;
+    let mut map = ValueMap::new();
+    let mut entry = ValueMap::new();
+    entry.insert("control".to_string(), Value::from("gain"));
+    entry.insert("bus".to_string(), Value::F64(0.0));
+    entry.insert("depthabs".to_string(), Value::F64(0.5));
+    entry.insert("dcoffset".to_string(), Value::F64(0.0));
+    let mut desc = ValueMap::new();
+    desc.insert("__ids".to_string(), Value::List(vec![Value::from("0")]));
+    desc.insert("0".to_string(), Value::Map(entry));
+    map.insert("bmod".to_string(), Value::Map(desc));
+    let ctx = ModContext {
+        cps: 0.5,
+        cycle: 0.0,
+        note_seconds: 1.0,
+    };
+    let specs = ModSpecs::from_controls(&map, &ctx, |_| 25.0);
+    assert!(
+        !specs.voice.is_empty(),
+        "the bus modulator descriptor should resolve, or this test is vacuous"
+    );
+
+    let peak_with = |feed: bool| {
+        let mut p = plain(ramp(2000, sr));
+        p.gain = 0.5;
+        let mut v = SamplerVoice::with_mods(p, sr, &specs.voice);
+        if feed {
+            let block: Vec<f32> = vec![1.0; 256];
+            v.set_bus_input(0, &block, &block);
+        }
+        let mut peak = 0.0f32;
+        for _ in 0..256 {
+            peak = peak.max(v.tick().0.abs());
+        }
+        peak
+    };
+    assert!(
+        peak_with(true) > peak_with(false),
+        "feeding the bus should reach the gain modulator"
+    );
+}
