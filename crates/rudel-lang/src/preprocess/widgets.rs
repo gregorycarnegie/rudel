@@ -546,4 +546,125 @@ note("b")._pitchwheel()"#;
         );
         assert_eq!(out, quoted, "and the source is unchanged");
     }
+
+    // `slider(...)` is rewritten by a separate branch from the visual widgets,
+    // with its own name-boundary checks. The tests above only ever fed the
+    // rewriter `_spiral`/`_pianoroll` calls, so none of it was reached.
+
+    fn sliders(src: &str) -> Vec<PreprocessWidget> {
+        let (_, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+        widgets
+            .into_iter()
+            .filter(|w| w.widget_type == "slider")
+            .collect()
+    }
+
+    #[test]
+    fn a_slider_call_becomes_a_slider_widget() {
+        let found = sliders("slider(0.5, 0, 1)");
+        assert_eq!(found.len(), 1, "a bare slider call is a widget");
+        assert_eq!(found[0].widget_type, "slider");
+
+        // The range is its *first argument* — the live value the editor
+        // rewrites when the slider is dragged, not the whole call.
+        let src = "slider(0.5, 0, 1)";
+        assert_eq!(&src[found[0].from..found[0].to], "0.5");
+
+        // Whitespace before the parenthesis is still a call.
+        assert_eq!(sliders("slider (0.25)").len(), 1);
+    }
+
+    #[test]
+    fn only_a_standalone_slider_name_counts() {
+        // Preceded by an identifier character: a different function.
+        assert!(
+            sliders("myslider(0.5)").is_empty(),
+            "myslider is not slider"
+        );
+        assert!(sliders("x_slider(0.5)").is_empty());
+        // Followed by one: also a different function.
+        assert!(sliders("sliders(0.5)").is_empty(), "sliders is not slider");
+        assert!(sliders("slider2(0.5)").is_empty());
+        // A method call of the same name belongs to its receiver.
+        assert!(
+            sliders("x.slider(0.5)").is_empty(),
+            "a .slider method is not the slider widget"
+        );
+        // The name with no call at all.
+        assert!(sliders("slider").is_empty());
+        // No arguments means no value to track.
+        assert!(sliders("slider()").is_empty());
+    }
+
+    #[test]
+    fn several_sliders_get_distinct_ids() {
+        let src = "stack(slider(0.1), slider(0.2), slider(0.3))";
+        let found = sliders(src);
+        assert_eq!(found.len(), 3);
+        let ids: Vec<_> = found.iter().map(|w| w.id.clone()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 3, "slider ids must be distinct: {ids:?}");
+        // Each points at its own first argument.
+        for (w, want) in found.iter().zip(["0.1", "0.2", "0.3"]) {
+            assert_eq!(&src[w.from..w.to], want);
+        }
+    }
+
+    #[test]
+    fn a_slider_inside_a_string_or_comment_is_not_rewritten() {
+        // The same guards the visual path has, on the slider branch.
+        for src in [
+            r#"s("slider(0.5)")"#,
+            "// slider(0.5)",
+            "/* slider(0.5) */",
+            r#"x = 'slider(0.5)'"#,
+        ] {
+            assert!(
+                sliders(src).is_empty(),
+                "a quoted or commented slider is not a widget: {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_widget_call_inside_a_comment_is_skipped_on_both_paths() {
+        // The visual-widget branch shares the same guards; a commented-out
+        // widget must not register, or the editor grows a surface for code that
+        // does not run.
+        for src in [r#"// note("c")._spiral()"#, r#"/* note("c")._spiral() */"#] {
+            let (_, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+            assert!(
+                widgets.is_empty(),
+                "a commented-out widget is not a widget: {src}"
+            );
+        }
+
+        // Live code after a comment mentioning one still registers.
+        let src = "// _spiral()\nnote(\"c\")._spiral()";
+        let (_, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+        assert_eq!(
+            widgets.len(),
+            1,
+            "the real call after a comment still counts"
+        );
+    }
+
+    #[test]
+    fn the_node_offset_shifts_the_recorded_range() {
+        // Block evaluation preprocesses a slice of the document, so the ranges
+        // have to be reported against the whole document rather than the slice.
+        let src = "slider(0.5)";
+        let (_, base, _) = rewrite_editor_widgets_with_context(src, 0, "w");
+        let (_, shifted, _) = rewrite_editor_widgets_with_context(src, 100, "w");
+        assert_eq!(base.len(), 1);
+        assert_eq!(shifted.len(), 1);
+        assert_eq!(
+            shifted[0].from,
+            base[0].from + 100,
+            "the offset should move the start"
+        );
+        assert_eq!(shifted[0].to, base[0].to + 100);
+    }
 }
