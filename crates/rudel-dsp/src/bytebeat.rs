@@ -789,4 +789,205 @@ mod tests {
         assert!(peak <= 0.4, "output is clamped to ±0.4, got {peak}");
         assert!(v.is_done());
     }
+
+    // --- the voice around the expression ------------------------------------
+    //
+    // `bytebeat_golden.rs` pins the evaluator against V8, but nothing drove the
+    // voice that feeds it: 20 of `ByteBeatVoice::tick`'s mutants survived. The
+    // arithmetic there decides *which* `t` each sample is evaluated at and how
+    // the resulting byte becomes audio, so a wrong step still plays a bytebeat
+    // — just not this one.
+    //
+    // The trick that makes it readable: at a sample rate of 256 with `freq` 1,
+    // `local_t = 256/sr * freq * t` is exactly the tick count, so an expression
+    // of `t` makes each output sample name its own index.
+
+    const BYTE_SR: f32 = 256.0;
+
+    fn beat(src: &str) -> ByteBeatParams {
+        ByteBeatParams {
+            expr: ByteBeatExpr::parse(src),
+            freq: 1.0,
+            start_time: 0.0,
+            gain: 1.0,
+            pan: 0.5,
+            adsr: Adsr {
+                attack: 0.0,
+                decay: 0.0,
+                sustain: 1.0,
+                release: 0.0,
+            },
+            duration: 10.0,
+            filters: FilterSet::default(),
+        }
+    }
+
+    /// The left channel of `n` ticks, with the centre-pan gain divided out.
+    fn render(params: ByteBeatParams, n: usize) -> Vec<f32> {
+        let g = std::f32::consts::FRAC_1_SQRT_2;
+        let mut v = ByteBeatVoice::new(params, BYTE_SR);
+        (0..n).map(|_| v.tick().0 / g).collect()
+    }
+
+    /// Sample 1 — the first one the gain envelope lets through. Every schedule
+    /// opens with `setValueAtTime(0, begin)`, so sample 0 is silent by design
+    /// whatever the expression says.
+    fn first_audible(params: ByteBeatParams) -> f32 {
+        render(params, 2)[1]
+    }
+
+    /// What `tick` should emit for a byte value, before gain and pan.
+    fn expected(byte: u8) -> f32 {
+        ((byte as f32 / 127.5 - 1.0) * 0.2).clamp(-0.4, 0.4)
+    }
+
+    #[test]
+    fn a_byte_becomes_a_bipolar_sample_scaled_and_clamped() {
+        // 0 and 255 are the ends of the range, 128 is just above the middle.
+        assert!((first_audible(beat("0")) - expected(0)).abs() < 1e-6);
+        assert!((first_audible(beat("255")) - expected(255)).abs() < 1e-6);
+        assert!((first_audible(beat("128")) - expected(128)).abs() < 1e-6);
+        // Only the low byte is used, so 256 wraps back to 0.
+        assert!((first_audible(beat("256")) - expected(0)).abs() < 1e-6);
+        assert!((first_audible(beat("511")) - expected(255)).abs() < 1e-6);
+        // The ends of the range are ±0.2, well inside the ±0.4 clamp — the
+        // clamp is there for the expression, not for this scaling.
+        assert!((first_audible(beat("255")) - 0.2).abs() < 1e-6);
+        assert!((first_audible(beat("0")) + 0.2).abs() < 1e-6);
+        // ...and the envelope really does open at zero.
+        assert_eq!(render(beat("255"), 1)[0], 0.0, "sample 0 is silent");
+    }
+
+    #[test]
+    fn the_evaluated_t_advances_by_the_frequency_over_the_sample_rate() {
+        // At this rate and freq 1, sample `n` is evaluated at `t = n`.
+        let out = render(beat("t"), 8);
+        for (n, &v) in out.iter().enumerate().skip(1) {
+            assert!(
+                (v - expected(n as u8)).abs() < 1e-6,
+                "sample {n} should be byte {n}, got {v}"
+            );
+        }
+
+        // Doubling the frequency doubles the step.
+        let mut p = beat("t");
+        p.freq = 2.0;
+        let out = render(p, 8);
+        for (n, &v) in out.iter().enumerate().skip(1) {
+            assert!(
+                (v - expected((n * 2) as u8)).abs() < 1e-6,
+                "sample {n} at 2x should be byte {}, got {v}",
+                n * 2
+            );
+        }
+
+        // Halving the sample rate doubles it too, since the scale is 256/sr.
+        let mut v = ByteBeatVoice::new(beat("t"), BYTE_SR / 2.0);
+        let g = std::f32::consts::FRAC_1_SQRT_2;
+        let out: Vec<f32> = (0..4).map(|_| v.tick().0 / g).collect();
+        for (n, &s) in out.iter().enumerate().skip(1) {
+            assert!(
+                (s - expected((n * 2) as u8)).abs() < 1e-6,
+                "sample {n} at half rate should be byte {}",
+                n * 2
+            );
+        }
+    }
+
+    #[test]
+    fn the_start_time_offsets_the_evaluated_t() {
+        // `byteBeatStartTime` is where in the beat the note begins.
+        let mut p = beat("t");
+        p.start_time = 100.0;
+        let out = render(p, 4);
+        for (n, &v) in out.iter().enumerate().skip(1) {
+            assert!(
+                (v - expected((100 + n) as u8)).abs() < 1e-6,
+                "sample {n} should be byte {}, got {v}",
+                100 + n
+            );
+        }
+    }
+
+    #[test]
+    fn gain_and_pan_shape_the_output_of_the_voice() {
+        let peak = |gain: f32| {
+            let mut p = beat("255");
+            p.gain = gain;
+            first_audible(p)
+        };
+        assert!((peak(1.0) - 0.2).abs() < 1e-6);
+        assert!((peak(0.5) - 0.1).abs() < 1e-6, "half gain halves it");
+        assert!(peak(0.0).abs() < 1e-9, "no gain is silence");
+
+        let at = |pan: f32| {
+            let mut p = beat("255");
+            p.pan = pan;
+            let mut v = ByteBeatVoice::new(p, BYTE_SR);
+            v.tick();
+            v.tick()
+        };
+        let (l, r) = at(0.0);
+        assert!(l > 0.19 && r.abs() < 1e-6, "hard left: {l} {r}");
+        let (l, r) = at(1.0);
+        assert!(l.abs() < 1e-6 && r > 0.19, "hard right: {l} {r}");
+        let (l, r) = at(0.5);
+        assert!((l - r).abs() < 1e-6, "centre is equal: {l} {r}");
+        // Out-of-range pans clamp rather than inverting a channel.
+        let (l, r) = at(2.0);
+        assert!(l.abs() < 1e-6 && r > 0.19, "clamped right: {l} {r}");
+    }
+
+    #[test]
+    fn a_voice_runs_for_its_duration_plus_the_release() {
+        // synth.mjs: end = duration + release + 0.01.
+        let mut p = beat("255");
+        p.duration = 0.1;
+        p.adsr.release = 0.05;
+        let mut v = ByteBeatVoice::new(p, BYTE_SR);
+        let mut frames = 0;
+        while !v.is_done() && frames < 10_000 {
+            v.tick();
+            frames += 1;
+        }
+        let seconds = frames as f32 / BYTE_SR;
+        assert!(
+            (seconds - 0.16).abs() < 0.01,
+            "should run 0.1 + 0.05 + 0.01 seconds, ran {seconds}"
+        );
+        assert!(v.is_done(), "and then stop");
+        // A finished voice keeps returning silence rather than restarting.
+        assert_eq!(v.tick(), (0.0, 0.0));
+
+        // A longer release runs longer.
+        let mut p = beat("255");
+        p.duration = 0.1;
+        p.adsr.release = 0.2;
+        let mut v = ByteBeatVoice::new(p, BYTE_SR);
+        let mut longer = 0;
+        while !v.is_done() && longer < 10_000 {
+            v.tick();
+            longer += 1;
+        }
+        assert!(longer > frames, "a longer release runs longer");
+    }
+
+    #[test]
+    fn the_envelope_shapes_the_voice_over_its_hold() {
+        // A constant expression, so the envelope is the only thing moving.
+        let mut p = beat("255");
+        p.duration = 0.5;
+        p.adsr = Adsr {
+            attack: 0.25,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.25,
+        };
+        let out = render(p, (BYTE_SR * 0.9) as usize);
+        let at = |secs: f32| out[(secs * BYTE_SR) as usize];
+        assert!(at(0.0).abs() < 0.02, "starts near silence: {}", at(0.0));
+        assert!(at(0.1) < at(0.2), "the attack rises");
+        assert!((at(0.4) - 0.2).abs() < 0.02, "holds at full: {}", at(0.4));
+        assert!(at(0.6) > at(0.7), "the release falls");
+    }
 }
