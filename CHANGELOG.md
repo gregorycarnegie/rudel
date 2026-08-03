@@ -78,6 +78,12 @@ existing patterns sound like** — see Migrating below.
   `next_supersaw` 0 of 71, `oscillator.rs` 2 of 226, `drum.rs` 2 of 161 — all
   four equivalent mutants (`<` against a time boundary that accumulated `f32`
   never lands on, and a peak-normalisation guard).
+- The preprocessor tokenises once. Eight rewriters each carried their own copy
+  of the same skip-strings-and-comments guard — the mutation run put survivors
+  on the comment-detection line of every one — and now share
+  `scanner::classify`/`scanner::chunks`. The scanner is byte-indexed throughout,
+  dropping the `Vec<(usize, char)>` every pass used to build: ~20% faster over
+  the doc-example corpus, with byte-identical output on all 509 examples.
 
 ### Migrating
 

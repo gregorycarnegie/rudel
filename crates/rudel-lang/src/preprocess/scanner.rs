@@ -1,5 +1,14 @@
+//! The one scanner every preprocessor pass is built on.
+//!
+//! Positions are byte offsets throughout. Everything these scanners branch on —
+//! quotes, comment markers, brackets, commas — is ASCII, and a UTF-8
+//! continuation byte can never be mistaken for one, so they walk bytes and step
+//! over multi-byte characters without having to index them. Slices are only ever
+//! cut at a returned position, which is always a character boundary.
+
 pub(super) struct CallInfo {
-    pub close_char: usize,
+    /// Byte offset of the closing `)`.
+    pub close: usize,
     pub first_arg: Option<(usize, usize)>,
     pub args: Vec<(usize, usize)>,
 }
@@ -8,16 +17,8 @@ pub(super) fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
-pub(super) fn next_byte(chars: &[(usize, char)], i: usize, len: usize) -> usize {
-    chars.get(i + 1).map(|x| x.0).unwrap_or(len)
-}
-
-pub(super) fn previous_non_ws(chars: &[(usize, char)], i: usize) -> Option<char> {
-    chars[..i]
-        .iter()
-        .rev()
-        .find(|(_, c)| !c.is_whitespace())
-        .map(|(_, c)| *c)
+pub(super) fn previous_non_ws(src: &str, at: usize) -> Option<char> {
+    src[..at].chars().rev().find(|c| !c.is_whitespace())
 }
 
 pub(super) fn trim_range(src: &str, mut start: usize, mut end: usize) -> (usize, usize) {
@@ -42,81 +43,134 @@ pub(super) fn trim_range(src: &str, mut start: usize, mut end: usize) -> (usize,
     (start, end)
 }
 
-pub(super) fn skip_string(chars: &[(usize, char)], mut i: usize, quote: char) -> usize {
-    let mut escaped = false;
-    i += 1;
-    while i < chars.len() {
-        let ch = chars[i].1;
+/// Just past the string literal `quote` opens at `at`. An unterminated literal
+/// runs to the end rather than looping.
+fn scan_string(b: &[u8], at: usize, quote: u8) -> usize {
+    let mut i = at + 1;
+    while i < b.len() {
+        let c = b[i];
         i += 1;
-        if escaped {
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == quote {
-            break;
+        if c == b'\\' {
+            // Whatever follows is literal. Landing mid-character is harmless:
+            // continuation bytes match neither a quote nor a backslash.
+            i += 1;
+        } else if c == quote {
+            return i;
         }
     }
-    i
+    b.len()
 }
 
-pub(super) fn skip_line_comment(chars: &[(usize, char)], mut i: usize) -> usize {
-    while i < chars.len() && chars[i].1 != '\n' {
-        i += 1;
-    }
-    i
+/// The newline ending the `//` comment at `at`, exclusive — so the newline
+/// itself stays code and line structure survives dropping the comment.
+fn scan_line_comment(b: &[u8], at: usize) -> usize {
+    b[at..]
+        .iter()
+        .position(|&c| c == b'\n')
+        .map_or(b.len(), |n| at + n)
 }
 
-pub(super) fn skip_block_comment(chars: &[(usize, char)], mut i: usize) -> usize {
-    i += 2;
-    while i + 1 < chars.len() {
-        if chars[i].1 == '*' && chars[i + 1].1 == '/' {
+/// Just past the `*/` closing the block comment at `at`.
+fn scan_block_comment(b: &[u8], at: usize) -> usize {
+    let mut i = at + 2;
+    while i + 1 < b.len() {
+        if b[i] == b'*' && b[i + 1] == b'/' {
             return i + 2;
         }
         i += 1;
     }
-    chars.len()
+    b.len()
 }
 
-pub(super) fn parse_call(src: &str, chars: &[(usize, char)], open: usize) -> Option<CallInfo> {
+/// A run of source, as the rewriters need to tell it apart: code they may
+/// change, or text they must copy through untouched.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Chunk {
+    Code,
+    Str,
+    LineComment,
+    BlockComment,
+}
+
+/// What begins at `chars[i]`, if it is not plain code, and the index just past
+/// it.
+///
+/// This is the single place that knows a quote from a comment opener. Every
+/// rewriter used to carry its own copy of these three tests, which is why one
+/// missed guard was really the same bug repeated eight times — and why the
+/// mutation run put survivors on the comment-detection line of each.
+pub(super) fn classify(src: &str, at: usize) -> Option<(Chunk, usize)> {
+    let b = src.as_bytes();
+    match (*b.get(at)?, b.get(at + 1).copied()) {
+        (quote @ (b'"' | b'\''), _) => Some((Chunk::Str, scan_string(b, at, quote))),
+        (b'/', Some(b'/')) => Some((Chunk::LineComment, scan_line_comment(b, at))),
+        (b'/', Some(b'*')) => Some((Chunk::BlockComment, scan_block_comment(b, at))),
+        _ => None,
+    }
+}
+
+/// `src` split into `(kind, start, end)` byte ranges: maximal runs of code, and
+/// the string literals and comments between them.
+///
+/// Tokenising once per rewrite lets each pass say what it does to code and copy
+/// everything else in bulk, rather than re-deriving the boundaries a character
+/// at a time.
+pub(super) fn chunks(src: &str) -> Vec<(Chunk, usize, usize)> {
+    let mut out = Vec::new();
+    let mut code_start = 0;
+    let mut i = 0;
+    while i < src.len() {
+        let Some((kind, end)) = classify(src, i) else {
+            i += 1;
+            continue;
+        };
+        if code_start < i {
+            out.push((Chunk::Code, code_start, i));
+        }
+        out.push((kind, i, end));
+        code_start = end;
+        i = end;
+    }
+    if code_start < src.len() {
+        out.push((Chunk::Code, code_start, src.len()));
+    }
+    out
+}
+
+pub(super) fn parse_call(src: &str, open: usize) -> Option<CallInfo> {
+    let b = src.as_bytes();
     let mut i = open + 1;
     let mut depth = 0i32;
-    let mut arg_start = next_byte(chars, open, src.len());
+    let mut arg_start = open + 1;
     let mut args = Vec::new();
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if (c == '"' || c == '\'') && depth >= 0 {
-            i = skip_string(chars, i, c);
+    let push_arg = |args: &mut Vec<_>, from, to| {
+        let range = trim_range(src, from, to);
+        if range.0 < range.1 {
+            args.push(range);
+        }
+    };
+    while i < src.len() {
+        if let Some((kind, end)) = classify(src, i)
+            && (kind != Chunk::Str || depth >= 0)
+        {
+            i = end;
             continue;
         }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            i = skip_line_comment(chars, i);
-            continue;
-        }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            i = skip_block_comment(chars, i);
-            continue;
-        }
-        match c {
-            '(' | '[' | '{' => depth += 1,
-            ')' if depth == 0 => {
-                let range = trim_range(src, arg_start, byte);
-                if range.0 < range.1 {
-                    args.push(range);
-                }
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' if depth == 0 => {
+                push_arg(&mut args, arg_start, i);
                 let first_arg = args.first().copied();
                 return Some(CallInfo {
-                    close_char: i,
+                    close: i,
                     first_arg,
                     args,
                 });
             }
-            ')' | ']' | '}' => depth -= 1,
-            ',' if depth == 0 => {
-                let range = trim_range(src, arg_start, byte);
-                if range.0 < range.1 {
-                    args.push(range);
-                }
-                arg_start = next_byte(chars, i, src.len());
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                push_arg(&mut args, arg_start, i);
+                arg_start = i + 1;
             }
             _ => {}
         }
@@ -125,26 +179,26 @@ pub(super) fn parse_call(src: &str, chars: &[(usize, char)], open: usize) -> Opt
     None
 }
 
+/// Split `text` on `delimiter` where it sits outside brackets and strings.
 pub(super) fn top_level_ranges(text: &str, delimiter: char) -> Vec<(usize, usize)> {
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let b = text.as_bytes();
     let mut ranges = Vec::new();
     let mut start = 0;
     let mut depth = 0i32;
     let mut i = 0;
-    while i < chars.len() {
-        let (byte, ch) = chars[i];
-        if ch == '"' || ch == '\'' {
-            i = skip_string(&chars, i, ch);
+    while i < text.len() {
+        if let Some((Chunk::Str, end)) = classify(text, i) {
+            i = end;
             continue;
         }
-        match ch {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth -= 1,
-            _ if ch == delimiter && depth == 0 => {
-                if start < byte {
-                    ranges.push((start, byte));
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            _ if depth == 0 && text[i..].starts_with(delimiter) => {
+                if start < i {
+                    ranges.push((start, i));
                 }
-                start = next_byte(&chars, i, text.len());
+                start = i + delimiter.len_utf8();
             }
             _ => {}
         }
@@ -156,20 +210,20 @@ pub(super) fn top_level_ranges(text: &str, delimiter: char) -> Vec<(usize, usize
     ranges
 }
 
+/// The first `delimiter` outside brackets and strings.
 pub(super) fn top_level_split(text: &str, delimiter: char) -> Option<usize> {
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let b = text.as_bytes();
     let mut depth = 0i32;
     let mut i = 0;
-    while i < chars.len() {
-        let (byte, ch) = chars[i];
-        if ch == '"' || ch == '\'' {
-            i = skip_string(&chars, i, ch);
+    while i < text.len() {
+        if let Some((Chunk::Str, end)) = classify(text, i) {
+            i = end;
             continue;
         }
-        match ch {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth -= 1,
-            _ if ch == delimiter && depth == 0 => return Some(byte),
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            _ if depth == 0 && text[i..].starts_with(delimiter) => return Some(i),
             _ => {}
         }
         i += 1;
@@ -189,15 +243,10 @@ mod tests {
 
     use super::*;
 
-    fn chars_of(s: &str) -> Vec<(usize, char)> {
-        s.char_indices().collect()
-    }
-
     /// The argument slices `parse_call` found, as strings.
     fn call_args(src: &str) -> Option<Vec<String>> {
-        let chars = chars_of(src);
-        let open = chars.iter().position(|(_, c)| *c == '(')?;
-        let info = parse_call(src, &chars, open)?;
+        let open = src.find('(')?;
+        let info = parse_call(src, open)?;
         Some(
             info.args
                 .iter()
@@ -219,13 +268,12 @@ mod tests {
     #[test]
     fn previous_non_ws_skips_back_over_blanks_only() {
         let src = "ab  \n\t c";
-        let chars = chars_of(src);
         // From the final 'c', the previous non-blank is 'b'.
-        assert_eq!(previous_non_ws(&chars, 7), Some('b'));
+        assert_eq!(previous_non_ws(src, 7), Some('b'));
         // From the very start there is nothing behind.
-        assert_eq!(previous_non_ws(&chars, 0), None);
+        assert_eq!(previous_non_ws(src, 0), None);
         // Immediately after 'a' it is 'a' itself, not skipped past.
-        assert_eq!(previous_non_ws(&chars, 1), Some('a'));
+        assert_eq!(previous_non_ws(src, 1), Some('a'));
     }
 
     #[test]
@@ -244,13 +292,9 @@ mod tests {
     }
 
     #[test]
-    fn skip_string_stops_at_the_closing_quote_and_honours_escapes() {
-        let go = |src: &str| {
-            let chars = chars_of(src);
-            let start = chars.iter().position(|(_, c)| *c == '"').unwrap();
-            skip_string(&chars, start, '"')
-        };
-        // Index lands just past the closing quote.
+    fn a_string_run_ends_at_the_closing_quote_and_honours_escapes() {
+        let go = |src: &str| classify(src, src.find('"').unwrap()).unwrap().1;
+        // The end lands just past the closing quote.
         assert_eq!(go(r#""ab"x"#), 4);
         // An escaped quote does not end the string...
         assert_eq!(go(r#""a\"b"x"#), 6);
@@ -258,37 +302,111 @@ mod tests {
         assert_eq!(go(r#""a\\"x"#), 5);
         // An unterminated string runs to the end rather than looping.
         let src = r#""abc"#;
-        assert_eq!(go(src), chars_of(src).len());
+        assert_eq!(go(src), src.len());
+        // Multi-byte contents are stepped over whole, so the end stays on a
+        // character boundary and the slice does not panic.
+        let wide = r#""éé"x"#;
+        assert_eq!(&wide[..go(wide)], r#""éé""#);
+        // Including one that is *escaped*, which the byte scan skips a byte of.
+        let escaped = r#""a\é" x"#;
+        assert_eq!(&escaped[..go(escaped)], r#""a\é""#);
     }
 
     #[test]
-    fn comments_are_skipped_to_their_own_terminators() {
+    fn comment_runs_end_at_their_own_terminators() {
+        let end = |src: &str| classify(src, src.find('/').unwrap()).unwrap().1;
+
+        // A line comment stops *at* the newline, not past it, so the newline
+        // survives as code and line numbers hold.
         let line = "a // note\nb";
-        let chars = chars_of(line);
-        let at = chars.iter().position(|(_, c)| *c == '/').unwrap();
-        // A line comment stops *at* the newline, not past it.
-        assert_eq!(chars[skip_line_comment(&chars, at)].1, '\n');
+        assert_eq!(&line[end(line)..], "\nb");
+        // One with no newline at all ends with the source.
+        assert_eq!(end("a // note"), "a // note".len());
 
         let block = "a /* note */ b";
-        let chars = chars_of(block);
-        let at = chars.iter().position(|(_, c)| *c == '/').unwrap();
-        let end = skip_block_comment(&chars, at);
-        assert_eq!(
-            &block[chars[end].0..],
-            " b",
-            "should resume after the close"
-        );
+        assert_eq!(&block[end(block)..], " b", "should resume after the close");
 
         // A `*` or `/` inside the comment does not close it early.
         let tricky = "/* a * b / c */x";
-        let chars = chars_of(tricky);
-        let end = skip_block_comment(&chars, 0);
-        assert_eq!(&tricky[chars[end].0..], "x");
+        assert_eq!(&tricky[end(tricky)..], "x");
 
         // An unterminated block comment consumes the rest rather than looping.
         let open = "/* never closed";
-        let chars = chars_of(open);
-        assert_eq!(skip_block_comment(&chars, 0), chars.len());
+        assert_eq!(end(open), open.len());
+    }
+
+    #[test]
+    fn chunks_separate_code_from_the_text_copied_through() {
+        // The whole preprocessor now leans on this one split, so it has to name
+        // every run and lose none of the source.
+        let kinds = |src: &str| {
+            chunks(src)
+                .into_iter()
+                .map(|(kind, a, b)| (kind, src[a..b].to_string()))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            kinds(r#"s("bd") // go"#),
+            [
+                (Chunk::Code, "s(".into()),
+                (Chunk::Str, r#""bd""#.into()),
+                (Chunk::Code, ") ".into()),
+                (Chunk::LineComment, "// go".into()),
+            ]
+        );
+        // A line comment stops *before* its newline, so the newline stays code
+        // and `strip_line_comments` keeps the line structure by dropping the
+        // comment chunk alone.
+        assert_eq!(
+            kinds("a // x\nb"),
+            [
+                (Chunk::Code, "a ".into()),
+                (Chunk::LineComment, "// x".into()),
+                (Chunk::Code, "\nb".into()),
+            ]
+        );
+        // Comment openers and quotes nested in one another belong to whichever
+        // run started first.
+        assert_eq!(
+            kinds(r#"/* "a" // b */"#),
+            [(Chunk::BlockComment, r#"/* "a" // b */"#.into())]
+        );
+        assert_eq!(
+            kinds(r#""// not a comment""#),
+            [(Chunk::Str, r#""// not a comment""#.into())]
+        );
+        // A division is not a comment.
+        assert_eq!(kinds("a / b"), [(Chunk::Code, "a / b".into())]);
+        // Unterminated runs consume the rest rather than being dropped.
+        assert_eq!(
+            kinds(r#"x = "ab"#),
+            [(Chunk::Code, "x = ".into()), (Chunk::Str, r#""ab"#.into()),]
+        );
+        assert_eq!(kinds(""), []);
+
+        // Whatever the split, concatenating it reproduces the source exactly.
+        for src in [
+            r#"s("bd*2 [~ sd]").gain(.5) // hi"#,
+            "/* a */'b'//c\nd",
+            "no chunks at all",
+            r#"'é' /* é */ é"#,
+        ] {
+            let joined: String = chunks(src).iter().map(|&(_, a, b)| &src[a..b]).collect();
+            assert_eq!(joined, src, "chunks must partition the source");
+        }
+    }
+
+    #[test]
+    fn classify_names_only_what_starts_at_the_index() {
+        let src = r#"a"b"//c"#;
+        assert_eq!(classify(src, 0), None, "plain code is not classified");
+        assert!(matches!(classify(src, 1), Some((Chunk::Str, _))));
+        assert!(matches!(classify(src, 4), Some((Chunk::LineComment, _))));
+        // A lone `/` is division, not a comment.
+        assert_eq!(classify("a / b", 2), None);
+        // Past the end there is nothing rather than a panic.
+        assert_eq!(classify(src, src.len()), None);
     }
 
     #[test]
@@ -326,25 +444,23 @@ mod tests {
     #[test]
     fn parse_call_reports_the_first_argument_and_the_closing_paren() {
         let src = "note(\"c e g\", 2)";
-        let chars = chars_of(src);
-        let open = chars.iter().position(|(_, c)| *c == '(').unwrap();
-        let info = parse_call(src, &chars, open).expect("a call");
+        let info = parse_call(src, src.find('(').unwrap()).expect("a call");
         let (a, b) = info.first_arg.expect("a first argument");
         assert_eq!(&src[a..b], "\"c e g\"");
-        assert_eq!(
-            chars[info.close_char].1, ')',
-            "close_char indexes the paren"
-        );
-        assert_eq!(info.close_char, chars.len() - 1);
+        assert_eq!(&src[info.close..], ")", "close is the paren's own offset");
+        assert_eq!(info.close, src.len() - 1);
+
+        // Multi-byte arguments come back on character boundaries.
+        let wide = "f(\"é\", 2)";
+        let info = parse_call(wide, 1).expect("a call");
+        let (a, b) = info.first_arg.expect("a first argument");
+        assert_eq!(&wide[a..b], "\"é\"");
+        assert_eq!(&wide[info.close..], ")");
 
         // An unclosed call is not a call.
-        let bad = "note(\"c e g\"";
-        let chars = chars_of(bad);
-        assert!(parse_call(bad, &chars, 4).is_none());
+        assert!(parse_call("note(\"c e g\"", 4).is_none());
         // ...and one with no arguments has no first argument.
-        let empty = "f()";
-        let chars = chars_of(empty);
-        assert_eq!(parse_call(empty, &chars, 1).unwrap().first_arg, None);
+        assert_eq!(parse_call("f()", 1).unwrap().first_arg, None);
     }
 
     #[test]

@@ -1,27 +1,18 @@
+use super::scanner::{Chunk, chunks};
+
+/// How far `line` opens or closes brackets, counting only code — a bracket in a
+/// string or a comment is text.
 fn delimiter_delta(line: &str) -> i64 {
-    let mut delta = 0;
-    let mut quote = None;
-    let mut escaped = false;
-    for c in line.chars() {
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
-            }
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            quote = Some(c);
-        } else if matches!(c, '(' | '[' | '{') {
-            delta += 1;
-        } else if matches!(c, ')' | ']' | '}') {
-            delta -= 1;
-        }
-    }
-    delta
+    chunks(line)
+        .into_iter()
+        .filter(|(kind, _, _)| *kind == Chunk::Code)
+        .flat_map(|(_, start, end)| line[start..end].chars())
+        .map(|c| match c {
+            '(' | '[' | '{' => 1,
+            ')' | ']' | '}' => -1,
+            _ => 0,
+        })
+        .sum()
 }
 
 fn label_at_line(line: &str) -> Option<(String, String)> {

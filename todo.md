@@ -680,24 +680,33 @@ Function-by-function audit against the Strudel learn pages
       widget its own start; `note("c")` / newline / `  .fast(2)._spiral()`
       stays one expression. Covered by
       `a_chain_continued_on_the_next_line_stays_one_expression`.
-- [ ] Consider giving the preprocessor a real parser, or at least a shared token
-      stream. Strudel transpiles JS with acorn and walks an estree AST, so its
-      plugins get "where does this expression start" and "is this inside a
-      string" for free. Rudel instead runs ~10 independent character scans
-      (`strip_line_comments`, `rewrite_arrow_functions`,
-      `rewrite_string_method_chains`, `rewrite_leading_dot_numbers`,
-      `strip_await`, `rewrite_strict_equality`, `indent_dot_continuations`,
-      `rewrite_editor_widgets_with_context`, `annotate_mini_offsets`, labels),
-      each re-implementing the same skip-strings-and-comments preamble. The
-      2026-08 mutation run put five surviving mutants on the comment-detection
-      lines of *each* rewriter — the same bug repeated per pass, and the reason
-      the widget range needed a hand-written heuristic above rather than an
-      exact answer.
+- [x] Give the preprocessor a shared token stream. Strudel transpiles JS with
+      acorn and walks an estree AST, so its plugins get "where does this
+      expression start" and "is this inside a string" for free. Rudel ran ~10
+      independent character scans, each re-implementing the same
+      skip-strings-and-comments preamble; the 2026-08 mutation run put five
+      surviving mutants on the comment-detection lines of *each* rewriter — the
+      same bug repeated per pass.
 
-      A full AST is awkward: the input is neither valid Koto nor valid JS but a
+      Resolution: tokenise once rather than commit to a grammar. A full AST is
+      still the wrong tool — the input is neither valid Koto nor valid JS but a
       hybrid (JS arrows and `===`, Koto chains, mini-notation strings), so
-      neither parser accepts it as-is. The cheaper move is to tokenise once —
-      `scanner.rs` already has `skip_string`/`skip_line_comment`/
-      `skip_block_comment`/`parse_call` — and have the rewriters transform a
-      token stream instead of driving their own loop over `char_indices()`.
-      That removes the duplicated guards without committing to a grammar.
+      neither parser accepts it as-is. Instead `scanner::classify` is now the
+      single place that tells a quote from a comment opener, and
+      `scanner::chunks` splits a source into `Code`/`Str`/`LineComment`/
+      `BlockComment` byte ranges. Every copy-through rewriter iterates chunks and
+      only touches `Code`; the two positional scanners
+      (`rewrite_editor_widgets_with_context`, `annotate_mini_offsets`) call
+      `classify` directly. Eight copies of the guard became one.
+
+      The scanner is also byte-indexed throughout now. Everything it branches on
+      is ASCII and a UTF-8 continuation byte can never be mistaken for it, so the
+      `Vec<(usize, char)>` each pass used to build is gone along with the
+      char-index/byte-offset translation (`next_byte` deleted). Net ~20% faster
+      on the 509-example doc corpus (325ms vs 410ms for 200 iterations),
+      byte-identical output on every example at two node offsets.
+
+      Not done, and still worth considering: the widget source range is a
+      backwards scan encoding "a newline ends the expression unless the line is a
+      dot-continuation". A real AST would read `node.start` instead. That is the
+      one place left where the lack of a grammar shows.

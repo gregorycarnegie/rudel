@@ -1,8 +1,8 @@
 use super::{
     PreprocessWidget,
     scanner::{
-        is_ident_char, next_byte, parse_call, previous_non_ws, skip_block_comment,
-        skip_line_comment, skip_string, top_level_ranges, top_level_split, trim_range,
+        classify, is_ident_char, parse_call, previous_non_ws, top_level_ranges, top_level_split,
+        trim_range,
     },
 };
 use crate::WidgetOption;
@@ -112,15 +112,13 @@ fn unquote_string(value: &str) -> Option<String> {
         .map(|v| v.replace("\\\"", "\"").replace("\\'", "'"))
 }
 
-fn visual_widget_method_at(
-    src: &str,
-    chars: &[(usize, char)],
-    dot: usize,
-) -> Option<(&'static str, usize)> {
-    if chars.get(dot).map(|(_, c)| *c) != Some('.') {
+/// The widget method called at the `.` at byte `dot`, with the byte offset of
+/// its opening parenthesis.
+fn visual_widget_method_at(src: &str, dot: usize) -> Option<(&'static str, usize)> {
+    if !src[dot..].starts_with('.') {
         return None;
     }
-    let method_start = next_byte(chars, dot, src.len());
+    let method_start = dot + 1;
     let rest = &src[method_start..];
     let method = VISUAL_WIDGET_METHODS
         .iter()
@@ -130,11 +128,8 @@ fn visual_widget_method_at(
     if src[method_end..].chars().next().is_some_and(is_ident_char) {
         return None;
     }
-    let mut open = dot + 1 + method.chars().count();
-    while open < chars.len() && chars[open].1.is_whitespace() {
-        open += 1;
-    }
-    (chars.get(open).map(|(_, c)| *c) == Some('(')).then_some((method, open))
+    let open = method_end + (src.len() - method_end - src[method_end..].trim_start().len());
+    (src[open..].starts_with('(')).then_some((method, open))
 }
 
 fn is_expression_boundary(c: char) -> bool {
@@ -144,24 +139,22 @@ fn is_expression_boundary(c: char) -> bool {
     )
 }
 
-fn call_expression_start(src: &str, chars: &[(usize, char)], dot: usize) -> usize {
-    let mut i = dot;
+fn call_expression_start(src: &str, dot: usize) -> usize {
     let mut depth = 0i32;
-    while i > 0 {
-        i -= 1;
-        let (byte, c) = chars[i];
+    for (byte, c) in src[..dot].char_indices().rev() {
+        let after = byte + c.len_utf8();
         match c {
             ')' | ']' | '}' => depth += 1,
             '(' | '[' | '{' => {
                 if depth == 0 {
-                    return trim_range(src, next_byte(chars, i, src.len()), chars[dot].0).0;
+                    return trim_range(src, after, dot).0;
                 }
                 depth -= 1;
             }
             _ => {}
         }
         if depth == 0 && is_expression_boundary(c) {
-            return trim_range(src, next_byte(chars, i, src.len()), chars[dot].0).0;
+            return trim_range(src, after, dot).0;
         }
         // A newline ends the expression *unless* the line we are standing in is
         // a dot-continuation of the one above (`note("c")` / newline /
@@ -170,20 +163,17 @@ fn call_expression_start(src: &str, chars: &[(usize, char)], dot: usize) -> usiz
         // parsed CallExpression — so this is the one rule a backwards scan has
         // to encode to reach the same answer.
         if depth == 0 && c == '\n' {
-            let line_start = next_byte(chars, i, src.len());
+            let line_start = after;
             // The line's own first non-blank character decides it. Note this
             // has to look at the line, not at the span between the line start
             // and `dot`: on a line that *is* `._spiral()` that span is only the
             // indentation, and the dot doing the continuing is `dot` itself.
             if !src[line_start..].trim_start().starts_with('.') {
-                return trim_range(src, line_start, chars[dot].0).0;
+                return trim_range(src, line_start, dot).0;
             }
         }
-        if byte == 0 {
-            break;
-        }
     }
-    trim_range(src, 0, chars[dot].0).0
+    trim_range(src, 0, dot).0
 }
 
 fn widget_id(base_id: &str, widget_type: &str, index: usize, from: usize, to: usize) -> String {
@@ -211,7 +201,6 @@ pub(super) fn rewrite_editor_widgets_with_context(
     widget_base_id: &str,
 ) -> (String, Vec<PreprocessWidget>, Vec<(usize, usize)>) {
     const NAME: &str = "slider";
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
     let mut widgets: Vec<PreprocessWidget> = Vec::new();
     // `(rewritten_start, original_start)` for each verbatim chunk copied from
@@ -221,32 +210,24 @@ pub(super) fn rewrite_editor_widgets_with_context(
     let mut anchors: Vec<(usize, usize)> = Vec::new();
     let mut last = 0;
     let mut i = 0;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '"' || c == '\'' {
-            i = skip_string(&chars, i, c);
+    while i < src.len() {
+        // Strings and comments are text, not calls: a widget named in one is not
+        // a widget.
+        if let Some((_, end)) = classify(src, i) {
+            i = end;
             continue;
         }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            i = skip_line_comment(&chars, i);
-            continue;
-        }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            i = skip_block_comment(&chars, i);
-            continue;
-        }
-        if let Some((method, open)) = visual_widget_method_at(src, &chars, i) {
-            let local_from = call_expression_start(src, &chars, i);
-            let dot_byte = chars[i].0;
-            if dot_byte < last {
+        if let Some((method, open)) = visual_widget_method_at(src, i) {
+            let local_from = call_expression_start(src, i);
+            if i < last {
                 i += 1;
                 continue;
             }
-            let Some(call) = parse_call(src, &chars, open) else {
+            let Some(call) = parse_call(src, open) else {
                 i += 1;
                 continue;
             };
-            let local_to = next_byte(&chars, call.close_char, src.len());
+            let local_to = call.close + 1;
             let from = local_from + node_offset;
             let to = local_to + node_offset;
             // Public spellings (`pianoroll`) share the inline variant's type so
@@ -267,49 +248,46 @@ pub(super) fn rewrite_editor_widgets_with_context(
                 ..Default::default()
             });
 
-            let open_byte = chars[open].0;
-            let close_byte = chars[call.close_char].0;
             anchors.push((out.len(), last));
-            out.push_str(&src[last..dot_byte + 1]);
+            out.push_str(&src[last..i + 1]);
             out.push_str(koto_widget_method(widget_type));
             out.push('(');
             out.push_str(&format!("{id:?}"));
-            let args = src[open_byte + 1..close_byte].trim();
+            let args = src[open + 1..call.close].trim();
             if !args.is_empty() {
                 out.push_str(", ");
                 out.push_str(args);
             }
             out.push(')');
             last = local_to;
-            i = call.close_char + 1;
+            i = call.close + 1;
             continue;
         }
-        if c != 's' || !src[byte..].starts_with(NAME) {
+        if !src[i..].starts_with(NAME) {
             i += 1;
             continue;
         }
-        if i > 0 && is_ident_char(chars[i - 1].1) {
+        // A standalone `slider`: neither part of a longer identifier nor a
+        // method on something else.
+        if src[..i].chars().next_back().is_some_and(is_ident_char) {
             i += 1;
             continue;
         }
-        if previous_non_ws(&chars, i) == Some('.') {
+        if previous_non_ws(src, i) == Some('.') {
             i += 1;
             continue;
         }
-        let name_end = byte + NAME.len();
+        let name_end = i + NAME.len();
         if src[name_end..].chars().next().is_some_and(is_ident_char) {
             i += 1;
             continue;
         }
-        let mut open = i + NAME.chars().count();
-        while open < chars.len() && chars[open].1.is_whitespace() {
-            open += 1;
-        }
-        if chars.get(open).map(|x| x.1) != Some('(') {
+        let open = src.len() - src[name_end..].trim_start().len();
+        if !src[open..].starts_with('(') {
             i += 1;
             continue;
         }
-        let Some(call) = parse_call(src, &chars, open) else {
+        let Some(call) = parse_call(src, open) else {
             i += 1;
             continue;
         };
@@ -337,21 +315,18 @@ pub(super) fn rewrite_editor_widgets_with_context(
             step: numeric_arg(src, call.args.get(3)),
         });
 
-        let open_byte = chars[open].0;
-        let close_byte = chars[call.close_char].0;
-        let after_close = next_byte(&chars, call.close_char, src.len());
         anchors.push((out.len(), last));
-        out.push_str(&src[last..byte]);
+        out.push_str(&src[last..i]);
         out.push_str("slider_with_id(");
         out.push_str(&format!("{id:?}"));
-        let args = src[open_byte + 1..close_byte].trim();
+        let args = src[open + 1..call.close].trim();
         if !args.is_empty() {
             out.push_str(", ");
             out.push_str(args);
         }
         out.push(')');
-        last = after_close;
-        i = call.close_char + 1;
+        last = call.close + 1;
+        i = call.close + 1;
     }
     if widgets.is_empty() {
         return (src.to_string(), widgets, Vec::new());

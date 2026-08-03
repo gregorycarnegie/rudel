@@ -1,5 +1,5 @@
 use super::{
-    scanner::{is_ident_char, skip_line_comment},
+    scanner::{Chunk, classify, is_ident_char},
     widgets::VISUAL_WIDGET_METHODS,
 };
 
@@ -36,44 +36,36 @@ pub(super) fn annotate_mini_offsets(
     node_offset: usize,
     anchors: &[(usize, usize)],
 ) -> (String, Vec<(usize, usize)>) {
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len() + 16);
     let mut locations = Vec::new();
     let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i].1;
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            let start = chars[i].0;
-            i = skip_line_comment(&chars, i);
-            let end = chars.get(i).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[start..end]);
-            continue;
-        }
-        if c != '"' && c != '\'' {
+    while i < src.len() {
+        let Some((kind, end)) = classify(src, i) else {
+            let c = src[i..].chars().next().unwrap_or_default();
             out.push(c);
-            i += 1;
+            i += c.len_utf8();
+            continue;
+        };
+        // Comments are copied through untouched; string literals are what this
+        // pass is for.
+        if kind != Chunk::Str {
+            out.push_str(&src[i..end]);
+            i = end;
             continue;
         }
 
-        let quote = c;
-        let lit_start = chars[i].0;
-        let content_byte = chars.get(i + 1).map(|x| x.0).unwrap_or(src.len());
-        i += 1;
-        let mut escaped = false;
-        let mut content_end = src.len();
-        while i < chars.len() {
-            let (byte, ch) = chars[i];
-            i += 1;
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == quote {
-                content_end = byte;
-                break;
-            }
-        }
-        let lit_end = chars.get(i).map(|x| x.0).unwrap_or(src.len());
+        let lit_start = i;
+        let lit_end = end;
+        let quote = src[i..].chars().next().unwrap_or('"');
+        let content_byte = lit_start + quote.len_utf8();
+        // A closed literal ends *on* its quote; an unterminated one ran to the
+        // end of the source and has no closing quote to stop before.
+        let content_end = if src[..lit_end].ends_with(quote) && lit_end > content_byte {
+            lit_end - quote.len_utf8()
+        } else {
+            src.len()
+        };
+        i = lit_end;
         let literal = &src[lit_start..lit_end];
 
         // Only *double*-quoted strings are mini-notation, matching Strudel's
@@ -84,12 +76,8 @@ pub(super) fn annotate_mini_offsets(
         // A string immediately followed by `:` is a map key, not a pattern.
         // Generated slider ids are runtime strings inserted by the widget pass,
         // so they must also stay out of mini-notation/source-location metadata.
-        let mut j = i;
-        while j < chars.len() && chars[j].1.is_whitespace() {
-            j += 1;
-        }
         if quote == '\''
-            || chars.get(j).map(|x| x.1) == Some(':')
+            || src[i..].trim_start().starts_with(':')
             || is_slider_id_literal(src, lit_start)
         {
             out.push_str(literal);

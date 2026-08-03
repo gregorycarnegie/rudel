@@ -1,40 +1,19 @@
-use super::scanner::{skip_block_comment, skip_line_comment, skip_string};
+use super::scanner::{Chunk, chunks};
 
+/// Drop `//` comments, keeping the newline each sat on so line numbers hold.
+/// Strings and block comments are chunks of their own, so a `//` inside one is
+/// content and survives.
 pub(super) fn strip_line_comments(src: &str) -> String {
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            let end = skip_block_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
+    for (kind, start, end) in chunks(src) {
+        if kind != Chunk::LineComment {
+            out.push_str(&src[start..end]);
         }
-        if c == '"' || c == '\'' {
-            let end = skip_string(&chars, i, c);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
-        }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            i = skip_line_comment(&chars, i);
-            if chars.get(i).map(|x| x.1) == Some('\n') {
-                out.push('\n');
-                i += 1;
-            }
-            continue;
-        }
-        out.push(c);
-        i += 1;
     }
     out
 }
 
-/// Whether the arrow at `arrow` has a brace-block body (`x => { ... }`).
+/// Whether the arrow at byte `arrow` has a brace-block body (`x => { ... }`).
 ///
 /// Those are left alone. Koto's blocks are indentation-based, so `{ ... }` there
 /// is a map literal, and converting produces `|x| { ... }` — which Koto rejects
@@ -45,12 +24,8 @@ pub(super) fn strip_line_comments(src: &str) -> String {
 ///
 /// Converting them properly would mean rewriting the braced block into Koto's
 /// indented form, which is a different job from this one.
-fn body_is_a_block(chars: &[(usize, char)], arrow: usize) -> bool {
-    chars[arrow + 2..]
-        .iter()
-        .map(|(_, c)| *c)
-        .find(|c| !c.is_whitespace())
-        == Some('{')
+fn body_is_a_block(src: &str, arrow: usize) -> bool {
+    src[arrow + 2..].trim_start().starts_with('{')
 }
 
 /// Rewrite JavaScript arrow functions into Koto lambdas so users can paste
@@ -63,103 +38,106 @@ fn body_is_a_block(chars: &[(usize, char)], arrow: usize) -> bool {
 /// expression-bodied callbacks Strudel's docs use. String literals are skipped
 /// so an `=>` inside a pattern string is left intact.
 pub(super) fn rewrite_arrow_functions(src: &str) -> String {
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
-    let mut out: Vec<char> = Vec::with_capacity(chars.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            let end = skip_block_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.extend(src[byte..end_byte].chars());
-            i = end;
+    let mut out: Vec<char> = Vec::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.extend(text.chars());
             continue;
         }
-        if c == '"' || c == '\'' {
-            let end = skip_string(&chars, i, c);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.extend(src[byte..end_byte].chars());
-            i = end;
-            continue;
-        }
-        // An arrow is the two-char sequence `=>` (never `>=`, which has the
-        // opposite order, so comparison operators are untouched).
-        if c == '=' && chars.get(i + 1).map(|x| x.1) == Some('>') && !body_is_a_block(&chars, i) {
-            // Boundary of the parameter list: everything already emitted, minus
-            // trailing whitespace between the params and the `=>`.
-            let mut end = out.len();
-            while end > 0 && out[end - 1].is_whitespace() {
-                end -= 1;
-            }
-            let converted = if end == 0 {
-                false
-            } else if out[end - 1] == ')' {
-                // Parenthesised list: walk back to the matching `(`.
-                let mut depth = 0i32;
-                let mut open = None;
-                let mut k = end - 1;
-                loop {
-                    match out[k] {
-                        ')' => depth += 1,
-                        '(' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                open = Some(k);
-                                break;
+        let chars: Vec<(usize, char)> = text.char_indices().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let (byte, c) = chars[i];
+            // An arrow is the two-char sequence `=>` (never `>=`, which has the
+            // opposite order, so comparison operators are untouched).
+            if c == '='
+                && chars.get(i + 1).map(|x| x.1) == Some('>')
+                && !body_is_a_block(src, start + byte)
+            {
+                // Boundary of the parameter list: everything already emitted,
+                // minus trailing whitespace between the params and the `=>`.
+                let mut param_end = out.len();
+                while param_end > 0 && out[param_end - 1].is_whitespace() {
+                    param_end -= 1;
+                }
+                let converted = if param_end == 0 {
+                    false
+                } else if out[param_end - 1] == ')' {
+                    // Parenthesised list: walk back to the matching `(`.
+                    let mut depth = 0i32;
+                    let mut open = None;
+                    let mut k = param_end - 1;
+                    loop {
+                        match out[k] {
+                            ')' => depth += 1,
+                            '(' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    open = Some(k);
+                                    break;
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
-                    }
-                    if k == 0 {
-                        break;
-                    }
-                    k -= 1;
-                }
-                if let Some(open_idx) = open {
-                    out.truncate(end);
-                    let last = out.len() - 1;
-                    out[last] = '|';
-                    out[open_idx] = '|';
-                    true
-                } else {
-                    false
-                }
-            } else {
-                // Bare single identifier parameter.
-                let mut k = end;
-                while k > 0 {
-                    let ch = out[k - 1];
-                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                        if k == 0 {
+                            break;
+                        }
                         k -= 1;
-                    } else {
-                        break;
                     }
-                }
-                if k == end {
-                    false
+                    if let Some(open_idx) = open {
+                        out.truncate(param_end);
+                        let last = out.len() - 1;
+                        out[last] = '|';
+                        out[open_idx] = '|';
+                        true
+                    } else {
+                        false
+                    }
                 } else {
-                    out.truncate(end);
-                    out.push('|');
-                    out.insert(k, '|');
-                    true
-                }
-            };
+                    // Bare single identifier parameter.
+                    let mut k = param_end;
+                    while k > 0 {
+                        let ch = out[k - 1];
+                        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                            k -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if k == param_end {
+                        false
+                    } else {
+                        out.truncate(param_end);
+                        out.push('|');
+                        out.insert(k, '|');
+                        true
+                    }
+                };
 
-            if converted {
-                i += 2; // skip `=>`
-                // Collapse the whitespace after `=>` to a single space (or none,
-                // if the body starts on the next line) for predictable output.
-                while i < chars.len() && (chars[i].1 == ' ' || chars[i].1 == '\t') {
-                    i += 1;
+                if converted {
+                    i += 2; // skip `=>`
+                    // Collapse the whitespace after `=>` to a single space (or
+                    // none, if the body starts on the next line) for predictable
+                    // output.
+                    while i < chars.len() && (chars[i].1 == ' ' || chars[i].1 == '\t') {
+                        i += 1;
+                    }
+                    // The body may begin in the next chunk — `x => "bd"` puts it
+                    // in a string — so fall through to the rest of the source.
+                    let next = chars
+                        .get(i)
+                        .map(|x| x.1)
+                        .or_else(|| src[end..].chars().next());
+                    if next.is_some_and(|c| c != '\n' && c != '\r') {
+                        out.push(' ');
+                    }
+                    continue;
                 }
-                if i < chars.len() && chars[i].1 != '\n' && chars[i].1 != '\r' {
-                    out.push(' ');
-                }
-                continue;
             }
+            out.push(c);
+            i += 1;
         }
-        out.push(c);
-        i += 1;
     }
     out.iter().collect()
 }
@@ -198,33 +176,21 @@ fn normalize_string_literal(literal: &str) -> String {
 }
 
 pub(super) fn rewrite_string_method_chains(src: &str) -> String {
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            let end = skip_block_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Str {
+            out.push_str(text);
             continue;
         }
-        if c != '"' && c != '\'' {
-            out.push(c);
-            i += 1;
-            continue;
-        }
-
-        let end = skip_string(&chars, i, c);
-        let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-        let literal = normalize_string_literal(&src[byte..end_byte]);
-        let mut j = end;
-        while j < chars.len() && chars[j].1.is_whitespace() && chars[j].1 != '\n' {
-            j += 1;
-        }
+        let literal = normalize_string_literal(text);
+        // A method call on the literal makes it a pattern. Blanks other than a
+        // newline may separate the two; a newline (or a comment) breaks it.
+        let mut after = src[end..]
+            .trim_start_matches(|c: char| c.is_whitespace() && c != '\n')
+            .chars();
         let method_chain =
-            j + 1 < chars.len() && chars[j].1 == '.' && chars[j + 1].1.is_ascii_alphabetic();
+            after.next() == Some('.') && after.next().is_some_and(|c| c.is_ascii_alphabetic());
         if method_chain {
             out.push_str("pat(");
             out.push_str(&literal);
@@ -232,7 +198,6 @@ pub(super) fn rewrite_string_method_chains(src: &str) -> String {
         } else {
             out.push_str(&literal);
         }
-        i = end;
     }
     out
 }
@@ -241,30 +206,22 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut changed = false;
     let mut at_line_start = true;
-    let mut quote = None;
-    let mut escaped = false;
 
-    for c in src.chars() {
-        if at_line_start && quote.is_none() && c == '.' {
-            out.push_str("  ");
-            changed = true;
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            at_line_start = text.ends_with('\n');
+            continue;
         }
-
-        out.push(c);
-
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
+        for c in text.chars() {
+            if at_line_start && c == '.' {
+                out.push_str("  ");
+                changed = true;
             }
-        } else if c == '"' || c == '\'' {
-            quote = Some(c);
+            out.push(c);
+            at_line_start = c == '\n';
         }
-
-        at_line_start = c == '\n';
     }
 
     if changed { out } else { src.to_string() }
@@ -279,51 +236,35 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
 /// (`pat.fast`, `1.5`, `f(x).gain`) and is left alone. String literals and
 /// comments are skipped.
 pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
-    let mut i = 0;
     // The last emitted character that is not whitespace, which decides whether a
-    // `.` continues an expression or begins one.
+    // `.` continues an expression or begins one. A comment leaves it alone: what
+    // came before the comment is still what the `.` follows.
     let mut prev: Option<char> = None;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            let end = skip_block_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            if kind == Chunk::Str {
+                prev = text.chars().next();
+            }
             continue;
         }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            let end = skip_line_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
+        let mut rest = text.chars().peekable();
+        while let Some(c) = rest.next() {
+            if c == '.'
+                && rest.peek().is_some_and(|d| d.is_ascii_digit())
+                && !prev.is_some_and(|p| {
+                    p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.')
+                })
+            {
+                out.push('0');
+            }
+            out.push(c);
+            if !c.is_whitespace() {
+                prev = Some(c);
+            }
         }
-        if c == '"' || c == '\'' {
-            let end = skip_string(&chars, i, c);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            prev = Some(c);
-            continue;
-        }
-        if c == '.'
-            && chars
-                .get(i + 1)
-                .map(|x| x.1)
-                .is_some_and(|d| d.is_ascii_digit())
-            && !prev
-                .is_some_and(|p| p.is_alphanumeric() || matches!(p, '_' | '$' | ')' | ']' | '.'))
-        {
-            out.push('0');
-        }
-        out.push(c);
-        if !c.is_whitespace() {
-            prev = Some(c);
-        }
-        i += 1;
     }
     out
 }
@@ -337,55 +278,47 @@ pub(super) fn strip_await(src: &str) -> String {
     if !src.contains("await") {
         return src.to_string();
     }
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
-    let mut i = 0;
     // Whether the previous emitted non-whitespace char could end an identifier,
     // so `myawait` / `x.await` are not touched.
     let mut prev: Option<char> = None;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            let end = skip_block_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
-        }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            let end = skip_line_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            let end = skip_string(&chars, i, c);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            prev = Some(c);
-            continue;
-        }
-        let is_word_boundary =
-            !prev.is_some_and(|p| p.is_alphanumeric() || p == '_' || p == '$' || p == '.');
-        if c == 'a' && is_word_boundary && src[byte..].starts_with("await") {
-            let after = chars.get(i + 5).map(|x| x.1);
-            if after.is_none_or(|a| a.is_whitespace() || a == '(') {
-                // Drop the keyword and the whitespace that separated it from
-                // the expression it wrapped.
-                i += 5;
-                while chars.get(i).is_some_and(|x| x.1 == ' ' || x.1 == '\t') {
-                    i += 1;
-                }
-                continue;
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            if kind == Chunk::Str {
+                prev = text.chars().next();
             }
+            continue;
         }
-        out.push(c);
-        if !c.is_whitespace() {
-            prev = Some(c);
+        let chars: Vec<(usize, char)> = text.char_indices().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let (byte, c) = chars[i];
+            let is_word_boundary =
+                !prev.is_some_and(|p| p.is_alphanumeric() || p == '_' || p == '$' || p == '.');
+            if c == 'a' && is_word_boundary && text[byte..].starts_with("await") {
+                // What follows may begin the next chunk (`await "bd"`).
+                let after = chars
+                    .get(i + 5)
+                    .map(|x| x.1)
+                    .or_else(|| src[end..].chars().next());
+                if after.is_none_or(|a| a.is_whitespace() || a == '(') {
+                    // Drop the keyword and the whitespace that separated it from
+                    // the expression it wrapped.
+                    i += 5;
+                    while chars.get(i).is_some_and(|x| x.1 == ' ' || x.1 == '\t') {
+                        i += 1;
+                    }
+                    continue;
+                }
+            }
+            out.push(c);
+            if !c.is_whitespace() {
+                prev = Some(c);
+            }
+            i += 1;
         }
-        i += 1;
     }
     out
 }
@@ -398,45 +331,25 @@ pub(super) fn rewrite_strict_equality(src: &str) -> String {
     if !src.contains("===") && !src.contains("!==") {
         return src.to_string();
     }
-    let chars: Vec<(usize, char)> = src.char_indices().collect();
     let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let (byte, c) = chars[i];
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('*') {
-            let end = skip_block_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
             continue;
         }
-        if c == '/' && chars.get(i + 1).map(|x| x.1) == Some('/') {
-            let end = skip_line_comment(&chars, i);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            let end = skip_string(&chars, i, c);
-            let end_byte = chars.get(end).map(|x| x.0).unwrap_or(src.len());
-            out.push_str(&src[byte..end_byte]);
-            i = end;
-            continue;
-        }
-        let three = |a: char, b: char, d: char| {
-            c == a
-                && chars.get(i + 1).map(|x| x.1) == Some(b)
-                && chars.get(i + 2).map(|x| x.1) == Some(d)
-        };
-        if three('=', '=', '=') || three('!', '=', '=') {
+        let mut i = 0;
+        while i < text.len() {
+            if text[i..].starts_with("===") || text[i..].starts_with("!==") {
+                // Keep the leading `=` or `!` and one `=`, drop the third.
+                out.push_str(&text[i..i + 2]);
+                i += 3;
+                continue;
+            }
+            let c = text[i..].chars().next().unwrap_or_default();
             out.push(c);
-            out.push('=');
-            i += 3;
-            continue;
+            i += c.len_utf8();
         }
-        out.push(c);
-        i += 1;
     }
     out
 }
@@ -465,6 +378,47 @@ mod tests {
 
         let block = format!("a /* {snippet} */ b");
         assert_eq!(f(&block), block, "rewrote inside a block comment");
+
+        let line = format!("a // {snippet}\nb");
+        assert_eq!(f(&line), line, "rewrote inside a line comment");
+    }
+
+    #[test]
+    fn every_rewriter_spares_strings_and_both_comments() {
+        // One shared scan (`scanner::chunks`) decides what is code for all of
+        // these, so the guard is now tested once per rewriter rather than
+        // re-derived in each. `strip_line_comments` is excluded because removing
+        // line comments is its whole job.
+        for (f, snippet) in [
+            (rewrite_arrow_functions as fn(&str) -> String, "x => y"),
+            (rewrite_leading_dot_numbers, "gain(.5)"),
+            (rewrite_strict_equality, "a === b"),
+            (rewrite_strict_equality, "a !== b"),
+            (strip_await, "await foo"),
+            (rewrite_string_method_chains, r#""bd".fast(2)"#),
+        ] {
+            leaves_quoted_and_commented_alone(f, snippet);
+        }
+    }
+
+    #[test]
+    fn indent_dot_continuations_only_indents_code() {
+        // A leading dot at the start of a line is a method continuation and gets
+        // indented so Koto reads it as one expression.
+        assert_eq!(
+            indent_dot_continuations("s(\"bd\")\n.fast(2)"),
+            "s(\"bd\")\n  .fast(2)"
+        );
+        // The same shape inside a block comment or a multi-line string is text.
+        for src in [
+            "a /*\n.fast(2)\n*/ b",
+            "x = \"a\n.fast(2)\n\"",
+            "x = 'a\n.fast(2)\n'",
+        ] {
+            assert_eq!(indent_dot_continuations(src), src, "{src}");
+        }
+        // Source with nothing to indent comes back as it went in.
+        assert_eq!(indent_dot_continuations("plain"), "plain");
     }
 
     #[test]
