@@ -232,14 +232,18 @@ fn shift_peaks(ch: &mut Channel, pitch_factor: f32, time_cursor: f32) {
         for j in (start - peak)..(end - peak) {
             let bin = peak + j;
             let bin_shifted = peak_shifted + j;
-            if bin_shifted as usize >= n_bins {
+            // Signed, deliberately. A pitch factor below 1 puts the start of a
+            // region below bin 0, and casting to `usize` first turns that into a
+            // huge number that ends the region — dropping every remaining bin of
+            // it. Upstream compares signed, so it skips only the bins that fall
+            // off the bottom and keeps the rest.
+            if bin_shifted >= n_bins as i32 {
                 break;
             }
-            // Upstream reads a Float32Array, so a negative index yields
-            // `undefined` and the arithmetic goes NaN; in practice `startIndex`
-            // never goes below 0 for the first peak (it is pinned to 0) and the
-            // halfway rule keeps later ones in range. Guard anyway.
-            if bin < 0 || bin_shifted < 0 {
+            // A negative index reads `undefined` in a Float32Array and a write
+            // to one is discarded, so upstream contributes nothing for these;
+            // skipping them is the same thing.
+            if bin < 0 || bin_shifted < 0 || bin >= n_bins as i32 {
                 continue;
             }
             let (bin, bin_shifted) = (bin as usize, bin_shifted as usize);
