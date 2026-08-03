@@ -65,17 +65,19 @@ pub(crate) fn draw_widget_hosts(
         )))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
-        // Scroll-anchored overlay: don't clamp back into the screen when the
-        // anchor scrolls out of view (a constrained oversized surface would
-        // slide over the editor), and let pointer input — wheel scrolling in
-        // particular — fall through to the editor below; the visualizations
-        // are display-only.
+        // Bound the overlay to the editor's visible area: that clips its paint
+        // to the editor (never over the panels around it) and — because egui
+        // intersects an area's interact rect with the same bounds — keeps a
+        // surface scrolled under the transport bar from swallowing clicks meant
+        // for the buttons there. `constrain(false)` afterwards keeps the
+        // scroll-anchored position from being clamped back into view (a
+        // constrained oversized surface would slide over the editor).
+        .constrain_to(clip)
         .constrain(false)
+        // Let pointer input — wheel scrolling in particular — fall through to
+        // the editor below; the visualizations are display-only.
         .interactable(false)
         .show(ui.ctx(), |ui| {
-            // Clip to the editor's visible area so the (foreground) overlay never
-            // paints over the transport / errors / reference panels around it.
-            ui.set_clip_rect(clip);
             ui.set_min_size(rect.size());
             let (rect, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             paint_widget_surface(ui, rect, widget, surface, paint);

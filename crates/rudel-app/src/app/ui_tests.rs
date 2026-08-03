@@ -7,7 +7,7 @@
 //! egui harness, click the real buttons and press the real shortcuts.
 
 use super::RudelApp;
-use eframe::egui::{Key, Modifiers};
+use eframe::egui::{self, Key, Modifiers};
 use egui_kittest::{Harness, kittest::Queryable};
 
 fn harness<'a>() -> Harness<'a, RudelApp> {
@@ -82,4 +82,42 @@ fn inline_widgets_paint_while_playing() {
     // running to quiescence.
     harness.run_steps(8);
     assert!(harness.state().playing);
+}
+
+#[test]
+fn transport_buttons_stay_clickable_under_a_scrolled_widget_surface() {
+    // The widget surfaces are foreground areas anchored to their code line. When
+    // the line scrolls up behind the transport bar the surface used to keep its
+    // full (unclipped) interact rect there and swallow clicks meant for the
+    // buttons.
+    let mut harness = harness();
+    harness.state_mut().code = format!(
+        "note(\"c3 e3 g3 b3\")._pianoroll({{ height: 300 }})\n{}",
+        "\n".repeat(80)
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(harness.state().editor_decorations.widgets().len(), 1);
+
+    // Scroll the editor until the widget sits behind the transport bar.
+    let over_editor = egui::pos2(550.0, 400.0);
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(over_editor));
+    harness.input_mut().events.push(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -150.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run_steps(4);
+
+    harness.get_by_label_contains("Play").click();
+    harness.run_steps(2);
+    assert!(
+        harness.state().playing,
+        "play button should still take clicks with a widget surface scrolled behind it"
+    );
 }

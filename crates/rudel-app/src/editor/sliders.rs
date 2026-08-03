@@ -67,13 +67,15 @@ pub(crate) fn draw_slider_hosts(
         let area = egui::Area::new(egui::Id::new(("rudel-inline-slider", slider.id.as_str())))
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
+            // Bound the slider to the editor's visible area: clips its paint to
+            // the editor and keeps a slider scrolled under the transport bar
+            // from swallowing clicks meant for the buttons there (egui
+            // intersects an area's interact rect with these bounds).
+            .constrain_to(clip)
             // Scroll-anchored: never clamp back into the screen (the default
             // `constrain` made the slider jump/vanish near the viewport edge).
             .constrain(false)
             .show(ui.ctx(), |ui| {
-                // Clip to the editor's visible area so the foreground slider never
-                // paints over the surrounding panels.
-                ui.set_clip_rect(clip);
                 ui.set_min_size(rect.size());
                 ui.spacing_mut().slider_width = SLIDER_WIDTH;
                 ui.spacing_mut().slider_rail_height = 4.0;

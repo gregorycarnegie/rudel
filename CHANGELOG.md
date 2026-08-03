@@ -9,6 +9,22 @@ This file starts at 0.7.0. Earlier history is in the git log.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.7.1] — 2026-08-03
+
+### Fixed
+
+- **The transport buttons stopped taking clicks when an editor overlay scrolled
+  behind them.** Widget surfaces (pianoroll, punchcard, …) and inline sliders
+  are foreground areas anchored to their code line, clipped to the editor so
+  they never paint over the panels around it — but only their *painting* was
+  clipped. A surface scrolled up behind the transport bar kept its full interact
+  rect there, and egui's hit-test drops the layers below a foreground area that
+  covers the pointer, so Play/Eval/Hush/Panic silently swallowed the click even
+  though the surfaces are marked non-interactable (an `Area` always registers a
+  hover-sensing widget). The overlays are now bounded to the editor's visible
+  area, which egui intersects the interact rect with, without re-enabling the
+  position clamping that used to make scrolled sliders jump.
+
 ## [0.7.0] — 2026-08-01
 
 A parity and testing release. Several long-standing divergences from Strudel
