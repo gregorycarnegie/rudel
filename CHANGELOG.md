@@ -83,7 +83,10 @@ existing patterns sound like** — see Migrating below.
   on the comment-detection line of every one — and now share
   `scanner::classify`/`scanner::chunks`. The scanner is byte-indexed throughout,
   dropping the `Vec<(usize, char)>` every pass used to build: ~20% faster over
-  the doc-example corpus, with byte-identical output on all 509 examples.
+  the doc-example corpus, with byte-identical output on all 509 examples. The
+  preprocessor's mutation score went from 72.8% to 89.4% over 155 fewer mutants
+  — code that no longer exists to get wrong — and `scanner.rs`, which absorbed
+  every guard, reads 98.0% with its three survivors equivalent.
 
 ### Migrating
 

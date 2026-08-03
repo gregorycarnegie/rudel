@@ -92,7 +92,7 @@ pub(super) enum Chunk {
     BlockComment,
 }
 
-/// What begins at `chars[i]`, if it is not plain code, and the index just past
+/// What begins at byte `at`, if it is not plain code, and the byte just past
 /// it.
 ///
 /// This is the single place that knows a quote from a comment opener. Every
@@ -150,9 +150,7 @@ pub(super) fn parse_call(src: &str, open: usize) -> Option<CallInfo> {
         }
     };
     while i < src.len() {
-        if let Some((kind, end)) = classify(src, i)
-            && (kind != Chunk::Str || depth >= 0)
-        {
+        if let Some((_, end)) = classify(src, i) {
             i = end;
             continue;
         }
@@ -326,6 +324,21 @@ mod tests {
         let block = "a /* note */ b";
         assert_eq!(&block[end(block)..], " b", "should resume after the close");
 
+        // The scan starts *past* the opener, so the `/` of `/*` cannot be read
+        // back as the `/` of a `*/`.
+        let slash_first = "/*/ x */";
+        assert_eq!(end(slash_first), slash_first.len());
+        assert_eq!(
+            end("/**/"),
+            4,
+            "an empty block comment closes at its own end"
+        );
+
+        // An unterminated comment whose last character is `*` must not read one
+        // byte past the end looking for the `/` that would close it.
+        let dangling = "/* abc *";
+        assert_eq!(end(dangling), dangling.len());
+
         // A `*` or `/` inside the comment does not close it early.
         let tricky = "/* a * b / c */x";
         assert_eq!(&tricky[end(tricky)..], "x");
@@ -439,6 +452,13 @@ mod tests {
         );
         let with_line = "f(a, // , b\n c)";
         assert_eq!(call_args(with_line).unwrap(), ["a", "// , b\n c"]);
+        // Strings nested inside an argument are skipped at any depth, so a
+        // bracket quoted in there cannot unbalance the outer call.
+        assert_eq!(
+            call_args(r#"f(g("a)b"), c)"#).unwrap(),
+            [r#"g("a)b")"#, "c"]
+        );
+        assert_eq!(call_args(r#"f([" ,"], c)"#).unwrap(), [r#"[" ,"]"#, "c"]);
     }
 
     #[test]
@@ -477,6 +497,11 @@ mod tests {
         assert_eq!(pieces(r#"a,"b,c",d"#, ','), ["a", r#""b,c""#, "d"]);
         // No delimiter at all gives the whole text as one range.
         assert_eq!(pieces("abc", ','), ["abc"]);
+        // A delimiter with nothing on one side of it yields no empty range —
+        // the widget option parser would otherwise see a keyless entry.
+        assert_eq!(pieces(",a", ','), ["a"], "no empty range before a leader");
+        assert_eq!(pieces("a,", ','), ["a"], "none after a trailer either");
+        assert_eq!(pieces(",", ','), Vec::<String>::new());
 
         // `top_level_split` finds the first separator at depth zero, or nothing.
         fn at(text: &str, d: char) -> Option<&str> {
