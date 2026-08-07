@@ -441,3 +441,45 @@ fn line_span_at_char(code: &str, cursor_char: egui::text::CharIndex) -> (usize, 
         (start, end)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_line_span_covers_the_line_the_cursor_sits_on() {
+        // Byte range of the cursor's line, newline excluded. This backs the
+        // current-line highlight, so an off-by-one paints into a neighbour.
+        let code = "one\ntwo\n\nfour";
+        let span = |ch: usize| line_span_at_char(code, egui::text::CharIndex(ch));
+        assert_eq!(span(0), (0, 3), "start of the first line");
+        assert_eq!(span(2), (0, 3), "inside it");
+        assert_eq!(span(3), (0, 3), "at its newline, still on that line");
+        assert_eq!(span(4), (4, 7), "the second line");
+        assert_eq!(span(9), (9, 13), "the last line runs to the end of input");
+    }
+
+    #[test]
+    fn an_empty_line_spans_its_own_newline() {
+        // A blank line has no bytes of its own, so the span would be empty and
+        // the highlight would vanish; it takes in the newline instead. Except
+        // at the very end of the buffer, where there is no newline to take.
+        let code = "one\ntwo\n\nfour";
+        assert_eq!(
+            line_span_at_char(code, egui::text::CharIndex(8)),
+            (8, 9),
+            "the blank third line"
+        );
+        let trailing = "a\n";
+        assert_eq!(
+            line_span_at_char(trailing, egui::text::CharIndex(2)),
+            (2, 2),
+            "the empty line after a trailing newline stays empty"
+        );
+        assert_eq!(
+            line_span_at_char("", egui::text::CharIndex(0)),
+            (0, 0),
+            "an empty buffer"
+        );
+    }
+}

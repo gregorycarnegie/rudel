@@ -667,6 +667,131 @@ fn in_string_or_comment(code: &str, pos: usize, idents: &HashSet<String>) -> boo
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_word_runs_over_identifier_characters_on_both_sides() {
+        // The replaced span for a completion. `_` and `$` are identifier
+        // characters here, so a word must not stop at either of them.
+        assert_eq!(
+            word_at_cursor("a_b$c", 3),
+            Some((0, 5, "a_b$c".to_string())),
+            "grows in both directions"
+        );
+        assert_eq!(word_at_cursor("x = ab", 6), Some((4, 6, "ab".to_string())));
+        assert_eq!(word_at_cursor("ab", 0), Some((0, 2, "ab".to_string())));
+        // Not on whitespace, and not past the end of the buffer.
+        assert_eq!(word_at_cursor("a  b", 2), None, "between words");
+        assert_eq!(word_at_cursor("ab", 99), None, "out of range");
+    }
+
+    #[test]
+    fn a_fragment_starts_after_the_last_character_it_may_not_contain() {
+        // Where the completion's replacement begins: the run of allowed
+        // characters ending at the cursor.
+        let alpha = |ch: char| char::is_ascii_alphabetic(&ch);
+        assert_eq!(suffix_start("c#4x", alpha), 3, "after the digit");
+        assert_eq!(suffix_start("abc", alpha), 0, "all of it is allowed");
+        assert_eq!(suffix_start("abc#", alpha), 4, "nothing at the end is");
+        assert_eq!(suffix_start("", alpha), 0);
+        // Counted in bytes, so a multi-byte character before the fragment has
+        // to be stepped over whole.
+        assert_eq!(suffix_start("é4x", alpha), 3, "'é' is two bytes");
+    }
+
+    #[test]
+    fn the_result_drops_duplicates_but_keeps_distinct_items() {
+        // Two entries collapse only when they would both insert the same text
+        // under the same label — the scale list has several names sharing a
+        // label with different `apply` spellings.
+        let item = |label: &str, apply: &str| {
+            CompletionItem::with_apply(label, apply, CompletionKind::Scale)
+        };
+        let spread = non_empty_result(2, 5, vec![item("a", "x"), item("a", "y"), item("b", "z")])
+            .expect("some items");
+        assert_eq!(spread.0, 2, "the span is passed through");
+        assert_eq!(spread.1, 5);
+        assert_eq!(
+            spread
+                .2
+                .iter()
+                .map(|i| (i.label.as_str(), i.apply.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("a", "x"), ("a", "y"), ("b", "z")],
+            "only exact duplicates merge"
+        );
+
+        let merged =
+            non_empty_result(0, 1, vec![item("a", "x"), item("a", "x")]).expect("some items");
+        assert_eq!(merged.2.len(), 1, "an exact duplicate is dropped");
+        assert!(non_empty_result(0, 1, vec![]).is_none(), "nothing to show");
+    }
+
+    #[test]
+    fn a_scale_argument_completes_its_type_after_the_colon() {
+        //        0123456789
+        let code = r#"scale("c:maj")"#;
+        let got = scale_completion(code, 12).expect("in a scale argument");
+        let (start, end, items) = got.expect("some scale names");
+        assert_eq!((start, end), (9, 12), "replaces just the type fragment");
+        assert!(
+            items.iter().any(|i| i.label == "major"),
+            "{:?}",
+            items.iter().map(|i| &i.label).collect::<Vec<_>>()
+        );
+        // A two-word scale name is applied with a `:` between the words, which
+        // is how mini-notation spells it.
+        let got = scale_completion(r#"scale("c:harmonic")"#, 17)
+            .expect("in a scale argument")
+            .expect("some scale names");
+        assert!(
+            got.2.iter().any(|i| i.apply == "harmonic:minor"),
+            "{:?}",
+            got.2.iter().map(|i| &i.apply).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_mode_argument_completes_from_the_last_word() {
+        let (start, end, items) = mode_completion(r#"mode("x ro")"#, 10)
+            .expect("in a mode argument")
+            .expect("some mode names");
+        assert_eq!(
+            (start, end),
+            (8, 10),
+            "replaces only the word under the cursor"
+        );
+        assert!(
+            items.iter().any(|i| i.label == "root"),
+            "{:?}",
+            items.iter().map(|i| &i.label).collect::<Vec<_>>()
+        );
+
+        // After a colon the argument takes a note, not another mode name.
+        let (start, end, items) = mode_completion(r#"mode("below:c")"#, 13)
+            .expect("in a mode argument")
+            .expect("some pitches");
+        assert_eq!((start, end), (12, 13), "replaces the note fragment");
+        assert!(items.iter().all(|i| i.kind != CompletionKind::Mode));
+    }
+
+    #[test]
+    fn the_common_controls_document_themselves() {
+        // The popup's detail line. Each of these has wording of its own; the
+        // catch-all is only for controls with nothing better to say.
+        for name in ["s", "n", "note", "gain", "pan", "speed", "bank"] {
+            let detail = control_detail(name);
+            assert!(
+                !detail.contains(&format!("sets `{name}` control")),
+                "{name} should have its own description, got {detail:?}"
+            );
+            assert!(!detail.is_empty());
+        }
+        assert_eq!(
+            control_detail("crush"),
+            "sets `crush` control",
+            "and anything else falls back"
+        );
+    }
+
     fn reference(names: &[&str]) -> rudel_lang::Reference {
         rudel_lang::Reference {
             functions: names.iter().map(|name| name.to_string()).collect(),

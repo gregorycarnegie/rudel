@@ -655,6 +655,210 @@ mod tests {
         WavetableOsc::new(table, 1, 0.0, 0.0, 0.0, sample_rate, || 0.0)
     }
 
+    // --- the `wt`/`warp` parameter-modulation family ------------------------
+
+    /// A `wt`-prefixed control map from `(suffix, value)` pairs.
+    fn wt(controls: &[(&str, f64)]) -> ValueMap {
+        controls
+            .iter()
+            .map(|(k, v)| (format!("wt{k}"), Value::F64(*v)))
+            .collect()
+    }
+
+    #[test]
+    fn an_unset_envelope_falls_back_whole_rather_than_slot_by_slot() {
+        // `getADSRValues`: the defaults apply only when *nothing* was set. Name
+        // any one stage and the rest are re-derived, not left at the defaults —
+        // getting this wrong released the envelope ten times too fast.
+        let defaults = [0.0, 0.5, 0.0, 0.1];
+        let all_unset = adsr_from(&[None; 4], defaults);
+        assert_eq!(
+            (
+                all_unset.attack,
+                all_unset.decay,
+                all_unset.sustain,
+                all_unset.release
+            ),
+            (0.0, 0.5, 0.0, 0.1),
+            "nothing set: the defaults, verbatim"
+        );
+
+        // Each stage on its own takes the computed path, and none of them lands
+        // back on the defaults.
+        let only = |slot: usize, value: f64| {
+            let mut values = [None; 4];
+            values[slot] = Some(value);
+            adsr_from(&values, defaults)
+        };
+        let attack_only = only(0, 0.5);
+        assert_eq!(attack_only.attack, 0.5);
+        assert_eq!(attack_only.decay, 0.001, "floored, not defaulted");
+        assert_eq!(attack_only.sustain, 1.0, "no decay given: full sustain");
+        assert_eq!(attack_only.release, 0.01, "release floors at 10ms");
+
+        let decay_only = only(1, 0.2);
+        assert_eq!(decay_only.decay, 0.2);
+        assert_eq!(
+            decay_only.sustain, 0.001,
+            "a decay with no sustain sweeps to the floor"
+        );
+
+        assert_eq!(only(2, 0.25).sustain, 0.25, "an explicit sustain wins");
+        assert_eq!(only(3, 0.75).release, 0.75);
+        assert_eq!(only(3, 0.75).sustain, 1.0, "release only: full sustain");
+    }
+
+    #[test]
+    fn the_envelope_amount_defaults_only_when_a_stage_was_named() {
+        // `wtenv` unset means "no envelope" on its own, but 0.5 once any of the
+        // `wt{adsr}` controls is present.
+        assert_eq!(
+            ParamMod::from_controls(&wt(&[]), "wt", 1.0, 0.0).amount,
+            0.0
+        );
+        assert_eq!(
+            ParamMod::from_controls(&wt(&[("attack", 0.1)]), "wt", 1.0, 0.0).amount,
+            0.5,
+            "a named stage engages the envelope at the default depth"
+        );
+        assert_eq!(
+            ParamMod::from_controls(&wt(&[("env", 0.25)]), "wt", 1.0, 0.0).amount,
+            0.25,
+            "an explicit amount is taken as given"
+        );
+    }
+
+    #[test]
+    fn sync_is_in_cycles_and_rate_is_in_hertz() {
+        // `wtsync` is cycles-per-cycle, so it scales with the tempo; `wtrate`
+        // is absolute.
+        let synced = ParamMod::from_controls(&wt(&[("sync", 2.0)]), "wt", 0.5, 0.0);
+        assert_eq!(
+            synced.lfo.expect("an lfo").frequency,
+            1.0,
+            "2 cycles at 0.5 cps is 1 Hz"
+        );
+        let rated = ParamMod::from_controls(&wt(&[("rate", 2.0)]), "wt", 0.5, 0.0);
+        assert_eq!(
+            rated.lfo.expect("an lfo").frequency,
+            2.0,
+            "a rate ignores the tempo"
+        );
+    }
+
+    #[test]
+    fn any_one_lfo_control_starts_the_lfo() {
+        // `getParamLfo` runs at its default depth as soon as *any* of its
+        // controls is set — each on its own has to be enough.
+        for control in ["rate", "skew", "shape"] {
+            let spec = ParamMod::from_controls(&wt(&[(control, 1.0)]), "wt", 1.0, 0.0);
+            let lfo = spec
+                .lfo
+                .as_ref()
+                .unwrap_or_else(|| panic!("{control} should start the lfo"));
+            assert_eq!(lfo.depth, 0.5, "{control}: at the default depth");
+            assert!(!spec.is_static(), "{control}: not a static parameter");
+        }
+        // ...and with none of them set there is no LFO at all.
+        let bare = ParamMod::from_controls(&wt(&[]), "wt", 1.0, 0.0);
+        assert!(bare.lfo.is_none(), "nothing set: no lfo");
+        assert!(bare.is_static(), "and nothing to run per sample");
+        // An explicit zero depth is still no LFO, whatever else is set.
+        let silenced =
+            ParamMod::from_controls(&wt(&[("rate", 2.0), ("depth", 0.0)]), "wt", 1.0, 0.0);
+        assert!(silenced.lfo.is_none(), "a zero depth disables it");
+    }
+
+    #[test]
+    fn the_lfo_band_sits_on_its_dc_offset() {
+        // `getLfo`'s unwritten bounds: the sweep spans `depth`, starting from
+        // `dcoffset · depth`.
+        let spec = ParamMod::from_controls(&wt(&[("dc", 0.25), ("depth", 0.5)]), "wt", 1.0, 0.0);
+        let lfo = spec.lfo.expect("an lfo");
+        assert_eq!(lfo.dcoffset, 0.25);
+        assert_eq!(lfo.depth, 0.5);
+        assert_eq!(lfo.min, 0.125, "dcoffset · depth");
+        assert_eq!(lfo.max, 0.625, "...plus one depth");
+    }
+
+    #[test]
+    fn a_parameter_is_static_only_with_neither_envelope_nor_lfo() {
+        let base = ParamMod::default();
+        assert!(base.is_static());
+        assert!(
+            !ParamMod {
+                amount: 0.5,
+                ..ParamMod::default()
+            }
+            .is_static(),
+            "an envelope makes it move"
+        );
+        let with_lfo = ParamMod::from_controls(&wt(&[("rate", 1.0)]), "wt", 1.0, 0.0);
+        assert_eq!(with_lfo.amount, 0.0, "no envelope here");
+        assert!(!with_lfo.is_static(), "but an lfo still makes it move");
+    }
+
+    #[test]
+    fn the_runner_sweeps_from_the_offset_by_the_amount() {
+        // The envelope walks the parameter from `offset` to `offset + amount`,
+        // so a fully-open envelope reads the top of that range.
+        let spec = ParamMod {
+            offset: 1.0,
+            amount: 2.0,
+            adsr: Adsr {
+                attack: 0.0,
+                decay: 0.0,
+                sustain: 1.0,
+                release: 0.1,
+            },
+            lfo: None,
+        };
+        let mut runner = ParamModRunner::new(&spec, 44100.0);
+        let held = runner.tick(0.05, 1.0);
+        assert!(
+            (held - 3.0).abs() < 1e-4,
+            "offset 1 + amount 2 at full envelope should read 3, got {held}"
+        );
+
+        // With no amount the parameter just reports its offset.
+        let mut flat = ParamModRunner::new(
+            &ParamMod {
+                offset: 1.5,
+                ..ParamMod::default()
+            },
+            44100.0,
+        );
+        assert_eq!(flat.tick(0.05, 1.0), 1.5);
+    }
+
+    #[test]
+    fn the_runner_adds_its_lfo_on_top_of_the_base() {
+        // `dcoffset 0` keeps the LFO's own output in `0..depth`, so it can only
+        // push the parameter up from its base — which is what makes the sign of
+        // the term checkable.
+        let spec = ParamMod::from_controls(&wt(&[("rate", 50.0), ("depth", 0.5)]), "wt", 1.0, 0.0);
+        assert!(spec.lfo.is_some());
+        let mut runner = ParamModRunner::new(
+            &ParamMod {
+                offset: 1.0,
+                ..spec
+            },
+            44100.0,
+        );
+        let values: Vec<f32> = (0..2000)
+            .map(|i| runner.tick(i as f32 / 44100.0, 1.0))
+            .collect();
+        let (lo, hi) = values
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        assert!(
+            lo >= 1.0 - 1e-6,
+            "the lfo should never pull below the base: {lo}"
+        );
+        assert!(hi > 1.0 + 1e-3, "...and should push above it: {hi}");
+        assert!(hi <= 1.5 + 1e-6, "by at most one depth: {hi}");
+    }
+
     #[test]
     fn the_position_blends_between_neighbouring_frames() {
         let sr = 44100.0;

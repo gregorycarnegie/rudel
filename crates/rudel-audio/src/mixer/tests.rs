@@ -89,6 +89,67 @@ fn tagged_voices_feed_their_widget_tap_only() {
 }
 
 #[test]
+fn a_widget_tap_carries_the_mono_sum_of_every_voice_wearing_its_tag() {
+    // The tap is fed the mean of the voice's two channels, summed across every
+    // voice with the tag — so an off-centre voice must not arrive at its left
+    // channel's level, and a second tagged voice must add to the first rather
+    // than replace it.
+    let render = |n: usize, tagged: usize| -> (Vec<(f32, f32)>, Vec<f32>) {
+        let mut mixer = OfflineMixer::new(44100.0);
+        let tap = mixer.taps().get_or_create("w");
+        for i in 0..tagged {
+            let mut ev = panned_event(
+                OrbitSend {
+                    dry: 1.0,
+                    ..Default::default()
+                },
+                0.9,
+            );
+            ev.tags = vec!["w".to_string()];
+            // Two voices an octave apart, so their sum is not just twice one.
+            if let rudel_dsp::VoiceSpec::Synth(p) = &mut ev.spec {
+                p.freq *= (i + 1) as f32;
+            }
+            mixer.schedule(ev);
+        }
+        let mut out = vec![(0.0f32, 0.0f32); n];
+        mixer.render_block(&mut out);
+        let mut got = vec![0.0f32; n];
+        tap.latest(&mut got);
+        (out, got)
+    };
+
+    // One voice: the tap is the mean of its channels, which for a voice panned
+    // off centre is neither channel.
+    let (out, tap) = render(256, 1);
+    for (i, ((l, r), t)) in out.iter().zip(&tap).enumerate() {
+        assert!(
+            (t - (l + r) * 0.5).abs() < 1e-6,
+            "frame {i}: tap {t} should be the mean of {l} and {r}"
+        );
+    }
+    assert!(
+        out.iter().any(|(l, r)| (l - r).abs() > 1e-4),
+        "the voice must be off centre for that to mean anything"
+    );
+
+    // Two voices: the tap sums them, so it tracks the (also summed) master mix.
+    let (both_out, both_tap) = render(256, 2);
+    for (i, ((l, r), t)) in both_out.iter().zip(&both_tap).enumerate() {
+        assert!(
+            (t - (l + r) * 0.5).abs() < 1e-6,
+            "frame {i}: two tagged voices should sum in the tap"
+        );
+    }
+    let one = tap.iter().map(|x| x.abs()).sum::<f32>();
+    let two = both_tap.iter().map(|x| x.abs()).sum::<f32>();
+    assert!(
+        two > one * 1.2,
+        "the second voice should add: {one} -> {two}"
+    );
+}
+
+#[test]
 fn stereo_delay_echoes_after_its_time() {
     let mut d = StereoDelay::new(
         1000.0,
@@ -97,15 +158,17 @@ fn stereo_delay_echoes_after_its_time() {
             feedback: 0.5,
         },
     );
-    let (o0, _) = d.process(1.0, 0.0); // impulse in
-    assert_eq!(o0, 0.0, "no output before the delay time");
-    let mut max_echo = 0.0f32;
-    for _ in 0..20 {
-        max_echo = max_echo.max(d.process(0.0, 0.0).0);
-    }
-    assert!(
-        max_echo > 0.0,
-        "impulse should re-emerge after the delay time"
+    let (o0, r0) = d.process(1.0, 1.0); // impulse into both channels
+    assert_eq!((o0, r0), (0.0, 0.0), "no output before the delay time");
+    let tail: Vec<(f32, f32)> = (0..25).map(|_| d.process(0.0, 0.0)).collect();
+    // The impulse re-emerges after 10 samples, and the feedback path puts a
+    // half-level copy 10 samples after that — *the same way up*. Fed back
+    // inverted, a delay line turns every echo into a comb notch.
+    assert_eq!(tail[9], (1.0, 1.0), "first echo, at the delay time");
+    assert_eq!(
+        tail[19],
+        (0.5, 0.5),
+        "second echo, at half through feedback"
     );
 }
 
@@ -1603,4 +1666,691 @@ fn the_choked_and_open_paths_agree_at_full_gain() {
         choked[0].0,
         open[0].0
     );
+}
+
+// --- the two channels are the same signal -----------------------------------
+//
+// Every buffer in the mix path is a left/right pair carried through in
+// lockstep: the dry / room / delay accumulators, the delay line, the convolver,
+// the DJ filter, the signal buses. A test that measures a peak or an RMS over
+// both channels cannot see one of a pair go wrong, because the other still
+// carries the signal — which is exactly what an operator swap on a single line
+// does. A centred voice is the same signal in both channels, so the whole path
+// must preserve that *exactly*: no tolerance, no averaging.
+
+/// Peak of one channel on its own — `peak_of` maxes over both, which is the
+/// blindness these tests exist to remove.
+fn channel_peaks(out: &[(f32, f32)]) -> (f32, f32) {
+    out.iter().fold((0.0f32, 0.0f32), |(a, b), (l, r)| {
+        (a.max(l.abs()), b.max(r.abs()))
+    })
+}
+
+/// Assert both channels of `out` are bit-identical, and that it is not silence.
+fn assert_channels_agree(what: &str, out: &[(f32, f32)]) {
+    let level = peak_of(out);
+    assert!(level > 1e-4, "{what}: expected audible output, got {level}");
+    for (i, (l, r)) in out.iter().enumerate() {
+        assert_eq!(
+            l, r,
+            "{what}: channels diverged at frame {i} ({l} vs {r}), level {level}"
+        );
+    }
+}
+
+/// Assert each channel carries the signal on its own. Weaker than
+/// [`assert_channels_agree`], for the reverb path — its impulse response is
+/// deliberately decorrelated between channels, so the two are not the same
+/// signal, but neither may be missing.
+fn assert_both_channels_audible(what: &str, out: &[(f32, f32)]) {
+    let (l, r) = channel_peaks(out);
+    let floor = peak_of(out) * 0.05;
+    assert!(l > floor && r > floor, "{what}: L {l:.6} R {r:.6}");
+}
+
+#[test]
+fn a_centred_voice_stays_centred_through_every_send_path() {
+    let long_note = 16384;
+    for (what, send) in [
+        (
+            "dry",
+            OrbitSend {
+                dry: 1.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "delay",
+            OrbitSend {
+                dry: 0.0,
+                delay: 0.8,
+                delay_cfg: DelayConfig {
+                    time: 0.02,
+                    feedback: 0.6,
+                },
+                ..Default::default()
+            },
+        ),
+        (
+            "djf",
+            OrbitSend {
+                dry: 1.0,
+                djf: Some(0.2),
+                ..Default::default()
+            },
+        ),
+    ] {
+        assert_channels_agree(what, &render(send, long_note));
+    }
+
+    // The per-sample choke branch accumulates separately from the ordinary one,
+    // so it gets the same treatment — over a window long enough for the echo to
+    // come back, which is the only way its delay accumulation is visible.
+    assert_channels_agree(
+        "choked",
+        &render_choked(
+            OrbitSend {
+                dry: 1.0,
+                delay: 0.5,
+                delay_cfg: DelayConfig {
+                    time: 0.005,
+                    feedback: 0.4,
+                },
+                ..Default::default()
+            },
+            4096,
+        ),
+    );
+}
+
+#[test]
+fn a_choked_voices_dry_and_wet_paths_sum_rather_than_replace() {
+    // Same argument as `the_dry_and_wet_paths_sum_rather_than_replace`, for the
+    // per-sample fade branch — which re-implements the whole dry / room / delay
+    // split and so needs its own proof that the three add up. The reverb path
+    // has no left/right symmetry to lean on, so this is what pins it.
+    let with = |dry: f32, room: f32| OrbitSend {
+        dry,
+        room,
+        delay: 0.4,
+        delay_cfg: DelayConfig {
+            time: 0.005,
+            feedback: 0.0,
+        },
+        ..Default::default()
+    };
+    let n = 4096;
+    let dry_only = render_choked(with(1.0, 0.0), n);
+    let wet_only = render_choked(with(0.0, 0.7), n);
+    let both = render_choked(with(1.0, 0.7), n);
+
+    let level = peak_of(&both);
+    assert!(level > 1e-3, "the choked voice should be audible");
+    let worst = both
+        .iter()
+        .zip(dry_only.iter().zip(&wet_only))
+        .fold(0.0f32, |m, (b, (d, w))| {
+            m.max((b.0 - (d.0 + w.0)).abs())
+                .max((b.1 - (d.1 + w.1)).abs())
+        });
+    assert!(
+        worst < level * 1e-3,
+        "a choked voice's dry and wet paths should sum: worst {worst:.6} against {level:.4}"
+    );
+    // ...and the wet half is really there, so the sum is not two copies of dry.
+    assert!(
+        peak_of(&wet_only) > level * 0.01,
+        "the choked wet sends should carry signal of their own"
+    );
+}
+
+/// The same voice hard-panned, so exactly one of an orbit's six accumulation
+/// buffers carries anything. At 437Hz no sample of the sustain lands exactly on
+/// zero, which matters for the `!= 0.0` tests in `mix_into`.
+fn panned_event(send: OrbitSend, pan: f32) -> NoteEvent {
+    let mut ev = routed_event(send);
+    if let rudel_dsp::VoiceSpec::Synth(p) = &mut ev.spec {
+        p.pan = pan;
+        p.freq = 437.0;
+    }
+    ev
+}
+
+/// An orbit whose reverb and delay both respond within a handful of frames, so
+/// a short unit-level render is enough to see them.
+fn prompt_orbit() -> OrbitBus {
+    OrbitBus::new(
+        44100.0,
+        &OrbitSend {
+            reverb: rudel_dsp::ReverbConfig {
+                size: 0.2,
+                fade: 0.0, // no fade-in, so the tail starts immediately
+                ..Default::default()
+            },
+            delay_cfg: DelayConfig {
+                time: 0.0, // clamps to a one-sample line
+                feedback: 0.0,
+            },
+            ..Default::default()
+        },
+    )
+}
+
+#[test]
+fn any_one_of_an_orbits_six_buffers_wakes_it() {
+    // An orbit starts idle, and `mix_into` returns without doing any work while
+    // it stays that way — so the "did anything arrive" scan gates the entire
+    // bus. It is an `||` chain over all six accumulation buffers, and a voice
+    // routed to a single send, hard panned, fills exactly one of them. Fed
+    // directly here rather than through a voice: a rendered waveform crosses
+    // zero, and a buffer containing a zero sample hides half of what this
+    // checks.
+    const N: usize = 2048; // past the convolver's one-partition latency
+    for which in 0..6 {
+        let mut bus = prompt_orbit();
+        bus.clear(N);
+        let buf: &mut Vec<f32> = match which {
+            0 => &mut bus.dry_l,
+            1 => &mut bus.room_l,
+            2 => &mut bus.delay_l,
+            3 => &mut bus.dry_r,
+            4 => &mut bus.room_r,
+            _ => &mut bus.delay_r,
+        };
+        buf[..N].fill(0.5);
+        let mut out = vec![(0.0f32, 0.0f32); N];
+        bus.mix_into(&mut out);
+        assert!(
+            peak_of(&out) > 0.0,
+            "buffer {which} on its own should wake the orbit"
+        );
+    }
+}
+
+#[test]
+fn an_orbit_keeps_running_while_its_tail_rings_out() {
+    // Once nothing is arriving the orbit shuts down to save the work, but only
+    // after a window long enough for the reverb and delay to have died away —
+    // otherwise every note would have its tail chopped off the moment the
+    // source stopped.
+    let mut bus = prompt_orbit();
+    bus.clear(2048);
+    bus.room_l[..2048].fill(0.5);
+    bus.room_r[..2048].fill(0.5);
+    let mut burst = vec![(0.0f32, 0.0f32); 2048];
+    bus.mix_into(&mut burst);
+    assert!(peak_of(&burst) > 0.0, "the burst itself should be heard");
+
+    // Two silent blocks later — well inside the 0.2s room's window — the tail
+    // is still coming out.
+    let mut tail = vec![(0.0f32, 0.0f32); 0];
+    for _ in 0..2 {
+        bus.clear(512);
+        tail = vec![(0.0f32, 0.0f32); 512];
+        bus.mix_into(&mut tail);
+    }
+    assert!(
+        peak_of(&tail) > 0.0,
+        "the reverb tail should survive the silence, not be cut off at once"
+    );
+}
+
+#[test]
+fn a_cut_group_chokes_only_its_own_group() {
+    // `cut` is per group: a new voice silences the voices sharing its group and
+    // leaves every other voice alone. Choking across groups would make any two
+    // patterns using `cut` interrupt each other.
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(cut_event(
+        1,
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+    ));
+    mixer.schedule(cut_event(
+        2,
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+    ));
+    let mut out = vec![(0.0f32, 0.0f32); 256];
+    mixer.render_block(&mut out);
+    assert_eq!(mixer.active_len(), 2, "both groups should be sounding");
+
+    // A third voice in group 1 chokes only the first.
+    mixer.schedule(cut_event(
+        1,
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+    ));
+    let mut out = vec![(0.0f32, 0.0f32); 2048];
+    mixer.render_block(&mut out);
+    assert_eq!(
+        mixer.active_len(),
+        2,
+        "the group-2 voice should survive alongside the new group-1 one"
+    );
+}
+
+#[test]
+fn a_duck_lands_on_the_orbit_it_names() {
+    // `duckorbit` picks the orbit to duck; the target bus is created if the
+    // pattern feeding it has not started yet. Sent to the wrong orbit, a duck
+    // would dip whichever bus happened to be first.
+    let sustained = |orbit: i32| {
+        routed_event(OrbitSend {
+            orbit,
+            dry: 1.0,
+            ..Default::default()
+        })
+    };
+    let level_on_orbit_1 = |duck_orbit: i32| {
+        let mut mixer = OfflineMixer::new(44100.0);
+        mixer.schedule(sustained(1));
+        let mut ducker = routed_event(OrbitSend {
+            orbit: 3,
+            dry: 0.0,
+            ..Default::default()
+        });
+        ducker.duck = vec![rudel_dsp::Duck {
+            orbit: duck_orbit,
+            onset: 0.01,
+            attack: 0.05,
+            depth: 1.0,
+        }];
+        mixer.schedule(ducker);
+        let mut out = vec![(0.0f32, 0.0f32); 4096];
+        mixer.render_block(&mut out);
+        // Measured at the bottom of the 10ms dip, not over the whole render —
+        // a peak taken across the recovery would not see the duck at all.
+        peak_of(&out[380..460])
+    };
+    let ducked = level_on_orbit_1(1);
+    let elsewhere = level_on_orbit_1(5);
+    assert!(
+        ducked < elsewhere * 0.9,
+        "ducking orbit 1 should dip it ({ducked:.4}) below the untouched \
+         case ({elsewhere:.4})"
+    );
+}
+
+#[test]
+fn the_choke_fade_takes_its_full_ten_milliseconds() {
+    // The fade steps by `1 / (sample_rate * CHOKE_SECS)` per sample: 441 steps
+    // at 44.1kHz. A step computed any other way either cuts the voice off in a
+    // single sample (a click) or leaves it hanging around forever.
+    let out = render_choked(
+        OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        1024,
+    );
+    assert!(
+        peak_of(&out[200..300]) > 1e-3,
+        "5ms in, the voice should still be fading, not gone"
+    );
+    assert!(
+        peak_of(&out[600..]) == 0.0,
+        "past 441 samples the voice should be silent and dropped"
+    );
+}
+
+#[test]
+fn the_offline_mixer_steps_frames_the_same_way_it_renders_a_block() {
+    // `OfflineMixer::render_frame` is what the benchmarks and the `play`
+    // example pull on; it must agree with `render_block` rather than being its
+    // own path.
+    let send = OrbitSend {
+        dry: 1.0,
+        ..Default::default()
+    };
+    let mut by_block = OfflineMixer::new(44100.0);
+    by_block.schedule(routed_event(send.clone()));
+    let mut block = vec![(0.0f32, 0.0f32); 128];
+    by_block.render_block(&mut block);
+
+    let mut by_frame = OfflineMixer::new(44100.0);
+    by_frame.schedule(routed_event(send));
+    let stepped: Vec<(f32, f32)> = (0..128).map(|_| by_frame.render_frame()).collect();
+
+    assert!(peak_of(&stepped) > 1e-3, "the stepped render should sound");
+    assert_eq!(stepped, block, "frame stepping should match the block");
+}
+
+#[test]
+fn write_frames_lays_out_mono_stereo_and_extra_channels() {
+    // The cpal callback's only job: pull frames and fan them out to however
+    // many channels the device has. Mono gets the average of the pair, stereo
+    // gets it verbatim, anything wider gets the average in the extra channels.
+    // Driven with an off-centre voice, so an average cannot pass for a channel.
+    let voice = || {
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
+        tx.send(panned_event(
+            OrbitSend {
+                dry: 1.0,
+                ..Default::default()
+            },
+            0.85,
+        ))
+        .unwrap();
+        drop(tx);
+        test_mixer(rx)
+    };
+    let want: Vec<(f32, f32)> = {
+        let mut m = voice();
+        (0..4).map(|_| m.render_frame()).collect()
+    };
+    assert!(
+        want.iter().any(|(l, r)| l != r) && peak_of(&want) > 1e-3,
+        "the reference render must be audible and off-centre: {want:?}"
+    );
+
+    let mut mono = [0.0f32; 4];
+    write_frames(&mut mono, 1, &mut voice());
+    for (got, (l, r)) in mono.iter().zip(&want) {
+        assert_eq!(*got, (l + r) * 0.5, "mono is the average of the pair");
+    }
+
+    let mut stereo = [0.0f32; 8];
+    write_frames(&mut stereo, 2, &mut voice());
+    for (got, (l, r)) in stereo.chunks(2).zip(&want) {
+        assert_eq!((got[0], got[1]), (*l, *r), "stereo is the pair verbatim");
+    }
+
+    let mut surround = [0.0f32; 12];
+    write_frames(&mut surround, 3, &mut voice());
+    for (got, (l, r)) in surround.chunks(3).zip(&want) {
+        assert_eq!(
+            (got[0], got[1], got[2]),
+            (*l, *r, (l + r) * 0.5),
+            "extra channels get the average"
+        );
+    }
+}
+
+#[test]
+fn a_later_event_retunes_the_orbit_it_lands_on() {
+    // An orbit outlives the voice that created it, so the settings a later
+    // event carries have to be applied to the existing bus — `getDelay` /
+    // `getReverb` in superdough. Left unapplied, `delaytime` and `roomsize`
+    // would only ever take effect on the first note to reach an orbit.
+    let quiet_with = |send: OrbitSend| {
+        let mut ev = routed_event(send);
+        if let rudel_dsp::VoiceSpec::Synth(p) = &mut ev.spec {
+            p.gain = 0.0;
+        }
+        ev
+    };
+    // A silent voice opens the orbit at one setting; a later audible one has to
+    // retune it. Each half runs on its own mixer with only the send under test,
+    // so nothing else can keep the output alive.
+    let open_then = |first: OrbitSend, second: OrbitSend, n: usize| {
+        let mut mixer = OfflineMixer::new(44100.0);
+        mixer.schedule(quiet_with(first));
+        let mut warm = vec![(0.0f32, 0.0f32); 64];
+        mixer.render_block(&mut warm);
+        let mut ev = routed_event(second);
+        // A short note, so what is left afterwards is the orbit's tail.
+        if let rudel_dsp::VoiceSpec::Synth(p) = &mut ev.spec {
+            p.duration = 0.01;
+        }
+        mixer.schedule(ev);
+        let mut out = vec![(0.0f32, 0.0f32); n];
+        mixer.render_block(&mut out);
+        out
+    };
+
+    // Delay: opened at half a second, retuned to five milliseconds. The retuned
+    // echo lands around frame 220; the original would not arrive until 22050.
+    let delayed = |time: f32| OrbitSend {
+        dry: 0.0,
+        delay: 1.0,
+        delay_cfg: DelayConfig {
+            time,
+            feedback: 0.0,
+        },
+        ..Default::default()
+    };
+    let out = open_then(delayed(0.5), delayed(0.005), 4096);
+    assert!(
+        peak_of(&out[220..1200]) > 1e-3,
+        "the delay should have been retuned to the later event's time"
+    );
+
+    // Reverb: opened at a 50ms room, rebuilt at a 3s one. Measured a second
+    // later, where only the long tail can still be ringing.
+    let roomy = |size: f32| OrbitSend {
+        dry: 0.0,
+        room: 0.9,
+        reverb: rudel_dsp::ReverbConfig {
+            size,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let out = open_then(roomy(0.05), roomy(3.0), 44100);
+    assert!(
+        peak_of(&out[40000..]) > 1e-6,
+        "the reverb should have been rebuilt at the later event's size"
+    );
+    // The short room really is short, so that measurement means something.
+    let short = open_then(roomy(0.05), roomy(0.05), 44100);
+    assert!(
+        peak_of(&short[40000..]) < 1e-9,
+        "a 50ms room should be silent a second on, got {}",
+        peak_of(&short[40000..])
+    );
+}
+
+/// A voice that is already choking on its very first sample, so *everything*
+/// in the output came through the per-sample fade branch.
+///
+/// [`render_choked`] cannot show that branch on its own: it has to let the
+/// voice start before choking it, and those unchoked frames leave a reverb tail
+/// that keeps ringing over whatever the fade branch does or does not
+/// contribute. Built directly instead — the fade branch is reached by putting a
+/// voice in the active list with its choke already under way.
+fn render_choked_from_the_start(send: OrbitSend, pan: f32, n: usize) -> Vec<(f32, f32)> {
+    let (tx, rx) = mpsc::channel::<NoteEvent>();
+    drop(tx);
+    let mut mixer = test_mixer(rx);
+    let ev = panned_event(send.clone(), pan);
+    mixer.active.push(ActiveVoice {
+        voice: ev
+            .spec
+            .into_modulated_voice(mixer.sample_rate, ev.fx, &ev.mods),
+        tags: Vec::new(),
+        cut: None,
+        send,
+        choke_gain: Some(1.0),
+    });
+    let mut out = vec![(0.0f32, 0.0f32); n];
+    mixer.render_block(&mut out);
+    out
+}
+
+#[test]
+fn a_choked_voice_still_feeds_its_delay_send() {
+    // The fade branch re-implements the dry/room/delay split, so its delay
+    // accumulation is its own code. A centred voice through the delay line
+    // stays identical in both channels, which no single-channel slip survives.
+    let out = render_choked_from_the_start(
+        OrbitSend {
+            dry: 0.0,
+            delay: 0.9,
+            delay_cfg: DelayConfig {
+                time: 0.002,
+                feedback: 0.0,
+            },
+            ..Default::default()
+        },
+        0.5,
+        1024,
+    );
+    assert_channels_agree("choked delay send", &out);
+}
+
+#[test]
+fn a_choked_voice_still_feeds_its_reverb_send_the_right_way_up() {
+    // Hard left, reverb only: the orbit's *sole* input is the fade branch's
+    // `room_l`, so if that accumulation goes missing the bus never wakes at all.
+    let room = |pan: f32| {
+        render_choked_from_the_start(
+            OrbitSend {
+                dry: 0.0,
+                room: 0.9,
+                reverb: rudel_dsp::ReverbConfig {
+                    size: 0.3,
+                    fade: 0.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            pan,
+            4096,
+        )
+    };
+    let left = room(0.0);
+    let right = room(1.0);
+    let (ll, lr) = channel_peaks(&left);
+    let (rl, rr) = channel_peaks(&right);
+    assert!(ll > 1e-5, "a hard-left choked room send should be heard");
+    assert!(rr > 1e-5, "and so should a hard-right one");
+    assert!(
+        lr < ll * 1e-3 && rl < rr * 1e-3,
+        "each stays on its own side"
+    );
+
+    // ...and the right way up. A `-=` would invert the send, which no level
+    // measurement can see — but it anti-correlates with the ordinary path,
+    // which is fed by the same voice through the same reverb.
+    let open = render(
+        OrbitSend {
+            dry: 0.0,
+            room: 0.9,
+            reverb: rudel_dsp::ReverbConfig {
+                size: 0.3,
+                fade: 0.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        4096,
+    );
+    let correlation = |choked: &[(f32, f32)], pick: fn(&(f32, f32)) -> f32| -> f64 {
+        choked
+            .iter()
+            .zip(&open)
+            .map(|(c, o)| pick(c) as f64 * pick(o) as f64)
+            .sum()
+    };
+    // Both channels: each is accumulated on its own line, so each can be
+    // inverted on its own.
+    assert!(
+        correlation(&left, |f| f.0) > 0.0,
+        "the choked reverb send should keep the open path's polarity (left)"
+    );
+    assert!(
+        correlation(&right, |f| f.1) > 0.0,
+        "the choked reverb send should keep the open path's polarity (right)"
+    );
+}
+
+#[test]
+fn a_choked_voices_bus_send_fades_with_it() {
+    // `busgain * choke_gain`: the signal bus sees a choked voice at its current
+    // fade level, so a voice that is half faded sends at half its busgain.
+    let level_at = |choke: f32| {
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
+        drop(tx);
+        let mut mixer = test_mixer(rx);
+        let send = OrbitSend {
+            dry: 0.0,
+            bus: Some(6),
+            busgain: 0.5,
+            ..Default::default()
+        };
+        let ev = panned_event(send.clone(), 0.5);
+        mixer.signal_buses.entry(6).or_default();
+        mixer.active.push(ActiveVoice {
+            voice: ev
+                .spec
+                .into_modulated_voice(mixer.sample_rate, ev.fx, &ev.mods),
+            tags: Vec::new(),
+            cut: None,
+            send,
+            choke_gain: Some(choke),
+        });
+        let mut out = vec![(0.0f32, 0.0f32); 64];
+        mixer.render_block(&mut out);
+        let (l, _) = &mixer.signal_buses[&6];
+        l[..64].iter().fold(0.0f32, |m, s| m.max(s.abs()))
+    };
+    let full = level_at(1.0);
+    let half = level_at(0.5);
+    assert!(full > 1e-4, "a sending voice should reach the bus");
+    assert!(
+        (half / full - 0.5).abs() < 0.05,
+        "a half-faded voice should send at half level: {half} vs {full}"
+    );
+}
+
+#[test]
+fn the_reverb_send_reaches_both_channels() {
+    // The reverb's impulse response is decorrelated per channel, so the two
+    // outputs are not identical — but a send that only fed one of them would
+    // still look fine to any measurement taken over the pair.
+    let room = OrbitSend {
+        dry: 0.0,
+        room: 0.8,
+        ..Default::default()
+    };
+    assert_both_channels_audible("room", &render(room.clone(), 16384));
+    assert_both_channels_audible("choked room", &render_choked(room, 4096));
+}
+
+#[test]
+fn a_centred_voice_stays_centred_through_a_signal_bus() {
+    // The `bus` send has its own left/right accumulation, read back by the
+    // voice on the other side.
+    let mut mixer = OfflineMixer::new(44100.0);
+    mixer.schedule(routed_event(OrbitSend {
+        dry: 0.0,
+        bus: Some(4),
+        busgain: 0.75,
+        ..Default::default()
+    }));
+    mixer.schedule(NoteEvent {
+        onset_seconds: 0.0,
+        spec: rudel_dsp::VoiceSpec::Bus(rudel_dsp::BusParams {
+            bus: 4,
+            adsr: rudel_dsp::Adsr {
+                attack: 0.0001,
+                decay: 0.0001,
+                sustain: 1.0,
+                release: 0.01,
+            },
+            duration: 10.0,
+            gain: 1.0,
+            pan: 0.5,
+            filters: Default::default(),
+        }),
+        fx: rudel_dsp::PostFx::default(),
+        cut: None,
+        send: OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        },
+        duck: Vec::new(),
+        mods: Default::default(),
+        tags: Vec::new(),
+    });
+    let mut out = vec![(0.0f32, 0.0f32); 4096];
+    mixer.render_block(&mut out);
+    assert_channels_agree("bus", &out);
 }

@@ -332,6 +332,75 @@ mod tests {
     }
 
     #[test]
+    fn the_token_stream_tiles_the_whole_source() {
+        // Spans are contiguous, non-empty and cover every byte exactly once.
+        // Any scanner that fails to advance, or advances twice, breaks this
+        // before it produces a visibly wrong colour.
+        for code in [
+            r#"s("bd*2 ~ hh")"#,
+            "// a comment\nx = 1",
+            r#"a("q\"z") / 2"#,
+            "note(\"c#4 -1.5\") 120",
+            r#"s("bd"#, // unterminated: must still reach the end, not loop
+            "",
+        ] {
+            let mut at = 0;
+            for (start, end, _) in tokenize(code, &test_idents()) {
+                assert_eq!(start, at, "gap or overlap at {at} in {code:?}");
+                assert!(end > start, "empty span at {start} in {code:?}");
+                at = end;
+            }
+            assert_eq!(at, code.len(), "did not reach the end of {code:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_doubled_slash_opens_a_comment() {
+        // `/` is also mini-notation's slow operator and a division, so a lone
+        // one must not grey out the rest of the line.
+        let toks = classify("a / b // tail");
+        assert!(toks.contains(&("/", Token::Normal)), "{toks:?}");
+        assert!(toks.contains(&("// tail", Token::Comment)), "{toks:?}");
+        assert!(toks.contains(&("b", Token::Normal)), "{toks:?}");
+    }
+
+    #[test]
+    fn a_string_ends_at_its_closing_quote() {
+        // Located by byte span, not by text: the body of an escaped string
+        // contains quote characters of its own.
+        //          0123456
+        let toks = tokenize(r#"s("bd") x"#, &test_idents());
+        assert!(toks.contains(&(2, 3, Token::Str)), "opening: {toks:?}");
+        assert!(toks.contains(&(5, 6, Token::Str)), "closing: {toks:?}");
+        // ...and what follows is code again, not more string.
+        assert!(toks.contains(&(8, 9, Token::Normal)), "after: {toks:?}");
+
+        // An escaped quote belongs to the body; the string ends at the next
+        // unescaped one, two bytes later.
+        let toks = tokenize(r#"s("a\"b") x"#, &test_idents());
+        assert!(toks.contains(&(2, 3, Token::Str)), "opening: {toks:?}");
+        assert!(toks.contains(&(7, 8, Token::Str)), "closing: {toks:?}");
+        assert!(toks.contains(&(10, 11, Token::Normal)), "after: {toks:?}");
+    }
+
+    #[test]
+    fn a_number_may_end_the_source() {
+        // The digit scan reads one past its own token; at the end of input
+        // there is nothing there to read.
+        assert!(classify("120").contains(&("120", Token::Number)));
+        assert!(classify("x = 0.9").contains(&("0.9", Token::Number)));
+    }
+
+    #[test]
+    fn mini_words_may_open_with_an_underscore_or_a_sharp() {
+        // `_` continues a note and `#` sharpens one, so both start words in
+        // mini-notation even though neither is a letter.
+        let toks = classify(r#"n("_x #y")"#);
+        assert!(toks.contains(&("_x", Token::MiniWord)), "{toks:?}");
+        assert!(toks.contains(&("#y", Token::MiniWord)), "{toks:?}");
+    }
+
+    #[test]
     fn highlights_keywords_methods_and_numbers_in_code() {
         let toks = classify("stack(x).gain(0.9)");
         assert!(toks.contains(&("stack", Token::Keyword)));
@@ -361,6 +430,110 @@ mod tests {
         let toks = classify(r#"note("c#4 -1.5")"#);
         assert!(toks.contains(&("c#4", Token::MiniWord)));
         assert!(toks.contains(&("-1.5", Token::Number)));
+    }
+
+    #[test]
+    fn a_widget_gap_opens_on_the_line_that_hosts_it() {
+        // The reserved height is looked up per line, so the running line
+        // counter has to advance by exactly the newlines it has passed —
+        // counting the wrong bytes, or failing to accumulate, would open the
+        // gap under the wrong line.
+        let code = "s(\"bd\")\ns(\"hh\").spiral()\ns(\"cp\")";
+        let brackets: [(usize, usize); 0] = [];
+        let tall_line = |line: usize| {
+            let job = highlighted_editor_job(
+                code,
+                400.0,
+                &[],
+                &brackets,
+                None,
+                &test_idents(),
+                &EditorSettings::default(),
+                LayoutReservations {
+                    line_heights: &HashMap::from([(line, 220.0f32)]),
+                    sliders: &[],
+                },
+            );
+            // Which source lines the inflated sections fall on.
+            job.sections
+                .iter()
+                .filter(|s| s.format.line_height == Some(220.0))
+                .map(|s| {
+                    job.text[..s.byte_range.start.0]
+                        .bytes()
+                        .filter(|&b| b == b'\n')
+                        .count()
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        for line in [0usize, 1, 2] {
+            assert_eq!(
+                tall_line(line),
+                std::collections::BTreeSet::from([line]),
+                "a widget reserved on line {line} should inflate only that line"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flash_colour_survives_the_round_trip_through_its_packed_form() {
+        // Flash spans carry their colour as a packed `0xRRGGBBAA` word so the
+        // span list stays `Copy`; the two halves have to agree.
+        for color in [
+            egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4),
+            egui::Color32::from_rgba_unmultiplied(255, 0, 128, 200),
+            egui::Color32::TRANSPARENT,
+        ] {
+            assert_eq!(unpack_color(pack_color(color)), color, "{color:?}");
+        }
+        // Distinct colours pack to distinct words, so neither direction is
+        // collapsing them.
+        assert_ne!(
+            pack_color(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4)),
+            pack_color(egui::Color32::from_rgba_unmultiplied(4, 3, 2, 1))
+        );
+    }
+
+    #[test]
+    fn a_slider_gap_opens_on_the_glyph_before_its_literal() {
+        // The layouter widens the advance of the character immediately before
+        // the value literal, so the slider has somewhere to sit. The gap must
+        // land on *that* glyph and nowhere else.
+        let code = "slider(0.5)";
+        let brackets: [(usize, usize); 0] = [];
+        let job_with = |sliders: &[(usize, usize, f32)]| {
+            highlighted_editor_job(
+                code,
+                400.0,
+                &[],
+                &brackets,
+                None,
+                &test_idents(),
+                &EditorSettings::default(),
+                LayoutReservations {
+                    line_heights: &HashMap::new(),
+                    sliders,
+                },
+            )
+        };
+        // The literal `0.5` starts at byte 7, so the gap belongs to byte 6.
+        let job = job_with(&[(7, 10, 40.0)]);
+        let widened: Vec<_> = job
+            .sections
+            .iter()
+            .filter(|s| s.format.extra_letter_spacing != 0.0)
+            .map(|s| job.text[s.byte_range.start.0..s.byte_range.end.0].to_string())
+            .collect();
+        assert_eq!(widened, vec!["(".to_string()], "{:?}", job.text);
+
+        // With no reservation nothing is widened at all.
+        assert!(
+            job_with(&[])
+                .sections
+                .iter()
+                .all(|s| s.format.extra_letter_spacing == 0.0),
+            "no slider, no gap"
+        );
     }
 
     #[test]

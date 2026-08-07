@@ -687,25 +687,41 @@ fn fuzzy_label(ui: &mut egui::Ui, name: &str, hits: &[usize]) -> egui::Response 
         egui::RichText::new(name).monospace().into()
     } else {
         let font = egui::TextStyle::Monospace.resolve(ui.style());
-        let normal = egui::text::TextFormat::simple(font.clone(), ui.visuals().text_color());
-        let hit = egui::text::TextFormat::simple(font, ui.visuals().hyperlink_color);
-        let mut job = egui::text::LayoutJob::default();
-        let mut last = 0;
-        for &start in hits {
-            if start > last {
-                job.append(&name[last..start], 0.0, normal.clone());
-            }
-            let end = start + name[start..].chars().next().map_or(1, char::len_utf8);
-            job.append(&name[start..end], 0.0, hit.clone());
-            last = end;
-        }
-        if last < name.len() {
-            job.append(&name[last..], 0.0, normal);
-        }
-        job.into()
+        fuzzy_job(
+            name,
+            hits,
+            egui::text::TextFormat::simple(font.clone(), ui.visuals().text_color()),
+            egui::text::TextFormat::simple(font, ui.visuals().hyperlink_color),
+        )
+        .into()
     };
     ui.add(egui::Label::new(text).sense(egui::Sense::click()))
         .on_hover_text("double-click to insert · drag into the editor")
+}
+
+/// Split `name` into alternating normal and highlighted runs, `hits` being the
+/// byte offsets of the matched characters. Separate from [`fuzzy_label`] so the
+/// segmentation can be checked without a `Ui` to paint into.
+fn fuzzy_job(
+    name: &str,
+    hits: &[usize],
+    normal: egui::text::TextFormat,
+    hit: egui::text::TextFormat,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let mut last = 0;
+    for &start in hits {
+        if start > last {
+            job.append(&name[last..start], 0.0, normal.clone());
+        }
+        let end = start + name[start..].chars().next().map_or(1, char::len_utf8);
+        job.append(&name[start..end], 0.0, hit.clone());
+        last = end;
+    }
+    if last < name.len() {
+        job.append(&name[last..], 0.0, normal);
+    }
+    job
 }
 
 /// The deduped source byte ranges of the discrete events sounding at cycle
@@ -742,8 +758,179 @@ fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<FlashSpan>
 #[cfg(test)]
 mod tests {
     use super::{
-        active_source_spans_at, eval_button_labels, fuzzy_filter, fuzzy_match, io_summary,
+        RudelApp, active_source_spans_at, eval_button_labels, fuzzy_filter, fuzzy_job, fuzzy_match,
+        io_summary,
     };
+    use crate::editor::decorations::SourceRange;
+    use eframe::egui;
+    use std::time::{Duration, Instant};
+
+    /// A headless app with a pattern evaluated and the wall clock as its
+    /// playhead (there is no audio device here).
+    fn playing_app(started_ago: Duration, cps: f64) -> RudelApp {
+        let mut app = RudelApp::headless();
+        app.code = r#"s("bd sd")"#.to_string();
+        app.evaluate();
+        assert_eq!(app.eval_error, None, "the fixture pattern should evaluate");
+        app.playing = true;
+        app.play_start = Some(Instant::now() - started_ago);
+        app.cps = cps;
+        app
+    }
+
+    #[test]
+    fn the_playhead_advances_with_the_tempo_only_while_playing() {
+        // With no audio device the position comes off a wall clock started when
+        // Play was pressed, scaled by the tempo.
+        let mut app = playing_app(Duration::from_secs(2), 0.5);
+        let pos = app.playback_position_cycles().expect("a position");
+        assert!(
+            (pos - 1.0).abs() < 0.05,
+            "two seconds at 0.5 cps is one cycle, got {pos}"
+        );
+
+        app.cps = 2.0;
+        let faster = app.playback_position_cycles().expect("a position");
+        assert!(
+            (faster - 4.0).abs() < 0.2,
+            "...and four cycles at 2 cps, got {faster}"
+        );
+
+        app.playing = false;
+        assert_eq!(
+            app.playback_position_cycles(),
+            None,
+            "stopped: there is no playhead"
+        );
+
+        app.playing = true;
+        app.play_start = None;
+        assert_eq!(
+            app.playback_position_cycles(),
+            None,
+            "playing but never started: still none"
+        );
+    }
+
+    #[test]
+    fn nothing_flashes_without_both_a_pattern_and_a_playhead() {
+        let mut app = playing_app(Duration::ZERO, 1.0);
+        assert!(
+            !app.active_source_spans().is_empty(),
+            "the event under the playhead should flash"
+        );
+
+        app.playing = false;
+        assert!(
+            app.active_source_spans().is_empty(),
+            "stopped: nothing flashes"
+        );
+
+        app.playing = true;
+        app.current = None;
+        assert!(
+            app.active_source_spans().is_empty(),
+            "no pattern: nothing flashes"
+        );
+    }
+
+    #[test]
+    fn the_flash_setting_switches_the_highlight_off_entirely() {
+        let mut app = playing_app(Duration::ZERO, 1.0);
+        app.editor_settings.flash = true;
+        assert!(
+            !app.active_editor_spans().is_empty(),
+            "flash on: the active event highlights"
+        );
+
+        app.editor_settings.flash = false;
+        assert!(
+            app.active_editor_spans().is_empty(),
+            "flash off: nothing highlights"
+        );
+    }
+
+    #[test]
+    fn a_block_flash_fades_after_its_two_hundred_milliseconds() {
+        // Evaluating a block flashes it briefly. The window is checked against
+        // the elapsed time, and expiring it also has to clear the state or the
+        // check would run forever.
+        let mut app = RudelApp::headless();
+        app.editor_settings.flash = true;
+        let range = SourceRange::new(0, 3);
+
+        app.block_flash = Some((range, Instant::now()));
+        assert_eq!(
+            app.active_editor_spans(),
+            vec![(0, 3, None)],
+            "a fresh block flash is shown"
+        );
+        assert!(app.block_flash.is_some(), "and stays pending");
+
+        app.block_flash = Some((range, Instant::now() - Duration::from_millis(500)));
+        assert!(
+            app.active_editor_spans().is_empty(),
+            "a stale one is dropped"
+        );
+        assert!(app.block_flash.is_none(), "...and cleared, not re-checked");
+    }
+
+    /// `(text, is_highlighted)` for each run the fuzzy label would paint.
+    fn runs(name: &str, hits: &[usize]) -> Vec<(String, bool)> {
+        let normal = egui::text::TextFormat::simple(Default::default(), egui::Color32::WHITE);
+        let hit = egui::text::TextFormat::simple(Default::default(), egui::Color32::RED);
+        let job = fuzzy_job(name, hits, normal, hit);
+        job.sections
+            .iter()
+            .map(|s| {
+                (
+                    job.text[s.byte_range.start.0..s.byte_range.end.0].to_string(),
+                    s.format.color == egui::Color32::RED,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_fuzzy_label_highlights_exactly_the_matched_characters() {
+        // The runs have to tile the name: every character appears once, and
+        // only the matched ones are picked out.
+        assert_eq!(
+            runs("sound", &[0, 2]),
+            vec![
+                ("s".to_string(), true),
+                ("o".to_string(), false),
+                ("u".to_string(), true),
+                ("nd".to_string(), false),
+            ]
+        );
+        // Adjacent hits do not emit an empty run between them; the job merges
+        // them into one highlighted stretch.
+        assert_eq!(
+            runs("sound", &[0, 1]),
+            vec![("so".to_string(), true), ("und".to_string(), false)]
+        );
+        // A hit on the final character leaves no trailing run.
+        assert_eq!(
+            runs("ab", &[1]),
+            vec![("a".to_string(), false), ("b".to_string(), true)]
+        );
+        // Whatever the hits, the runs reassemble into the original name.
+        for hits in [vec![], vec![0], vec![1, 3], vec![0, 1, 2, 3, 4]] {
+            let joined: String = runs("sound", &hits).into_iter().map(|(t, _)| t).collect();
+            assert_eq!(joined, "sound", "hits {hits:?}");
+        }
+    }
+
+    #[test]
+    fn a_fuzzy_hit_takes_a_whole_character_not_a_byte() {
+        // Byte offsets into a name with a multi-byte character: highlighting
+        // one byte of it would slice mid-character and panic.
+        assert_eq!(
+            runs("éx", &[0]),
+            vec![("é".to_string(), true), ("x".to_string(), false)]
+        );
+    }
 
     #[test]
     fn io_summary_reflects_connection_state() {

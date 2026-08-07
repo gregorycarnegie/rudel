@@ -239,4 +239,110 @@ mod tests {
         );
         assert!(p.semitones(0.5, 1.0).abs() < 0.1);
     }
+
+    #[test]
+    fn note_names_and_numbers_both_resolve_to_a_frequency() {
+        assert_eq!(note_to_freq(&Value::Int(69)), Some(440.0));
+        let c4 = note_to_freq(&Value::Str("c4".into())).expect("c4 is a note name");
+        assert!(
+            (c4 - 261.6256).abs() < 1e-2,
+            "c4 should be ~261.63, got {c4}"
+        );
+        assert_eq!(note_to_freq(&Value::Str("not a note".into())), None);
+        assert_eq!(note_name_to_midi("a4"), Some(69));
+    }
+
+    #[test]
+    fn geo_ramps_geometrically_between_like_signed_endpoints() {
+        // Web Audio's `exponentialRampToValueAtTime`: the *ratio* is what moves
+        // at a constant rate, so the halfway point is the geometric mean.
+        assert_eq!(geo(2.0, 18.0, 0.0), 2.0);
+        assert_eq!(geo(2.0, 18.0, 1.0), 18.0);
+        assert!((geo(2.0, 18.0, 0.5) - 6.0).abs() < 1e-5, "geometric mean");
+        // Downwards too, and below zero, where both endpoints share a sign.
+        assert!((geo(-2.0, -18.0, 0.5) + 6.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn geo_falls_back_to_a_straight_line_across_zero() {
+        // An exponential ramp through zero is undefined, so straddling
+        // endpoints interpolate linearly instead.
+        assert!((geo(-2.0, 2.0, 0.25) + 1.0).abs() < 1e-6);
+        assert!((geo(-2.0, 2.0, 0.75) - 1.0).abs() < 1e-6);
+        // A zero endpoint is nudged off the axis rather than straddling, so it
+        // stays on the geometric path — tiny at the start, not half way up.
+        let from_zero = geo(0.0, 4.0, 0.5);
+        assert!(
+            (from_zero - 0.0632455).abs() < 1e-5,
+            "0 is nudged to 0.001 and ramped: got {from_zero}"
+        );
+    }
+
+    /// The exponential pitch envelope, stage by stage. `hold_end` is 1.0s.
+    fn exp_env(t: f32) -> f32 {
+        let adsr = Adsr {
+            attack: 0.1,
+            decay: 0.2,
+            sustain: 0.5,
+            release: 0.4,
+        };
+        pitch_env_value(&adsr, t, 1.0, 1.0, 5.0, true)
+    }
+
+    #[test]
+    fn the_exponential_pitch_envelope_ramps_stage_by_stage() {
+        // min 1, max 5, sustain 0.5 → the sustain level sits at 3.
+        let want = [
+            (0.0, 1.0),       // attack starts at min
+            (0.05, 2.236068), // ...geometrically, sqrt(1*5) half way
+            (0.1, 5.0),       // ...and tops out at max
+            (0.2, 3.872983),  // decay: sqrt(5*3) half way to the sustain level
+            (0.3, 3.0),       // ...reaching it at attack + decay
+            (0.7, 3.0),       // held there until hold_end
+            (1.2, 1.732051),  // release: sqrt(3*1) half way back down
+            (1.4, 1.0),       // ...to min
+            (2.0, 1.0),       // and stays there
+        ];
+        for (t, expected) in want {
+            let got = exp_env(t);
+            assert!(
+                (got - expected).abs() < 1e-4,
+                "pitch env at {t}s: expected {expected}, got {got}"
+            );
+        }
+    }
+
+    #[test]
+    fn pcurve_switches_the_envelope_from_linear_to_exponential() {
+        // The same envelope both ways: a geometric ramp sits below the straight
+        // line between the same endpoints, so half way through the decay the
+        // two must disagree.
+        let controls = |pcurve: f64| -> PitchMod {
+            let mut map: ValueMap = [
+                ("penv".to_string(), Value::F64(12.0)),
+                ("pattack".to_string(), Value::F64(0.0)),
+                ("pdecay".to_string(), Value::F64(0.4)),
+                ("psustain".to_string(), Value::F64(0.0)),
+            ]
+            .into_iter()
+            .collect();
+            map.insert("pcurve".to_string(), Value::F64(pcurve));
+            PitchMod::from_controls(&map)
+        };
+        let (linear, exp) = (controls(0.0), controls(1.0));
+        let (l, e) = (linear.semitones(0.2, 1.0), exp.semitones(0.2, 1.0));
+        assert!(
+            (l - 6.0).abs() < 0.2,
+            "the linear decay is half way down at 0.2s, got {l}"
+        );
+        assert!(
+            e < l - 1.0,
+            "the exponential decay should fall faster: {e} vs {l}"
+        );
+        // And an absent `pcurve` is linear, like `pcurve(0)`.
+        assert!(
+            !PitchMod::from_controls(&ValueMap::default()).exp,
+            "no pcurve means linear"
+        );
+    }
 }

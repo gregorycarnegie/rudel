@@ -772,6 +772,134 @@ mod tests {
     }
 
     #[test]
+    fn the_completion_lists_name_the_scales_and_chords_that_resolve() {
+        // These back the editor's completion popups, so an empty or stubbed
+        // list is a silent feature loss rather than a failure.
+        assert!(scale_names().contains(&"major"));
+        assert!(scale_names().contains(&"harmonic minor"));
+        assert!(scale_names().len() > 20, "{}", scale_names().len());
+        assert!(chord_symbols().contains(&"maj7"));
+        assert!(chord_symbols().len() > 10, "{}", chord_symbols().len());
+    }
+
+    #[test]
+    fn every_numeric_value_kind_reads_as_a_midi_note() {
+        // Mini-notation hands over integers, floats and fractions
+        // interchangeably; a missing arm makes a whole spelling silently
+        // unplayable.
+        assert_eq!(value_to_midi(&Value::Int(60)), Some(60.0));
+        assert_eq!(value_to_midi(&Value::F64(60.5)), Some(60.5));
+        assert_eq!(value_to_midi(&Value::Frac(Frac::new(121, 2))), Some(60.5));
+        assert_eq!(value_to_midi(&Value::Str("c4".into())), Some(60.0));
+        // The ninth is spelled with a bare number, which the root scan has to
+        // hand back to the chord table rather than eat as an octave.
+        assert_eq!(chord_notes("C9"), Some(vec![48, 52, 55, 58, 62]));
+    }
+
+    #[test]
+    fn nearest_number_index_resolves_ties_by_preference() {
+        // The scale-degree lookups lean on this: which tone a note between two
+        // scale tones snaps to is entirely down to the tie rule.
+        let numbers = [0, 4, 8, 12];
+        assert_eq!(nearest_number_index(5, &numbers, false), 1, "4 is nearer");
+        assert_eq!(nearest_number_index(6, &numbers, false), 1, "tie -> lower");
+        assert_eq!(nearest_number_index(6, &numbers, true), 2, "tie -> higher");
+        assert_eq!(nearest_number_index(99, &numbers, false), 3);
+        assert_eq!(nearest_number_index(-99, &numbers, true), 0);
+    }
+
+    #[test]
+    fn scale_offset_snaps_an_out_of_scale_note_to_the_nearest_degree() {
+        // F#3 (54) is not in C major, so the transpose starts from the nearest
+        // degree — F (53), the first of the two equally-near tones — rather
+        // than falling back to the root.
+        assert_eq!(scale_offset("C:major", 0, 54), Some(53));
+        assert_eq!(scale_offset("C:major", 1, 54), Some(55)); // ...then up to G
+        // An in-scale note is found directly.
+        assert_eq!(scale_offset("C:major", 1, 52), Some(53)); // E -> F
+    }
+
+    #[test]
+    fn a_two_word_scale_name_is_not_mistaken_for_a_root() {
+        // "harmonic minor" splits into two tokens, neither of them a note name,
+        // so the root has to stay at the default C rather than the first token
+        // being read as one.
+        assert_eq!(scale_step(0, "harmonic minor"), Some(48));
+        assert_eq!(scale_step(6, "harmonic minor"), Some(59)); // the major 7th
+        assert_eq!(scale_step(0, "C:harmonic:minor"), Some(48));
+    }
+
+    #[test]
+    fn an_anchor_off_the_scale_realigns_from_the_nearest_tone() {
+        // G5 (79) is not in E major, so degree 0 lands on the nearest tone
+        // above the realignment point — F#5 (78) — and the degrees run from
+        // there. This pins the three separate offsets the realignment applies:
+        // the anchor's distance from the root, the degree shift, and the
+        // transposition back.
+        assert_eq!(step_in_named_scale(0, "E:major", 79), Some(78));
+        assert_eq!(step_in_named_scale(1, "E:major", 79), Some(80));
+        // An anchor that *is* a scale tone keeps degree 0 on it.
+        assert_eq!(step_in_named_scale(0, "E:major", 76), Some(76));
+        assert_eq!(step_in_named_scale(-1, "E:major", 76), Some(75));
+    }
+
+    #[test]
+    fn quantising_uses_the_roots_own_pitch_class() {
+        // The candidate tones are built from the tonic's pitch class at octave
+        // 0 and then shifted into the note's octave; C#4 (61) is a D major tone
+        // exactly, so it quantises to itself.
+        assert_eq!(nearest_scale_note("D:major", 61), Some(61));
+        // A semitone lower is between C# and B: ties resolve higher.
+        assert_eq!(nearest_scale_note("D:major", 60), Some(61));
+    }
+
+    #[test]
+    fn a_chord_root_keeps_its_accidental_and_its_octave() {
+        // `s` is a sharp — except when it opens `sus`, which is why the root
+        // scan looks ahead.
+        assert_eq!(chord_notes("Cs"), Some(vec![49, 53, 56]));
+        assert_eq!(chord_notes("Csus2"), Some(vec![48, 50, 55]));
+        // Trailing digits are part of the root when they are not a chord
+        // symbol: C4 is the note, C7 is the seventh chord on C3.
+        assert_eq!(chord_notes("C4"), Some(vec![60, 64, 67]));
+        assert_eq!(chord_notes("C7"), Some(vec![48, 52, 55, 58]));
+        assert_eq!(chord_notes(""), None);
+    }
+
+    #[test]
+    fn list_backed_symbols_render_their_numbers_without_a_decimal_point() {
+        // mini spells `c:7` as `["c", 7]`, and the number may arrive as a float
+        // or a fraction; `c7.0` would not parse as a chord.
+        let sym = |items: Vec<Value>| chord_symbol(&Value::List(items));
+        assert_eq!(
+            sym(vec![Value::Str("C".into()), Value::F64(7.0)]).as_deref(),
+            Some("C7")
+        );
+        assert_eq!(
+            sym(vec![Value::Str("C".into()), Value::Frac(Frac::new(7, 1))]).as_deref(),
+            Some("C7")
+        );
+        assert_eq!(chord_token(&Value::F64(7.5)), "7.5");
+        assert_eq!(sym(vec![]), None, "an empty list is not a chord");
+        // The same rendering rules apply to scale names (`c:major` as a list).
+        assert_eq!(scale_name_token(&Value::F64(5.0)), "5");
+        assert_eq!(scale_name_token(&Value::F64(5.5)), "5.5");
+    }
+
+    #[test]
+    fn scale_degrees_parse_from_numbers_and_from_strings() {
+        let step = step_number_and_offset;
+        assert_eq!(step(&Value::Int(3)), Some((3, 0)));
+        assert_eq!(step(&Value::F64(2.6)), Some((3, 0)), "floats round");
+        assert_eq!(step(&Value::Frac(Frac::new(5, 2))), Some((3, 0)));
+        assert_eq!(step(&Value::Str("4#".into())), Some((4, 1)));
+        assert_eq!(step(&Value::Str("2b".into())), Some((2, -1)));
+        // A leading minus is part of the number; anywhere else it is not.
+        assert_eq!(step(&Value::Str("-2".into())), Some((-2, 0)));
+        assert_eq!(step(&Value::Str("2-".into())), Some((2, 0)));
+    }
+
+    #[test]
     fn note_name_quantises_to_scale() {
         // c#3 (=49) quantised to C major: ties resolve higher (preferHigher), so D(50).
         let pat = crate::note(pure(Value::Str("c#3".into()))).scale("C:major");

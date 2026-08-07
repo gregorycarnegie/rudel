@@ -22,6 +22,94 @@ fn harness<'a>() -> Harness<'a, RudelApp> {
 }
 
 #[test]
+fn every_panel_puts_its_own_furniture_on_screen() {
+    // One assertion per panel that it drew at all. Cheap, but it is the only
+    // thing standing between a panel quietly becoming a no-op and someone
+    // noticing at run time — none of the state-level tests would blink.
+    let mut harness = harness();
+
+    // Transport, reference list, editor (and the settings header nested inside
+    // it) are always on screen.
+    harness.get_by_label_contains("Play");
+    harness.get_by_label_contains("Hush");
+    harness.get_by_label_contains("reference");
+    harness.get_by_label_contains("editor settings");
+
+    // The errors panel carries the shortcut hint while nothing is wrong...
+    harness.get_by_label_contains("Ctrl+Enter eval");
+
+    // ...and the error itself once something is.
+    harness.state_mut().code = "s(\"bd\"".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(2);
+    let error = harness
+        .state()
+        .eval_error
+        .clone()
+        .expect("an unbalanced paren should not evaluate");
+    harness.get_by_label_contains(error.split(':').next().unwrap_or(&error));
+
+    // The console appears only once a pattern has logged something.
+    harness
+        .state_mut()
+        .log_lines
+        .push("hello-from-log".to_string());
+    harness.run_steps(2);
+    harness.get_by_label_contains("console");
+    harness.get_by_label_contains("hello-from-log");
+}
+
+#[test]
+fn the_reference_filter_opens_the_sections_holding_its_matches() {
+    // `signals` and `factories` start collapsed, so a match inside one of them
+    // is only reachable because filtering forces every section open. Without
+    // that, typing a filter appears to find nothing.
+    let mut harness = harness();
+    assert!(
+        harness.query_by_label_contains("perlin").is_none(),
+        "signals start collapsed"
+    );
+
+    harness.state_mut().reference_filter = "perlin".to_string();
+    harness.run_steps(2);
+    harness.get_by_label_contains("perlin");
+
+    // And a filter that matches no sound drops the sounds section entirely
+    // rather than leaving an empty header behind.
+    harness.state_mut().reference_filter = "zzzznotasound".to_string();
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_label_contains("sounds").is_none(),
+        "an empty sounds section should not be drawn"
+    );
+
+    // Clearing the filter brings the sounds section back. (The signals section
+    // stays open: egui remembers the state it was forced into, which is what a
+    // user who just went looking would want.)
+    harness.state_mut().reference_filter = String::new();
+    harness.run_steps(2);
+    harness.get_by_label_contains("sounds");
+}
+
+#[test]
+fn the_console_keeps_only_the_most_recent_lines() {
+    // The panel drains rudel-core's log ring into its own buffer every frame
+    // and trims the front, so a long-running pattern cannot grow it forever.
+    let mut harness = harness();
+    harness.state_mut().log_lines = (0..600).map(|i| format!("line-{i}")).collect();
+    harness.run_steps(2);
+
+    let lines = &harness.state().log_lines;
+    assert_eq!(lines.len(), 512, "trimmed to the window");
+    assert_eq!(lines.first().map(String::as_str), Some("line-88"));
+    assert_eq!(
+        lines.last().map(String::as_str),
+        Some("line-599"),
+        "the newest lines are the ones kept"
+    );
+}
+
+#[test]
 fn play_button_evaluates_the_default_pattern_and_starts_playback() {
     let mut harness = harness();
 

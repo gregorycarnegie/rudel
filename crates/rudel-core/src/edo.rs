@@ -432,6 +432,148 @@ mod tests {
             .collect()
     }
 
+    /// The 12-EDO major scale rooted at C4, so degrees line up with familiar
+    /// frequencies.
+    fn c4_major() -> Pitches {
+        build_pitches(&Value::Str("C4:LLsLLLs:2:1".into())).expect("a valid scale")
+    }
+
+    #[test]
+    fn the_octave_base_doubles_up_and_halves_down() {
+        // Every octave away from the root is a factor of two, in the direction
+        // it lies — a scale transposed the wrong way is still a scale, which is
+        // why this needs pinning by value.
+        let p = c4_major();
+        let root = p.octave_base(4);
+        assert!(
+            (root - 261.6256).abs() < 1e-3,
+            "C4 is ~261.63 Hz, got {root}"
+        );
+        assert!((p.octave_base(5) - root * 2.0).abs() < 1e-6, "an octave up");
+        assert!(
+            (p.octave_base(6) - root * 4.0).abs() < 1e-6,
+            "two octaves up"
+        );
+        assert!(
+            (p.octave_base(3) - root / 2.0).abs() < 1e-6,
+            "an octave down"
+        );
+        assert!((p.octave_base(2) - root / 4.0).abs() < 1e-6, "two down");
+    }
+
+    #[test]
+    fn a_degree_past_the_scale_wraps_into_the_next_octave() {
+        // Degrees are 1-indexed and the scale has seven of them, so 8 is the
+        // root an octave up rather than an eighth degree.
+        let p = c4_major();
+        assert_eq!(p.octdeg(1), (4, 1), "the first degree, at the root octave");
+        assert_eq!(p.octdeg(7), (4, 7), "the last one still fits");
+        assert_eq!(p.octdeg(8), (5, 1), "and 8 wraps to the octave above");
+        assert_eq!(p.octdeg(15), (6, 1), "two octaves up");
+        assert_eq!(p.octdeg(9), (5, 2));
+    }
+
+    #[test]
+    fn a_degree_outside_the_scale_or_the_octave_range_has_no_pitch() {
+        // Each of the three bounds rejects on its own.
+        let p = c4_major();
+        assert!(p.octdegfreq(4, 1).is_some(), "in range");
+        assert!(p.octdegfreq(-1, 1).is_none(), "below octave 0");
+        assert!(p.octdegfreq(9, 1).is_none(), "above octave 8");
+        assert!(p.octdegfreq(4, 0).is_none(), "degrees start at 1");
+        assert!(p.octdegfreq(4, 7).is_some(), "the last degree is in range");
+        assert!(p.octdegfreq(4, 8).is_none(), "and stop at the scale length");
+        assert!(p.octdegfreq(0, 1).is_some(), "octave 0 is allowed");
+        assert!(p.octdegfreq(8, 1).is_some(), "and so is octave 8");
+        // The MIDI form draws the same boundaries.
+        assert!(p.octdegmidi(4, 1).is_some());
+        assert!(p.octdegmidi(-1, 1).is_none());
+        assert!(p.octdegmidi(9, 1).is_none());
+        assert!(p.octdegmidi(4, 0).is_none());
+        assert!(p.octdegmidi(4, 8).is_none());
+    }
+
+    #[test]
+    fn the_octave_comes_off_the_end_of_the_note_name() {
+        assert_eq!(note_octave("C4"), 4);
+        assert_eq!(note_octave("Eb3"), 3);
+        assert_eq!(note_octave("C-1"), -1, "a negative octave");
+        assert_eq!(note_octave("C"), 3, "no digits: the default octave");
+        assert_eq!(note_octave("F#10"), 10, "more than one digit");
+    }
+
+    #[test]
+    fn a_degree_value_reads_as_a_leading_integer() {
+        // `parseInt` semantics: a sign only counts at the front, and the number
+        // stops at the first character that is not a digit.
+        assert_eq!(value_to_degree(&Value::Int(3)), Some(3));
+        assert_eq!(value_to_degree(&Value::F64(2.6)), Some(3), "floats round");
+        assert_eq!(value_to_degree(&Value::Frac(Frac::new(5, 2))), Some(3));
+        assert_eq!(value_to_degree(&Value::Str("4".into())), Some(4));
+        assert_eq!(value_to_degree(&Value::Str("-2".into())), Some(-2));
+        assert_eq!(value_to_degree(&Value::Str("12abc".into())), Some(12));
+        assert_eq!(
+            value_to_degree(&Value::Str("1-2".into())),
+            Some(1),
+            "a later sign ends the number"
+        );
+        assert_eq!(value_to_degree(&Value::Str("abc".into())), None);
+    }
+
+    #[test]
+    fn a_scale_definition_needs_all_four_of_its_parts() {
+        // `note:sequence:large:small`, as a string or as a mini colon-list.
+        assert!(build_pitches(&Value::Str("C4:LLsLLLs:2:1".into())).is_some());
+        assert!(
+            build_pitches(&Value::Str("C4:LLsLLLs:2".into())).is_none(),
+            "three parts is not enough"
+        );
+        let as_list = Value::List(vec![
+            Value::Str("C4".into()),
+            Value::Str("LLsLLLs".into()),
+            Value::Int(2),
+            Value::Int(1),
+        ]);
+        assert!(build_pitches(&as_list).is_some(), "the mini list form");
+        // Either degenerate case on its own is a reason to give up: a sequence
+        // with no steps, or steps that divide the octave into nothing.
+        assert!(
+            build_pitches(&Value::Str("C4::2:1".into())).is_none(),
+            "no steps"
+        );
+        assert!(
+            build_pitches(&Value::Str("C4:LLs:0:0".into())).is_none(),
+            "steps that sum to zero divisions"
+        );
+    }
+
+    #[test]
+    fn a_control_map_keeps_its_other_controls_through_the_scale() {
+        // A map-valued hap has its `n` replaced by the scale's fields; anything
+        // else it carries has to survive the trip.
+        let p = c4_major();
+        let mut m = ValueMap::new();
+        m.insert("n".to_string(), Value::Int(0));
+        m.insert("gain".to_string(), Value::F64(0.5));
+        match edo_map_value(Value::Map(m), &p) {
+            Value::Map(out) => {
+                assert_eq!(
+                    out.get("gain").and_then(Value::as_f64),
+                    Some(0.5),
+                    "the other controls come through"
+                );
+                assert!(!out.contains_key("n"), "the degree is consumed");
+                assert_eq!(out.get("degree"), Some(&Value::Int(1)));
+                let freq = out
+                    .get("freq")
+                    .and_then(Value::as_f64)
+                    .expect("a frequency");
+                assert!((freq - 261.626).abs() < 1e-2, "degree 0 is C4, got {freq}");
+            }
+            other => panic!("a map should stay a map, got {other:?}"),
+        }
+    }
+
     fn deg_pat(degrees: &[i64]) -> Pattern {
         sequence(
             &degrees

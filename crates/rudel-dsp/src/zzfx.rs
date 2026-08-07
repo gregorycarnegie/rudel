@@ -326,13 +326,21 @@ static ZZFX_RNG: AtomicU32 = AtomicU32::new(0x2545_f491);
 /// uses an unseeded `Math.random()`, so this is deliberately non-reproducible
 /// across voices but does not affect the `randomness == 0` default.
 fn next_rand01() -> f64 {
-    // xorshift32 over a shared counter.
-    let mut x = ZZFX_RNG.load(Ordering::Relaxed).wrapping_add(0x9e37_79b9);
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    ZZFX_RNG.store(x, Ordering::Relaxed);
-    (x as f64) / (u32::MAX as f64 + 1.0)
+    // xorshift32 over a shared counter. Advanced with one atomic
+    // read-modify-write rather than a load and a store: two voices starting in
+    // the same audio callback would otherwise read the same state and draw the
+    // same "random" detune.
+    let step = |x: u32| {
+        let mut x = x.wrapping_add(0x9e37_79b9);
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        x
+    };
+    let previous = ZZFX_RNG
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| Some(step(x)))
+        .unwrap_or(0);
+    (step(previous) as f64) / (u32::MAX as f64 + 1.0)
 }
 
 /// A ZzFX voice playing its pre-rendered buffer.

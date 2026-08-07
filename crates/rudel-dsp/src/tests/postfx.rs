@@ -450,6 +450,400 @@ fn phaser_attenuates_tone_at_notch() {
     );
 }
 
+/// A sustained saw through the post-fx chain, as RMS. Loud and harmonically
+/// rich, so every waveshaper in the chain has something to bite on.
+fn post_fx_rms(fx: PostFx, mods: &[ModSpec]) -> f32 {
+    let source = Box::new(Voice::new(
+        VoiceParams::from_controls(
+            &rudel_core::to_control_map(&Value::Str("sawtooth".into())),
+            10.0,
+        ),
+        44100.0,
+    ));
+    let mut v = PostFxVoice::with_mods(source, fx, 44100.0, mods);
+    let out: Vec<f32> = (0..8820).map(|_| v.tick().0).collect();
+    assert_is_signal(&out, "the post-fx chain's output");
+    (out.iter().map(|s| s * s).sum::<f32>() / out.len() as f32).sqrt()
+}
+
+#[test]
+fn a_modulator_shifts_the_post_fx_amount_it_targets() {
+    // Every post-fx amount is read as `fx.x + mods.get(target)`. With nothing
+    // modulating it that offset is always zero, which leaves the sign of the
+    // term — and whether it is applied at all — invisible. So drive each amount
+    // with a strictly positive LFO and check the output moves the same way it
+    // moves when the amount itself is raised.
+    let cases: [(&str, f64, PostFx, PostFx); 5] = [
+        (
+            "postgain",
+            0.5,
+            PostFx {
+                postgain: 1.0,
+                ..Default::default()
+            },
+            PostFx {
+                postgain: 1.5,
+                ..Default::default()
+            },
+        ),
+        (
+            "shape",
+            0.4,
+            PostFx {
+                shape: Some(0.2),
+                ..Default::default()
+            },
+            PostFx {
+                shape: Some(0.6),
+                ..Default::default()
+            },
+        ),
+        (
+            "shapevol",
+            0.4,
+            PostFx {
+                shape: Some(0.5),
+                shapevol: 0.4,
+                ..Default::default()
+            },
+            PostFx {
+                shape: Some(0.5),
+                shapevol: 0.8,
+                ..Default::default()
+            },
+        ),
+        (
+            "distort",
+            1.0,
+            PostFx {
+                distort: Some(0.5),
+                ..Default::default()
+            },
+            PostFx {
+                distort: Some(1.5),
+                ..Default::default()
+            },
+        ),
+        (
+            "distortvol",
+            0.4,
+            PostFx {
+                distort: Some(1.0),
+                distortvol: 0.4,
+                ..Default::default()
+            },
+            PostFx {
+                distort: Some(1.0),
+                distortvol: 0.8,
+                ..Default::default()
+            },
+        ),
+    ];
+
+    for (control, depth, base_fx, raised_fx) in cases {
+        let base = post_fx_rms(base_fx, &[]);
+        let raised = post_fx_rms(raised_fx, &[]);
+        assert!(
+            (raised - base).abs() > base * 1e-3,
+            "{control}: raising the amount statically should change the output \
+             ({base:.6} vs {raised:.6}) or this proves nothing"
+        );
+        let specs = positive_lfo(control, depth, 5.0);
+        assert!(
+            !specs.post.is_empty(),
+            "{control} should be a post-fx target"
+        );
+        let modulated = post_fx_rms(base_fx, &specs.post);
+        assert!(
+            (modulated - base).abs() > base * 1e-4,
+            "{control}: the modulator should reach the amount ({base:.6} vs {modulated:.6})"
+        );
+        assert_eq!(
+            (modulated - base).signum(),
+            (raised - base).signum(),
+            "{control}: a positive modulator should move the output the way a \
+             raised amount does — base {base:.6}, modulated {modulated:.6}, \
+             raised {raised:.6}"
+        );
+    }
+
+    // `crush` is counted rather than measured: RMS moves either way under
+    // rounding, but bit depth maps straight onto how many distinct levels come
+    // out. (A low bit depth flattens this quiet a signal to silence, hence the
+    // generous depths.)
+    let levels = |fx: PostFx, mods: &[ModSpec]| {
+        let source = Box::new(Voice::new(
+            VoiceParams::from_controls(
+                &rudel_core::to_control_map(&Value::Str("sawtooth".into())),
+                10.0,
+            ),
+            44100.0,
+        ));
+        let mut v = PostFxVoice::with_mods(source, fx, 44100.0, mods);
+        let mut seen: Vec<f32> = (0..4410).map(|_| v.tick().0).collect();
+        seen.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        seen.dedup();
+        seen.len()
+    };
+    let crushed = |bits: f32| PostFx {
+        crush: Some(bits),
+        ..Default::default()
+    };
+    let base = levels(crushed(6.0), &[]);
+    assert!(
+        levels(crushed(10.0), &[]) > base,
+        "more bits should mean more levels"
+    );
+    assert!(
+        levels(crushed(6.0), &positive_lfo("crush", 4.0, 5.0).post) > base,
+        "a positive modulator should add bit depth, not take it away ({base} levels)"
+    );
+}
+
+#[test]
+fn the_transient_shaper_emphasises_the_attack_over_the_sustain() {
+    // `transient` lifts the onset relative to what follows and `transsustain`
+    // does the reverse, both against the same envelope followers.
+    // A plucked note: silence, a sharp onset, then a decay. Both halves are
+    // needed — the attack emphasis keys on the followers pulling apart at the
+    // onset, and the sustain emphasis only engages while they close again on
+    // the way down. Kept quiet so the shaper's soft clip is not what decides
+    // the level, and read as the onset-to-decay *ratio*, since the makeup gain
+    // normalises the level itself.
+    let attack_to_decay = |attack: f32, sustain: f32| {
+        let mut shaper = TransientShaper::new(44100.0, attack, sustain);
+        let out: Vec<f32> = (0..8820)
+            .map(|i| {
+                let x = if i < 2205 {
+                    0.0
+                } else {
+                    let t = (i - 2205) as f32 / 44100.0;
+                    0.2 * (-t * 8.0).exp() * (i as f32 * TAU * 220.0 / 44100.0).sin()
+                };
+                shaper.process(x)
+            })
+            .collect();
+        let peak = |w: &[f32]| w.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        let (onset, decay) = (peak(&out[2205..2645]), peak(&out[6000..7000]));
+        assert!(onset > 0.0 && decay > 0.0, "the note should survive");
+        onset / decay
+    };
+
+    let flat = attack_to_decay(0.0, 0.0);
+    assert!(
+        attack_to_decay(1.0, 0.0) > flat * 1.05,
+        "transient(1) should favour the attack over a flat {flat:.4}"
+    );
+    assert!(
+        attack_to_decay(0.0, 1.0) < flat * 0.95,
+        "transsustain(1) should favour the decay over a flat {flat:.4}"
+    );
+}
+
+#[test]
+fn the_post_fx_wrapper_passes_its_voices_lifecycle_through() {
+    // The wrapper owns the voice: the mixer asks *it* whether the note is over
+    // and hands *it* the signal buses. Both have to reach the inner voice.
+    struct Finite {
+        left: usize,
+    }
+    impl VoiceLike for Finite {
+        fn tick(&mut self) -> (f32, f32) {
+            self.left = self.left.saturating_sub(1);
+            (0.5, 0.5)
+        }
+        fn is_done(&self) -> bool {
+            self.left == 0
+        }
+    }
+    let fx = PostFx {
+        postgain: 0.5,
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(Finite { left: 3 }), fx, 44100.0);
+    assert!(!v.is_done(), "a live voice is not done");
+    for _ in 0..3 {
+        v.tick();
+    }
+    assert!(
+        v.is_done(),
+        "the wrapper should report the inner voice's end"
+    );
+
+    // `set_bus_input` reaches the inner voice: a bus reader is silent until the
+    // bus it names carries something.
+    let bus_voice = |feed: bool| {
+        let inner = Box::new(BusVoice::new(
+            BusParams {
+                bus: 2,
+                adsr: Adsr {
+                    attack: 0.0001,
+                    decay: 0.0001,
+                    sustain: 1.0,
+                    release: 0.01,
+                },
+                duration: 10.0,
+                gain: 1.0,
+                pan: 0.5,
+                filters: Default::default(),
+            },
+            44100.0,
+        ));
+        let mut v = PostFxVoice::new(inner, PostFx::default(), 44100.0);
+        let signal: Vec<f32> = (0..256)
+            .map(|i| (i as f32 * TAU * 220.0 / 44100.0).sin())
+            .collect();
+        if feed {
+            v.set_bus_input(2, &signal, &signal);
+        }
+        (0..256).fold(0.0f32, |m, _| m.max(v.tick().0.abs()))
+    };
+    assert!(
+        bus_voice(true) > 1e-3,
+        "a fed bus should reach the wrapped reader"
+    );
+    assert!(bus_voice(false) < 1e-9, "an unfed bus stays silent");
+}
+
+#[test]
+fn the_phaser_lfo_sweeps_symmetrically_up_and_back() {
+    // The sweep is driven by a *triangle* LFO, so the notch passes the center
+    // frequency twice per cycle — a quarter and three quarters of the way
+    // through — and the two passes look the same. A ramp, or a second half that
+    // climbs instead of falling, would attenuate at one and not the other.
+    struct SineSource {
+        phase: f32,
+        inc: f32,
+    }
+    impl VoiceLike for SineSource {
+        fn tick(&mut self) -> (f32, f32) {
+            let s = (self.phase * std::f32::consts::TAU).sin();
+            self.phase = (self.phase + self.inc).fract();
+            (s, s)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+    }
+    let sr = 44100.0;
+    let mut v = PostFxVoice::new(
+        Box::new(SineSource {
+            phase: 0.0,
+            inc: 1282.0 / sr, // the notch center: phasercenter + 282
+        }),
+        PostFx {
+            phaser: Some(1.0), // one full sweep per second
+            phaserdepth: 0.5,
+            phasercenter: 1000.0,
+            phasersweep: 1200.0, // ±1 octave, so the notch clears the tone
+            ..Default::default()
+        },
+        sr,
+    );
+    let out: Vec<f32> = (0..sr as usize).map(|_| v.tick().0).collect();
+    // Mean level over 50ms centred on a given point of the cycle.
+    let at = |t: f32| {
+        let mid = (t * sr) as usize;
+        let w = &out[mid - 1102..mid + 1103];
+        w.iter().map(|x| x.abs()).sum::<f32>() / w.len() as f32
+    };
+    let (quarter, three_quarters) = (at(0.25), at(0.75));
+    let away = at(0.5).max(at(0.95));
+    assert!(
+        quarter < away * 0.6 && three_quarters < away * 0.6,
+        "the notch should cross the tone at both quarter points: \
+         {quarter:.4} / {three_quarters:.4} against {away:.4} off-notch"
+    );
+    let ratio = quarter / three_quarters.max(1e-9);
+    assert!(
+        (0.6..1.7).contains(&ratio),
+        "the two crossings should look alike, ratio {ratio:.3} \
+         ({quarter:.4} vs {three_quarters:.4})"
+    );
+}
+
+#[test]
+fn the_compressor_soft_knee_bends_the_curve_around_the_threshold() {
+    // With `knee` set, the gain curve is a quadratic bend across a band centred
+    // on the threshold rather than a corner at it: below the band the signal is
+    // untouched, inside it the reduction eases in, above it the plain ratio
+    // applies. Each of the three regions is checked against the curve itself.
+    let settled = |amp: f32| {
+        let fx = PostFx {
+            compressor: Some(-20.0),
+            comp_ratio: 4.0,
+            comp_knee: 12.0, // the bend spans -26 dB .. -14 dB
+            comp_attack: 0.001,
+            comp_release: 0.001,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(amp)), fx, 44100.0);
+        let mut last = 0.0f32;
+        for _ in 0..44100 {
+            last = v.tick().0.abs();
+        }
+        last / amp // the settled gain
+    };
+    let db = |x: f32| 20.0 * x.log10();
+
+    // Below the knee (-30 dB, 4 dB under the band): no reduction at all.
+    let below = settled(10f32.powf(-30.0 / 20.0));
+    assert!(
+        (below - 1.0).abs() < 1e-3,
+        "under the knee the signal should pass intact, gain {below}"
+    );
+
+    // Inside the knee, 3 dB above the threshold (-17 dB in):
+    //   out = in + (1/ratio - 1)(over + knee/2)^2 / (2 knee)
+    //       = -17 + (-0.75)(9)^2/24 = -19.53 dB, i.e. -2.53 dB of reduction.
+    let inside = db(settled(10f32.powf(-17.0 / 20.0)));
+    assert!(
+        (inside + 2.531).abs() < 0.1,
+        "inside the knee the reduction should follow the quadratic: {inside} dB"
+    );
+
+    // Above the knee (-10 dB in, 10 dB over): the straight ratio line,
+    //   out = threshold + over/ratio = -20 + 2.5 = -17.5 dB, i.e. -7.5 dB.
+    let above = db(settled(10f32.powf(-10.0 / 20.0)));
+    assert!(
+        (above + 7.5).abs() < 0.1,
+        "above the knee the plain ratio should apply: {above} dB"
+    );
+}
+
+#[test]
+fn post_fx_controls_are_read_off_the_control_map() {
+    // Every post-fx control arrives as a key on the hap's map; a chain built
+    // from defaults regardless would silently ignore the whole family.
+    let map: ValueMap = [
+        ("crush".to_string(), Value::F64(6.0)),
+        ("shape".to_string(), Value::F64(0.3)),
+        ("shapevol".to_string(), Value::F64(0.7)),
+        ("postgain".to_string(), Value::F64(0.4)),
+        ("tremolo".to_string(), Value::F64(3.0)),
+        ("vowel".to_string(), Value::Str("e".into())),
+        ("distorttype".to_string(), Value::Str("hard".into())),
+        ("compressor".to_string(), Value::F64(-18.0)),
+    ]
+    .into_iter()
+    .collect();
+    let fx = PostFx::from_controls(&map);
+    assert_eq!(fx.crush, Some(6.0));
+    assert_eq!(fx.shape, Some(0.3));
+    assert_eq!(fx.shapevol, 0.7);
+    assert_eq!(fx.postgain, 0.4);
+    assert_eq!(fx.tremolo, Some(3.0));
+    assert_eq!(fx.vowel, Some(Vowel::E));
+    assert_eq!(fx.distort_alg, DistortAlgo::Hard);
+    assert_eq!(fx.compressor, Some(-18.0));
+    // Unmentioned controls keep their documented defaults rather than picking
+    // up a neighbour's value.
+    assert_eq!(fx.distortvol, 1.0);
+    assert_eq!(fx.phaserdepth, 0.75);
+    assert!(fx.is_active());
+    assert!(!PostFx::from_controls(&ValueMap::default()).is_active());
+}
+
 #[test]
 fn process_block_matches_tick_for_memoryless_fx() {
     // The vectorized `process_block` fast path must be sample-for-sample
@@ -462,16 +856,22 @@ fn process_block_matches_tick_for_memoryless_fx() {
     // builds its coefficients separately from the per-sample path, and the two
     // copies of the mapping did not agree at the bound.
     let cases = [
+        // The waveshapers' own post-gains are held away from 1.0 on purpose: at
+        // unity a gain applied the wrong way round is indistinguishable from one
+        // applied the right way round.
         PostFx {
             crush: Some(8.0),
             shape: Some(0.4),
+            shapevol: 0.6,
             distort: Some(0.5),
+            distortvol: 0.7,
             tremolo: Some(5.0),
             postgain: 0.8,
             ..Default::default()
         },
         PostFx {
             shape: Some(1.0),
+            shapevol: 0.35,
             postgain: 0.9,
             ..Default::default()
         },

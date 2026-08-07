@@ -448,6 +448,136 @@ mod tests {
         )
     }
 
+    fn change(pos: usize, delete_len: usize, insert: &str) -> CharChange {
+        CharChange {
+            pos: CharIndex(pos),
+            delete_len,
+            insert: insert.to_string(),
+        }
+    }
+
+    #[test]
+    fn an_index_moves_with_the_edits_before_it() {
+        // Keeping the caret where the user left it across a re-format: an edit
+        // ahead of the caret shifts it, an edit behind it does not, and an edit
+        // *over* it collapses it to the end of the replacement.
+        let edits = [change(2, 3, "xy")];
+        let map = |i: usize| map_index_after_changes(CharIndex(i), &edits, true).0;
+        assert_eq!(map(0), 0, "before the edit, unmoved");
+        assert_eq!(map(2), 4, "at its start, pushed past the insertion");
+        assert_eq!(map(5), 4, "inside the deleted run, collapsed to the end");
+        assert_eq!(map(7), 6, "after it, shifted by the net -1");
+    }
+
+    #[test]
+    fn indices_accumulate_across_several_edits() {
+        // The running delta from earlier edits has to be carried into the
+        // collapse position, not just into the plain shift.
+        let edits = [change(0, 1, ""), change(4, 2, "zz")];
+        let map = |i: usize| map_index_after_changes(CharIndex(i), &edits, true).0;
+        assert_eq!(map(5), 5, "inside the second edit, offset by the first");
+        assert_eq!(map(8), 7, "past both, shifted by their net -1");
+    }
+
+    #[test]
+    fn an_insertion_at_the_caret_can_be_left_behind() {
+        // `include_insert_at_index` decides whether text inserted exactly at
+        // the caret pushes it along or is typed in front of it — but only for
+        // an insertion *at* the caret. One earlier in the buffer still moves it
+        // either way.
+        let at_caret = [change(2, 0, "ab")];
+        assert_eq!(
+            map_index_after_changes(CharIndex(2), &at_caret, true).0,
+            4,
+            "opted in: the caret follows the insertion"
+        );
+        assert_eq!(
+            map_index_after_changes(CharIndex(2), &at_caret, false).0,
+            2,
+            "opted out: the caret stays put"
+        );
+        assert_eq!(
+            map_index_after_changes(CharIndex(7), &at_caret, false).0,
+            9,
+            "an insertion before the caret always moves it"
+        );
+    }
+
+    #[test]
+    fn every_opening_bracket_and_quote_gets_its_partner() {
+        // The closer is inserted after the caret, which stays between the two.
+        for (open, close) in [('(', ')'), ('[', ']'), ('{', '}')] {
+            let mut text = open.to_string();
+            let moved = apply_auto_pair(&mut text, cursor(1), &open.to_string());
+            assert_eq!(text, format!("{open}{close}"), "typing {open}");
+            assert_eq!(moved.unwrap().primary.index, CharIndex(1));
+        }
+        for quote in ['"', '\'', '`'] {
+            let mut text = quote.to_string();
+            apply_auto_pair(&mut text, cursor(1), &quote.to_string());
+            assert_eq!(text, format!("{quote}{quote}"), "typing {quote}");
+        }
+    }
+
+    #[test]
+    fn typing_a_closer_over_its_own_pair_steps_through_it() {
+        // Typing `)` where a `)` already sits removes the duplicate and moves
+        // past it, rather than stacking a second one.
+        let mut text = "())".to_string();
+        let moved = apply_auto_pair(&mut text, cursor(2), ")");
+        assert_eq!(text, "()", "the just-typed closer is dropped");
+        assert_eq!(
+            moved.unwrap().primary.index,
+            CharIndex(2),
+            "and the caret lands past the one that was already there"
+        );
+
+        // An *opener* facing a copy of itself is not a step-through: it still
+        // gets a partner.
+        let mut text = "((".to_string();
+        apply_auto_pair(&mut text, cursor(1), "(");
+        assert_eq!(text, "()(", "an opener always pairs");
+    }
+
+    #[test]
+    fn auto_pairing_needs_the_typed_char_to_be_there() {
+        // The handler runs after the character has landed, so at the very start
+        // of the buffer there is nothing behind the caret to match.
+        let mut text = "()".to_string();
+        assert!(apply_auto_pair(&mut text, cursor(0), "(").is_none());
+        assert_eq!(text, "()", "and nothing is inserted");
+        // Nor when the character behind the caret is something else.
+        assert!(apply_auto_pair(&mut text, cursor(1), "[").is_none());
+    }
+
+    #[test]
+    fn a_selection_covers_the_lines_it_touches() {
+        // Line-wise commands work on whole lines; a selection ending exactly at
+        // the start of the next line must not drag that line in, or commenting
+        // a block would comment one line too many.
+        let text = "one\ntwo\nthree";
+        let starts = |range| {
+            selected_line_starts(text, range)
+                .into_iter()
+                .map(|c| c.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            starts(cursor(0)),
+            vec![0],
+            "a bare caret takes its own line"
+        );
+        assert_eq!(starts(cursor(5)), vec![4], "...wherever it sits on it");
+        assert_eq!(starts(selection(0, 5)), vec![0, 4], "spanning two lines");
+        assert_eq!(
+            starts(selection(0, 4)),
+            vec![0],
+            "ending just past the newline stays on the first line"
+        );
+        assert_eq!(starts(selection(0, 13)), vec![0, 4, 8], "the whole buffer");
+        assert_eq!(starts(selection(5, 9)), vec![4, 8], "starting mid-line");
+    }
+
     #[test]
     fn jump_moves_between_dollar_markers() {
         let text = "$: s(\"bd\")\n$: s(\"hh\")";

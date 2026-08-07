@@ -241,6 +241,118 @@ mod tests {
     }
 
     #[test]
+    fn a_slider_sits_in_the_gap_before_its_literal() {
+        // The layouter opens a `SLIDER_WIDTH + 2·SLIDER_PAD` gap just before the
+        // literal; the slider has to land *in* that gap, vertically centred on
+        // the row, and follow the literal onto later lines.
+        let ctx = egui::Context::default();
+        // Fonts exist only after a pass has run, and the pass hands back a
+        // texture delta that panics on drop if nothing consumes it.
+        let mut first_pass = ctx.run_ui(Default::default(), |_| {});
+        first_pass.textures_delta.clear();
+        let code = "slider(0.5)\nslider(0.25)";
+        let galley = ctx.fonts_mut(|fonts| {
+            fonts.layout(
+                code.to_string(),
+                egui::FontId::monospace(14.0),
+                egui::Color32::WHITE,
+                f32::INFINITY,
+            )
+        });
+        let galley_pos = egui::pos2(30.0, 12.0);
+        let literal_at = |from: usize| {
+            let char_index = char_index_at_byte(code, egui::text::ByteIndex(from));
+            galley.pos_from_cursor(egui::text::CCursor::new(char_index))
+        };
+
+        // A tall row centres the slider in it; a row shorter than the slider
+        // pins it to the top of the row instead of letting it drift upwards.
+        for row_height in [SLIDER_HEIGHT * 2.0, SLIDER_HEIGHT * 0.5] {
+            let layout = SliderLayout {
+                galley: &galley,
+                galley_pos,
+                base_row_height: row_height,
+            };
+            for from in [7usize, 19] {
+                let rect = slider_rect(layout, code, SourceRange::new(from, from + 3));
+                let literal = literal_at(from);
+                assert_eq!(
+                    rect.size(),
+                    egui::vec2(SLIDER_WIDTH, SLIDER_HEIGHT),
+                    "byte {from}"
+                );
+                // Its right edge stops one pad short of the literal, so the
+                // value stays readable beside the control, not under it.
+                assert!(
+                    (rect.right() - (galley_pos.x + literal.min.x - SLIDER_PAD)).abs() < 1e-3,
+                    "byte {from}: right edge {} should be a pad before the literal at {}",
+                    rect.right(),
+                    galley_pos.x + literal.min.x
+                );
+                let row_top = galley_pos.y + literal.min.y;
+                let want_top = row_top + (row_height - SLIDER_HEIGHT).max(0.0) * 0.5;
+                assert!(
+                    (rect.top() - want_top).abs() < 1e-3,
+                    "byte {from} at row height {row_height}: top {} should be {want_top}",
+                    rect.top()
+                );
+                assert!(
+                    rect.top() >= row_top,
+                    "the slider never rides above its row"
+                );
+            }
+        }
+
+        // The second literal really is on a later row, so those loops compared
+        // two different positions rather than the same one twice.
+        assert!(literal_at(19).min.y > literal_at(7).min.y);
+    }
+
+    #[test]
+    fn slider_bounds_default_to_the_unit_range() {
+        let mut s = slider(SourceRange::new(7, 10));
+        assert_eq!(slider_bounds(&s), (0.0, 1.0));
+        (s.min, s.max) = (Some(2.0), Some(8.0));
+        assert_eq!(slider_bounds(&s), (2.0, 8.0));
+        s.min = None;
+        assert_eq!(slider_bounds(&s), (0.0, 8.0));
+    }
+
+    #[test]
+    fn an_unusable_step_falls_back_to_a_thousandth_of_the_range() {
+        let mut s = slider(SourceRange::new(7, 10));
+        assert_eq!(slider_step(&s, 0.0, 1.0), 0.01, "a usable step is kept");
+        // A step that cannot move the slider — absent, zero, negative or not a
+        // number — is replaced by a thousandth of the range, never by the range
+        // itself and never by something that would step backwards.
+        for bad in [
+            None,
+            Some(0.0),
+            Some(-0.5),
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+        ] {
+            s.step = bad;
+            assert_eq!(
+                slider_step(&s, 1.0, 3.0),
+                0.002,
+                "step {bad:?} should fall back to (max - min) / 1000"
+            );
+        }
+    }
+
+    #[test]
+    fn decimal_places_counts_the_digits_a_step_needs() {
+        assert_eq!(decimal_places(1.0), 0);
+        assert_eq!(decimal_places(0.5), 1);
+        assert_eq!(decimal_places(0.01), 2);
+        assert_eq!(decimal_places(-0.001), 3, "the sign does not count");
+        assert_eq!(decimal_places(2.25), 2, "the whole part does not count");
+        assert_eq!(decimal_places(1.0 / 3.0), 12, "capped at twelve");
+        assert_eq!(decimal_places(1e-15), 0, "below the 1e-9 floor is whole");
+    }
+
+    #[test]
     fn slider_literal_formatting_matches_range_input_style() {
         assert_eq!(format_slider_literal(0.7, 0.01), "0.7");
         assert_eq!(format_slider_literal(0.125, 0.001), "0.125");
