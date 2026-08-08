@@ -898,6 +898,20 @@ fn scheduler_window_snaps_to_current_when_cursor_is_stale() {
 }
 
 #[test]
+fn scheduler_window_rejects_empty_and_non_finite_windows() {
+    // An exactly-empty window schedules nothing: `[begin, target)` with
+    // begin == target would query a zero-width span every 20ms forever.
+    assert!(next_schedule_window(5.05, 5.0, 5.05).is_none());
+    // A cps of 0 or a clock that has gone non-finite must not reach the
+    // pattern query — `collect_events_at` over a NaN span yields nothing
+    // useful and an infinite one would try to enumerate every cycle.
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert!(next_schedule_window(5.0, bad, 5.05).is_none(), "current {bad}");
+        assert!(next_schedule_window(5.0, 5.0, bad).is_none(), "target {bad}");
+    }
+}
+
+#[test]
 fn scheduler_window_waits_when_cursor_is_ahead_of_the_window() {
     // A cursor past the window (e.g. a cps drop shrank the lookahead) must
     // not re-schedule already-covered cycles — the window is empty.

@@ -522,3 +522,51 @@ impl VoiceFilter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `has_env` decides whether a filter runs its cutoff envelope at all, so
+    /// *any* of the five envelope controls on its own has to turn it on —
+    /// superdough lets `lpattack` alone imply an envelope.
+    #[test]
+    fn any_single_envelope_control_arms_the_filter_envelope() {
+        assert!(!FilterParams::default().has_env());
+
+        type Arm = (&'static str, fn(&mut FilterParams));
+        let each: [Arm; 5] = [
+            ("env", |p| p.env = Some(2.0)),
+            ("attack", |p| p.attack = Some(0.1)),
+            ("decay", |p| p.decay = Some(0.1)),
+            ("sustain", |p| p.sustain = Some(0.5)),
+            ("release", |p| p.release = Some(0.1)),
+        ];
+        for (name, set) in each {
+            let mut p = FilterParams::default();
+            set(&mut p);
+            assert!(p.has_env(), "{name} alone should arm the envelope");
+        }
+    }
+
+    /// The RBJ coefficients go unstable as the cutoff approaches Nyquist, so
+    /// `update` clamps it to 0.45x the sample rate. Everything above that has
+    /// to behave identically to the clamp itself.
+    #[test]
+    fn the_cutoff_is_clamped_below_nyquist() {
+        let sr = 44100.0;
+        let run = |freq: f32| -> Vec<f32> {
+            let mut f = Biquad::lowpass(sr, freq, 0.707);
+            (0..64).map(|i| f.process((i as f32 * 0.3).sin())).collect()
+        };
+        let at_limit = run(sr * 0.45);
+        for above in [sr * 0.5, sr, sr * 4.0] {
+            assert_eq!(run(above), at_limit, "cutoff {above} should clamp");
+        }
+        // Below the limit the cutoff still does something.
+        assert_ne!(run(1000.0), at_limit);
+        // And it is clamped from below too, so a zero cutoff is not a divide
+        // by zero or a silent filter.
+        assert_eq!(run(0.0), run(20.0));
+    }
+}

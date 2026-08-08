@@ -372,3 +372,131 @@ mod tests {
         assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
     }
 }
+
+#[cfg(test)]
+mod step_alignment_tests {
+    use super::*;
+    use crate::pattern::{stack_centre, stack_left};
+
+    fn onsets(pat: &Pattern) -> Vec<(Frac, Frac, Value)> {
+        let mut haps: Vec<_> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| (h.part.begin, h.part.end, h.value))
+            .collect();
+        haps.sort_by_key(|(b, e, _)| (*b, *e));
+        haps
+    }
+
+    /// `compress` needs `0 <= b <= e <= 1`; anything else would divide by a
+    /// zero or negative span, so it yields silence instead.
+    #[test]
+    fn compress_rejects_spans_outside_the_cycle() {
+        let f = Frac::new;
+        for (b, e) in [
+            (f(3, 2), f(2, 1)), // b past the cycle
+            (f(1, 5), f(3, 2)), // e past the cycle
+            (f(-1, 5), f(1, 2)), // b before it
+            (f(3, 5), f(2, 5)), // reversed
+        ] {
+            assert!(
+                onsets(&seq([1, 2])._compress(b, e)).is_empty(),
+                "compress({b}, {e}) should be silence"
+            );
+        }
+        // A span inside the cycle still squeezes both events into it.
+        assert_eq!(onsets(&seq([1, 2])._compress(f(1, 4), f(3, 4))).len(), 2);
+    }
+
+    /// `ply` multiplies the step count, since each step becomes `factor` steps.
+    #[test]
+    fn ply_multiplies_the_step_count() {
+        assert_eq!(seq([1, 2])._ply(Frac::int(3)).steps, Some(Frac::int(6)));
+    }
+
+    /// `stackLeft`/`stackCentre` pad the *shorter* patterns up to the longest
+    /// step count — taking the minimum instead would truncate the longer one,
+    /// and skipping the padding would stretch the shorter one over the cycle.
+    #[test]
+    fn stacking_pads_short_patterns_to_the_longest_step_count() {
+        let short = seq([1]);
+        let long = seq([2, 3, 4]);
+        let f = Frac::new;
+
+        let left = stack_left(&[short.clone(), long.clone()]);
+        assert_eq!(left.steps, Some(Frac::int(3)));
+        assert_eq!(
+            onsets(&left),
+            vec![
+                (f(0, 1), f(1, 3), Value::Int(1)),
+                (f(0, 1), f(1, 3), Value::Int(2)),
+                (f(1, 3), f(2, 3), Value::Int(3)),
+                (f(2, 3), f(1, 1), Value::Int(4)),
+            ],
+            "the 1-step pattern keeps one step and gets trailing gaps"
+        );
+
+        // Centred, the two gap steps are split evenly either side, so the lone
+        // event lands in the middle step rather than at an edge.
+        let centre = stack_centre(&[short, long]);
+        assert_eq!(centre.steps, Some(Frac::int(3)));
+        assert_eq!(
+            onsets(&centre)
+                .into_iter()
+                .filter(|(_, _, v)| *v == Value::Int(1))
+                .collect::<Vec<_>>(),
+            vec![(f(1, 3), f(2, 3), Value::Int(1))]
+        );
+    }
+
+    /// `parray` curries one packer per input, so the count it is built with has
+    /// to shrink by exactly one per applied pattern — off by one and the list
+    /// closes early (a `Func` leaks into the output) or never closes at all.
+    #[test]
+    fn parray_packs_one_value_per_pattern() {
+        use crate::pattern::parray;
+        let pat = parray(&[pure(Value::Int(1)), pure(Value::Int(2)), pure(Value::Int(3))]);
+        assert_eq!(
+            onsets(&pat),
+            vec![(
+                Frac::int(0),
+                Frac::int(1),
+                Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+            )]
+        );
+        // One input still yields a one-element list, not the bare value.
+        assert_eq!(
+            onsets(&parray(&[pure(Value::Int(1))])),
+            vec![(Frac::int(0), Frac::int(1), Value::List(vec![Value::Int(1)]))]
+        );
+        // No inputs: a constant empty list, not silence.
+        assert_eq!(
+            onsets(&parray(&[])),
+            vec![(Frac::int(0), Frac::int(1), Value::List(Vec::new()))]
+        );
+    }
+
+    /// `tag` marks a pattern for an editor widget; re-tagging must not stack
+    /// duplicates, since the widget list is keyed by it.
+    #[test]
+    fn tag_does_not_repeat_itself() {
+        let tagged = pure(Value::Int(1)).tag("scope").tag("scope").tag("spiral");
+        let haps = tagged.query_arc(Frac::zero(), Frac::one());
+        assert_eq!(haps[0].context.tags, vec!["scope", "spiral"]);
+    }
+
+    /// `pace` rescales to a step count; a zero-step pattern would divide by
+    /// zero, so it becomes silence instead.
+    #[test]
+    fn pace_rescales_steps_and_guards_the_zero_case() {
+        assert_eq!(seq([1, 2]).pace(Frac::int(4)).steps, Some(Frac::int(4)));
+        // No step count at all: unchanged.
+        let stepless = seq([1, 2]).set_steps(None);
+        assert_eq!(stepless.pace(Frac::int(4)).steps, None);
+        assert_eq!(onsets(&stepless.pace(Frac::int(4))), onsets(&stepless));
+        // Zero steps: silence rather than a division by zero.
+        let zero = seq([1, 2]).set_steps(Some(Frac::zero()));
+        assert!(onsets(&zero.pace(Frac::int(4))).is_empty());
+    }
+}
+

@@ -111,6 +111,187 @@ fn lenient_decoder_handles_stereo_float32() {
     assert!(s.data.iter().all(|&x| x.abs() < 1e-6));
 }
 
+/// Build a WAV around a raw data payload. `fmt_extra` extends the fmt chunk
+/// (so a WAVE_FORMAT_EXTENSIBLE sub-format GUID can be supplied) and `junk`
+/// puts an odd-sized chunk before it, which the chunk walker must word-align
+/// past to find `fmt ` at all.
+fn wav(
+    tag: u16,
+    bits: u16,
+    channels: u16,
+    rate: u32,
+    data: &[u8],
+    fmt_extra: &[u8],
+    junk: bool,
+) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend(b"RIFF");
+    let riff_size = 4 + 8 + 16 + fmt_extra.len() + 8 + data.len() + if junk { 12 } else { 0 };
+    b.extend((riff_size as u32).to_le_bytes());
+    b.extend(b"WAVE");
+    if junk {
+        b.extend(b"JUNK");
+        b.extend(3u32.to_le_bytes());
+        b.extend([0xAA, 0xBB, 0xCC]);
+        b.push(0); // pad to a word boundary
+    }
+    let block = channels * bits / 8;
+    b.extend(b"fmt ");
+    b.extend((16u32 + fmt_extra.len() as u32).to_le_bytes());
+    b.extend(tag.to_le_bytes());
+    b.extend(channels.to_le_bytes());
+    b.extend(rate.to_le_bytes());
+    b.extend((rate * block as u32).to_le_bytes());
+    b.extend(block.to_le_bytes());
+    b.extend(bits.to_le_bytes());
+    b.extend(fmt_extra);
+    b.extend(b"data");
+    b.extend((data.len() as u32).to_le_bytes());
+    b.extend(data);
+    b
+}
+
+/// Every PCM/float width the lenient reader claims to handle, decoded to exact
+/// values. Old sample packs really do ship all of these, and a wrong shift or
+/// divisor here is silently a quieter or louder sample rather than an error.
+#[test]
+fn lenient_decoder_scales_every_supported_sample_width() {
+    let half = |s: &Sample| s.data[1];
+    // 8-bit PCM is unsigned, biased by 128.
+    let eight = decode_wav_lenient(&wav(1, 8, 1, 22050, &[0, 192, 255], &[], false)).unwrap();
+    assert_eq!(eight.sample_rate, 22050.0);
+    assert_eq!(eight.data, vec![-1.0, 0.5, 127.0 / 128.0]);
+
+    // The rest are signed, so half-scale is the telling value: a wrong divisor
+    // or shift moves it, where 0.0 and full-scale would not.
+    let s16 = decode_wav_lenient(&wav(1, 16, 1, 44100, &[0, 0, 0, 0x40], &[], false)).unwrap();
+    assert_eq!(half(&s16), 0.5);
+
+    let s24 = decode_wav_lenient(&wav(1, 24, 1, 44100, &[0, 0, 0, 0, 0, 0x40], &[], false)).unwrap();
+    assert_eq!(half(&s24), 0.5);
+
+    let s32 = decode_wav_lenient(&wav(1, 32, 1, 44100, [0; 4].as_slice(), &[], false)).unwrap();
+    assert_eq!(s32.data, vec![0.0]);
+    let mut d = vec![0u8; 4];
+    d.extend(0x4000_0000i32.to_le_bytes());
+    let s32 = decode_wav_lenient(&wav(1, 32, 1, 44100, &d, &[], false)).unwrap();
+    assert_eq!(half(&s32), 0.5);
+
+    let mut f32d = 0.0f32.to_le_bytes().to_vec();
+    f32d.extend(0.25f32.to_le_bytes());
+    assert_eq!(
+        half(&decode_wav_lenient(&wav(3, 32, 1, 44100, &f32d, &[], false)).unwrap()),
+        0.25
+    );
+    let mut f64d = 0.0f64.to_le_bytes().to_vec();
+    f64d.extend(0.75f64.to_le_bytes());
+    assert_eq!(
+        half(&decode_wav_lenient(&wav(3, 64, 1, 44100, &f64d, &[], false)).unwrap()),
+        0.75
+    );
+
+    // An unsupported width is an error, not silence.
+    assert!(decode_wav_lenient(&wav(1, 12, 1, 44100, &[0; 4], &[], false)).is_err());
+    // A fmt chunk too short to hold a format (`body.len() >= 16`) is skipped,
+    // so the file reads as having no fmt chunk rather than panicking on it.
+    let mut stub = b"RIFF".to_vec();
+    stub.extend(0u32.to_le_bytes());
+    stub.extend(b"WAVE");
+    stub.extend(b"fmt ");
+    stub.extend(8u32.to_le_bytes());
+    stub.extend([0u8; 8]);
+    assert!(decode_wav_lenient(&stub).is_err());
+}
+
+/// The chunk walker has to skip unknown chunks with word alignment, and read
+/// WAVE_FORMAT_EXTENSIBLE's real format out of the sub-format GUID.
+#[test]
+fn lenient_decoder_walks_odd_chunks_and_unwraps_extensible() {
+    // 22 bytes of extension: cbSize, validBits, channelMask, then a GUID whose
+    // first word is the real format tag (1 = PCM).
+    let mut ext = Vec::new();
+    ext.extend(22u16.to_le_bytes());
+    ext.extend(16u16.to_le_bytes());
+    ext.extend(3u32.to_le_bytes());
+    ext.extend(1u16.to_le_bytes()); // sub-format tag
+    ext.extend([0u8; 14]);
+
+    let s = decode_wav_lenient(&wav(0xFFFE, 16, 1, 44100, &[0, 0x40], &ext, true)).unwrap();
+    assert_eq!(s.data, vec![0.5]);
+    // Without the GUID lookup 0xFFFE is not a format the decoder knows.
+    assert!(decode_wav_lenient(&wav(0xFFFE, 16, 1, 44100, &[0, 0x40], &[], false)).is_err());
+}
+
+/// Channels are averaged, not summed — and the two sides must differ, or a
+/// wrong divisor is invisible.
+#[test]
+fn lenient_decoder_averages_asymmetric_channels() {
+    let mut d = Vec::new();
+    for (l, r) in [(1.0f32, 0.0f32), (0.5, 0.25)] {
+        d.extend(l.to_le_bytes());
+        d.extend(r.to_le_bytes());
+    }
+    let s = decode_wav_lenient(&wav(3, 32, 2, 44100, &d, &[], false)).unwrap();
+    assert_eq!(s.data, vec![0.5, 0.375]);
+}
+
+/// A chunk body is bounded by its declared size, not by the rest of the file:
+/// a `data` chunk followed by anything else must not swallow it.
+#[test]
+fn lenient_decoder_stops_a_chunk_at_its_declared_size() {
+    let mut d = Vec::new();
+    for v in [0.0f32, 0.5] {
+        d.extend(v.to_le_bytes());
+    }
+    let mut b = wav(3, 32, 1, 44100, &d, &[], false);
+    // A trailing chunk after `data` — real files carry `LIST`/`id3 ` here.
+    b.extend(b"LIST");
+    b.extend(16u32.to_le_bytes());
+    b.extend([0x7Fu8; 16]);
+
+    let s = decode_wav_lenient(&b).unwrap();
+    assert_eq!(s.data, vec![0.0, 0.5], "the trailing chunk is not audio");
+}
+
+/// The symphonia path averages channels too, and it is the one nearly every
+/// real sample takes — so it needs its own asymmetric-stereo check.
+#[test]
+fn the_normal_decode_path_averages_channels() {
+    // Standard 16-bit stereo PCM: symphonia accepts this, so `wave_to_sample`
+    // does the mixdown rather than the lenient fallback.
+    let frames = [(1.0f32, 0.0f32), (0.5, 0.0), (0.25, 0.25)];
+    let mut d = Vec::new();
+    for (l, r) in frames {
+        d.extend(((l * 32767.0) as i16).to_le_bytes());
+        d.extend(((r * 32767.0) as i16).to_le_bytes());
+    }
+    let s = decode_sample_bytes(wav(1, 16, 2, 44100, &d, &[], false)).expect("decodes");
+    assert_eq!(s.sample_rate, 44100.0);
+    assert_eq!(s.data.len(), 3);
+    for (got, want) in s.data.iter().zip([0.5f32, 0.25, 0.25]) {
+        assert!((got - want).abs() < 1e-3, "{got} != {want}");
+    }
+}
+
+/// The lenient fallback is only for things that really are WAVs; anything else
+/// keeps symphonia's own error rather than adding a confusing second one.
+#[test]
+fn only_riff_wave_bytes_fall_back_to_the_lenient_decoder() {
+    let Err(err) = decode_sample_bytes(b"not audio at all".to_vec()) else {
+        panic!("garbage should not decode")
+    };
+    assert!(!err.contains("lenient wav"), "{err}");
+    // RIFF, but not a WAVE: still not ours.
+    let mut riff_avi = b"RIFF".to_vec();
+    riff_avi.extend(0u32.to_le_bytes());
+    riff_avi.extend(b"AVI ");
+    riff_avi.extend([0u8; 32]);
+    let Err(err) = decode_sample_bytes(riff_avi) else {
+        panic!("a RIFF/AVI container should not decode")
+    };
+    assert!(!err.contains("lenient wav"), "{err}");
+}
+
 #[test]
 fn load_sample_map_reads_local_files() {
     // A strudel.json-style map whose files live in a local base directory.

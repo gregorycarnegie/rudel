@@ -21,7 +21,13 @@ const SUPER_LANES: usize = 8;
 pub(crate) fn rand_phase() -> f32 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEED: AtomicU32 = AtomicU32::new(0x9E37_79B9);
-    let mut x = SEED.fetch_add(0x6D2B_79F5, Ordering::Relaxed);
+    phase_hash(SEED.fetch_add(0x6D2B_79F5, Ordering::Relaxed))
+}
+
+/// The hash behind [`rand_phase`], split out so it can be pinned by value:
+/// `rand_phase` reads a process-wide counter, so what it returns depends on
+/// how many voices ran before it.
+pub(crate) fn phase_hash(mut x: u32) -> f32 {
     x ^= x >> 16;
     x = x.wrapping_mul(0x21F0_AAAD);
     x ^= x >> 15;

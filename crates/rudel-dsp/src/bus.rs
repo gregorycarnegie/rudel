@@ -584,4 +584,99 @@ mod tests {
             "high-pass side should pass 8kHz"
         );
     }
+
+    /// The mixer rebuilds its convolver whenever the reverb config changes, so
+    /// every field has to take part in the comparison — an `eq` that ignores
+    /// one leaves the old impulse response in place.
+    #[test]
+    fn reverb_configs_compare_on_every_field_and_ir_identity() {
+        let base = ReverbConfig::default();
+        assert_eq!(base, ReverbConfig::default());
+
+        type Vary = (&'static str, fn(&mut ReverbConfig));
+        let vary: [Vary; 6] = [
+            ("size", |c| c.size += 1.0),
+            ("fade", |c| c.fade += 1.0),
+            ("lp", |c| c.lp += 1.0),
+            ("dim", |c| c.dim += 1.0),
+            ("irspeed", |c| c.irspeed += 1.0),
+            ("irbegin", |c| c.irbegin += 1.0),
+        ];
+        for (name, change) in vary {
+            let mut other = base.clone();
+            change(&mut other);
+            assert_ne!(base, other, "{name} should make the configs differ");
+        }
+
+        // A loaded impulse response compares by `Arc` identity: the same
+        // sample is the same reverb, an equal-but-separate one is not.
+        let sample = || {
+            std::sync::Arc::new(crate::Sample {
+                data: vec![1.0, 0.0],
+                sample_rate: 44100.0,
+            })
+        };
+        let a = sample();
+        let with_ir = ReverbConfig {
+            ir: Some(a.clone()),
+            ..base.clone()
+        };
+        assert_eq!(
+            with_ir,
+            ReverbConfig {
+                ir: Some(a),
+                ..base.clone()
+            }
+        );
+        assert_ne!(
+            with_ir,
+            ReverbConfig {
+                ir: Some(sample()),
+                ..base.clone()
+            }
+        );
+        assert_ne!(with_ir, base);
+    }
+
+    /// `delaysync` is a fraction of a cycle, so the delay time it implies
+    /// depends on the tempo — and its default is superdough's 3/16.
+    #[test]
+    fn delaysync_converts_a_cycle_fraction_to_seconds() {
+        let send = |pairs: &[(&str, f64)], cps: f64| {
+            let mut m = ValueMap::new();
+            for (k, v) in pairs {
+                m.insert(k.to_string(), Value::F64(*v));
+            }
+            OrbitSend::from_controls(&m, cps).delay_cfg.time
+        };
+        // No delaytime, no delaysync: 3/16 of a cycle, at this tempo.
+        assert!((send(&[], 1.0) - 3.0 / 16.0).abs() < 1e-6);
+        assert!((send(&[], 0.5) - 3.0 / 8.0).abs() < 1e-6, "half cps, twice as long");
+        assert!((send(&[], 2.0) - 3.0 / 32.0).abs() < 1e-6);
+        // An explicit delaysync overrides the default.
+        assert!((send(&[("delaysync", 0.5)], 2.0) - 0.25).abs() < 1e-6);
+        // An explicit delaytime wins outright, tempo-independent.
+        assert!((send(&[("delaytime", 0.4), ("delaysync", 0.5)], 2.0) - 0.4).abs() < 1e-6);
+    }
+
+    /// The ladder's coefficient goes complex past Nyquist, so `TwoPole` clamps
+    /// the cutoff just below it — everything above behaves as that clamp.
+    #[test]
+    fn the_two_pole_cutoff_is_clamped_below_nyquist() {
+        let sr = 44100.0;
+        let run = |cutoff: f32| -> Vec<f32> {
+            let mut f = TwoPole { s0: 0.0, s1: 0.0 };
+            (0..64)
+                .map(|i| f.update((i as f32 * 0.3).sin(), sr, cutoff, 0.5))
+                .collect()
+        };
+        let at_limit = run(sr / 2.0 - 1.0);
+        for above in [sr / 2.0, sr, sr * 4.0] {
+            assert_eq!(run(above), at_limit, "cutoff {above} should clamp");
+        }
+        assert_ne!(run(1000.0), at_limit);
+        // Every output stays finite: an unclamped cutoff produces NaNs.
+        assert!(at_limit.iter().all(|x| x.is_finite()));
+    }
 }
+

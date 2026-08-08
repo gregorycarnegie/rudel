@@ -358,11 +358,17 @@ mod tests {
 
     #[test]
     fn convolves_against_a_direct_sum() {
-        // A short IR, so the reference direct convolution is cheap.
-        let ir_len = 300;
+        // Longer than one PARTITION, so the convolver actually has to walk its
+        // ring of input spectra — a single-partition IR makes every index in
+        // `run_block` collapse to 0 and hides the ring arithmetic.
+        let ir_len = PARTITION * 2 + 300;
         let ir = ImpulseResponse {
+            // The decay is slow on purpose: at `exp(-i/100)` everything past
+            // the first partition is below the tolerance, so the later
+            // partitions could be dropped entirely and the sum would still
+            // match.
             left: (0..ir_len)
-                .map(|i| (i as f32 * 0.37).sin() * (-(i as f32) / 100.0).exp())
+                .map(|i| (i as f32 * 0.37).sin() * (-(i as f32) / 2000.0).exp())
                 .collect(),
             right: (0..ir_len)
                 .map(|i| if i == 0 { 1.0 } else { 0.0 })
@@ -500,6 +506,27 @@ mod tests {
 
         // An empty source yields an empty IR rather than panicking.
         assert!(adjust_length(&[], &[], 10.0, 1.0, 1.0, 0.0).is_empty());
+        // ...and a non-empty one does not, so `is_empty` has to look.
+        assert!(!out.is_empty());
+    }
+
+    /// `speed < 1` negates the read position, so the IR is read backwards from
+    /// the end. The 1-based source matters: with a 0 at index 0, a mis-signed
+    /// index lands on the out-of-range 0.0 fallback and reads as correct.
+    #[test]
+    fn adjust_length_reads_backwards_below_unit_speed() {
+        let src: Vec<f32> = (1..=100).map(|i| i as f32).collect();
+        let out = adjust_length(&src, &src, 10.0, 1.0, 0.5, 0.0);
+        // position = -(floor(i * 0.5) % 100), then counted from the end.
+        let want: Vec<f32> = (0..10)
+            .map(|i: usize| {
+                let p = (i as f32 * 0.5) as i64;
+                if p == 0 { src[0] } else { src[100 - p as usize] }
+            })
+            .collect();
+        assert_eq!(out.left, want);
+        // At exactly unit speed it reads forwards instead.
+        assert_eq!(adjust_length(&src, &src, 10.0, 1.0, 1.0, 0.0).left[1], 2.0);
     }
 
     #[test]
@@ -527,6 +554,15 @@ mod tests {
         let power = (sum / (2 * n) as f64).sqrt();
         let want = ((1.0 / power) * 0.00125) as f32;
         assert!((scale - want).abs() < 1e-6, "{scale} != {want}");
+
+        // The calibration is quoted at 44.1kHz and scaled by 44100/sr, so the
+        // same IR at 48kHz comes out proportionally quieter. (At 44.1k that
+        // factor is exactly 1, which hides how it is applied.)
+        let at_48k = normalization_scale(&ir, 48000.0);
+        assert!(
+            (at_48k - scale * 44100.0 / 48000.0).abs() < 1e-6,
+            "{at_48k} is not {scale} scaled by 44100/48000"
+        );
 
         // The point of normalizing by RMS power: the wet level stays roughly
         // constant as the room size changes, so `size` alters the tail's length
@@ -589,5 +625,64 @@ mod tests {
         assert_eq!(a, b);
         // The two channels are decorrelated, so the reverb is stereo.
         assert_ne!(a.left, a.right);
+    }
+
+    /// The rest of the suite only checks the IR's *statistics* — decay ratio,
+    /// HF content, RMS scale — which any noise sequence satisfies. These
+    /// goldens pin the actual samples, so the xorshift's shifts and the
+    /// lowpass ramp's arithmetic cannot be rearranged unnoticed.
+    #[test]
+    fn the_generated_ir_matches_its_golden_samples() {
+        // The window is short and the tolerance loose enough for libm drift;
+        // any change to the noise or the ramp moves these by O(0.1).
+        let check = |ir: &ImpulseResponse, want: &[(usize, f32, f32)], what: &str| {
+            for &(i, l, r) in want {
+                assert!(
+                    (ir.left[i] - l).abs() < 1e-4 && (ir.right[i] - r).abs() < 1e-4,
+                    "{what}[{i}]: ({}, {}) != ({l}, {r})",
+                    ir.left[i],
+                    ir.right[i]
+                );
+            }
+        };
+        // No lowpass (`lp_start == 0` returns early), so this is the seeded
+        // noise times the decay envelope alone.
+        check(
+            &generate_reverb_ir(44100.0, 0.1, 0.0, 0.0, 0.0),
+            &[
+                (0, -0.366_812_94, 0.805_505_75),
+                (1, 0.750_237_9, -0.230_076_73),
+                (2, -0.033_295_233, -0.886_310_1),
+                (3, -0.983_536_96, 0.114_570_86),
+                (100, -0.726_035_83, -0.065_642_11),
+                (1000, 0.060_700_76, 0.058_782_28),
+            ],
+            "plain",
+        );
+        // The same noise through the 8k -> 1k cutoff ramp.
+        check(
+            &generate_reverb_ir(44100.0, 0.1, 0.0, 8000.0, 1000.0),
+            &[
+                (0, -0.073_428_094, 0.161_245),
+                (1, -0.038_910_106, 0.369_090_02),
+                (2, 0.225_365_19, 0.043_515_28),
+                (3, 0.084_338_2, -0.491_234_03),
+                (100, 0.021_385_923, 0.231_807_29),
+                (1000, 0.104_475_78, 0.130_161_69),
+            ],
+            "dark",
+        );
+    }
+
+    #[test]
+    fn the_lowpass_ramp_is_clamped_to_nyquist() {
+        // A `roomlp` above Nyquist would make the biquad blow up, so both ends
+        // of the ramp are clamped there — asking for 30k at 44.1k is the same
+        // as asking for 22050.
+        let sr = 44100.0;
+        assert_eq!(
+            generate_reverb_ir(sr, 0.1, 0.0, 30000.0, 40000.0),
+            generate_reverb_ir(sr, 0.1, 0.0, sr / 2.0, sr / 2.0)
+        );
     }
 }

@@ -811,3 +811,31 @@ fn the_noise_mix_gains_follow_the_wetfade_pair() {
         "at mix 0.9 the dry gain should be wetfade(0.9) = 0.2, got {mostly_wet:.3}"
     );
 }
+
+/// `rand_phase` draws from a process-wide counter, so its *sequence* is
+/// whatever ran before it — only the hash itself can be pinned. Without this,
+/// any rearrangement of the shifts still looks uniform to the statistics above.
+#[test]
+fn phase_hash_matches_its_golden_values() {
+    for (x, want) in [
+        (0u32, 0.0f32),
+        (1, 0.526_656_75),
+        (0x9E37_79B9, 0.392_125_13),
+        (0xFFFF_FFFF, 0.600_431_8),
+    ] {
+        assert_eq!(crate::synth::phase_hash(x), want, "phase_hash({x:#x})");
+    }
+}
+
+/// Same for ZzFX's `randomness` draw: an exact xorshift32 over the counter.
+#[test]
+fn the_zzfx_rng_step_matches_its_golden_values() {
+    for (x, want) in [
+        (0u32, 1_359_758_873u32),
+        (1, 1_358_964_346),
+        (0x2545_F491, 3_090_627_344),
+        (0xFFFF_FFFF, 1_359_504_952),
+    ] {
+        assert_eq!(crate::zzfx::step(x), want, "step({x:#x})");
+    }
+}
