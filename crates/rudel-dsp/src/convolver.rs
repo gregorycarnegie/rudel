@@ -10,6 +10,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{fft::Fft, filter::Biquad};
+use wide::f32x8;
 
 /// Partition length. Bigger is cheaper (cost per sample is ~`6·irLen/PARTITION`
 /// flops) but adds latency, since a uniform-partitioned convolver cannot emit a
@@ -23,6 +24,9 @@ const PARTITION: usize = 1024;
 /// FFT length: twice the partition, so a linear convolution of two partitions
 /// fits without wrapping.
 const FFT_SIZE: usize = PARTITION * 2;
+/// SIMD lane count for the per-bin partition sum, which is the reverb's whole
+/// inner loop.
+const LANES: usize = 8;
 
 /// A stereo impulse response, at the engine's sample rate.
 #[derive(Clone, Debug, PartialEq)]
@@ -274,6 +278,19 @@ impl ConvChannel {
         }
     }
 
+    /// What [`run_block`](Self::run_block) leaves behind when the whole frame
+    /// and the entire input ring are zero — which they are once the convolver
+    /// has been fed silence for longer than the impulse response. Skipping the
+    /// three FFTs and the partition sum is the difference between a few
+    /// hundred nanoseconds a frame and none at all, and every pattern that
+    /// never says `room` runs in exactly this state.
+    fn skip_block(&mut self) {
+        self.head = (self.head + 1) % self.in_spectra.len();
+        self.output.fill(0.0);
+        self.prev.fill(0.0);
+        self.input.clear();
+    }
+
     /// Transform the pending partition and overlap-save it against the IR.
     fn run_block(&mut self, fft: &Fft) {
         // Overlap-save frame: [previous partition, this partition].
@@ -287,14 +304,24 @@ impl ConvChannel {
         self.in_spectra[self.head].0.copy_from_slice(&self.re);
         self.in_spectra[self.head].1.copy_from_slice(&self.im);
 
-        // Y = sum_p H[p] * X[head - p].
+        // Y = sum_p H[p] * X[head - p]. This is the whole cost of the reverb:
+        // one complex multiply-accumulate per bin per partition, and a 3-second
+        // room at 48kHz has ~140 partitions of 2048 bins. The bins are
+        // independent, so it vectorizes exactly — `FFT_SIZE` is a multiple of
+        // the lane count, leaving no scalar remainder.
         self.acc_re.fill(0.0);
         self.acc_im.fill(0.0);
         for (p, (hr, hi)) in self.ir_spectra.iter().enumerate() {
             let (xr, xi) = &self.in_spectra[(self.head + n - p % n) % n];
-            for k in 0..FFT_SIZE {
-                self.acc_re[k] += hr[k] * xr[k] - hi[k] * xi[k];
-                self.acc_im[k] += hr[k] * xi[k] + hi[k] * xr[k];
+            for k in (0..FFT_SIZE).step_by(LANES) {
+                let hr8 = f32x8::from(&hr[k..k + LANES]);
+                let hi8 = f32x8::from(&hi[k..k + LANES]);
+                let xr8 = f32x8::from(&xr[k..k + LANES]);
+                let xi8 = f32x8::from(&xi[k..k + LANES]);
+                let re = f32x8::from(&self.acc_re[k..k + LANES]) + hr8 * xr8 - hi8 * xi8;
+                let im = f32x8::from(&self.acc_im[k..k + LANES]) + hr8 * xi8 + hi8 * xr8;
+                self.acc_re[k..k + LANES].copy_from_slice(&re.to_array());
+                self.acc_im[k..k + LANES].copy_from_slice(&im.to_array());
             }
         }
 
@@ -317,6 +344,13 @@ pub struct Convolver {
     /// Read cursor into the ready output block; also the write cursor for the
     /// input accumulator, so the two stay in step.
     pos: usize,
+    /// Consecutive all-zero input samples, and the run length past which the
+    /// convolver is provably settled: the impulse response is finite, so once
+    /// every sample it could still see is zero, so is its output. `room`
+    /// defaults to 0, so an orbit that never uses the reverb sits here
+    /// permanently and pays nothing.
+    silent_run: usize,
+    settled_after: usize,
 }
 
 impl Convolver {
@@ -326,11 +360,18 @@ impl Convolver {
         let fft = Fft::new(FFT_SIZE);
         let scale = normalization_scale(ir, sample_rate);
         let scaled = |c: &[f32]| c.iter().map(|x| x * scale).collect::<Vec<_>>();
+        let left = ConvChannel::new(&fft, &scaled(&ir.left));
+        let right = ConvChannel::new(&fft, &scaled(&ir.right));
+        // One block per ring slot zeroes every input spectrum, plus one more
+        // to flush `prev` — after that the output cannot be anything but zero.
+        let parts = left.in_spectra.len().max(right.in_spectra.len());
         Convolver {
-            left: ConvChannel::new(&fft, &scaled(&ir.left)),
-            right: ConvChannel::new(&fft, &scaled(&ir.right)),
+            settled_after: (parts + 1) * PARTITION,
+            left,
+            right,
             fft,
             pos: 0,
+            silent_run: 0,
         }
     }
 
@@ -338,12 +379,22 @@ impl Convolver {
     pub fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
         self.left.input.push(l);
         self.right.input.push(r);
+        if l == 0.0 && r == 0.0 {
+            self.silent_run += 1;
+        } else {
+            self.silent_run = 0;
+        }
         let out = (self.left.output[self.pos], self.right.output[self.pos]);
         self.pos += 1;
         if self.pos == PARTITION {
             self.pos = 0;
-            self.left.run_block(&self.fft);
-            self.right.run_block(&self.fft);
+            if self.silent_run >= self.settled_after {
+                self.left.skip_block();
+                self.right.skip_block();
+            } else {
+                self.left.run_block(&self.fft);
+                self.right.run_block(&self.fft);
+            }
         }
         out
     }
@@ -685,4 +736,36 @@ mod tests {
             generate_reverb_ir(sr, 0.1, 0.0, sr / 2.0, sr / 2.0)
         );
     }
+
+    /// The silence bypass has to be inaudible: a convolver that has idled
+    /// through a long stretch of zeros must respond to the next burst exactly
+    /// as a fresh one does. (The idle stretch is a whole number of partitions,
+    /// so both are at the same point in the block cycle.)
+    #[test]
+    fn skipping_settled_silence_leaves_the_response_unchanged() {
+        let sr = 44100.0;
+        let ir = generate_reverb_ir(sr, 0.3, 0.0, 8000.0, 1000.0);
+        let burst: Vec<f32> = (0..PARTITION * 4)
+            .map(|i| if i < 64 { (i as f32 * 0.2).sin() } else { 0.0 })
+            .collect();
+
+        let mut idled = Convolver::new(&ir, sr);
+        // Long enough to settle, and a whole number of partitions.
+        let silence = idled.settled_after.next_multiple_of(PARTITION) + PARTITION * 2;
+        for _ in 0..silence {
+            assert_eq!(idled.process(0.0, 0.0), (0.0, 0.0));
+        }
+        assert!(idled.silent_run >= idled.settled_after, "should have settled");
+
+        let mut fresh = Convolver::new(&ir, sr);
+        for &x in &burst {
+            let (a, b) = idled.process(x, x);
+            let (c, d) = fresh.process(x, x);
+            assert_eq!((a, b), (c, d), "idled convolver diverged");
+        }
+        // And the burst really did produce something, so this is not vacuous.
+        assert!(burst.iter().any(|&x| x != 0.0));
+        assert!(idled.silent_run < idled.settled_after);
+    }
 }
+

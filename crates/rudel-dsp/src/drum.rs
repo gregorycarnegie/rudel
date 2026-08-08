@@ -157,7 +157,7 @@ impl DrumVoice {
 
     /// Advance the tonal oscillator at `freq` Hz and return sin(phase).
     fn osc(&mut self, freq: f32) -> f32 {
-        self.phase = (self.phase + freq * self.dt).rem_euclid(1.0);
+        self.phase = crate::oscillator::wrap01(self.phase + freq * self.dt);
         (TAU * self.phase).sin()
     }
 

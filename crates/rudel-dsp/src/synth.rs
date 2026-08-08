@@ -3,7 +3,7 @@ use crate::{
     filter::{FilterSet, VoiceFilters},
     fm::FM_OPS,
     modulator::{ModBank, ModSpec, ModTarget},
-    oscillator::{NoiseGen, NoiseKind, Waveform, sample_table},
+    oscillator::{NoiseGen, NoiseKind, Waveform, sample_table, wrap01},
     params::VoiceParams,
     pitch::PitchMod,
     voice::VoiceLike,
@@ -247,7 +247,7 @@ impl Voice {
                 dev += self.params.fm.amt[k][j] * op_freq[k] * op_out[k];
             }
             let inst = op_freq[j] + dev;
-            self.fm_phases[j] = (self.fm_phases[j] + inst / sr).rem_euclid(1.0);
+            self.fm_phases[j] = wrap01(self.fm_phases[j] + inst / sr);
         }
         // Carrier deviation (target 0).
         (1..=n)
@@ -354,7 +354,7 @@ impl Voice {
         } else {
             carrier / sr
         };
-        self.phase = (self.phase + inc).rem_euclid(1.0);
+        self.phase = wrap01(self.phase + inc);
         // `noise` blends pink noise into the oscillator (superdough's drywet
         // crossfade: dry/wet each held at full across one half of the range).
         if self.params.noise_mix > 0.0 {

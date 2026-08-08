@@ -23,7 +23,10 @@ const VOICE_COUNTS: &[usize] = &[8, 16, 32, 64];
 
 /// A sustained saw + low-pass voice spec wrapped in the memoryless post-fx
 /// chain. `duration` is huge so the voices stay active for the whole render.
-fn note_event() -> NoteEvent {
+/// The same voice with an explicit `room` send, so the convolution reverb is
+/// actually fed. With `room` at its 0.0 default the convolver settles and
+/// bypasses itself, which is the common case but leaves its cost unmeasured.
+fn note_event_with_room(room: f32) -> NoteEvent {
     let params = VoiceParams {
         duration: 1.0e9,
         waveform: Waveform::Saw,
@@ -45,7 +48,10 @@ fn note_event() -> NoteEvent {
             ..Default::default()
         },
         cut: None,
-        send: rudel_dsp::OrbitSend::default(),
+        send: rudel_dsp::OrbitSend {
+            room,
+            ..rudel_dsp::OrbitSend::default()
+        },
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
@@ -54,10 +60,10 @@ fn note_event() -> NoteEvent {
 
 /// An offline mixer with `n` active voices (scheduled at onset 0 and started by
 /// one warm-up frame).
-fn loaded_mixer(n: usize) -> OfflineMixer {
+fn loaded_mixer_with_room(n: usize, room: f32) -> OfflineMixer {
     let mut m = OfflineMixer::new(SAMPLE_RATE);
     for _ in 0..n {
-        m.schedule(note_event());
+        m.schedule(note_event_with_room(room));
     }
     m.render_frame(); // drain the queue and start the voices
     assert_eq!(m.active_len(), n, "all voices should be active");
@@ -94,8 +100,17 @@ fn main() {
     );
     let mut out = vec![(0.0f32, 0.0f32); BLOCK];
     for &n in VOICE_COUNTS {
-        let mut mixer = loaded_mixer(n);
+        let mut mixer = loaded_mixer_with_room(n, 0.0);
         time(&format!("synth+postfx x{n}"), n, 2_000, || {
+            render_block(&mut mixer, &mut out)
+        });
+    }
+
+    println!("
+## with room 0.5 (the convolution reverb actually running)");
+    for &n in VOICE_COUNTS {
+        let mut mixer = loaded_mixer_with_room(n, 0.5);
+        time(&format!("room synth+postfx x{n}"), n, 2_000, || {
             render_block(&mut mixer, &mut out)
         });
     }

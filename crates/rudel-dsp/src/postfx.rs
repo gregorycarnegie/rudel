@@ -733,7 +733,7 @@ impl VoiceLike for PostFxVoice {
         // voice onset — superdough phase-locks it to the global clock via
         // `frac(begin·rate)`, which coincides for onsets at cycle 0.)
         if let (Some(rate), Some((nl, nr))) = (self.fx.phaser, &mut self.phaser) {
-            let phase = (rate * self.time).rem_euclid(1.0);
+            let phase = crate::oscillator::wrap01(rate * self.time);
             let tri = if phase < 0.5 {
                 2.0 * phase
             } else {
