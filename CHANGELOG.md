@@ -41,10 +41,40 @@ This file starts at 0.7.0. Earlier history is in the git log.
   kalimba, Zelda's Rescue, Bass fuge, Barry Harris and the sample-drum demo went
   from wrong to exact on the back of it.
 
+- **Arithmetic on a note name treated it as zero.** Every composer upstream is
+  wrapped in `numeralArgs`, so `parseNumeral` resolves `"c2"` to 36 before the
+  op runs. Rudel's coercion gave up on any non-numeric string and fell back to
+  zero, so `"<c2 c3 f2>".add("0,.02")` produced `0` and `0.02` — a bass line
+  played at the bottom of the keyboard instead of transposed. The bitwise ops
+  already did this correctly, with the reasoning written out; the arithmetic
+  ones never got it.
+- **`voicing()` emitted bare numbers instead of a `note` control.** Upstream
+  ends with `stack(...notes).note().set(rest)`. A bare number sounds on its own
+  but composes wrongly: the `.add(note("0,.1"))` a tune uses to detune a voicing
+  unioned `{note: 0}` onto `{value: 58}` and left the voiced note in `value`
+  with the control unset.
+- **`piano()` defaulted `clip` instead of setting it.** Upstream opens with
+  `this.clip(1)`, which overwrites whatever the chain had already put there, so
+  an echo that shortens each repeat with `.clip(1/(i+1))` still arrives at 1.
+- **`vib` was a single-key control.** Upstream registers
+  `registerControl(['vib', 'vibmod'], 'vibrato', 'v')`, so `v("8:.125")` spreads
+  across rate and depth; Rudel put the whole list under `vib`.
+- **`f64` time values were rounded onto a fixed 1/1,000,000 grid.** The bound
+  exists for a real reason — the exact rational behind an `f64` has a
+  denominator near 2^52, and pattern arithmetic multiplies denominators until
+  they overflow — but rounding destroys the simple fractions a tune is made of:
+  `1/6` became `166667/1000000`, and `.fast(2/3)` put every span on a
+  denominator of 666667. `Frac::from_f64` now walks the continued-fraction
+  convergents and stops at the same bound, which is what Fraction.js does, so
+  `1/6` is `1/6` and an irrational still lands on a small denominator.
+
 ### Internal
 
 - `wrap_control_dyn` is now `control_dyn`: the distinction only existed because
   the bag rule was applied on one path.
+- Tune parity went from 11 exact to 18 of 27 on the back of the above. The nine
+  left are named in `tunes_parity_allowlist.json`; most are a scale degree out
+  by one, which is now the largest remaining cluster.
 
 ## [0.8.0] — 2026-08-09
 

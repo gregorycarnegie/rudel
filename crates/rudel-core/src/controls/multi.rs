@@ -77,6 +77,14 @@ pub fn transient(pat: impl IntoPattern) -> Pattern {
     spread_control(&["transient", "transsustain"], pat.into_pattern())
 }
 
+/// Strudel's `vib` multi-control
+/// (`registerControl(['vib', 'vibmod'], 'vibrato', 'v')`): a `:`-list
+/// (`"8:.125"`) spreads into the vibrato rate and its modulation depth, which
+/// is how the docs and the tunes spell it — `note("a e").vib("<.5 1 2>:12")`.
+pub fn vib(pat: impl IntoPattern) -> Pattern {
+    spread_control(&["vib", "vibmod"], pat.into_pattern())
+}
+
 impl Pattern {
     /// Set the `distort` multi-control (see [`distort`]).
     pub fn distort(&self, x: impl IntoPattern) -> Pattern {
@@ -96,6 +104,21 @@ impl Pattern {
     /// Set the `label` multi-control (see [`label`]).
     pub fn label(&self, x: impl IntoPattern) -> Pattern {
         self.set(label(x))
+    }
+
+    /// Set the `vib` multi-control (see [`vib`]).
+    pub fn vib(&self, x: impl IntoPattern) -> Pattern {
+        self.set(vib(x))
+    }
+
+    /// `vibrato`: alias for [`vib`](Self::vib).
+    pub fn vibrato(&self, x: impl IntoPattern) -> Pattern {
+        self.vib(x)
+    }
+
+    /// `v`: alias for [`vib`](Self::vib).
+    pub fn v(&self, x: impl IntoPattern) -> Pattern {
+        self.vib(x)
     }
 }
 

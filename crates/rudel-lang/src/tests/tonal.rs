@@ -74,19 +74,21 @@ fn voicing_via_koto() {
     // the c5 anchor: C -> E3 C4 E4 G4 C5.
     // (mini-notation can't spell `^`, so use `maj7`/`m7`-style symbols, or
     // pure("C^7") for the literal form.)
+    // The voicing arrives as a `note` control, as upstream's
+    // `stack(...notes).note().set(rest)` leaves it.
     let pat = eval(r#"pure("C").voicing()"#).expect("eval");
-    let mut got = values(&pat, 0, 1);
-    got.sort_by_key(|v| v.as_f64().unwrap() as i64);
-    assert_eq!(
-        got,
-        vec![
-            Value::F64(52.0),
-            Value::F64(60.0),
-            Value::F64(64.0),
-            Value::F64(67.0),
-            Value::F64(72.0)
-        ]
-    );
+    let mut got: Vec<i64> = values(&pat, 0, 1)
+        .iter()
+        .map(|v| match v {
+            Value::Map(m) => m
+                .get("note")
+                .and_then(|n| n.as_f64())
+                .expect("note control") as i64,
+            other => panic!("expected a note control, got {other:?}"),
+        })
+        .collect();
+    got.sort();
+    assert_eq!(got, vec![52, 60, 64, 67, 72]);
     // named dictionary, literal ^ spelling via pure
     let pat = eval(r#"pure("C^7").voicings("lefthand")"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
@@ -123,18 +125,18 @@ fn chord_control_and_voicing_controls_via_koto() {
     // top-level chord(...) plus `.dict()`/`.voicing()` voice a chord symbol.
     // Default `ireal` dictionary: C -> E3 C4 E4 G4 C5.
     let pat = eval(r#"chord("C").voicing()"#).expect("eval");
-    let mut got = values(&pat, 0, 1);
-    got.sort_by_key(|v| v.as_f64().unwrap() as i64);
-    assert_eq!(
-        got,
-        vec![
-            Value::F64(52.0),
-            Value::F64(60.0),
-            Value::F64(64.0),
-            Value::F64(67.0),
-            Value::F64(72.0)
-        ]
-    );
+    let mut got: Vec<i64> = values(&pat, 0, 1)
+        .iter()
+        .map(|v| match v {
+            Value::Map(m) => m
+                .get("note")
+                .and_then(|n| n.as_f64())
+                .expect("note control") as i64,
+            other => panic!("expected a note control, got {other:?}"),
+        })
+        .collect();
+    got.sort();
+    assert_eq!(got, vec![52, 60, 64, 67, 72]);
     // `.dict("lefthand")` routes through the named dictionary (mini can't spell
     // `^`, so use the `maj7` symbol, which normalises to `^7`).
     let pat = eval(r#"chord("Cmaj7").dict("lefthand").voicing()"#).expect("eval");

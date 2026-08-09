@@ -63,12 +63,17 @@ impl Pattern {
     }
 
     /// Strudel's `piano()` convenience: select the piano sample bank, set a
-    /// short release and default clip, then spread notes gently by pitch.
+    /// short release and a clip of 1, then spread notes gently by pitch.
+    ///
+    /// The clip is *set*, not defaulted. Upstream opens with `this.clip(1)`,
+    /// which overwrites whatever the chain had already put there — an echo that
+    /// shortens each repeat with `.clip(1/(i+1))` before reaching `.piano()`
+    /// ends up at 1 all the same. Filling it in only when absent left those
+    /// repeats clipped.
     pub fn piano(&self) -> Pattern {
-        self.s("piano").release(0.1).fmap(|v| match v {
+        self.clip(1).s("piano").release(0.1).fmap(|v| match v {
             Value::Map(mut m) => {
                 let pan = piano_pan(&m);
-                m.entry("clip".to_string()).or_insert(Value::Int(1));
                 if let Some(pan) = pan {
                     let existing = m.get("pan").and_then(Value::as_f64).unwrap_or(1.0);
                     m.insert("pan".to_string(), Value::F64(existing * pan));

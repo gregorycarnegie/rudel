@@ -70,8 +70,7 @@ control_aliases!(
     bpd => bpdecay,
     bps => bpsustain,
     bpr => bprelease,
-    // vibrato + pitch-envelope aliases
-    vibrato => vib,
+    // vibrato + pitch-envelope aliases (`vibrato`/`v` are multi, in multi.rs)
     vmod => vibmod,
     patt => pattack,
     pdec => pdecay,
@@ -146,8 +145,7 @@ control_aliases!(
     lpdepthfreq => lpdepthfrequency,
     bpdepthfreq => bpdepthfrequency,
     hpdepthfreq => hpdepthfrequency,
-    // vibrato / color aliases
-    v => vib,
+    // color aliases
     colour => color,
     // byte-beat / FX-release aliases
     bbexpr => byte_beat_expression,

@@ -1,11 +1,17 @@
 use super::*;
 use crate::Frac;
 
+/// The MIDI numbers a pattern produces. `voicing` sets the `note` control (as
+/// upstream's `.note()` does), while `root_notes` still yields bare numbers, so
+/// read through either.
 fn notes(pat: &Pattern) -> Vec<i32> {
     let mut v: Vec<i32> = pat
         .query_arc(Frac::zero(), Frac::one())
         .into_iter()
-        .map(|h| h.value.as_f64().unwrap() as i32)
+        .map(|h| match &h.value {
+            Value::Map(m) => m.get("note").and_then(|v| v.as_f64()).unwrap() as i32,
+            other => other.as_f64().unwrap() as i32,
+        })
         .collect();
     v.sort();
     v

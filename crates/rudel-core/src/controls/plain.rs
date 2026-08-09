@@ -106,8 +106,7 @@ controls!(
     noise,
     pcurve,
     hold,
-    // vibrato + pitch envelope
-    vib,
+    // vibrato + pitch envelope (`vib` itself is a multi-control, in multi.rs)
     vibmod,
     penv,
     pattack,

@@ -349,7 +349,7 @@ fn every_tune_matches_the_haps_strudel_produces() {
     // Raise it as the allowlist shrinks; it is the count that held when the
     // comparison was first turned on.
     assert!(
-        matched >= 11,
+        matched >= 18,
         "only {matched} tune(s) reproduce Strudel's haps exactly"
     );
 }

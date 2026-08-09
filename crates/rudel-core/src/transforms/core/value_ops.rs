@@ -29,58 +29,66 @@ pub(super) fn compose_op(
     }
 }
 
+/// One operand as a number, which is Strudel's `parseNumeral`: digits first,
+/// then a note name (`"c2"` is 36). Every arithmetic composer upstream is
+/// wrapped in `numeralArgs`, so this runs before the op itself.
+///
+/// `Value::as_f64` alone is not enough — it gives up on any non-numeric string,
+/// and the `unwrap_or(0.0)` behind it turned `"<c2 c3 f2>".add("0,.02")` into
+/// plain `0` and `0.02`, dropping a whole bass line to the bottom of the
+/// keyboard instead of transposing it. Upstream throws on a value that is
+/// neither; falling back to zero is the more forgiving reading and is what the
+/// rest of this module does.
+fn numeral(v: &Value) -> f64 {
+    v.as_f64()
+        .or_else(|| {
+            v.as_str()
+                .and_then(|s| crate::tonal::note_to_midi(s).map(|m| m as f64))
+        })
+        .unwrap_or(0.0)
+}
+
 pub(super) fn num_add(a: &Value, b: &Value) -> Value {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Value::Int(x + y),
-        _ => Value::F64(a.as_f64().unwrap_or(0.0) + b.as_f64().unwrap_or(0.0)),
+        _ => Value::F64(numeral(a) + numeral(b)),
     }
 }
 
 pub(super) fn num_sub(a: &Value, b: &Value) -> Value {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Value::Int(x - y),
-        _ => Value::F64(a.as_f64().unwrap_or(0.0) - b.as_f64().unwrap_or(0.0)),
+        _ => Value::F64(numeral(a) - numeral(b)),
     }
 }
 
 pub(super) fn num_mul(a: &Value, b: &Value) -> Value {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Value::Int(x * y),
-        _ => Value::F64(a.as_f64().unwrap_or(0.0) * b.as_f64().unwrap_or(0.0)),
+        _ => Value::F64(numeral(a) * numeral(b)),
     }
 }
 
 pub(super) fn num_div(a: &Value, b: &Value) -> Value {
-    Value::F64(a.as_f64().unwrap_or(0.0) / b.as_f64().unwrap_or(1.0))
+    Value::F64(numeral(a) / b.as_f64().unwrap_or(1.0))
 }
 
 pub(crate) fn num_mod(a: &Value, b: &Value) -> Value {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) if *y != 0 => Value::Int(x.rem_euclid(*y)),
-        _ => Value::F64(
-            a.as_f64()
-                .unwrap_or(0.0)
-                .rem_euclid(b.as_f64().unwrap_or(1.0)),
-        ),
+        _ => Value::F64(numeral(a).rem_euclid(b.as_f64().unwrap_or(1.0))),
     }
 }
 
 pub(crate) fn num_pow(a: &Value, b: &Value) -> Value {
-    Value::F64(a.as_f64().unwrap_or(0.0).powf(b.as_f64().unwrap_or(0.0)))
+    Value::F64(numeral(a).powf(numeral(b)))
 }
 
 // Bitwise value ops (`band`/`bor`/`bxor`/`blshift`/`brshift`). Strudel wraps
 // these in `numeralArgs`, so operands are parsed as numerals (note names ->
 // midi) and JS bitwise acts on int32; we mirror that with `i32` arithmetic.
 fn numeral_i32(v: &Value) -> i32 {
-    let n = v
-        .as_f64()
-        .or_else(|| {
-            v.as_str()
-                .and_then(|s| crate::tonal::note_to_midi(s).map(|m| m as f64))
-        })
-        .unwrap_or(0.0);
-    n as i64 as i32
+    numeral(v) as i64 as i32
 }
 
 pub(super) fn bit_and(a: &Value, b: &Value) -> Value {
@@ -194,7 +202,10 @@ mod tests {
             (num_mul(&Value::Int(2), &Value::Int(3)), 6),
             (num_mod(&Value::Int(-1), &Value::Int(3)), 2),
         ] {
-            assert!(matches!(op, Value::Int(x) if x == want), "{op:?} != Int({want})");
+            assert!(
+                matches!(op, Value::Int(x) if x == want),
+                "{op:?} != Int({want})"
+            );
         }
 
         // Anything else coerces through f64, including numeric strings.
@@ -216,7 +227,10 @@ mod tests {
         // `mod` is Euclidean, so a negative left operand still lands in range.
         assert_eq!(num_mod(&Value::Int(-1), &Value::Int(3)), Value::Int(2));
         assert_eq!(num_mod(&Value::Int(7), &Value::Int(3)), Value::Int(1));
-        assert!(matches!(num_mod(&Value::Int(7), &Value::Int(3)), Value::Int(_)));
+        assert!(matches!(
+            num_mod(&Value::Int(7), &Value::Int(3)),
+            Value::Int(_)
+        ));
         // A zero integer modulus would panic, so it takes the f64 path (NaN)
         // rather than the `rem_euclid` on ints.
         assert!(matches!(

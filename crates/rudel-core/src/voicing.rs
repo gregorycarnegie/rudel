@@ -274,13 +274,15 @@ fn voicing_pattern(chord: &str, opts: &VoicingOpts, extra: &ValueMap) -> Pattern
             let pats: Vec<Pattern> = notes
                 .into_iter()
                 .map(|midi| {
-                    if extra.is_empty() {
-                        pure(Value::F64(midi as f64))
-                    } else {
-                        let mut map = extra.clone();
-                        map.insert("note".to_string(), Value::F64(midi as f64));
-                        pure(Value::Map(map))
-                    }
+                    // Always a `note` control, never a bare number: upstream
+                    // ends with `stack(...notes).note().set(rest)`. A bare
+                    // number survives on its own but composes wrongly — the
+                    // `.add(note("0,.1"))` a tune uses to detune a voicing
+                    // unions `{note: 0}` onto `{value: 58}` and leaves the
+                    // voiced note sitting in `value` with the control unset.
+                    let mut map = extra.clone();
+                    map.insert("note".to_string(), Value::F64(midi as f64));
+                    pure(Value::Map(map))
                 })
                 .collect();
             stack(&pats)

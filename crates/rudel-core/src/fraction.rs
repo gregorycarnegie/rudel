@@ -21,8 +21,8 @@ type Rat = Ratio<i128>;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Frac(pub Rat);
 
-/// Grid used to quantize `f64` inputs into bounded rationals (1µ-cycle).
-const FROM_F64_DENOM: i128 = 1_000_000;
+/// Largest denominator a converted `f64` may take.
+const MAX_FROM_F64_DENOM: i128 = 1_000_000;
 
 impl Frac {
     pub fn new(numer: i64, denom: i64) -> Self {
@@ -33,10 +33,20 @@ impl Frac {
         Frac(Rat::from_integer(n as i128))
     }
 
-    /// Convert from an `f64` parameter value. Integers are exact; other values
-    /// are quantized to a fixed grid so the resulting rational stays small —
-    /// exact `f64` fractions have denominator 2^52 and overflow under pattern
-    /// arithmetic.
+    /// Convert from an `f64` parameter value.
+    ///
+    /// Integers are exact. Everything else takes the simplest rational that the
+    /// `f64` still rounds to, found by walking the continued-fraction
+    /// convergents and stopping once the denominator would pass
+    /// [`MAX_FROM_F64_DENOM`] — which is what Fraction.js does for a JS number,
+    /// and why Strudel's spans stay legible.
+    ///
+    /// The bound matters: the exact rational behind an `f64` has a denominator
+    /// near 2^52, and pattern arithmetic multiplies denominators until they
+    /// overflow. But rounding onto a fixed grid instead, as this used to,
+    /// destroys the simple fractions a tune is actually made of — `1/6` became
+    /// `166667/1000000` and `.fast(2/3)` put every span on a denominator of
+    /// 666667, which no longer lines up with anything.
     pub fn from_f64(x: f64) -> Self {
         if !x.is_finite() {
             return Frac::zero();
@@ -44,10 +54,44 @@ impl Frac {
         if x == x.trunc() && x.abs() < 9.0e18 {
             return Frac::int(x as i64);
         }
-        Frac(Rat::new(
-            (x * FROM_F64_DENOM as f64).round() as i128,
-            FROM_F64_DENOM,
-        ))
+        // Convergents h/k of the continued fraction for |x|, each the best
+        // rational approximation for its denominator.
+        let (mut h_prev, mut h) = (0i128, 1i128);
+        let (mut k_prev, mut k) = (1i128, 0i128);
+        let mut rest = x.abs();
+        loop {
+            let whole = rest.floor();
+            // Guard the cast: a huge term means the remainder has collapsed to
+            // numerical noise, and the convergent already in hand is the answer.
+            if whole > MAX_FROM_F64_DENOM as f64 {
+                break;
+            }
+            let term = whole as i128;
+            let (Some(h_next), Some(k_next)) = (
+                term.checked_mul(h).and_then(|t| t.checked_add(h_prev)),
+                term.checked_mul(k).and_then(|t| t.checked_add(k_prev)),
+            ) else {
+                break;
+            };
+            if k_next > MAX_FROM_F64_DENOM {
+                break;
+            }
+            (h_prev, h) = (h, h_next);
+            (k_prev, k) = (k, k_next);
+            let frac = rest - whole;
+            // Converged: the remaining term is `f64` dust, not structure.
+            if frac <= 1e-12 {
+                break;
+            }
+            rest = 1.0 / frac;
+            if !rest.is_finite() {
+                break;
+            }
+        }
+        if k == 0 {
+            return Frac::zero();
+        }
+        Frac(Rat::new(if x < 0.0 { -h } else { h }, k))
     }
 
     pub fn zero() -> Self {
@@ -193,6 +237,39 @@ mod tests {
 
     fn small_frac() -> impl Strategy<Value = Frac> {
         (-10_000i64..=10_000, 1i64..=10_000).prop_map(|(n, d)| Frac::new(n, d))
+    }
+
+    #[test]
+    fn from_f64_recovers_the_fraction_the_user_wrote() {
+        // The fractions tunes are made of come back exactly, however they were
+        // spelled — `1/6` used to arrive as `166667/1000000`, and every span
+        // derived from it inherited that denominator.
+        for (x, n, d) in [
+            (0.1875, 3, 16),
+            (1.0 / 6.0, 1, 6),
+            (2.0 / 3.0, 2, 3),
+            (1.0 / 3.0, 1, 3),
+            (0.1, 1, 10),
+            (0.125, 1, 8),
+            (-0.75, -3, 4),
+            (1.0 / 12.0, 1, 12),
+        ] {
+            assert_eq!(Frac::from_f64(x), Frac::new(n, d), "{x}");
+        }
+        // Integers stay exact, and non-finite input is zero rather than a panic.
+        assert_eq!(Frac::from_f64(4.0), Frac::int(4));
+        assert_eq!(Frac::from_f64(-0.0), Frac::zero());
+        assert_eq!(Frac::from_f64(f64::NAN), Frac::zero());
+        assert_eq!(Frac::from_f64(f64::INFINITY), Frac::zero());
+        // A value with no small rational behind it is still bounded, and still
+        // close: the denominator cap is what keeps pattern arithmetic from
+        // overflowing on 2^52-denominator exact conversions.
+        let approx = Frac::from_f64(std::f64::consts::PI);
+        assert!(approx.denom() <= MAX_FROM_F64_DENOM, "{approx}");
+        assert!(
+            (approx.to_f64() - std::f64::consts::PI).abs() < 1e-9,
+            "{approx}"
+        );
     }
 
     #[test]
