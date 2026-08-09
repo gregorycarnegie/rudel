@@ -51,8 +51,29 @@ fn requested_midi(map: &ValueMap) -> Option<f64> {
     }
 }
 
+/// Fold `velocity` into `gain`, which is what superdough does before it
+/// dispatches to any voice at all (`gain *= velocity`, after the identity
+/// `applyGainCurve`) — so it reaches samplers, synths and drums alike.
+///
+/// Ignoring it leaves every note at the same level, and a tune that shapes its
+/// parts with `.velocity(...)` loses the dynamics that let them sit together.
+/// Every voice type here defaults `gain` to 1.0, so scaling the control (or
+/// introducing it at 1.0 × velocity) matches what the voice would have done.
+fn apply_velocity(map: &ValueMap) -> Option<ValueMap> {
+    let velocity = map.get("velocity").and_then(|v| v.as_f64())?;
+    if velocity == 1.0 {
+        return None;
+    }
+    let mut out = map.clone();
+    let gain = map.get("gain").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    out.insert("gain".to_string(), Value::F64(gain * velocity));
+    Some(out)
+}
+
 /// Resolve a control map into either a sampler or synth voice spec.
 fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank, cps: f64, cycle: f64) -> VoiceSpec {
+    let scaled = apply_velocity(map);
+    let map = scaled.as_ref().unwrap_or(map);
     if let Some(name) = map.get("s").and_then(|v| v.as_str()) {
         // The `bank` control prepends `<bank>_` to the sound name, matching
         // Strudel: `s("bd").bank("RolandTR909")` resolves `RolandTR909_bd`. We
@@ -398,6 +419,29 @@ mod tests {
         ] {
             assert!(hold(src) > 0.0, "should hold for the hap: {src}");
         }
+    }
+
+    #[test]
+    fn velocity_scales_the_voice_gain() {
+        // superdough folds it in before dispatching to any voice
+        // (`gain *= velocity`), so it reaches samplers, synths and drums alike.
+        // Ignored, every note plays at the same level and a tune that shapes
+        // its parts with `.velocity(...)` loses what makes them sit together.
+        let bank = SampleBank::new();
+        let gain_of = |src: &str| {
+            let pattern = rudel_lang::eval(src).expect("eval");
+            match &collect_events(&pattern, 1.0, 0.0, 1.0, &bank)[0].spec {
+                VoiceSpec::Synth(p) => p.gain,
+                _ => panic!("expected a synth voice"),
+            }
+        };
+        // Against the voice's own default gain of 1.0...
+        assert!((gain_of(r#"note("c3").velocity(0.5)"#) - 0.5).abs() < 1e-6);
+        // ...and multiplying an explicit gain.
+        assert!((gain_of(r#"note("c3").gain(0.8).velocity(0.5)"#) - 0.4).abs() < 1e-6);
+        // No velocity, or a velocity of 1, leaves gain exactly as it was.
+        assert!((gain_of(r#"note("c3").gain(0.8)"#) - 0.8).abs() < 1e-6);
+        assert!((gain_of(r#"note("c3").gain(0.8).velocity(1)"#) - 0.8).abs() < 1e-6);
     }
 
     #[test]
