@@ -106,8 +106,10 @@ fn main() {
         });
     }
 
-    println!("
-## with room 0.5 (the convolution reverb actually running)");
+    println!(
+        "
+## with room 0.5 (the convolution reverb actually running)"
+    );
     for &n in VOICE_COUNTS {
         let mut mixer = loaded_mixer_with_room(n, 0.5);
         time(&format!("room synth+postfx x{n}"), n, 2_000, || {

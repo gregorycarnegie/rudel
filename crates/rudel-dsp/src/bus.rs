@@ -651,7 +651,10 @@ mod tests {
         };
         // No delaytime, no delaysync: 3/16 of a cycle, at this tempo.
         assert!((send(&[], 1.0) - 3.0 / 16.0).abs() < 1e-6);
-        assert!((send(&[], 0.5) - 3.0 / 8.0).abs() < 1e-6, "half cps, twice as long");
+        assert!(
+            (send(&[], 0.5) - 3.0 / 8.0).abs() < 1e-6,
+            "half cps, twice as long"
+        );
         assert!((send(&[], 2.0) - 3.0 / 32.0).abs() < 1e-6);
         // An explicit delaysync overrides the default.
         assert!((send(&[("delaysync", 0.5)], 2.0) - 0.25).abs() < 1e-6);
@@ -679,4 +682,3 @@ mod tests {
         assert!(at_limit.iter().all(|x| x.is_finite()));
     }
 }
-

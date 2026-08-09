@@ -103,9 +103,7 @@ fn paint_widget_surface(
 
     let painted = paint
         .pattern
-        .map(|pattern| {
-            paint_pattern_widget(ui, rect, widget, pattern, colors, paint)
-        })
+        .map(|pattern| paint_pattern_widget(ui, rect, widget, pattern, colors, paint))
         .unwrap_or(false);
 
     if !painted {

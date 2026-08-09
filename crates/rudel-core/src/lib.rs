@@ -394,10 +394,10 @@ mod step_alignment_tests {
     fn compress_rejects_spans_outside_the_cycle() {
         let f = Frac::new;
         for (b, e) in [
-            (f(3, 2), f(2, 1)), // b past the cycle
-            (f(1, 5), f(3, 2)), // e past the cycle
+            (f(3, 2), f(2, 1)),  // b past the cycle
+            (f(1, 5), f(3, 2)),  // e past the cycle
             (f(-1, 5), f(1, 2)), // b before it
-            (f(3, 5), f(2, 5)), // reversed
+            (f(3, 5), f(2, 5)),  // reversed
         ] {
             assert!(
                 onsets(&seq([1, 2])._compress(b, e)).is_empty(),
@@ -455,7 +455,11 @@ mod step_alignment_tests {
     #[test]
     fn parray_packs_one_value_per_pattern() {
         use crate::pattern::parray;
-        let pat = parray(&[pure(Value::Int(1)), pure(Value::Int(2)), pure(Value::Int(3))]);
+        let pat = parray(&[
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+            pure(Value::Int(3)),
+        ]);
         assert_eq!(
             onsets(&pat),
             vec![(
@@ -499,4 +503,3 @@ mod step_alignment_tests {
         assert!(onsets(&zero.pace(Frac::int(4))).is_empty());
     }
 }
-

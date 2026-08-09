@@ -497,7 +497,10 @@ fn bumping_the_generation_drops_haps_from_the_previous_pattern() {
 
     let one = count(r#"s("bd")"#, 1);
     let four = count(r#"s("bd*4")"#, 2);
-    assert!(one > 0, "the window covers several cycles of a once-a-cycle bd");
+    assert!(
+        one > 0,
+        "the window covers several cycles of a once-a-cycle bd"
+    );
     assert!(
         four > one,
         "the new pattern's haps, not the cached old ones ({four} vs {one})"

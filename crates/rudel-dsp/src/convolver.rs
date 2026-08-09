@@ -572,7 +572,11 @@ mod tests {
         let want: Vec<f32> = (0..10)
             .map(|i: usize| {
                 let p = (i as f32 * 0.5) as i64;
-                if p == 0 { src[0] } else { src[100 - p as usize] }
+                if p == 0 {
+                    src[0]
+                } else {
+                    src[100 - p as usize]
+                }
             })
             .collect();
         assert_eq!(out.left, want);
@@ -755,7 +759,10 @@ mod tests {
         for _ in 0..silence {
             assert_eq!(idled.process(0.0, 0.0), (0.0, 0.0));
         }
-        assert!(idled.silent_run >= idled.settled_after, "should have settled");
+        assert!(
+            idled.silent_run >= idled.settled_after,
+            "should have settled"
+        );
 
         let mut fresh = Convolver::new(&ir, sr);
         for &x in &burst {
@@ -768,4 +775,3 @@ mod tests {
         assert!(idled.silent_run < idled.settled_after);
     }
 }
-
