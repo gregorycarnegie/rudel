@@ -427,6 +427,19 @@ pub(crate) fn register(prelude: &KMap) {
         "squeeze" => (true, PickJoin::Squeeze),
     );
     prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    // `useRNG(mode)` picks the random generator (signal.mjs). Rudel ports only
+    // the legacy one — Strudel's default, and what the tunes that call this ask
+    // for — so `'legacy'` is a no-op and `'precise'` says so rather than
+    // quietly handing back different random numbers.
+    prelude.add_fn("useRNG", |ctx| {
+        match arg_to_raw_str(&arg0(ctx)).as_deref() {
+            None | Some("legacy") => Ok(KPattern(rudel_core::silence()).into()),
+            Some(mode) => koto::runtime::runtime_error!(
+                "useRNG({mode:?}): only the legacy RNG is ported; \
+                 remove the call or use useRNG('legacy')"
+            ),
+        }
+    });
     // `mini(x)` / `m(x)` parse mini-notation, which `arg_to_pattern` already
     // does for every pattern-typed argument (mini/mini.mjs `mini`).
     prelude.add_fn(

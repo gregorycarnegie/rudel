@@ -66,8 +66,18 @@ pub(super) fn rewrite_labels(src: &str) -> String {
     let mut out = Vec::new();
     let mut labels = Vec::new();
     let mut i = 0;
+    // Brackets left open by the lines already emitted. A `name:` line inside
+    // one is a map key, not a label — `samples({\nbd: [...],\n})` writes its
+    // keys at column 0 exactly like a label.
+    let mut open = 0i64;
     while i < lines.len() {
-        let Some((name, rest)) = label_at_line(lines[i]) else {
+        let label = if open == 0 {
+            label_at_line(lines[i])
+        } else {
+            None
+        };
+        let Some((name, rest)) = label else {
+            open += delimiter_delta(lines[i]);
             out.push(lines[i].to_string());
             i += 1;
             continue;
@@ -92,6 +102,7 @@ pub(super) fn rewrite_labels(src: &str) -> String {
             i += 1;
         }
 
+        open = depth.max(0);
         let var = format!("rudel_label_{}_{}", labels.len(), sanitize_label(&name));
         let expr = expr_lines.join("\n").trim().to_string();
         out.push(format!("{var} = rudel_label({name:?}, {expr})"));
@@ -178,6 +189,18 @@ mod tests {
             out.contains("\nmore\n"),
             "the line after it does not: {out}"
         );
+    }
+
+    #[test]
+    fn a_map_key_inside_an_open_bracket_is_not_a_label() {
+        // `samples({\nbd: [...]\n})` writes its keys at column 0, exactly like a
+        // label. Reading one as a label splits the map open mid-literal.
+        let src = "samples({\nbd: ['bd.wav'],\nsd: ['sd.wav'],\n})\ns(\"bd sd\")";
+        assert_eq!(rewrite_labels(src), src);
+        // A label after the map closes is still a label.
+        let after = rewrite_labels("samples({\nbd: ['bd.wav'],\n})\ndrums: s(\"bd\")");
+        assert!(after.contains("rudel_label_0_drums = "), "{after}");
+        assert!(after.contains("bd: ['bd.wav'],"), "{after}");
     }
 
     #[test]

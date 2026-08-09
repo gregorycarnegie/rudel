@@ -9,9 +9,9 @@ use labels::rewrite_labels;
 use mini::annotate_mini_offsets;
 use std::collections::BTreeMap;
 use syntax::{
-    indent_dot_continuations, rewrite_arrow_functions, rewrite_const_declarations,
-    rewrite_leading_dot_numbers, rewrite_strict_equality, rewrite_string_method_chains,
-    strip_await, strip_line_comments,
+    hoist_leading_commas, indent_dot_continuations, rewrite_arrow_functions,
+    rewrite_const_declarations, rewrite_leading_dot_numbers, rewrite_strict_equality,
+    rewrite_string_method_chains, strip_await, strip_line_comments,
 };
 use widgets::rewrite_editor_widgets_with_context;
 
@@ -63,6 +63,7 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = rewrite_arrow_functions(&script);
     let script = rewrite_const_declarations(&script);
     let script = rewrite_string_method_chains(&script);
+    let script = hoist_leading_commas(&script);
     let script = indent_dot_continuations(&script);
     let script = rewrite_labels(&script);
     // Mirror the transpiler's empty-body fallback: an empty (or fully

@@ -171,7 +171,10 @@ pub(super) fn tokenize(code: &str, idents: &HashSet<String>) -> Vec<(usize, usiz
                 i += 1;
             }
             tokens.push((start, i, Token::Comment));
-        } else if c == '"' || c == '\'' {
+        } else if c == '"' || c == '\'' || c == '`' {
+            // A backtick is a JS template literal, which tunes use for the
+            // multi-line mini-notation of a whole melody — the same colouring
+            // and the same mini highlighting inside as a quoted pattern.
             let quote = bytes[i];
             i += 1;
             tokens.push((start, i, Token::Str)); // opening quote
@@ -381,6 +384,19 @@ mod tests {
         assert!(toks.contains(&(2, 3, Token::Str)), "opening: {toks:?}");
         assert!(toks.contains(&(7, 8, Token::Str)), "closing: {toks:?}");
         assert!(toks.contains(&(10, 11, Token::Normal)), "after: {toks:?}");
+
+        // A backtick template literal reads as a string too — tunes spell a
+        // multi-line melody with one, and it was left uncoloured.
+        //           0123456789
+        let toks = tokenize("note(`e5 b4`)", &test_idents());
+        assert!(toks.contains(&(5, 6, Token::Str)), "opening: {toks:?}");
+        assert!(toks.contains(&(11, 12, Token::Str)), "closing: {toks:?}");
+        // ...with its contents highlighted as mini, not as inert text.
+        assert!(
+            toks.iter()
+                .any(|&(s, e, t)| (s, e) == (6, 8) && t != Token::Str),
+            "mini word inside the template: {toks:?}"
+        );
     }
 
     #[test]

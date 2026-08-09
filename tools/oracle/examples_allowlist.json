@@ -34,6 +34,5 @@
  "setGainCurve#0": "unsupported: a global gain-curve hook; Rudel uses the linear curve that is superdough's current default.",
  "setMaxPolyphony#0": "unsupported: a Web Audio voice-pool cap with no analogue in Rudel's mixer.",
  "silence#0": "js-syntax: bare `silence` as a value; in Rudel it is a function, so write `silence()`.",
- "useRNG#0": "unsupported: the `precise` murmur RNG is not ported \u2014 Rudel implements Strudel's default `legacy` RNG bit-exactly, so there is nothing to switch to.",
  "withBase#1": "js-syntax: builds the pattern with JS array methods (`[...].join(' ')`)."
 }

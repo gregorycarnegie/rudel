@@ -161,11 +161,14 @@ fn normalize_string_literal(literal: &str) -> String {
     let Some(quote) = literal.chars().next() else {
         return literal.to_string();
     };
-    if quote != '"' && quote != '\'' {
+    if !matches!(quote, '"' | '\'' | '`') {
         return literal.to_string();
     }
     let content = &literal[1..literal.len().saturating_sub(1)];
-    if !content.contains('{') && !content.contains('}') {
+    // A backtick literal is a JS template and has no Koto spelling, so it always
+    // gets rewritten. `ponytail: a `${...}` in one stays literal text rather
+    // than interpolating; no tune uses one.
+    if quote != '`' && !content.contains('{') && !content.contains('}') {
         return literal.to_string();
     }
     let mut hashes = "#".to_string();
@@ -202,25 +205,203 @@ pub(super) fn rewrite_string_method_chains(src: &str) -> String {
     out
 }
 
+/// Move a `,` that opens a line up to the end of the previous non-blank line.
+///
+/// Tunes separate the arguments of a long `stack(...)` with a comma on its own
+/// line, so each layer can be commented and reordered:
+///
+/// ```text
+/// stack(
+///   s("bd sd").room(0.5)
+///   ,
+///   s("hh*8")
+/// )
+/// ```
+///
+/// Koto ends the argument at the newline and then meets a stray `,`. Hoisting
+/// keeps the line count (and so the line numbers in error messages) intact,
+/// unlike joining the lines. A comma is left where it is when the line above
+/// already ends in `,` or an opening bracket, since moving it there would only
+/// produce a different syntax error.
+pub(super) fn hoist_leading_commas(src: &str) -> String {
+    let mut line_blank = true;
+    let mut line = 0usize;
+    let mut leading = Vec::new();
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            line += text.matches('\n').count();
+            // A string or comment is content: the line is no longer blank
+            // unless the chunk itself ended it.
+            line_blank = text.ends_with('\n');
+            continue;
+        }
+        for c in text.chars() {
+            if line_blank && c == ',' {
+                leading.push(line);
+            }
+            if c == '\n' {
+                line += 1;
+            }
+            line_blank = c == '\n' || (line_blank && c.is_whitespace());
+        }
+    }
+    if leading.is_empty() {
+        return src.to_string();
+    }
+
+    let mut lines: Vec<String> = src.split('\n').map(str::to_string).collect();
+    for i in leading {
+        let Some(prev) = (0..i).rev().find(|&j| !lines[j].trim().is_empty()) else {
+            continue;
+        };
+        if lines[prev].trim_end().ends_with([',', '(', '[', '{']) {
+            continue;
+        }
+        lines[i] = lines[i].replacen(',', "", 1);
+        let at = lines[prev].trim_end().len();
+        lines[prev].insert(at, ',');
+    }
+    lines.join("\n")
+}
+
+/// Extra indentation added to a `.`-continuation line, in spaces.
+const CONTINUATION_INDENT: usize = 2;
+
+/// Indent a line whose first non-blank character is `.`, so Koto reads the
+/// method chain as a continuation of the line above rather than a new statement.
+///
+/// Existing indentation is kept and deepened, because tunes write their chains
+/// *inside* an argument list, where the continuation already sits at the
+/// argument's own indent and would otherwise read as the next argument:
+///
+/// ```text
+/// stack(
+///   s("bd sd")
+///   .fast(2)     <- same indent as the argument, so Koto ends the argument here
+/// )
+/// ```
+///
+/// Deepening a line is not enough on its own: anything nested inside brackets
+/// that line opens has to move with it, or the arguments of a chained call end
+/// up level with the call itself —
+///
+/// ```text
+/// "c3 e3"
+/// .superimpose(  <- deepened to indent 2
+///   x => x.add(12),  <- must go past 2 as well
+/// ).note()
+/// ```
+///
+/// so each continuation carries the column it was pushed to, as a stack keyed by
+/// bracket depth. A line nested inside a continuation's brackets is held two
+/// columns past it; a further `.` line at the same depth reuses the column its
+/// chain already has (Koto wants a chain's lines aligned, not stepping right);
+/// a line opening with `)`, `]`, `}` or `,` continues the expression; anything
+/// else at or outside the continuation's depth starts a new one and drops it.
+///
+/// Indentation is only ever added, never taken away, so an indentation-sensitive
+/// Koto block the user wrote by hand keeps its shape.
 pub(super) fn indent_dot_continuations(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut changed = false;
-    let mut at_line_start = true;
+    // Only blanks seen since the last newline, so a leading `.` is still a
+    // continuation however deeply the line is indented.
+    let mut line_blank = true;
+    // Columns of blanks seen on this line so far, i.e. the line's own indent.
+    let mut indent = 0usize;
+    let mut depth = 0usize;
+    // (bracket depth, emitted column) of each continuation still in force.
+    let mut bumps: Vec<(usize, usize)> = Vec::new();
+    // Emitted column of the last line that began an expression, per depth, which
+    // is what a `.` line has to get past to read as its continuation.
+    let mut stmt: Vec<usize> = vec![0];
+    // Emitted column of the line that opened each depth. Everything inside has
+    // to sit past it, or Koto ends the argument list at the newline — tunes
+    // often write `stack(` and its arguments all hard against the left margin.
+    let mut open_col: Vec<usize> = vec![0];
+    let mut line_col = 0usize;
 
     for (kind, start, end) in chunks(src) {
         let text = &src[start..end];
         if kind != Chunk::Code {
             out.push_str(text);
-            at_line_start = text.ends_with('\n');
+            // A string or comment is content: the line is no longer blank
+            // unless the chunk itself ended it.
+            line_blank = text.ends_with('\n');
+            indent = 0;
             continue;
         }
         for c in text.chars() {
-            if at_line_start && c == '.' {
-                out.push_str("  ");
-                changed = true;
+            if line_blank && !c.is_whitespace() {
+                // First non-blank character of the line: settle its column.
+                while bumps.last().is_some_and(|&(d, _)| d > depth) {
+                    bumps.pop();
+                }
+                // A line that opens with a closing bracket belongs to the depth
+                // outside it, so only lines that stay inside are held past the
+                // column the bracket was opened at.
+                let inside = if depth == 0 || matches!(c, ')' | ']' | '}') {
+                    0
+                } else {
+                    open_col.get(depth).copied().unwrap_or(0) + CONTINUATION_INDENT
+                };
+                let floor = |bumps: &Vec<(usize, usize)>| {
+                    bumps
+                        .last()
+                        .map_or(0, |&(_, col)| col + CONTINUATION_INDENT)
+                        .max(inside)
+                };
+                let column = match c {
+                    '.' if bumps.last().is_some_and(|&(d, _)| d == depth) => {
+                        bumps.last().unwrap().1
+                    }
+                    '.' => {
+                        let col = indent
+                            .max(stmt.get(depth).copied().unwrap_or(0) + CONTINUATION_INDENT)
+                            .max(floor(&bumps));
+                        bumps.push((depth, col));
+                        col
+                    }
+                    ')' | ']' | '}' | ',' => {
+                        // The chain this line closes off ends with it; only a
+                        // continuation opened further out still holds it in.
+                        bumps.retain(|&(d, _)| d < depth);
+                        indent.max(floor(&bumps))
+                    }
+                    _ => {
+                        bumps.retain(|&(d, _)| d < depth);
+                        let col = indent.max(floor(&bumps));
+                        stmt.truncate(depth);
+                        stmt.resize(depth + 1, col);
+                        stmt[depth] = col;
+                        col
+                    }
+                };
+                for _ in indent..column {
+                    out.push(' ');
+                    changed = true;
+                }
+                line_col = column;
+            }
+            indent = if c == '\n' {
+                0
+            } else if line_blank {
+                indent + 1
+            } else {
+                indent
+            };
+            match c {
+                '(' | '[' | '{' => {
+                    depth += 1;
+                    open_col.truncate(depth);
+                    open_col.resize(depth + 1, line_col);
+                }
+                ')' | ']' | '}' => depth = depth.saturating_sub(1),
+                _ => {}
             }
             out.push(c);
-            at_line_start = c == '\n';
+            line_blank = c == '\n' || (line_blank && c.is_whitespace());
         }
     }
 
@@ -421,6 +602,56 @@ mod tests {
         }
         // Source with nothing to indent comes back as it went in.
         assert_eq!(indent_dot_continuations("plain"), "plain");
+    }
+
+    #[test]
+    fn indent_dot_continuations_holds_a_chain_together_inside_a_call() {
+        // Level with the argument it continues, so it has to move past it...
+        assert_eq!(
+            indent_dot_continuations("stack(\n  s(\"bd\")\n  .fast(2),\n  s(\"hh\")\n)"),
+            "stack(\n  s(\"bd\")\n    .fast(2),\n  s(\"hh\")\n)"
+        );
+        // ...and the next argument drops back to the argument column rather
+        // than trailing the chain.
+        // A second `.` line at the same depth aligns with the first instead of
+        // stepping further right, which Koto rejects.
+        assert_eq!(
+            indent_dot_continuations("x\n.a()\n.b()"),
+            "x\n  .a()\n  .b()"
+        );
+        // Arguments of a chained call have to clear the chain line above them,
+        // and the chain resumes at its own column afterwards.
+        assert_eq!(
+            indent_dot_continuations("x\n.sup(\n  |v| v,\n).note()\n.gain(1)"),
+            "x\n  .sup(\n    |v| v,\n    ).note()\n  .gain(1)"
+        );
+        // Arguments written hard against the call's own column are pushed in.
+        assert_eq!(
+            indent_dot_continuations("stack(\ns(\"bd\"),\ns(\"hh\")\n)"),
+            "stack(\n  s(\"bd\"),\n  s(\"hh\")\n)"
+        );
+    }
+
+    #[test]
+    fn hoist_leading_commas_moves_the_separator_up_a_line() {
+        // The comma joins the argument above it, and the line count holds.
+        assert_eq!(
+            hoist_leading_commas("stack(\n  s(\"bd\")\n  ,\n  s(\"hh\")\n)"),
+            "stack(\n  s(\"bd\"),\n  \n  s(\"hh\")\n)"
+        );
+        // Blank lines between the two are skipped over.
+        assert_eq!(hoist_leading_commas("a\n\n, b"), "a,\n\n b");
+        // A line above that cannot take one is left alone, so the error still
+        // names what the user wrote.
+        for src in ["stack(\n, a\n)", "f(a,\n, b)"] {
+            assert_eq!(hoist_leading_commas(src), src, "{src}");
+        }
+        // A comma opening a line of string or comment content is text.
+        for src in ["x = \"a\n, b\"", "a /*\n, b\n*/"] {
+            assert_eq!(hoist_leading_commas(src), src, "{src}");
+        }
+        // Nothing to hoist comes back as it went in.
+        assert_eq!(hoist_leading_commas("f(a, b)"), "f(a, b)");
     }
 
     #[test]

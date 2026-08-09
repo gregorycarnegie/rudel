@@ -9,6 +9,112 @@ This file starts at 0.7.0. Earlier history is in the git log.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.8.0] — 2026-08-09
+
+A release about whole tunes. The example corpus had only ever been *snippets* —
+one documented line at a time — and running the complete songs behind
+<https://strudel.cc/examples> for the first time found that 8 of 46 evaluated.
+Most of the rest failed on how tunes are *written* rather than on anything they
+ask the engine to do: a method chain indented inside a `stack(...)`, a comma
+alone on its own line, a melody in a backtick template. **One fix changes what
+existing patterns do** — see Migrating below.
+
+### Added
+
+- **A whole-tune corpus test** (`crates/rudel-lang/tests/tunes.rs`, corpus from
+  `tools/oracle/gen_tunes_oracle.mjs`). 46 complete scripts: the 31 tunes behind
+  strudel.cc/examples, plus upstream's own community-song fixtures. Where
+  `doc_examples.rs` pins reach across thousands of one-liners, this pins the
+  shapes only a real song has — tens of lines, comments, `const` bindings, arrow
+  callbacks, multi-statement bodies. Each tune has to evaluate *and* produce
+  events over four cycles: a tune that parses into silence fails like one that
+  fails to parse, which is what caught two of the fixes below. Anything Rudel
+  genuinely cannot run is named with a reason in `tunes_allowlist.json`, and the
+  test fails both ways. 8 of 46 ran when it was added; 37 do now, the 9
+  allowlisted being Csound, Tone.js, `addVoicings`, the `add.out` getter form,
+  and three pre-2022 fixtures using bare note-name globals.
+- `useRNG(mode)`. Rudel ports Strudel's default `legacy` generator bit-exactly,
+  so `useRNG('legacy')` is a no-op; `'precise'` says it is not ported rather than
+  quietly returning different random numbers. Nine tunes open with this line.
+
+### Fixed
+
+- **A method chain indented inside a call ended the argument list.**
+  `indent_dot_continuations` only recognised a continuation when the `.` sat in
+  column 0, but tunes write their chains as arguments, at the argument's own
+  indent, where Koto reads the next line as the next argument. Indenting the
+  line is not enough on its own either — whatever the line's own brackets open
+  has to move with it, or a chained call's arguments end up level with the call.
+  The pass now tracks the column each continuation was pushed to, keyed by
+  bracket depth, and holds everything nested inside it further in. It only ever
+  adds indentation, so a hand-written Koto block keeps its shape.
+- **A `,` alone on a line ended the argument list.** Tunes separate the layers of
+  a long `stack(...)` that way so each can be commented and reordered. The comma
+  is hoisted onto the end of the line above, which keeps the line count — and so
+  the line numbers in error messages — unlike joining the two.
+- **Controls called with no argument returned silence.** `"0 2 4".note()`,
+  `"bd sd".s()` and `.piano()` set the control from the *missing* argument, i.e.
+  from silence. Strudel's `createParam` has an explicit branch for this
+  (`if (typeof value === 'undefined') return pat.fmap(withVal)`): the pattern's
+  own values become the control. Whole tunes are written this way, and evaluated
+  to nothing.
+- **A patterned scale returned silence.** `.scale("<C:major C:mixolydian>")` read
+  its argument back as raw text, handing `parse_scale` the mini source instead of
+  the pattern, so it matched no scale and dropped every hap. The argument now
+  follows Strudel's quoting rule, which the preprocessor already applies
+  elsewhere: a double-quoted argument went through the mini parser and stays a
+  pattern, a single-quoted one is a literal name that may contain spaces
+  (`scale('C bebop major')`).
+- **`samples({` with its keys at column 0 was parsed as labels.** A multi-line
+  sample map writes `bd: [...]` exactly like a `$:`-style label, and the label
+  rewriter took it, splitting the literal open. Label detection now only runs
+  outside open brackets.
+- **Backtick template literals were a parse error.** Tunes spell a whole melody
+  as one multi-line mini string. The scanner reads them as strings — keeping
+  their brackets and quotes out of every pass that counts them — and they are
+  rewritten to Koto raw strings. The editor colours them like any other string,
+  with mini highlighting inside.
+
+### Changed
+
+- **`.chord()` with no argument sets the chord control instead of expanding to
+  notes.** Strudel registers `chord` as a plain control and nothing else, so a
+  bare `.chord()` promotes the pattern's own values into it for `.dict(...)` and
+  `.voicing()` to read. Expanding the names straight to note stacks left
+  `.voicing()` nothing to voice: Giant Steps, which spells its chords
+  `seq(...).chord().dict('lefthand').voicing()`, lost that entire layer — 58 haps
+  where Strudel produces 147. See Migrating.
+
+### Internal
+
+- Measured against Strudel's own checked-in tune snapshot
+  (`test/__snapshots__/tunes.test.mjs.snap`, at its per-tune cycle counts): of
+  the 27 example tunes that evaluate, **21 now produce Strudel's exact hap
+  count**, including every long one — Swimming 553, Wavy kalimba 896, Caverave
+  751, Underground plumber 402, sml1 328. The six that differ are small
+  (amensister +4, festivalOfFingers3 +16, giantSteps +9, holyflute −1,
+  juxUndTollerei +4, sampleDemo +2) and are the next thing to work down.
+- Unit tests pin the preprocessor rules the tunes exercised — a chain held
+  together inside a call, a second `.` line aligning with the first rather than
+  stepping right, arguments written hard against the call's own column, a comma
+  hoisted over blank lines but not onto a line that cannot take one, and a map
+  key inside an open bracket staying a map key.
+- `docs/API_INVENTORY.md` and the reference surface regenerated for `useRNG`,
+  which leaves both allowlists one entry shorter.
+
+### Migrating
+
+`.chord()` with no argument no longer expands chord names to note stacks. If you
+were relying on that, `chord_notes` is still what it always was in `rudel-core`;
+in a script, spell the expansion out:
+
+| pattern | was | now | to restore |
+| --- | --- | --- | --- |
+| `"C".chord()` | notes 48, 52, 55 | `{chord: "C"}` | `"C".chord().voicing()` |
+
+Patterns that already went on to `.dict(...)`/`.voicing()` — which is how every
+tune spells it — were producing silence and now play.
+
 ## [0.7.2] — 2026-08-09
 
 A performance release. Profiling the running app for the first time showed the

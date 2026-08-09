@@ -438,3 +438,24 @@ fn hsl_and_hsla_write_css_color_strings() {
     let b = eval(r#"s("bd").hsl(0.5, 0.5, 0.5)"#).expect("eval");
     assert_eq!(shape(&a, 1), shape(&b, 1));
 }
+
+#[test]
+fn a_control_called_with_no_argument_promotes_the_pattern_it_is_on() {
+    // Strudel's `createParam`: `pat.note()` with no value is `pat.fmap(withVal)`,
+    // not `pat.set(note(undefined))` — which would set the control from silence
+    // and leave the tune inaudible. Whole tunes are written this way
+    // (`"0 2 4".add(12).note()`).
+    let pat = eval(r#""bd sd".s()"#).expect("eval");
+    let haps = values(&pat, 0, 1);
+    assert_eq!(haps.len(), 2, "a bare control must not silence the pattern");
+    match &haps[0] {
+        Value::Map(m) => assert_eq!(m.get("s").and_then(|v| v.as_str()), Some("bd")),
+        other => panic!("expected control map, got {other:?}"),
+    }
+    // With an argument it still sets the control from that argument.
+    let set = eval(r#""bd sd".s("hh")"#).expect("eval");
+    match &values(&set, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("s").and_then(|v| v.as_str()), Some("hh")),
+        other => panic!("expected control map, got {other:?}"),
+    }
+}

@@ -102,7 +102,11 @@ pub(super) enum Chunk {
 pub(super) fn classify(src: &str, at: usize) -> Option<(Chunk, usize)> {
     let b = src.as_bytes();
     match (*b.get(at)?, b.get(at + 1).copied()) {
-        (quote @ (b'"' | b'\''), _) => Some((Chunk::Str, scan_string(b, at, quote))),
+        // A backtick opens a JS template literal, which tunes use for the
+        // multi-line mini-notation of a whole melody. Scanning it as a string
+        // keeps its brackets and quotes out of every pass that counts them;
+        // `normalize_string_literal` turns it into a Koto string.
+        (quote @ (b'"' | b'\'' | b'`'), _) => Some((Chunk::Str, scan_string(b, at, quote))),
         (b'/', Some(b'/')) => Some((Chunk::LineComment, scan_line_comment(b, at))),
         (b'/', Some(b'*')) => Some((Chunk::BlockComment, scan_block_comment(b, at))),
         _ => None,

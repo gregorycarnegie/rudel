@@ -626,11 +626,17 @@ pub(super) fn kpattern_voicings(ctx: MethodContext<KPattern>) -> KotoResult<KVal
     with_instance(&ctx, |pat| pat.voicings(dict.clone()))
 }
 
+/// `scale(name)`. The argument follows Strudel's quoting rule, which the
+/// preprocessor has already applied: a single-quoted string never reached the
+/// mini parser and is one literal scale name (`scale('A1 minor')`), while a
+/// double-quoted one arrived as a pattern and stays one, so a tune can alternate
+/// scales (`scale("<C:major C:mixolydian>")`). Reading the pattern back as raw
+/// text would hand `parse_scale` the mini source and quietly return silence.
 pub(super) fn kpattern_scale(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let arg = method_arg(&ctx, 0);
-    let name = match arg_to_raw_str(&arg) {
-        Some(s) => rudel_core::pure(Value::Str(s)),
-        None => arg_to_pattern(&arg),
+    let name = match &arg {
+        KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
+        other => arg_to_pattern(other),
     };
     with_instance(&ctx, |pat| pat.scale(name))
 }
@@ -839,9 +845,16 @@ pub(super) fn kpattern_osc(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     })
 }
 
+/// `chord(name)`. Strudel registers `chord` as a plain control and nothing else
+/// (`controls.mjs`: `registerControl('chord')`), so a bare `.chord()` promotes
+/// the pattern's own values into it — `{chord: "B^7"}` — which is what
+/// `.dict(...)` and `.voicing()` read. Expanding the names straight to note
+/// stacks here instead (rudel-core's `Pattern::chord`, still reachable in Rust)
+/// left `.voicing()` nothing to voice, and a tune that spells its chords
+/// `seq(...).chord().dict('lefthand').voicing()` lost that whole layer.
 pub(super) fn kpattern_chord(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     if ctx.args.is_empty() {
-        with_instance(&ctx, |pat| pat.chord())
+        with_instance(&ctx, |pat| rudel_core::control_dyn("chord", pat.clone()))
     } else {
         with_pattern_arg(&ctx, |pat, arg| {
             pat.set(rudel_core::control_dyn("chord", arg))

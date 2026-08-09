@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=989 methods=1095 controls=666
+# functions=990 methods=1095 controls=666
 
 [functions]
 FXr
@@ -928,6 +928,7 @@ undegradeBy
 undegrade_by
 unison
 unit
+useRNG
 v
 val
 vel

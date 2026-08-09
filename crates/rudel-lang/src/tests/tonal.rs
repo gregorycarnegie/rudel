@@ -143,15 +143,21 @@ fn chord_control_and_voicing_controls_via_koto() {
     assert!(eval(r#"chord("c:maj7").voicing()"#).is_ok());
     // `.chord(value)` as a control on an n-pattern, then voiced.
     assert!(eval(r#"n("0 1 2 3").chord("<Dm Am>").voicing()"#).is_ok());
-    // `.chord()` (zero-arg) still expands chord names to note stacks.
+    // `.chord()` (zero-arg) sets the chord control from the pattern's own
+    // values, as Strudel's `registerControl('chord')` does — it does not expand
+    // to notes, or `.voicing()` further down the chain would have nothing left
+    // to voice.
     let pat = eval(r#"pure("C").chord()"#).expect("eval");
-    let mut got: Vec<i32> = pat
-        .query_arc(Frac::zero(), Frac::one())
-        .into_iter()
-        .map(|h| h.value.as_f64().unwrap() as i32)
-        .collect();
-    got.sort();
-    assert_eq!(got, vec![48, 52, 55]);
+    let haps = pat.query_arc(Frac::zero(), Frac::one());
+    assert_eq!(haps.len(), 1);
+    match &haps[0].value {
+        Value::Map(m) => assert_eq!(m.get("chord").and_then(|v| v.as_str()), Some("C")),
+        other => panic!("expected a chord control, got {other:?}"),
+    }
+    // ...so the form the tunes use — a mini pattern of chord names voiced
+    // through a dictionary — reaches `voicing()` intact.
+    let voiced = eval(r#""[B^7 D7]".chord().dict('lefthand').voicing()"#).expect("eval");
+    assert_eq!(voiced.query_arc(Frac::zero(), Frac::one()).len(), 8);
 }
 
 #[test]
@@ -354,4 +360,25 @@ fn tonal_controls_resolve() {
     ] {
         assert!(eval(src).is_ok(), "should eval: {src}");
     }
+}
+
+#[test]
+fn scale_reads_a_double_quoted_argument_as_a_pattern_of_names() {
+    // Strudel's quoting rule: a double-quoted argument went through the mini
+    // parser, so it can alternate scales per cycle; a single-quoted one is one
+    // literal name that may contain spaces. Taking the raw source text of the
+    // mini pattern instead hands `parse_scale` the string `<C:major C:minor>`,
+    // which matches no scale and leaves the tune silent.
+    let alternating = eval(r#"n("0 2 4").scale("<C:major C:minor>")"#).expect("eval");
+    let first = values(&alternating, 0, 1);
+    let second = values(&alternating, 1, 2);
+    assert_eq!(
+        first.len(),
+        3,
+        "a patterned scale must not silence the notes"
+    );
+    assert_ne!(first, second, "the scale must alternate between cycles");
+    // A single-quoted name with spaces stays one name.
+    let literal = eval(r#"n("0 2 4").scale('C bebop major')"#).expect("eval");
+    assert_eq!(values(&literal, 0, 1).len(), 3);
 }
