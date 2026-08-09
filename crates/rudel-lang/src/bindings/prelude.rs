@@ -440,6 +440,16 @@ pub(crate) fn register(prelude: &KMap) {
             ),
         }
     });
+    // `setVoicingRange(name, [low, high])` (tonal/voicings.mjs) narrows a
+    // dictionary's register. Upstream it only reaches the deprecated
+    // `.voicings(dict)` path — `.voicing()` aligns by `mode`/`anchor` and never
+    // reads `range` — and Rudel's voicing does not model a range on either
+    // path, so this is a no-op rather than an error: rejecting it would stop a
+    // tune that upstream runs identically without it. Dinofunk pins that in
+    // `tunes.rs`, matching Strudel's own haps with the call ignored.
+    prelude.add_fn("setVoicingRange", |_| {
+        Ok(KPattern(rudel_core::silence()).into())
+    });
     // `mini(x)` / `m(x)` parse mini-notation, which `arg_to_pattern` already
     // does for every pattern-typed argument (mini/mini.mjs `mini`).
     prelude.add_fn(

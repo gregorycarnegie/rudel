@@ -47,6 +47,26 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **`.add.out(x)` and the rest of the alignment getters are now accepted.**
+  Strudel reaches an alignment through a second property access — `pat.add` is
+  an object whose properties are the aligned variants — while Koto has no
+  property getters, so Rudel binds the matrix flat as `add_out`, `set_squeeze`
+  and so on. Every tune written the upstream way stopped at a parse error. The
+  preprocessor now flattens `.op.align(` to the bound name, collapsing `.in` (the
+  default alignment *is* the plain method) and normalising the `squeezeIn` /
+  `squeezeout` spellings on the way. **Arpoon** runs as a result, and reproduces
+  Strudel's haps exactly.
+
+- **`setVoicingRange` is accepted instead of aborting the script.** It narrows a
+  voicing dictionary's register, which upstream only reaches the deprecated
+  `.voicings(dict)` path — `.voicing()` aligns by `mode`/`anchor` and never reads
+  `range` — and which Rudel does not model on either path, so it is a no-op.
+  **Dinofunk** runs as a result, and matches Strudel's own haps with the call
+  ignored.
+
+  29 of the 31 tunes on strudel.cc/examples now run, 28 of them hap-for-hap. The
+  two that do not are built around Csound WASM.
+
 - **An unnamed `value` was not promoted into the control that followed it.**
   Strudel's `withVal` moves it — `bag = {...xs}; xs = xs.value; delete bag.value`
   — so `"A5".color('#54C571').note()` is `{note: "A5", color: …}`. Rudel left

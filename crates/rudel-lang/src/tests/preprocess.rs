@@ -28,6 +28,28 @@ fn preprocess_rewrites_arrow_functions_to_koto_lambdas() {
 }
 
 #[test]
+fn preprocess_flattens_alignment_getters() {
+    assert_eq!(preprocess_strudel("p.add.out(1)"), "p.add_out(1)");
+    // `in` is the default alignment and *is* the plain method
+    assert_eq!(preprocess_strudel("p.mul.in(1)"), "p.mul(1)");
+    // spelling normalisation: `mod` is a Koto keyword, and the camelCase and
+    // `squeezein` forms are the same cell
+    assert_eq!(preprocess_strudel("p.mod.poly(1)"), "p.modulo_poly(1)");
+    assert_eq!(preprocess_strudel("p.add.squeezeIn(1)"), "p.add_squeeze(1)");
+    assert_eq!(
+        preprocess_strudel("p.set.squeezeOut(1)"),
+        "p.set_squeezeout(1)"
+    );
+    // the alignment has to be applied — a chain that merely reads that way is
+    // not an alignment, and neither is a string
+    assert_eq!(preprocess_strudel("p.add.output"), "p.add.output");
+    assert_eq!(
+        preprocess_strudel(r#"note("add.out(1)")"#),
+        r#"note(m("add.out(1)", 6))"#
+    );
+}
+
+#[test]
 fn empty_or_commented_out_script_falls_back_to_silence() {
     assert_eq!(preprocess_strudel(""), "silence()");
     assert_eq!(preprocess_strudel("   \n  \n"), "silence()");

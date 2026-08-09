@@ -13,6 +13,86 @@ pub(super) fn strip_line_comments(src: &str) -> String {
     out
 }
 
+/// Operators that carry an alignment, and how each is spelled in Koto. `mod` is
+/// a Koto keyword, so it is bound as `modulo`.
+const ALIGNED_OPS: &[(&str, &str)] = &[
+    ("add", "add"),
+    ("sub", "sub"),
+    ("mul", "mul"),
+    ("div", "div"),
+    ("set", "set"),
+    ("keep", "keep"),
+    ("mod", "modulo"),
+    ("modulo", "modulo"),
+    ("pow", "pow"),
+];
+
+/// Alignments, and the suffix each becomes. `in` is the default and *is* the
+/// plain method, so it collapses to nothing; the camelCase and `squeezein`
+/// spellings normalise here rather than needing an alias apiece.
+const ALIGNMENTS: &[(&str, &str)] = &[
+    ("in", ""),
+    ("out", "_out"),
+    ("mix", "_mix"),
+    ("squeeze", "_squeeze"),
+    ("squeezein", "_squeeze"),
+    ("squeezeIn", "_squeeze"),
+    ("squeezeout", "_squeezeout"),
+    ("squeezeOut", "_squeezeout"),
+    ("reset", "_reset"),
+    ("restart", "_restart"),
+    ("poly", "_poly"),
+];
+
+/// Rewrite Strudel's alignment *getters* (`.add.out(x)`) into the single method
+/// Rudel binds them as (`.add_out(x)`).
+///
+/// In Strudel `pat.add` is an object whose properties are the aligned variants,
+/// so the alignment is reached by a second property access. Koto has no
+/// property getters, so the matrix is bound flat — one name per cell — and the
+/// two spellings differ only in that dot.
+///
+/// Only `.op.align(` is rewritten: the alignment has to be immediately applied,
+/// which is the only form that means anything on either side. String literals
+/// and comments are skipped.
+pub(super) fn rewrite_alignment_getters(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        let mut rest = text;
+        'scan: while let Some(dot) = rest.find('.') {
+            for (js, koto) in ALIGNED_OPS {
+                let Some(after_op) = rest[dot..].strip_prefix(&format!(".{js}.")) else {
+                    continue;
+                };
+                for (align, suffix) in ALIGNMENTS {
+                    // The `(` is what tells `.add.out(x)` from a chain that
+                    // merely happens to read `.add.outSomething`.
+                    if after_op
+                        .strip_prefix(align)
+                        .is_some_and(|tail| tail.starts_with('('))
+                    {
+                        out.push_str(&rest[..dot]);
+                        out.push('.');
+                        out.push_str(koto);
+                        out.push_str(suffix);
+                        rest = &after_op[align.len()..];
+                        continue 'scan;
+                    }
+                }
+            }
+            out.push_str(&rest[..dot + 1]);
+            rest = &rest[dot + 1..];
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
 /// Whether the arrow at byte `arrow` has a brace-block body (`x => { ... }`).
 ///
 /// Those are left alone. Koto's blocks are indentation-based, so `{ ... }` there

@@ -15,7 +15,6 @@
  "defaultmidimap#0": "unsupported: the `midimap`/`defaultmidimap` control->CC mapping tables are not ported (see FULL_STRUDEL.md, midi/midi.mjs).",
  "dictionary#0": "unsupported: the example registers a custom dictionary with `addVoicings` (see addVoicings#0).",
  "drawLine#0": "unsupported: `drawLine` renders an ASCII pattern diagram for the browser console; Rudel's visualisers are the native inline widgets (docs/UNSUPPORTED.md).",
- "freq#1": "js-syntax: uses the `mul.out` getter-object alignment form; Rudel spells it `mul_out` (Koto has no property getters).",
  "gravityX#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
  "gravityY#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
  "gravityZ#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",

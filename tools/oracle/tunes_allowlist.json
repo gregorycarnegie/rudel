@@ -1,7 +1,5 @@
 {
- "examples/arpoon": "js-syntax: uses the `add.out` getter-object alignment form; Rudel spells it `add_out` (Koto has no property getters), same as examples_allowlist `freq#1`.",
  "examples/csoundDemo": "unsupported: Csound WASM (`loadCsound`, `.csound(...)`) has no native analogue (docs/UNSUPPORTED.md).",
- "examples/dinofunk": "unsupported: `setVoicingRange` registers a runtime voicing dictionary, which is `addVoicings` under another name (see examples_allowlist `addVoicings#0`).",
  "examples/loungeSponge": "unsupported: Csound WASM (`loadOrc`, `.csound(...)`) as csoundDemo; the tune is written around it.",
  "testtunes/confusedPhone": "js-syntax: chains a standalone control function (`transpose(-12).late(0)`) as a value; Rudel's transforms are pattern methods, so there is nothing to chain off the bare function.",
  "testtunes/shapeShifted": "legacy-api: bare note-name globals (`e5`, `b4`, `gs2`). Current Strudel does not export these either — these fixtures predate mini-notation strings, and no test in the vendored Strudel runs them.",

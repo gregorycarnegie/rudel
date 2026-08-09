@@ -31,6 +31,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// over 8 or 16 cycles — so one cycle is not enough to prove a tune sounds.
 const CYCLES: i64 = 4;
 
+/// Tunes listed under <https://strudel.cc/examples> at the vendored revision —
+/// the menu a user actually picks from, and the set they were checked against by
+/// ear.
+const EXAMPLES_ON_THE_SITE: usize = 31;
+
 /// Evaluate a tune and query `CYCLES` cycles, returning the hap count.
 fn run(code: &str) -> Result<usize, String> {
     let pattern = eval(code).map_err(|e| format!("eval: {e}"))?;
@@ -105,6 +110,15 @@ fn every_tune_runs_or_is_allowlisted() {
     assert!(
         sources.contains("examples") && sources.contains("testtunes"),
         "tune corpus is missing a source: {sources:?}"
+    );
+    // Every tune the examples menu offers, so a regenerate cannot quietly shrink
+    // the corpus to the handful that pass. A floor, not an equality: upstream
+    // adds tunes, and a new one arriving should show up as a failing tune, not
+    // as a failing count.
+    let examples = cases.iter().filter(|c| c["source"] == "examples").count();
+    assert!(
+        examples >= EXAMPLES_ON_THE_SITE,
+        "corpus has {examples} of the {EXAMPLES_ON_THE_SITE} tunes on strudel.cc/examples"
     );
 
     // A floor, so a change that quietly stops running most of the corpus while
@@ -349,7 +363,7 @@ fn every_tune_matches_the_haps_strudel_produces() {
     // Raise it as the allowlist shrinks; it is the count that held when the
     // comparison was first turned on.
     assert!(
-        matched >= 26,
+        matched >= 28,
         "only {matched} tune(s) reproduce Strudel's haps exactly"
     );
 }
