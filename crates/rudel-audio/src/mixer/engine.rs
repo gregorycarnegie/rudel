@@ -162,6 +162,15 @@ impl Engine {
         })
     }
 
+    /// Panic's Csound half: end any note still sounding. Without it a long
+    /// `.csound(...)` note rings on after the rest of the app has gone quiet,
+    /// since Csound renders its own notes and never sees the pattern stop.
+    pub fn csound_all_notes_off(&self) {
+        if let Some(instance) = lock_mutex(&self.csound).as_mut() {
+            instance.all_notes_off();
+        }
+    }
+
     /// Load a directory of samples (subfolders become sound names).
     pub fn load_samples(&self, dir: impl AsRef<std::path::Path>) -> Result<usize, String> {
         let loaded = SampleBank::load_dir_entries(dir.as_ref())?;

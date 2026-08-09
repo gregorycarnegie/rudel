@@ -34,8 +34,8 @@ type CsoundPtr = *mut c_void;
 /// `csoundInitialize` flags: leave the host's `atexit` and signal handlers
 /// alone. Rudel is a GUI app that outlives any one Csound instance, and Csound
 /// installing its own `SIGINT` handler would take the process down with it.
-const CSOUNDINIT_NO_ATEXIT: c_int = 1;
-const CSOUNDINIT_NO_SIGNAL_HANDLER: c_int = 2;
+const CSOUNDINIT_NO_SIGNAL_HANDLER: c_int = 1;
+const CSOUNDINIT_NO_ATEXIT: c_int = 2;
 
 /// The orchestra header, compiled before anything a script supplies.
 ///
@@ -66,11 +66,16 @@ struct Api {
     start: unsafe extern "C" fn(CsoundPtr) -> c_int,
     perform_ksmps: unsafe extern "C" fn(CsoundPtr) -> c_int,
     input_message: unsafe extern "C" fn(CsoundPtr, *const c_char),
+    kill_instance: unsafe extern "C" fn(CsoundPtr, Myflt, *const c_char, c_int, c_int) -> c_int,
     get_spout: unsafe extern "C" fn(CsoundPtr) -> *mut Myflt,
     get_ksmps: unsafe extern "C" fn(CsoundPtr) -> c_uint,
     get_nchnls: unsafe extern "C" fn(CsoundPtr) -> c_uint,
     host_audio_io: unsafe extern "C" fn(CsoundPtr, c_int, c_int),
     set_message_callback: unsafe extern "C" fn(CsoundPtr, MessageCallback),
+    // Teardown, in the order the C API wants it: stop a performance, close
+    // whatever it opened, then free the instance.
+    stop: unsafe extern "C" fn(CsoundPtr),
+    cleanup: unsafe extern "C" fn(CsoundPtr) -> c_int,
     destroy: unsafe extern "C" fn(CsoundPtr),
 }
 
@@ -273,6 +278,8 @@ impl Api {
             perform_ksmps: sym!("csoundPerformKsmps": unsafe extern "C" fn(CsoundPtr) -> c_int),
             input_message: sym!("csoundInputMessage":
                 unsafe extern "C" fn(CsoundPtr, *const c_char)),
+            kill_instance: sym!("csoundKillInstance":
+                unsafe extern "C" fn(CsoundPtr, Myflt, *const c_char, c_int, c_int) -> c_int),
             get_spout: sym!("csoundGetSpout": unsafe extern "C" fn(CsoundPtr) -> *mut Myflt),
             get_ksmps: sym!("csoundGetKsmps": unsafe extern "C" fn(CsoundPtr) -> c_uint),
             get_nchnls: sym!("csoundGetNchnls": unsafe extern "C" fn(CsoundPtr) -> c_uint),
@@ -280,6 +287,8 @@ impl Api {
                 unsafe extern "C" fn(CsoundPtr, c_int, c_int)),
             set_message_callback: sym!("csoundSetMessageStringCallback":
                 unsafe extern "C" fn(CsoundPtr, MessageCallback)),
+            stop: sym!("csoundStop": unsafe extern "C" fn(CsoundPtr)),
+            cleanup: sym!("csoundCleanup": unsafe extern "C" fn(CsoundPtr) -> c_int),
             destroy: sym!("csoundDestroy": unsafe extern "C" fn(CsoundPtr)),
             _lib: lib,
         })
@@ -304,6 +313,14 @@ pub struct Csound {
     /// Set once `perform_ksmps` reports the performance is over, so a finished
     /// instance goes quiet instead of being pumped forever.
     finished: bool,
+    /// Every instrument a score statement has named. Csound can turn off the
+    /// instances of an instrument it is told about by name or number, but it
+    /// cannot be asked for the ones currently sounding, so [`all_notes_off`]
+    /// has nothing to work from unless the names are kept. Bounded by the
+    /// instruments a tune actually uses, which is a handful.
+    ///
+    /// [`all_notes_off`]: Csound::all_notes_off
+    sounding: std::collections::BTreeSet<String>,
 }
 
 // SAFETY: a Csound instance is not internally synchronised, but it is not
@@ -334,6 +351,7 @@ impl Csound {
             nchnls: 0,
             spare: Vec::new(),
             finished: false,
+            sounding: std::collections::BTreeSet::new(),
         };
         csound.start(sample_rate).map_err(|why| {
             // A start failure is where a bad install shows itself (a missing
@@ -420,10 +438,41 @@ impl Csound {
     /// Send a score statement (`i "Name" 0 0.5 440 0.16 "..."`).
     pub fn input_message(&mut self, message: &str) {
         let Ok(c) = CString::new(message) else { return };
+        if let Some(p1) = instrument_of(message) {
+            self.sounding.insert(p1.to_string());
+        }
         // SAFETY: `self.cs` is live and `c` outlives the call. Csound queues
         // the statement for the next k-cycle; a malformed one is logged and
         // dropped, not fatal.
         unsafe { (self.api.input_message)(self.cs, c.as_ptr()) }
+    }
+
+    /// Turn off every note still sounding, letting instruments that have a
+    /// release stage take it — panic's Csound half.
+    ///
+    /// Dropping the instance would be the blunt version, but it would take the
+    /// compiled orchestra with it and `loadCsound` only runs again on the next
+    /// evaluate, so a panic would leave the tune unable to make a Csound sound
+    /// at all. This ends the notes and keeps the instruments.
+    pub fn all_notes_off(&mut self) {
+        for instrument in std::mem::take(&mut self.sounding) {
+            // `csoundKillInstance` takes a number *or* a name: a null name
+            // means look the number up instead.
+            let (number, named) = match instrument.parse::<Myflt>() {
+                Ok(number) => (number, None),
+                Err(_) => match CString::new(instrument) {
+                    Ok(name) => (-1.0, Some(name)),
+                    Err(_) => continue,
+                },
+            };
+            // SAFETY: `self.cs` is live and `named` outlives the call. Mode 0
+            // is every instance of that instrument; the last argument allows
+            // release, so a note with an envelope fades instead of clicking.
+            unsafe {
+                let name = named.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+                (self.api.kill_instance)(self.cs, number, name, 0, 1);
+            }
+        }
     }
 
     /// Render `out.len()` stereo frames, *adding* into `out` so Csound sits
@@ -477,11 +526,29 @@ impl Csound {
     }
 }
 
+/// The instrument a score statement names — `Beep` in `i "Beep" 0 1 440`, or
+/// `1` in `i 1 0 1 440`. `None` for anything that is not an `i` statement.
+fn instrument_of(statement: &str) -> Option<&str> {
+    let rest = statement.trim_start().strip_prefix('i')?.trim_start();
+    match rest.strip_prefix('"') {
+        // A quoted name may contain spaces, so it ends at the closing quote.
+        Some(quoted) => quoted.split('"').next(),
+        None => rest.split_whitespace().next(),
+    }
+    .filter(|p1| !p1.is_empty())
+}
+
 impl Drop for Csound {
     fn drop(&mut self) {
         // SAFETY: `self.cs` was created by `csoundCreate` and is destroyed
-        // exactly once, here, since `Csound` is not `Clone`.
-        unsafe { (self.api.destroy)(self.cs) }
+        // exactly once, here, since `Csound` is not `Clone`. The two calls
+        // before it are the documented teardown — end the performance, then
+        // close what it opened — and nothing performs afterwards.
+        unsafe {
+            (self.api.stop)(self.cs);
+            (self.api.cleanup)(self.cs);
+            (self.api.destroy)(self.cs);
+        }
     }
 }
 
@@ -621,6 +688,49 @@ mod tests {
                 ">>> opcode set_tempo(it  <<<",
             ]
         );
+    }
+
+    #[test]
+    fn panic_ends_a_note_that_would_have_kept_sounding() {
+        // A `.csound()` note runs for its own p3 inside Csound, which never
+        // sees the pattern stop — so panic has to turn it off, or a long note
+        // rings on after everything else has gone quiet.
+        let Some(mut cs) = csound(44100.0) else {
+            return;
+        };
+        cs.compile_orc("instr Drone\n  asig = oscili(p5, p4)\n  out(asig, asig)\nendin\n")
+            .expect("compile");
+        cs.input_message(r#"i "Drone" 0 30 220 0.5"#); // 30 seconds of it
+
+        let mut before = vec![(0.0f32, 0.0f32); 1000];
+        cs.render_into(&mut before);
+        assert!(before.iter().any(|(l, _)| l.abs() > 0.1), "no note to kill");
+
+        cs.all_notes_off();
+        let mut after = vec![(0.0f32, 0.0f32); 1000];
+        cs.render_into(&mut after);
+        // Not instant: the buffered remainder of the k-cycle in flight still
+        // carries the note's last few samples, and a note is only ever turned
+        // off on a k-boundary. Two k-cycles in, there is nothing left.
+        let tail = &after[2 * cs.ksmps..];
+        let peak = tail.iter().fold(0.0f32, |m, (l, _)| m.max(l.abs()));
+        assert!(peak < 1e-6, "note still sounding after panic, peak {peak}");
+    }
+
+    #[test]
+    fn the_instrument_is_read_back_off_the_statement() {
+        // What `all_notes_off` has to work from: Csound will not list the
+        // instruments that are sounding, so they come from the statements.
+        assert_eq!(
+            instrument_of(r#"i "Beep" 0 1 440 0.5 "note/a4""#),
+            Some("Beep")
+        );
+        assert_eq!(instrument_of(r#"i "Cool Synth" 0 1"#), Some("Cool Synth"));
+        assert_eq!(instrument_of("i 1 0 1 440"), Some("1"));
+        assert_eq!(instrument_of("  i  1.2 0 1"), Some("1.2"));
+        // Not an `i` statement, and nothing to kill.
+        assert_eq!(instrument_of("f 1 0 16384 10 1"), None);
+        assert_eq!(instrument_of("i"), None);
     }
 
     #[test]

@@ -81,6 +81,12 @@ impl RudelApp {
         // reset (all-notes-off / CC reset) messages as it stops.
         self.midi = None;
         self.osc = None;
+        // Csound is not torn down with them: dropping it would take the
+        // compiled orchestra too, and `loadCsound` only runs on the next
+        // evaluate. Its notes are ended in place instead.
+        if let Some(e) = &self.engine {
+            e.csound_all_notes_off();
+        }
         self.status = "panic".to_string();
     }
 
