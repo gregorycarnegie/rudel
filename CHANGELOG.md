@@ -86,14 +86,26 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - **`superimpose` applied only its first function.** It is variadic upstream —
   `stack(this, ...funcs.map(f => f(this)))`, the same shape as `layer` — so a
   tune superimposing two voices silently lost the second.
+- **`degradeBy` did not patternify its amount.** Upstream registers it with
+  patternify, so a signal or mini pattern is sampled per cycle; Rudel took a
+  single `f64` and collapsed the argument to one arbitrary value, keeping events
+  upstream drops. Tunes reach for `degradeBy(sine.range(0,.5).slow(32))` to make
+  the density breathe. `undegradeBy` had the same shape and the same fix, via a
+  new `patternify_f64` — the existing `Frac` variant would round a probability
+  onto a bounded rational, which is right for a time and not for this.
 
 ### Internal
 
 - `wrap_control_dyn` is now `control_dyn`: the distinction only existed because
   the bag rule was applied on one path.
-- Tune parity went from 11 exact to 23 of 27 on the back of the above. The four
-  left are named in `tunes_parity_allowlist.json`; all four are now extra or
-  missing haps around a wrapped copy (`off`, `jux` + `late`), not wrong values.
+- Tune parity went from 11 exact to **25 of 27** on the back of the above. The
+  two left are named in `tunes_parity_allowlist.json` and are not ordinary bugs:
+  Giant Steps needs `.anchor(…).mode('duck')`, a voicing mode Rudel does not
+  have, and Jux und tollerei differs because Strudel's `every`/`firstOf` — and
+  so `palindrome()` — returns nothing for negative cycles, while `when`, `rev`
+  and `fast` behave normally there. The tune's `off` copy therefore pulls
+  nothing in from cycle -1 upstream; Rudel carries the previous cycle's note
+  across, which is the correct reading, so that one is deliberately not matched.
 
 ## [0.8.0] — 2026-08-09
 

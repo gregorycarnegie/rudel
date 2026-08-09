@@ -345,6 +345,7 @@ macro_rules! kpattern_methods {
 
 kpattern_methods! {
     pattern_arg: [
+        degrade_by, undegrade_by,
         fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
         early, late, fast_gap,
         // comparison / logic composers (boolean results)
@@ -389,7 +390,7 @@ kpattern_methods! {
         iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
         chop, striate, take, drop, root_notes, shuffle, scramble, replicate,
     ],
-    f64_arg: [degrade_by, undegrade_by, cpm],
+    f64_arg: [cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
     pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
@@ -620,6 +621,8 @@ kpattern_methods! {
         // takes `this` as the first pattern, as upstream's methods do.
         stack => overlay, cat => cat_with, seq => seq_with,
         slowcat => cat_with, fastcat => seq_with, sequence => seq_with,
+        // patternified amounts, as upstream registers them
+        degradeBy => degrade_by, undegradeBy => undegrade_by,
     ],
     camel_pattern_pattern: [moveXY => move_xy],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
@@ -634,7 +637,7 @@ kpattern_methods! {
         s_taper => shrink, s_add => take, s_sub => drop,
         s_expand => expand, s_extend => extend, s_contract => contract,
     ],
-    camel_f64: [degradeBy => degrade_by, undegradeBy => undegrade_by],
+    camel_f64: [],
     camel_frac: [pressBy => press_by, loopAt => loop_at, steps => pace],
     camel_frac_frac: [swingBy => swing_by],
     camel_i64_i64: [euclidLegato => euclid_legato],

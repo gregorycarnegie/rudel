@@ -1,6 +1,4 @@
 {
- "examples/amensister": "2 extra haps: ours emits notes 27 and 36 in the bass layer that upstream does not, from `sine.add(saw.slow(4)).range(0,7).segment(8)` feeding `.scale()` — the rest of the tune matches.",
- "examples/giantSteps": "note: the chord layer voices an octave low (ours 58/61 where upstream has 70/73) and produces 9 haps too many — `anchor`/`mode('duck')` is not ducking the voicing against the melody.",
- "examples/juxUndTollerei": "4 extra haps: ours splits at 1/200 where upstream does not, emitting a sliver at cycle start and a second piece after it. `jux` + `late(0.005)` on a pattern whose copy wraps past the cycle.",
- "examples/sampleDemo": "2 extra haps: ours emits a fragment whose whole starts at -3/4 and one at 3/4 that upstream does not, from an `.off()` copy that wraps past the query."
+ "examples/giantSteps": "unsupported: the chord layer uses `.anchor(melody).mode('duck')`, which voices each chord against a reference pattern and drops the tones it collides with. Rudel voices from the dictionary's own anchor, so the layer comes out an octave low with 9 haps too many. A missing voicing mode, not a defect in what is there.",
+ "examples/juxUndTollerei": "upstream quirk, deliberately not matched: Strudel's `every`/`firstOf` — and so `palindrome()`, which is `every(2, rev)` — returns nothing for negative cycles, while `when`, `rev` and `fast` all behave normally there. The tune's `.off(1/4, x => x.slow(2).late(.005))` therefore pulls nothing in from cycle -1 upstream, where Rudel correctly carries the previous cycle's note across. Matching this would mean reproducing an upstream bug; the 4 extra haps are ours and they are right."
 }

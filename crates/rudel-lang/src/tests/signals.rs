@@ -167,3 +167,27 @@ fn binary_lists_and_randl_via_koto() {
         other => panic!("expected a list, got {other:?}"),
     }
 }
+
+#[test]
+fn degrade_by_patternifies_its_amount() {
+    // Upstream registers `degradeBy` with patternify, so a signal or mini
+    // pattern is sampled per cycle. Collapsing it to one number kept events
+    // upstream drops — tunes use `degradeBy(sine.range(0,.5).slow(32))` to make
+    // the density breathe.
+    let literal = eval(r#"note("0 1 2 3").degradeBy(0.5)"#).expect("eval");
+    let patterned = eval(r#"note("0 1 2 3").degradeBy(pure(0.5))"#).expect("eval");
+    assert_eq!(
+        values(&literal, 0, 1),
+        values(&patterned, 0, 1),
+        "a pure pattern must decide exactly as the bare number does"
+    );
+    // A per-cycle amount really does vary. Cycle 1's amount of 1 drops
+    // everything; cycle 0's amount of 0 keeps what a bare 0 would (upstream's
+    // filter is `v > x`, so a `rand` of exactly 0 goes either way — which is
+    // why this compares against the literal rather than asserting all four).
+    let alternating = eval(r#"note("0 1 2 3").degradeBy("<0 1>")"#).expect("eval");
+    let zero = eval(r#"note("0 1 2 3").degradeBy(0)"#).expect("eval");
+    assert_eq!(values(&alternating, 0, 1), values(&zero, 0, 1));
+    assert!(!values(&alternating, 0, 1).is_empty());
+    assert_eq!(values(&alternating, 1, 2).len(), 0);
+}

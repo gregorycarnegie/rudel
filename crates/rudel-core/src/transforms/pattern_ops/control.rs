@@ -102,7 +102,7 @@ impl Pattern {
     where
         F: Fn(&Pattern) -> Pattern,
     {
-        stack(&[self.degrade_by(prob), f(&self.undegrade_by(1.0 - prob))])
+        stack(&[self._degrade_by(prob), f(&self._undegrade_by(1.0 - prob))])
     }
     /// `sometimesBy(0.5, f)` (`sometimes`).
     pub fn sometimes<F>(&self, f: F) -> Pattern
@@ -184,6 +184,6 @@ impl Pattern {
 
     /// `undegradeBy(0.5)` (`undegrade`).
     pub fn undegrade(&self) -> Pattern {
-        self.undegrade_by(0.5)
+        self._undegrade_by(0.5)
     }
 }
