@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=991 methods=1095 controls=666
+# functions=998 methods=1097 controls=668
 
 [functions]
 FXr
@@ -124,6 +124,8 @@ cosine2
 cpm
 cps
 crush
+csound
+csoundm
 ctf
 ctlNum
 ctranspose
@@ -608,7 +610,12 @@ legato
 leslie
 lfo
 linger
+loadCSound
+loadCsound
+loadOrc
 loadSoundfont
+loadcsound
+loadorc
 lock
 loop
 loopAt
@@ -1131,6 +1138,8 @@ control
 cpm
 cps
 crush
+csound
+csoundm
 ctf
 ctlNum
 ctranspose
@@ -2157,6 +2166,8 @@ compressorRatio
 compressorRelease
 cps
 crush
+csound
+csoundm
 ctf
 ctlNum
 ctranspose

@@ -36,6 +36,11 @@ pub struct NoteEvent {
     /// Widget tags from the source hap; the mixer adds the voice's output to
     /// the per-widget scope taps registered under these ids.
     pub tags: Vec<String>,
+    /// A Csound score statement, when the hap named an instrument with
+    /// `.csound(...)`. The mixer sends it to Csound at the onset instead of
+    /// starting a voice — upstream's `csound` output is an `onTrigger`, which
+    /// replaces the sound rather than adding to it.
+    pub csound: Option<String>,
 }
 
 /// The requested MIDI note for a sampler, from `freq` or `note` (name or
@@ -68,6 +73,85 @@ fn apply_velocity(map: &ValueMap) -> Option<ValueMap> {
     let gain = map.get("gain").and_then(|v| v.as_f64()).unwrap_or(1.0);
     out.insert("gain".to_string(), Value::F64(gain * velocity));
     Some(out)
+}
+
+/// The score statement a `.csound(instrument)` / `.csoundm(instrument)` hap
+/// becomes, or `None` if the hap names no instrument or has nothing playable.
+///
+/// The pfields are `@strudel/csound`'s, so an orchestra written for Strudel
+/// reads the same values here. Both outputs share `p1` (instrument name),
+/// `p2` (start relative to now) and `p3` (duration in seconds), and differ in
+/// how the note is expressed:
+///
+/// | | `csound` | `csoundm` |
+/// | --- | --- | --- |
+/// | `p4` | frequency, rounded | MIDI key, unrounded |
+/// | `p5` | `gain` (default 0.8), × 0.2 | `127 × gain × velocity` |
+/// | `p6` | controls, plus `freq` | controls, plus `frequency` |
+///
+/// `p6` is the `key/value/key/value` string `presets.orc`'s `keymap` opcode
+/// reads. `p2` is always 0: Rudel injects the statement from the audio callback
+/// at the sub-block the onset falls on, so "now" *is* the onset — where the
+/// browser schedules ahead against a target time and has to say how far ahead.
+fn csound_statement(map: &ValueMap, duration: f64) -> Option<String> {
+    let midi_semantics = map.contains_key("csoundm");
+    let instrument = map
+        .get(if midi_semantics { "csoundm" } else { "csound" })
+        .and_then(|v| v.as_str())?;
+    // `getFrequency`: an explicit `freq` wins, else the note (name or number),
+    // else `n`. Nothing playable means nothing to say to Csound.
+    let freq = match map.get("freq").and_then(|v| v.as_f64()) {
+        Some(freq) => freq,
+        None => {
+            let midi = requested_midi(map)
+                .or_else(|| map.get("n").and_then(|v| v.as_f64()))
+                .or_else(|| map.get("value").and_then(|v| v.as_f64()))?;
+            440.0 * 2f64.powf((midi - 69.0) / 12.0)
+        }
+    };
+    // `Object.entries({ ...hap.value, freq }).flat().join('/')`: insertion
+    // order upstream, key order here — `keymap` looks a key up by name, so the
+    // order is not part of the contract, and a `ValueMap` has no other one.
+    let freq_key = if midi_semantics { "frequency" } else { "freq" };
+    let mut controls: Vec<String> = map
+        .iter()
+        .filter(|(k, _)| k.as_str() != freq_key)
+        .map(|(k, v)| format!("{k}/{}", control_text(v)))
+        .collect();
+    let gain = map.get("gain").and_then(|v| v.as_f64());
+    let (p4, p5) = if midi_semantics {
+        // Upstream converts without rounding, through the octave-point form
+        // Csound itself uses, so a detuned note keeps its cents.
+        const C4: f64 = 261.62558;
+        let octave = (freq / C4).log2() + 8.0;
+        let velocity = map.get("velocity").and_then(|v| v.as_f64()).unwrap_or(0.9);
+        (octave * 12.0 - 36.0, 127.0 * gain.unwrap_or(1.0) * velocity)
+    } else {
+        (freq.round(), gain.unwrap_or(0.8) * 0.2)
+    };
+    controls.push(format!(
+        "{freq_key}/{}",
+        if midi_semantics { freq } else { freq.round() }
+    ));
+    Some(format!(
+        "i \"{instrument}\" 0 {duration} {p4} {p5} \"{}\"",
+        controls.join("/")
+    ))
+}
+
+/// One control value as Csound's `keymap` string map carries it. Quotes and
+/// the `/` separator would both corrupt the string, so they are dropped rather
+/// than escaped — there is no escape in that format to use.
+fn control_text(v: &Value) -> String {
+    let text = match v {
+        Value::Str(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::F64(x) => x.to_string(),
+        Value::Frac(f) => f.to_f64().to_string(),
+        Value::Bool(b) => (*b as i32).to_string(),
+        other => format!("{other:?}"),
+    };
+    text.replace(['"', '/'], "")
 }
 
 /// Resolve a control map into either a sampler or synth voice spec.
@@ -269,6 +353,7 @@ pub fn collect_events_at(
                     .and_then(|v| v.as_f64())
                     .map(|v| v as i32),
                 tags: ev.tags,
+                csound: csound_statement(&ev.controls, ev.duration_seconds),
             }
         })
         .collect();
@@ -442,6 +527,79 @@ mod tests {
         // No velocity, or a velocity of 1, leaves gain exactly as it was.
         assert!((gain_of(r#"note("c3").gain(0.8)"#) - 0.8).abs() < 1e-6);
         assert!((gain_of(r#"note("c3").gain(0.8).velocity(1)"#) - 0.8).abs() < 1e-6);
+    }
+
+    /// The score statement one hap of `src` becomes.
+    fn statement(src: &str) -> Option<String> {
+        let pattern = rudel_lang::eval(src).expect("eval");
+        collect_events(&pattern, 1.0, 0.0, 1.0, &SampleBank::new())
+            .into_iter()
+            .next()
+            .expect("one event")
+            .csound
+    }
+
+    #[test]
+    fn a_csound_hap_becomes_the_score_statement_strudel_sends() {
+        // `@strudel/csound`: p1 name, p2 start, p3 duration, p4 frequency
+        // rounded, p5 gain (default 0.8) scaled by 0.2, p6 the controls as a
+        // `/`-joined string map with `freq` appended.
+        assert_eq!(
+            statement(r#"note("a4").csound('CoolSynth')"#).as_deref(),
+            Some(
+                r#"i "CoolSynth" 0 1 440 0.16000000000000003 "note/a4/csound/CoolSynth/freq/440""#
+            )
+        );
+        // `gain` scales p5, and rides along in the string map as well.
+        assert_eq!(
+            statement(r#"note("a4").gain(0.5).csound('CoolSynth')"#).as_deref(),
+            Some(r#"i "CoolSynth" 0 1 440 0.1 "note/a4/gain/0.5/csound/CoolSynth/freq/440""#)
+        );
+        // An explicit `freq` wins over the note, as `getFrequency` has it.
+        assert!(
+            statement(r#"note("a4").freq(220).csound('X')"#)
+                .expect("statement")
+                .contains(" 220 ")
+        );
+        // A hap with no instrument is an ordinary voice, not a silent one.
+        assert_eq!(statement(r#"note("a4")"#), None);
+        // ...and one with an instrument but nothing playable says nothing,
+        // rather than sending Csound a NaN.
+        assert_eq!(statement(r#"s("bd").csound('X')"#), None);
+    }
+
+    #[test]
+    fn csoundm_sends_midi_pfields_instead_of_frequency() {
+        // The MIDI-semantics output: p4 is the key as a real number (a4 is 69)
+        // and p5 is `127 * gain * velocity` with velocity defaulting to 0.9.
+        let s = statement(r#"note("a4").csoundm('Meta')"#).expect("statement");
+        let fields: Vec<&str> = s.split(' ').collect();
+        assert_eq!(fields[1], "\"Meta\"");
+        assert!(
+            (fields[4].parse::<f64>().expect("p4") - 69.0).abs() < 1e-6,
+            "p4 should be the MIDI key: {s}"
+        );
+        assert!(
+            (fields[5].parse::<f64>().expect("p5") - 127.0 * 0.9).abs() < 1e-6,
+            "p5 should be 127 * gain * velocity: {s}"
+        );
+        // The string map carries `frequency`, not `freq`, for this output.
+        assert!(s.contains("frequency/440"), "{s}");
+    }
+
+    #[test]
+    fn a_control_value_cannot_break_the_string_map() {
+        // `p6` is `key/value/...` inside a quoted pfield, so a value carrying a
+        // quote or a separator would end the field or invent a key. There is no
+        // escape in that format, so both are dropped.
+        let map = ValueMap::from([
+            ("csound".to_string(), Value::Str("X".into())),
+            ("note".to_string(), Value::Int(69)),
+            ("s".to_string(), Value::Str("a\"b/c".into())),
+        ]);
+        let s = csound_statement(&map, 1.0).expect("statement");
+        assert!(s.contains("s/abc"), "{s}");
+        assert_eq!(s.matches('"').count(), 4, "only the two pfields quote: {s}");
     }
 
     #[test]

@@ -57,10 +57,8 @@
     },
     "unsupported_package": {
       "status": "unsupported",
-      "reason": "Browser-only / alternative-engine features and config setters with no native analog: Csound WASM, Web Speech, kabelsalat worklet (K/worklet), the FX effect-chain graph, superdough gain-curve/polyphony setters, and runtime voicing-dictionary registration (docs/UNSUPPORTED.md, FULL_STRUDEL.md effects/voicings items).",
+      "reason": "Browser-only / alternative-engine features and config setters with no native analog: Web Speech, kabelsalat worklet (K/worklet), the FX effect-chain graph, superdough gain-curve/polyphony setters, and runtime voicing-dictionary registration (docs/UNSUPPORTED.md, FULL_STRUDEL.md effects/voicings items). Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs).",
       "names": [
-        "csound",
-        "csoundm",
         "speak",
         "K",
         "worklet",

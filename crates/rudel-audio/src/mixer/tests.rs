@@ -28,6 +28,7 @@ fn test_mixer_with_volume(rx: Receiver<NoteEvent>, volume: Arc<AtomicU64>) -> Mi
         scratch: MixScratch::default(),
         taps: Arc::new(ScopeTaps::new()),
         tag_bufs: HashMap::new(),
+        csound: Default::default(),
     }
 }
 
@@ -63,6 +64,7 @@ fn tagged_voices_feed_their_widget_tap_only() {
         duck: Vec::new(),
         mods: Default::default(),
         tags,
+        csound: None,
     };
     mixer.schedule(ev(vec!["w1".to_string()]));
     mixer.schedule(ev(Vec::new()));
@@ -753,6 +755,7 @@ fn cut_group_chokes_the_previous_voice() {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     };
     tx.send(held(0.0)).unwrap();
     tx.send(held(0.2)).unwrap();
@@ -795,6 +798,7 @@ fn block_render_matches_frame_render_across_onsets() {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     };
     // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.
     let onsets = [0.0, 37.0 / 44100.0, 150.0 / 44100.0];
@@ -1016,6 +1020,7 @@ fn routed_event(send: OrbitSend) -> NoteEvent {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     }
 }
 
@@ -1382,6 +1387,7 @@ fn a_choked_voice_is_routed_through_the_same_sends() {
             duck: Vec::new(),
             mods: Default::default(),
             tags: Vec::new(),
+            csound: None,
         });
         let mut out = vec![(0.0f32, 0.0f32); 16384];
         mixer.render_block(&mut out);
@@ -1465,6 +1471,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); 4096];
     mixer.render_block(&mut out);
@@ -1503,6 +1510,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     });
     let mut out2 = vec![(0.0f32, 0.0f32); 4096];
     quiet.render_block(&mut out2);
@@ -1541,6 +1549,7 @@ fn render_choked(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); n];
     mixer.render_block(&mut out);
@@ -2369,6 +2378,7 @@ fn a_centred_voice_stays_centred_through_a_signal_bus() {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); 4096];
     mixer.render_block(&mut out);

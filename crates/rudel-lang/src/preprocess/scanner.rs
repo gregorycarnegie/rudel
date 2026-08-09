@@ -17,6 +17,19 @@ pub(super) fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
+/// Whether the string literal starting at `at` is a JS *tagged* template — a
+/// backtick body stuck straight onto a function name, `loadCsound`` ... ` ``.
+///
+/// It decides two things that have to agree: a tagged template is a call
+/// argument, not mini-notation (upstream's `plugin-mini` says exactly this,
+/// `TemplateLiteral && parent !== TaggedTemplateExpression`), and it is the
+/// form `rewrite_tagged_templates` puts parentheses around. Disagreeing once
+/// meant the mini pass glued its `m(` onto the tag, making `loadCsound` into
+/// the undefined `loadCsoundm`.
+pub(super) fn is_tagged_template(src: &str, at: usize) -> bool {
+    src[at..].starts_with('`') && src[..at].chars().next_back().is_some_and(is_ident_char)
+}
+
 pub(super) fn previous_non_ws(src: &str, at: usize) -> Option<char> {
     src[..at].chars().rev().find(|c| !c.is_whitespace())
 }

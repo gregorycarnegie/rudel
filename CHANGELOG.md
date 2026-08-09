@@ -30,6 +30,27 @@ This file starts at 0.7.0. Earlier history is in the git log.
   already used. Failures are logged rather than raised: rudel has to start
   offline, and a bank nobody asked for should not open with a red error.
 
+- **Csound works, against the Csound installed on the machine.** `loadCsound`,
+  `loadOrc` and the `csound` / `csoundm` outputs all run; the last two tunes on
+  strudel.cc/examples that did not, **CSound demo** and **Lounge sponge**, now
+  do, so all 31 run.
+
+  Upstream loads Csound's WebAssembly build in the browser. There is no
+  pure-Rust Csound and that build is Emscripten output, which needs a browser
+  or Node, so Rudel opens the *native* `libcsound` by name at run time — the
+  first time a script asks for it, and never otherwise. Nothing links against
+  it: a Rudel built or run without Csound behaves exactly as before, and a
+  script that wants it and cannot find it gets an error naming what to install
+  while the rest of the pattern keeps playing. Set `RUDEL_CSOUND_LIB` to point
+  at a specific library. See [docs/UNSUPPORTED.md](docs/UNSUPPORTED.md#csound-strudelcsound--supported-with-csound-installed-separately).
+
+  Csound renders inside the audio callback with host-implemented audio IO, so
+  it is a signal in Rudel's mixer rather than a second output stream: one
+  device, one clock, and note onsets sample-accurate against every other layer.
+  Orchestra errors come back with Csound's own text — the line number and the
+  offending source — because `csoundCompileOrc` returns `-1` for everything and
+  a return code alone is not a diagnostic.
+
 - **The tune corpus is now compared against Strudel's haps, not just run.**
   Upstream's `tunes.test.mjs` snapshots `queryCode(tune, testCycles[key])` for
   every website tune — each hap's spans and every control that reaches the synth
@@ -57,6 +78,20 @@ This file starts at 0.7.0. Earlier history is in the git log.
   `squeezeout` spellings on the way. **Arpoon** runs as a result, and reproduces
   Strudel's haps exactly.
 
+- **A tagged template is a call, not a pattern.** `loadCsound`` instr … endin ``
+  is JavaScript's tagged-template call form, and the mini pass was wrapping the
+  backtick body in `m(...)` — parsing an orchestra as mini-notation, and gluing
+  its `m` onto the tag to make the undefined `loadCsoundm`. Tagged templates are
+  now rewritten to an ordinary call and left out of mini-notation, which is the
+  line upstream's `plugin-mini` draws too (`TemplateLiteral && parent !==
+  TaggedTemplateExpression`). Untagged multi-line templates are still patterns.
+
+- **A method chain can continue after a multi-line call.** Koto will not carry a
+  chain onto a new line after a call whose arguments spanned lines, however far
+  the `.` is indented — so `n("0 7".off(…)\n.slow(2))\n.clip(.25)` was a syntax
+  error no amount of indentation fixed. It does accept the chain written on the
+  line that closes the call, so that is where the continuation now goes.
+
 - **`setVoicingRange` is accepted instead of aborting the script.** It narrows a
   voicing dictionary's register, which upstream only reaches the deprecated
   `.voicings(dict)` path — `.voicing()` aligns by `mode`/`anchor` and never reads
@@ -64,8 +99,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   **Dinofunk** runs as a result, and matches Strudel's own haps with the call
   ignored.
 
-  29 of the 31 tunes on strudel.cc/examples now run, 28 of them hap-for-hap. The
-  two that do not are built around Csound WASM.
+  With Csound above, **all 31** tunes on strudel.cc/examples now run. 28 match
+  Strudel's own haps exactly; the three that do not are listed with the
+  difference in `tunes_parity_allowlist.json`, and none of the three differs in
+  a way that is audible.
 
 - **An unnamed `value` was not promoted into the control that followed it.**
   Strudel's `withVal` moves it — `bag = {...xs}; xs = xs.value; delete bag.value`

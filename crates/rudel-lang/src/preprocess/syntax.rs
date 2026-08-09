@@ -1,4 +1,4 @@
-use super::scanner::{Chunk, chunks};
+use super::scanner::{Chunk, chunks, is_tagged_template};
 
 /// Drop `//` comments, keeping the newline each sat on so line numbers hold.
 /// Strings and block comments are chunks of their own, so a `//` inside one is
@@ -8,6 +8,39 @@ pub(super) fn strip_line_comments(src: &str) -> String {
     for (kind, start, end) in chunks(src) {
         if kind != Chunk::LineComment {
             out.push_str(&src[start..end]);
+        }
+    }
+    out
+}
+
+/// Rewrite a JavaScript tagged template — a call written as a function name
+/// with a backtick literal stuck straight onto it — into an ordinary call.
+///
+/// ```text
+/// loadCsound`instr X ... endin`   ->   loadCsound(`instr X ... endin`)
+/// ```
+///
+/// This is how the Csound tunes pass an orchestra, and it is the only place
+/// Strudel's own examples use the form: a multi-line body with quotes and
+/// apostrophes in it, which no other literal survives. Nothing is interpolated,
+/// so the tag receives the text as its single argument, which is what upstream's
+/// `loadCsound` also reduces the form to.
+///
+/// Runs after the mini pass, so inserting these two characters cannot move a
+/// recorded source location — those are already emitted as literal offsets.
+pub(super) fn rewrite_tagged_templates(src: &str) -> String {
+    if !src.contains('`') {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len() + 8);
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind == Chunk::Str && is_tagged_template(src, start) {
+            out.push('(');
+            out.push_str(text);
+            out.push(')');
+        } else {
+            out.push_str(text);
         }
     }
     out
@@ -382,6 +415,20 @@ const CONTINUATION_INDENT: usize = 2;
 ///
 /// Indentation is only ever added, never taken away, so an indentation-sensitive
 /// Koto block the user wrote by hand keeps its shape.
+/// Undo the line break that separates the text just emitted from the `.` about
+/// to be, so a chain continues on the line that closed the call it chains off.
+/// Refuses when the break is a blank line or more — that is a deliberate
+/// separation, and swallowing it would join two statements — and reports
+/// whether it joined.
+fn join_onto_previous(out: &mut String) -> bool {
+    let kept = out.trim_end_matches([' ', '\t', '\r', '\n']).len();
+    if out[kept..].chars().filter(|&c| c == '\n').count() != 1 {
+        return false;
+    }
+    out.truncate(kept);
+    true
+}
+
 pub(super) fn indent_dot_continuations(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut changed = false;
@@ -401,6 +448,19 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
     // often write `stack(` and its arguments all hard against the left margin.
     let mut open_col: Vec<usize> = vec![0];
     let mut line_col = 0usize;
+    // How the previous non-blank line began: its bracket depth, and whether its
+    // first character was a closing bracket.
+    //
+    // A `.` line cannot be indented into place after a line that *continued* an
+    // expression and closed a multi-line call while doing it — `.slow(2))`,
+    // ending an argument list opened lines earlier. Koto will not carry the
+    // chain onto the next line there however far the `.` is pushed, but it does
+    // accept the chain written on the closing line itself, so that is what this
+    // one gets joined to. A line that *opens* with the closing bracket (`)` on
+    // its own, or `).note()`) is the shape Koto already continues from, and
+    // joining it would only run two readable lines together.
+    let mut previous_depth = 0usize;
+    let mut previous_began_closing = false;
 
     for (kind, start, end) in chunks(src) {
         let text = &src[start..end];
@@ -413,8 +473,25 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
             continue;
         }
         for c in text.chars() {
+            if line_blank
+                && c == '.'
+                && previous_depth > depth
+                && !previous_began_closing
+                && join_onto_previous(&mut out)
+            {
+                // Joined: this line *is* the previous one now, so it keeps that
+                // line's column and none of the indentation machinery applies.
+                changed = true;
+                previous_depth = depth;
+                out.push(c);
+                indent = 0;
+                line_blank = false;
+                continue;
+            }
             if line_blank && !c.is_whitespace() {
                 // First non-blank character of the line: settle its column.
+                previous_depth = depth;
+                previous_began_closing = matches!(c, ')' | ']' | '}');
                 while bumps.last().is_some_and(|&(d, _)| d > depth) {
                     bumps.pop();
                 }

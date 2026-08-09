@@ -54,7 +54,11 @@ impl RudelApp {
                     self.io_error = None;
                 }
             } else {
-                self.status = "sample load failed".to_string();
+                // Not always samples: soundfonts, wavetables, midimaps and
+                // Csound orchestras share this queue, and a failed `loadCsound`
+                // reporting "sample load failed" sends the reader looking in
+                // the wrong place. The detail is in the error panel below.
+                self.status = "load failed".to_string();
             }
         }
 
@@ -225,6 +229,44 @@ impl RudelApp {
         for source in &effects.midimaps {
             self.queue_midimaps(source.clone());
         }
+        for (is_url, text) in &effects.csound_orcs {
+            self.queue_csound(*is_url, text.clone());
+        }
+    }
+
+    /// Start Csound (on the first call) and compile an orchestra into it, once
+    /// per distinct orchestra.
+    ///
+    /// Keyed on the text so a re-evaluation does not recompile — `loadOrc`
+    /// caches by URL upstream for the same reason. A user editing the
+    /// orchestra *does* change the text, so live-coding an instrument still
+    /// works: that is the whole point of `loadCsound` being re-callable.
+    fn queue_csound(&mut self, is_url: bool, text: String) {
+        let Some(engine) = &self.engine else {
+            self.io_error = Some("no audio engine to run Csound in".to_string());
+            return;
+        };
+        let key = format!("csound:{is_url}:{text}");
+        if !self.loaded_sample_sources.insert(key.clone()) {
+            return;
+        }
+        let label = if is_url {
+            format!("loadOrc({text:?})")
+        } else {
+            "loadCsound(...)".to_string()
+        };
+        let source = if is_url {
+            rudel_audio::CsoundSource::Url(text)
+        } else {
+            rudel_audio::CsoundSource::Code(text)
+        };
+        let handle = engine.spawn_csound(source);
+        self.sample_jobs.push(SampleJob {
+            key,
+            label,
+            handle,
+            quiet: false,
+        });
     }
 
     /// Fetch a `midimaps(url)` control-to-CC table in the background, once per

@@ -446,16 +446,40 @@ OSC over UDP** (`crates/rudel-osc`) — selectable in the app's output picker.
 These cover the common "drive external gear / another program" use cases without
 needing the Web Serial or MQTT-over-WebSocket bridges.
 
-### Csound (`@strudel/csound`) — intentionally unsupported
+### Csound (`@strudel/csound`) — supported, with Csound installed separately
 
-`@strudel/csound` (`loadCsound`/`loadCSound`, `loadOrc`, the `csound` output)
-loads the [Csound](https://csound.com/) WebAssembly build in the browser and
-routes haps to Csound instruments/orchestras as an alternative sound engine.
-Rudel has its own native DSP engine (`crates/rudel-dsp` + `crates/rudel-audio`:
-synth oscillators, noise, drums, sampler, filters, envelopes, effects) and does
-not embed Csound, so the `csound` output is **intentionally unsupported**.
-Use Rudel's native synths/samples, or route to an external Csound instance via
-MIDI/OSC.
+`@strudel/csound` (`loadCsound`/`loadCSound`, `loadOrc`, and the `csound` /
+`csoundm` outputs) routes haps to [Csound](https://csound.com/) instruments as
+an alternative sound engine. Rudel supports all of it, against the *native*
+Csound rather than the browser's WebAssembly build.
+
+There is one condition: **Csound has to be installed on the machine.** There is
+no pure-Rust Csound, and the WebAssembly build upstream uses is Emscripten
+output that needs a browser or Node to run at all. Rudel therefore opens
+`libcsound` by name at run time, the first time a script calls `loadCsound` or
+`loadOrc`:
+
+| Platform | What it looks for |
+| --- | --- |
+| Windows | `csound64.dll` on `PATH`, then `C:\Program Files\Csound6_x64\bin\csound64.dll` |
+| macOS | `libcsound64.dylib`, then `CsoundLib64.framework`, Homebrew and `/usr/local/lib` |
+| Linux | `libcsound64.so`, then `/usr/lib` and `/usr/local/lib` |
+
+Set `RUDEL_CSOUND_LIB` to the library's full path to override the search — which
+is also how to use an unpacked build rather than an installer, in which case set
+`OPCODE6DIR64` to the same directory so Csound finds its plugin opcodes.
+
+Csound is **not** a build dependency: nothing links against it, and a Rudel
+built and run on a machine without it behaves exactly as before. Only a script
+that asks for Csound loads the library, and if it is not there the error names
+what to install and the rest of the pattern still plays.
+
+Csound renders inside the audio callback with host-implemented audio IO, so its
+output is a signal in Rudel's mixer — one device, one clock, onsets
+sample-accurate against every other layer — rather than a second output stream.
+It sums into the master after the orbits, so it is not fed by `room`, `delay`
+or the DJ filter; upstream wires it straight to the audio context's destination,
+which has the same effect. Master volume still applies.
 
 ## Alternative language front-ends
 

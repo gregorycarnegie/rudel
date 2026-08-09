@@ -125,7 +125,7 @@ fn every_tune_runs_or_is_allowlisted() {
     // dutifully growing the allowlist still fails.
     let coverage = ran as f64 / cases.len() as f64;
     assert!(
-        coverage > 0.75,
+        coverage > 0.85,
         "only {ran}/{} tunes run ({:.0}%)",
         cases.len(),
         coverage * 100.0

@@ -1,5 +1,5 @@
 use super::{
-    scanner::{Chunk, classify, is_ident_char},
+    scanner::{Chunk, classify, is_ident_char, is_tagged_template},
     widgets::VISUAL_WIDGET_METHODS,
 };
 
@@ -71,10 +71,16 @@ pub(super) fn annotate_mini_offsets(
         // escape hatch for a plain string — which is how upstream examples such
         // as `.filter(hap => hap.value.s === 'hh')` compare against one.
         //
+        // A backtick template *is* mini-notation — that is how a tune writes a
+        // pattern over several lines — unless it is tagged, when it is the
+        // argument of a call (`loadCsound`` instr ... ``). Upstream draws the
+        // same line: `TemplateLiteral && parent !== TaggedTemplateExpression`.
+        //
         // A string immediately followed by `:` is a map key, not a pattern.
         // Generated slider ids are runtime strings inserted by the widget pass,
         // so they must also stay out of mini-notation/source-location metadata.
         if quote == '\''
+            || is_tagged_template(src, lit_start)
             || src[i..].trim_start().starts_with(':')
             || is_slider_id_literal(src, lit_start)
         {

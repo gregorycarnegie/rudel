@@ -4,18 +4,28 @@ mod engine;
 #[cfg(test)]
 mod tests;
 
-pub use engine::Engine;
+pub use engine::{CsoundSource, Engine};
 
-use crate::{NoteEvent, scope::ScopeTaps, sync::read_lock};
+use crate::{NoteEvent, csound::Csound, scope::ScopeTaps, sync::read_lock};
 use rudel_dsp::{Convolver, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig, VoiceLike};
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
 };
+
+/// The Csound instance a script's `loadCsound`/`loadOrc` builds, shared between
+/// the host thread that compiles orchestras into it and the audio callback that
+/// renders it.
+///
+/// `None` until a script asks for Csound, so a session that never mentions it
+/// never loads the library. The audio callback only ever *tries* the lock: a
+/// compile can take milliseconds, and a block of Csound silence during a live
+/// re-evaluation is cheaper than missing the device deadline for every layer.
+pub(crate) type SharedCsound = Arc<Mutex<Option<Csound>>>;
 /// Longest `delaytime` the delay line can be retuned to, in seconds. Matches
 /// the `maxDelayTime` superdough gives its `createFeedbackDelay(1, …)` node.
 const MAX_DELAY_SECS: f32 = 1.0;
@@ -296,6 +306,8 @@ struct Mixer {
     taps: Arc<ScopeTaps>,
     /// Per-widget-tag mono accumulation buffers feeding the named taps.
     tag_bufs: HashMap<String, Vec<f32>>,
+    /// Csound, when a script has asked for it.
+    csound: SharedCsound,
 }
 
 impl Mixer {
@@ -314,12 +326,19 @@ impl Mixer {
         while let Ok(ev) = self.rx.try_recv() {
             self.pending.push(ev);
         }
+        // Csound is locked once for the whole callback, so a note injected at
+        // a sub-block boundary is heard in that sub-block rather than a buffer
+        // later. `try_lock` because the only other holder is a script
+        // compiling an orchestra, and waiting for that would drop the buffer.
+        // The `Arc` is cloned so the guard does not borrow `self`.
+        let csound = self.csound.clone();
+        let mut guard = csound.try_lock().ok();
         let sr = self.sample_rate as f64;
         let total = out.len();
         let mut offset = 0;
         while offset < total {
             let now = self.sample_clock as f64 / sr;
-            self.start_due_events(now);
+            self.start_due_events(now, guard.as_deref_mut().and_then(Option::as_mut));
             // Run until the next not-yet-started onset (or the end of the buffer).
             let next_onset_clock = self
                 .pending
@@ -332,7 +351,10 @@ impl Mixer {
                 Some(c) => ((c - self.sample_clock) as usize).min(remaining).max(1),
                 None => remaining,
             };
-            self.mix_sub_block(&mut out[offset..offset + sub_len]);
+            self.mix_sub_block(
+                &mut out[offset..offset + sub_len],
+                guard.as_deref_mut().and_then(Option::as_mut),
+            );
             offset += sub_len;
         }
         self.played.store(self.sample_clock, Ordering::Relaxed);
@@ -340,11 +362,23 @@ impl Mixer {
 
     /// Start every pending event whose onset has arrived by `now`, choking any
     /// same-`cut`-group voice (last-one-wins, like Strudel's cut groups).
-    fn start_due_events(&mut self, now: f64) {
+    fn start_due_events(&mut self, now: f64, mut csound: Option<&mut Csound>) {
         let mut i = 0;
         while i < self.pending.len() {
             if self.pending[i].onset_seconds <= now {
                 let ev = self.pending.swap_remove(i);
+                // `.csound(...)` plays the hap on a Csound instrument *instead*
+                // of a Rudel voice — upstream's is an `onTrigger`, which
+                // replaces the sound. A statement with no Csound to send it to
+                // is dropped rather than falling back to a synth: the tune
+                // asked for an instrument this engine does not have, and a
+                // sawtooth in its place is a worse answer than silence.
+                if let Some(statement) = &ev.csound {
+                    if let Some(cs) = csound.as_deref_mut() {
+                        cs.input_message(statement);
+                    }
+                    continue;
+                }
                 if let Some(g) = ev.cut {
                     for av in &mut self.active {
                         if av.cut == Some(g) && av.choke_gain.is_none() {
@@ -394,7 +428,7 @@ impl Mixer {
     /// Mix all active voices over `out` (no new voices start within it): render
     /// each voice's block, accumulate the dry / reverb / delay buses, then apply
     /// the global delay + reverb per sample and write the master mix.
-    fn mix_sub_block(&mut self, out: &mut [(f32, f32)]) {
+    fn mix_sub_block(&mut self, out: &mut [(f32, f32)], csound: Option<&mut Csound>) {
         let len = out.len();
         let volume = load_f64(&self.volume) as f32;
         let choke_step = 1.0 / (self.sample_rate * CHOKE_SECS);
@@ -534,6 +568,13 @@ impl Mixer {
         for bus in orbits.values_mut() {
             bus.mix_into(out);
         }
+        // Csound sums straight into the master, after the orbits: upstream
+        // wires it to the audio context's destination, so it never sees
+        // superdough's reverb, delay or DJ filter. Master volume still applies
+        // — that is the app's own output level, not an effect.
+        if let Some(cs) = csound {
+            cs.render_into(out);
+        }
         for frame in out.iter_mut() {
             frame.0 *= volume;
             frame.1 *= volume;
@@ -576,6 +617,7 @@ impl OfflineMixer {
             scratch: MixScratch::default(),
             taps: Arc::new(ScopeTaps::new()),
             tag_bufs: HashMap::new(),
+            csound: SharedCsound::default(),
         };
         OfflineMixer { tx, mixer }
     }
@@ -583,6 +625,12 @@ impl OfflineMixer {
     /// Queue a note event (delivered on the next render call).
     pub fn schedule(&self, ev: NoteEvent) {
         let _ = self.tx.send(ev);
+    }
+
+    /// Render `.csound(...)` events through `csound`, as the real engine does
+    /// once a script has called `loadCsound`.
+    pub fn set_csound(&mut self, csound: Csound) {
+        *self.mixer.csound.lock().unwrap_or_else(|e| e.into_inner()) = Some(csound);
     }
 
     /// Render one stereo frame.

@@ -1,6 +1,4 @@
 {
- "examples/csoundDemo": "unsupported: Csound WASM (`loadCsound`, `.csound(...)`) has no native analogue (docs/UNSUPPORTED.md).",
- "examples/loungeSponge": "unsupported: Csound WASM (`loadOrc`, `.csound(...)`) as csoundDemo; the tune is written around it.",
  "testtunes/confusedPhone": "js-syntax: chains a standalone control function (`transpose(-12).late(0)`) as a value; Rudel's transforms are pattern methods, so there is nothing to chain off the bare function.",
  "testtunes/shapeShifted": "legacy-api: bare note-name globals (`e5`, `b4`, `gs2`). Current Strudel does not export these either — these fixtures predate mini-notation strings, and no test in the vendored Strudel runs them.",
  "testtunes/technoDrums": "unsupported: Tone.js instruments (`.tone(new MembraneSynth().toDestination())`); Rudel's voices are its own DSP.",

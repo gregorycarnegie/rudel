@@ -125,6 +125,12 @@ controls!(
     // OSC routing (read by the OSC back-end to pick a destination)
     oschost,
     oscport,
+    // Names the Csound instrument a hap is played by, instead of a Rudel voice
+    // (`@strudel/csound`). Read by rudel-audio's scheduler, not by the mixer's
+    // voices — Csound renders it itself. `csoundm` is the same routing with
+    // MIDI pfields (key and velocity) instead of frequency and gain.
+    csound,
+    csoundm,
     // tonal / voicing controls
     mtranspose,
     ctranspose,

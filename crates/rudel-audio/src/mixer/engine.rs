@@ -1,10 +1,13 @@
 //! Output-device setup and the lookahead scheduler.
 
 use super::{
-    DEFAULT_MASTER_VOLUME, MAX_MASTER_VOLUME, MixScratch, Mixer, load_f64, store_f64, write_frames,
+    DEFAULT_MASTER_VOLUME, MAX_MASTER_VOLUME, MixScratch, Mixer, SharedCsound, load_f64, store_f64,
+    write_frames,
 };
 use crate::{
-    Clock, NoteEvent, SampleBank, ScopeTaps, collect_events_at, samples, sf2, soundfont,
+    Clock, NoteEvent, SampleBank, ScopeTaps, collect_events_at,
+    csound::Csound,
+    samples, sf2, soundfont,
     sync::{lock_mutex, read_lock, write_lock},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -32,6 +35,8 @@ pub struct Engine {
     volume: Arc<AtomicU64>,
     sample_rate: f32,
     taps: Arc<ScopeTaps>,
+    /// Csound, created the first time a script calls `loadCsound`/`loadOrc`.
+    csound: SharedCsound,
 }
 
 impl Engine {
@@ -58,6 +63,7 @@ impl Engine {
         let volume = Arc::new(AtomicU64::new(0));
         store_f64(&volume, DEFAULT_MASTER_VOLUME);
         let taps = Arc::new(ScopeTaps::new());
+        let csound = SharedCsound::default();
 
         let mut mixer = Mixer {
             rx,
@@ -72,6 +78,7 @@ impl Engine {
             scratch: MixScratch::default(),
             taps: taps.clone(),
             tag_bufs: HashMap::new(),
+            csound: csound.clone(),
         };
 
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
@@ -122,6 +129,36 @@ impl Engine {
             volume,
             sample_rate,
             taps,
+            csound,
+        })
+    }
+
+    /// Compile Csound orchestra code, starting Csound on first use
+    /// (`loadCsound`). `source` is either the code itself or a URL to fetch it
+    /// from, which is what separates `loadCsound` from `loadOrc`; a `github:`
+    /// pseudo-URL resolves the same way it does for sample packs.
+    ///
+    /// Runs on its own thread: opening `libcsound` and compiling a two thousand
+    /// line orchestra both take long enough to drop frames from the UI.
+    pub fn spawn_csound(&self, source: CsoundSource) -> JoinHandle<Result<usize, String>> {
+        let csound = self.csound.clone();
+        let sample_rate = self.sample_rate;
+        std::thread::spawn(move || {
+            // Fetched before the lock: the audio callback tries for it every
+            // block, and a download can take seconds.
+            let code = match source {
+                CsoundSource::Code(code) => code,
+                CsoundSource::Url(url) => samples::fetch_cached_text(&orc_url(&url))?,
+            };
+            let mut held = lock_mutex(&csound);
+            if held.is_none() {
+                *held = Some(Csound::new(sample_rate)?);
+            }
+            let instance = held.as_mut().expect("just created");
+            if !code.trim().is_empty() {
+                instance.compile_orc(&code)?;
+            }
+            Ok(1)
         })
     }
 
@@ -329,6 +366,31 @@ impl Engine {
     /// The sound names currently registered in the sample bank, sorted.
     pub fn sample_names(&self) -> Vec<String> {
         read_lock(&self.bank).names()
+    }
+}
+
+/// Where a Csound orchestra comes from: the script's own text (`loadCsound`)
+/// or a URL to fetch it from (`loadOrc`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum CsoundSource {
+    /// Orchestra code written inline in the script.
+    Code(String),
+    /// A URL, possibly a `github:user/repo/branch/path` pseudo-URL.
+    Url(String),
+}
+
+/// Expand `loadOrc`'s `github:` pseudo-URL.
+///
+/// Deliberately *not* the sample loader's `github:` rule, which supplies a
+/// default branch and appends a file name. `@strudel/csound` splits on the
+/// prefix and pastes the rest straight onto raw.githubusercontent.com, so a
+/// tune writes the branch itself — `github:kunstmusik/csound-live-code/master/
+/// livecode.orc`. Reading it the sample way would look for `master` as a
+/// sub-directory of the default branch.
+fn orc_url(url: &str) -> String {
+    match url.split_once("github:") {
+        Some((_, path)) => format!("https://raw.githubusercontent.com/{path}"),
+        None => url.to_string(),
     }
 }
 

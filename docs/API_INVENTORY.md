@@ -15,7 +15,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
 | `core` | 618 | 605 | 13 | 0 | 0 |
-| `csound` | 2 | 0 | 2 | 0 | 0 |
+| `csound` | 2 | 2 | 0 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
 | `midi` | 2 | 2 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **642** | **67** | **0** | **0** |
+| **Total** | **709** | **644** | **65** | **0** | **0** |
 
 ## `codemirror`
 
@@ -662,8 +662,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `csound` | intentional | unsupported package |
-| `csoundm` | intentional | unsupported package |
+| `csound` | implemented |  |
+| `csoundm` | implemented |  |
 
 ## `draw`
 

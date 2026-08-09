@@ -30,6 +30,10 @@ pub struct SampleEffects {
     /// `midimaps(src)` string sources to fetch (URL / `github:` / path). The
     /// inline `midimaps({...})` form needs no I/O and is applied during eval.
     pub midimaps: Vec<String>,
+    /// Csound orchestras the script asked for, in the order it asked, as
+    /// `(is_url, text)` — `loadCsound(code)` is the code itself, `loadOrc(url)`
+    /// a URL to fetch it from. The host starts Csound on the first of these.
+    pub csound_orcs: Vec<(bool, String)>,
 }
 
 /// Convert a Koto value into a `serde_json::Value` for an inline sample map.
@@ -199,6 +203,32 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
         }
         Ok(KPattern(rudel_core::silence()).into())
     });
+
+    // `loadCsound(code)` / `loadOrc(url)` (@strudel/csound). Both start Csound
+    // on first use; the difference is only where the orchestra text comes from.
+    // `loadCsound()` with no argument is how upstream starts it bare, so an
+    // empty string is recorded rather than skipped.
+    for (name, is_url) in [
+        ("loadCsound", false),
+        ("loadCSound", false),
+        ("loadcsound", false),
+        ("loadOrc", true),
+        ("loadorc", true),
+    ] {
+        let effects = tempo_effects.clone();
+        prelude.add_fn(name, move |ctx| {
+            let text = ctx.args().first().and_then(arg_to_raw_str);
+            if is_url && text.is_none() {
+                return koto::runtime::runtime_error!("loadOrc: expected a url string");
+            }
+            effects
+                .lock()
+                .unwrap()
+                .csound_orcs
+                .push((is_url, text.unwrap_or_default()));
+            Ok(KPattern(rudel_core::silence()).into())
+        });
+    }
 
     for (name, scale) in [
         ("setCps", 1.0),

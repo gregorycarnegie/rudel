@@ -55,6 +55,7 @@ fn note_event_with_room(room: f32) -> NoteEvent {
         duck: Vec::new(),
         mods: Default::default(),
         tags: Vec::new(),
+        csound: None,
     }
 }
 
