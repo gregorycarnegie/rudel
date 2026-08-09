@@ -48,6 +48,8 @@ pub(crate) struct CodeEditorInput<'a> {
     pub(crate) reference: &'a rudel_lang::Reference,
     pub(crate) sample_names: &'a [String],
     pub(crate) current_pattern: Option<&'a rudel_core::Pattern>,
+    /// Bumped on every evaluation; see [`WidgetPaintInput::pattern_generation`].
+    pub(crate) pattern_generation: u64,
     pub(crate) playback_position_cycles: Option<f64>,
     /// The engine's analyzer taps for the scope/fscope/spectrum widgets.
     pub(crate) scope_taps: Option<&'a rudel_audio::ScopeTaps>,
@@ -70,6 +72,7 @@ pub(crate) fn code_editor(
         reference,
         sample_names,
         current_pattern,
+        pattern_generation,
         playback_position_cycles,
         scope_taps,
         sliders,
@@ -355,6 +358,7 @@ pub(crate) fn code_editor(
         widget_host,
         WidgetPaintInput {
             pattern: current_pattern,
+            pattern_generation,
             time_cycles: playback_position_cycles,
             draw_theme,
             taps: scope_taps,

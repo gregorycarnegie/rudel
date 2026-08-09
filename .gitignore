@@ -6,3 +6,7 @@
 /mutants.out
 /mutants.out.old
 /mutants-*
+
+# `samply record` output.
+/*.json.gz
+/profile.kernel.etl

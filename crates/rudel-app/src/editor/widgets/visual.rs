@@ -3,6 +3,7 @@ use super::{
     claviature::paint_claviature,
     options::{DrawWindow, VisualWidgetOptions},
     pianoroll::paint_pianoroll,
+    paint::WidgetPaintInput,
     pitchwheel::paint_pitchwheel,
     query::{hap_is_active, widget_haps},
     spiral::paint_spiral,
@@ -10,7 +11,6 @@ use super::{
 };
 use crate::editor::decorations::WidgetDecoration;
 use eframe::egui;
-use rudel_audio::ScopeTaps;
 use rudel_core::Pattern;
 
 pub(super) fn paint_pattern_widget(
@@ -18,19 +18,19 @@ pub(super) fn paint_pattern_widget(
     rect: egui::Rect,
     widget: &WidgetDecoration,
     pattern: &Pattern,
-    time_cycles: Option<f64>,
     colors: WidgetDrawColors,
-    taps: Option<&ScopeTaps>,
+    paint: WidgetPaintInput<'_>,
 ) -> bool {
-    let time = time_cycles.unwrap_or(0.0);
+    let time = paint.time_cycles.unwrap_or(0.0);
     let options = VisualWidgetOptions::from_widget(widget);
+    let haps = |window| widget_haps(ui.ctx(), paint.pattern_generation, pattern, widget, window);
     // The audio ring feeding an analyzer widget: the tap registered under this
     // widget's id, filled by the voices whose haps carry the widget tag.
-    let widget_tap = || taps.map(|taps| taps.get_or_create(&widget.id));
+    let widget_tap = || paint.taps.map(|taps| taps.get_or_create(&widget.id));
     // Strudel's tscope/spectrum color the trace by the active hap's `color`
     // control, falling back to the theme foreground.
     let hap_color = |fallback: Option<egui::Color32>| {
-        widget_haps(pattern, widget, DrawWindow::around(time))
+        haps(DrawWindow::around(time))
             .iter()
             .find(|hap| hap_is_active(hap, time))
             .map(|hap| event_color(hap, colors.active))
@@ -38,12 +38,12 @@ pub(super) fn paint_pattern_widget(
     };
     match widget.widget_type.as_str() {
         "_pianoroll" | "_punchcard" => {
-            let haps = widget_haps(pattern, widget, options.window(time));
+            let haps = haps(options.window(time));
             paint_pianoroll(ui, rect, &widget.id, &haps, time, colors, options);
             true
         }
         "_wordfall" => {
-            let haps = widget_haps(pattern, widget, options.window(time));
+            let haps = haps(options.window(time));
             paint_pianoroll(
                 ui,
                 rect,
@@ -56,7 +56,7 @@ pub(super) fn paint_pattern_widget(
             true
         }
         "_pitchwheel" => {
-            let haps = widget_haps(pattern, widget, DrawWindow::around(time))
+            let haps = haps(DrawWindow::around(time))
                 .into_iter()
                 .filter(|hap| hap_is_active(hap, time))
                 .collect::<Vec<_>>();
@@ -64,12 +64,12 @@ pub(super) fn paint_pattern_widget(
             true
         }
         "_spiral" => {
-            let haps = widget_haps(pattern, widget, DrawWindow::around(time));
+            let haps = haps(DrawWindow::around(time));
             paint_spiral(ui, rect, &haps, time, colors, options);
             true
         }
         "_claviature" => {
-            let haps = widget_haps(pattern, widget, DrawWindow::around(time))
+            let haps = haps(DrawWindow::around(time))
                 .into_iter()
                 .filter(|hap| hap_is_active(hap, time))
                 .collect::<Vec<_>>();

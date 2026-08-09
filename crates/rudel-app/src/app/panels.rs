@@ -466,6 +466,7 @@ impl RudelApp {
                                 reference: &self.reference,
                                 sample_names: &self.sample_names,
                                 current_pattern: current_pattern.as_ref(),
+                                pattern_generation: self.pattern_generation,
                                 playback_position_cycles,
                                 scope_taps: self.engine.as_ref().map(|e| e.scope_taps()),
                                 sliders: &sliders,
@@ -568,11 +569,21 @@ impl RudelApp {
     /// position, for active-event highlighting in the editor. Like Strudel,
     /// only discrete events (haps with a `whole`) flash — continuous signals
     /// are skipped — and an event flashes for the span of its `whole`.
-    fn active_source_spans(&self) -> Vec<FlashSpan> {
-        match (&self.current, self.playback_position_cycles()) {
-            (Some(pat), Some(pos)) => active_source_spans_at(pat, pos),
-            _ => Vec::new(),
+    fn active_source_spans(&mut self) -> Vec<FlashSpan> {
+        let (Some(pat), Some(pos)) = (&self.current, self.playback_position_cycles()) else {
+            return Vec::new();
+        };
+        // Only the whole-cycle query is expensive, and it changes once per
+        // cycle rather than once per repaint — the same reason the inline
+        // widgets cache their haps.
+        let cycle = pos.floor();
+        let key = (self.pattern_generation, cycle.to_bits());
+        match &self.flash_cache {
+            Some((cached, _)) if *cached == key => {}
+            _ => self.flash_cache = Some((key, cycle_flashes(pat, cycle))),
         }
+        let (_, flashes) = self.flash_cache.as_ref().expect("just populated");
+        spans_at(flashes, pos)
     }
 
     fn active_editor_spans(&mut self) -> Vec<FlashSpan> {
@@ -724,35 +735,53 @@ fn fuzzy_job(
     job
 }
 
-/// The deduped source byte ranges of the discrete events sounding at cycle
-/// position `pos`. Factored out of [`RudelApp::active_source_spans`] so it can
-/// be tested without a running engine.
-fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<FlashSpan> {
+/// One cycle's discrete events, reduced to what the flash needs: each event's
+/// `whole` span and the source spans it lights up. Querying a cycle is the
+/// expensive half and only changes once per cycle, so it is cached
+/// ([`RudelApp::flash_cache`]) while `pos` sweeps across it.
+pub(crate) type CycleFlashes = Vec<(rudel_core::Frac, rudel_core::Frac, Vec<FlashSpan>)>;
+
+fn cycle_flashes(pat: &rudel_core::Pattern, cycle: f64) -> CycleFlashes {
+    pat.query_arc(
+        rudel_core::Frac::from_f64(cycle),
+        rudel_core::Frac::from_f64(cycle + 1.0),
+    )
+    .into_iter()
+    .filter_map(|h| {
+        let whole = h.whole?;
+        let color = crate::editor::mark_color(&h).map(crate::editor::pack_color);
+        let spans = h
+            .context
+            .locations
+            .iter()
+            .map(|&(from, to)| (from, to, color))
+            .collect();
+        Some((whole.begin, whole.end, spans))
+    })
+    .collect()
+}
+
+/// The deduped source byte ranges sounding at `pos`, out of a cycle already
+/// reduced by [`cycle_flashes`].
+fn spans_at(flashes: &CycleFlashes, pos: f64) -> Vec<FlashSpan> {
     let pos_f = rudel_core::Frac::from_f64(pos);
-    let cycle = pos.floor();
-    let mut spans: Vec<FlashSpan> = pat
-        .query_arc(
-            rudel_core::Frac::from_f64(cycle),
-            rudel_core::Frac::from_f64(cycle + 1.0),
-        )
-        .into_iter()
-        .filter(|h| {
-            h.whole
-                .as_ref()
-                .is_some_and(|w| w.begin <= pos_f && pos_f < w.end)
-        })
-        .flat_map(|h| {
-            let color = crate::editor::mark_color(&h).map(crate::editor::pack_color);
-            h.context
-                .locations
-                .clone()
-                .into_iter()
-                .map(move |(from, to)| (from, to, color))
-        })
+    let mut spans: Vec<FlashSpan> = flashes
+        .iter()
+        .filter(|(begin, end, _)| *begin <= pos_f && pos_f < *end)
+        .flat_map(|(_, _, spans)| spans.iter().copied())
         .collect();
     spans.sort_unstable();
     spans.dedup();
     spans
+}
+
+/// The deduped source byte ranges of the discrete events sounding at cycle
+/// position `pos`. Factored out of [`RudelApp::active_source_spans`] so it can
+/// be tested without a running engine; the app itself goes through the cache,
+/// and this stays as the uncached reference that cache is checked against.
+#[cfg(test)]
+fn active_source_spans_at(pat: &rudel_core::Pattern, pos: f64) -> Vec<FlashSpan> {
+    spans_at(&cycle_flashes(pat, pos.floor()), pos)
 }
 
 #[cfg(test)]
@@ -831,6 +860,37 @@ mod tests {
         assert!(
             app.active_source_spans().is_empty(),
             "no pattern: nothing flashes"
+        );
+    }
+
+    /// The flash cache holds a whole cycle, so the danger is it freezing the
+    /// highlight: within one cached cycle the spans must still follow the
+    /// playhead, and a re-eval must throw the cycle away.
+    #[test]
+    fn the_flash_cache_still_tracks_the_playhead_and_drops_on_re_eval() {
+        // `s("bd sd")` at 1 cps: bd sounds over [0, 0.5), sd over [0.5, 1) —
+        // both inside cycle 0, so both reads hit the same cached cycle.
+        let mut app = playing_app(Duration::from_millis(250), 1.0);
+        let on_bd = app.active_source_spans();
+        app.play_start = Some(Instant::now() - Duration::from_millis(750));
+        let on_sd = app.active_source_spans();
+
+        assert!(!on_bd.is_empty() && !on_sd.is_empty(), "both events flash");
+        assert_ne!(
+            on_bd, on_sd,
+            "a cached cycle must not freeze the flash on one event"
+        );
+        let pat = app.current.clone().expect("a pattern");
+        assert_eq!(on_sd, active_source_spans_at(&pat, 0.75), "matches uncached");
+
+        // Re-evaluating replaces the pattern: the cached cycle is from the old
+        // one and has to go, or the editor keeps flashing bytes that moved.
+        app.code = r#"s("~ sd")"#.to_string();
+        app.evaluate();
+        app.play_start = Some(Instant::now() - Duration::from_millis(250));
+        assert!(
+            app.active_source_spans().is_empty(),
+            "the new pattern rests where the old one had bd"
         );
     }
 

@@ -67,6 +67,12 @@ pub(crate) struct RudelApp {
     /// active-event highlighting when there is no audio device to clock from.
     play_start: Option<std::time::Instant>,
     current: Option<Pattern>,
+    /// Bumped whenever `current` is replaced, so the widgets' hap cache can tell
+    /// a re-eval from a redraw without comparing patterns (which are closures).
+    pattern_generation: u64,
+    /// The current cycle's flash spans, keyed on `(pattern_generation, cycle)`
+    /// — the cycle as raw bits so the key is `Eq`.
+    flash_cache: Option<((u64, u64), panels::CycleFlashes)>,
     eval_meta: rudel_lang::EvalMeta,
     editor_decorations: EditorDecorationState,
     editor_settings: EditorSettings,
@@ -161,6 +167,8 @@ impl RudelApp {
             playing: false,
             play_start: None,
             current: None,
+            pattern_generation: 0,
+            flash_cache: None,
             eval_meta: rudel_lang::EvalMeta::default(),
             editor_decorations: EditorDecorationState::default(),
             editor_settings: EditorSettings::default(),
@@ -213,6 +221,7 @@ impl RudelApp {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
+                self.pattern_generation = self.pattern_generation.wrapping_add(1);
                 self.trigger_hooks = result.trigger_hooks;
                 self.trigger_fired_upto = None;
                 self.editor_decorations.replace_all(&result.meta);
@@ -243,6 +252,7 @@ impl RudelApp {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
+                self.pattern_generation = self.pattern_generation.wrapping_add(1);
                 self.trigger_hooks = result.trigger_hooks;
                 self.trigger_fired_upto = None;
                 let source_range = SourceRange::new(range.from, range.to);

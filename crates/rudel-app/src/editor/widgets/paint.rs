@@ -12,6 +12,9 @@ use rudel_core::Pattern;
 #[derive(Clone, Copy)]
 pub(crate) struct WidgetPaintInput<'a> {
     pub(crate) pattern: Option<&'a Pattern>,
+    /// Bumped on every evaluation, so the widgets' hap cache drops results
+    /// queried from the pattern this one replaced.
+    pub(crate) pattern_generation: u64,
     pub(crate) time_cycles: Option<f64>,
     pub(crate) draw_theme: DrawTheme,
     /// The engine's analyzer taps for scope/fscope/spectrum widgets (`None`
@@ -101,15 +104,7 @@ fn paint_widget_surface(
     let painted = paint
         .pattern
         .map(|pattern| {
-            paint_pattern_widget(
-                ui,
-                rect,
-                widget,
-                pattern,
-                paint.time_cycles,
-                colors,
-                paint.taps,
-            )
+            paint_pattern_widget(ui, rect, widget, pattern, colors, paint)
         })
         .unwrap_or(false);
 

@@ -2,10 +2,10 @@ use super::{
     analyzer::fft_in_place,
     claviature::{hap_midi, is_black},
     geometry::WIDGET_GAP_PADDING,
-    options::VisualWidgetOptions,
+    options::{DrawWindow, VisualWidgetOptions},
     pianoroll::{RollRectInput, RollValue, horizontal_roll_rect, pianoroll_value},
     pitchwheel::freq_to_angle,
-    query::hap_matches_widget,
+    query::{hap_matches_widget, widget_haps},
     size::{default_surface_size, surface_size},
     spiral::spiral_point,
     style::{color_with_alpha, parse_hex_color, resolve_color, widget_draw_colors},
@@ -438,4 +438,71 @@ fn pitchwheel_interval_labels_index_by_degree_position() {
         degree_label(&Some(vec![0]), &Some(vec![String::new()]), 0),
         None
     );
+}
+
+/// The hap cache queries whole cycles and slices the sliding draw window out of
+/// the result. That is only sound if it returns exactly what querying the
+/// window directly would — widening a query widens each hap's `part` clip, but
+/// must never change *which* haps overlap the window.
+#[test]
+fn cached_whole_cycle_query_matches_querying_the_window_directly() {
+    let src = r#"s("bd sd hh*3").fast(2)"#;
+    let pattern = rudel_lang::eval_result(src).expect("eval").pattern;
+    let widget = widget("_pianoroll", "roll", 0, src.len());
+    let ctx = egui::Context::default();
+
+    let uncached = |window: DrawWindow| {
+        let mut haps: Vec<Hap> = pattern
+            .query_arc(Frac::from_f64(window.begin), Frac::from_f64(window.end))
+            .into_iter()
+            .filter(|hap| hap.whole.is_some())
+            .filter(|hap| hap_matches_widget(hap, &widget))
+            .collect();
+        haps.sort_by_key(|hap| hap.whole_or_part().begin);
+        haps
+    };
+    let shape = |haps: &[Hap]| -> Vec<(Frac, Frac, String)> {
+        haps.iter()
+            .map(|hap| {
+                let whole = hap.whole.expect("filtered to haps with a whole");
+                (whole.begin, whole.end, format!("{:?}", hap.value))
+            })
+            .collect()
+    };
+
+    // Sweep the playhead across cycle boundaries in steps that never land on
+    // one, so most windows straddle the whole-cycle span that gets cached.
+    for step in 0..40 {
+        let time = f64::from(step) * 0.17;
+        let window = DrawWindow::around(time);
+        assert_eq!(
+            shape(&widget_haps(&ctx, 1, &pattern, &widget, window)),
+            shape(&uncached(window)),
+            "cached and direct queries disagree at time {time}"
+        );
+    }
+}
+
+/// The cache is keyed on the widget, so a re-evaluation has to invalidate it —
+/// otherwise an edited pattern keeps drawing the old one's haps.
+#[test]
+fn bumping_the_generation_drops_haps_from_the_previous_pattern() {
+    let widget = widget("_pianoroll", "roll", 0, 40);
+    let ctx = egui::Context::default();
+    let window = DrawWindow::around(0.5);
+    let count = |src: &str, generation: u64| {
+        let pattern = rudel_lang::eval_result(src).expect("eval").pattern;
+        widget_haps(&ctx, generation, &pattern, &widget, window).len()
+    };
+
+    let one = count(r#"s("bd")"#, 1);
+    let four = count(r#"s("bd*4")"#, 2);
+    assert!(one > 0, "the window covers several cycles of a once-a-cycle bd");
+    assert!(
+        four > one,
+        "the new pattern's haps, not the cached old ones ({four} vs {one})"
+    );
+    // Same generation as the last call: the cached result is reused even though
+    // the pattern argument changed, which is exactly why `evaluate` must bump.
+    assert_eq!(count(r#"s("bd")"#, 2), four);
 }

@@ -5,7 +5,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/gregorycarnegie/rudel"
@@ -23,3 +23,12 @@ proptest = "1.11.0"
 # correctly-rounded value, which is enough to flip a golden comparison against
 # JS-produced numbers (it did, on the bytebeat oracle).
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+
+# Release codegen plus line tables, so a sampling profiler resolves frames to
+# source. Separate from `release` so normal builds stay small.
+#
+#   cargo build --profile profiling -p rudel-app
+#   samply record ./target/profiling/rudel.exe
+[profile.profiling]
+inherits = "release"
+debug = 1

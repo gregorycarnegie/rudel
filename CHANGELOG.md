@@ -9,6 +9,53 @@ This file starts at 0.7.0. Earlier history is in the git log.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.7.2] — 2026-08-09
+
+A performance release. Profiling the running app for the first time showed the
+cost was not where the DSP benchmarks had been looking.
+
+### Fixed
+
+- **Inline widgets re-queried the whole pattern on every repaint.** A pianoroll,
+  spiral or pitchwheel draws a window around the playhead — `DrawWindow::around`
+  spans four cycles — and because that window slides continuously, nothing was
+  reusable between frames: each widget re-ran `Pattern::query_arc` over four
+  cycles at the repaint rate, and `_scope`/`_spectrum` did it twice (once more
+  for the active hap's colour). Patterns are lazily-evaluated closures with no
+  memoisation, so a redraw cost the same as a first evaluation. Widgets now
+  query whole cycles — which change once per cycle, not once per frame — cache
+  that in egui's temp store, and slice the visible window out of it.
+- **The active-event highlight did the same.** `active_source_spans` already
+  queried a whole cycle, so it only needed splitting into the expensive
+  `cycle_flashes` (cached) and the per-frame `spans_at`.
+
+Both caches are keyed on a pattern generation counter bumped wherever the
+current pattern is replaced, so a re-eval drops them; the widget cache is also
+keyed on the widget's source range, which slides as you type without an eval.
+
+Measured with `samply` on real sessions: the UI thread went from 86.5% of
+process CPU to 65.6%, and `Pattern::query_arc` from 72.9% of that thread to
+3.3% — nearly all of what remains being the once-per-cycle cache miss that has
+to happen. The audio thread was never the bottleneck: it sat at ~6% of process
+CPU throughout, two thirds of it parked in `NtWaitForMultipleObjects`, matching
+what the mixer benchmarks predicted.
+
+### Added
+
+- A `profiling` cargo profile (release codegen plus line tables), so
+  `samply record ./target/profiling/rudel.exe` resolves frames to source without
+  putting debug info in normal release builds.
+
+### Internal
+
+- Tests pin what the caches are allowed to get wrong: that a cached whole-cycle
+  query returns exactly what querying the sliding window directly would, that a
+  generation bump drops the previous pattern's haps (and that *not* bumping
+  keeps them), and that a cached cycle still tracks the playhead rather than
+  freezing the highlight on one event.
+- `paint_pattern_widget` takes the `WidgetPaintInput` it was being handed field
+  by field.
+
 ## [0.7.1] — 2026-08-03
 
 ### Fixed
