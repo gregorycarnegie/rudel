@@ -839,3 +839,27 @@ fn the_zzfx_rng_step_matches_its_golden_values() {
         assert_eq!(crate::zzfx::step(x), want, "step({x:#x})");
     }
 }
+
+#[test]
+fn a_pattern_that_names_no_sound_plays_a_triangle() {
+    // superdough's `defaultDefaultValues.s` is `'triangle'`, so `note("c3")`
+    // with no `.s(...)` is a triangle. Defaulting to a sine — the one waveform
+    // with no harmonics at all — made every tune written that way come out soft
+    // and flute-like where upstream is bright.
+    let mut map = ValueMap::new();
+    map.insert("note".to_string(), Value::F64(48.0));
+    let params = VoiceParams::from_controls_at(&map, 1.0, 0.5, 0.0);
+    assert_eq!(params.waveform, Waveform::Triangle);
+
+    // An explicit `s` still wins, sine included.
+    for (name, want) in [
+        ("sine", Waveform::Sine),
+        ("sawtooth", Waveform::Saw),
+        ("square", Waveform::Square),
+    ] {
+        let mut map = ValueMap::new();
+        map.insert("s".to_string(), Value::Str(name.into()));
+        let params = VoiceParams::from_controls_at(&map, 1.0, 0.5, 0.0);
+        assert_eq!(params.waveform, want, "s({name:?})");
+    }
+}

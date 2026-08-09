@@ -77,7 +77,12 @@ pub struct VoiceParams {
 impl Default for VoiceParams {
     fn default() -> Self {
         VoiceParams {
-            waveform: Waveform::Sine,
+            // A pattern that sets no `s` plays a triangle, which is
+            // superdough's `defaultDefaultValues.s`. A sine is the one waveform
+            // with no harmonics at all, so defaulting to it made every tune
+            // that just writes `note(...)` come out soft and flute-like where
+            // upstream is bright and square-ish.
+            waveform: Waveform::Triangle,
             noise: None,
             pw: 0.5,
             noise_mix: 0.0,

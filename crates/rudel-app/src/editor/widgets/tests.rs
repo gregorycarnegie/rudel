@@ -509,3 +509,33 @@ fn bumping_the_generation_drops_haps_from_the_previous_pattern() {
     // the pattern argument changed, which is exactly why `evaluate` must bump.
     assert_eq!(count(r#"s("bd")"#, 2), four);
 }
+
+#[test]
+fn a_note_block_stays_visible_however_wide_the_value_range() {
+    use super::pianoroll::keep_note_visible;
+    use eframe::egui;
+
+    // An unfolded roll over the default `minMidi..maxMidi` gives 81 slots; in
+    // an ~80pt-tall widget that is under a point per note, which painted
+    // nothing at all. The block is grown across its value axis instead.
+    let sliver = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(30.0, 0.9));
+    let grown = keep_note_visible(sliver, false);
+    assert!(grown.height() >= 2.5, "grown to {}", grown.height());
+    assert_eq!(grown.width(), sliver.width(), "time axis is untouched");
+    assert_eq!(
+        grown.center(),
+        sliver.center(),
+        "the note stays on its own slot"
+    );
+
+    // A vertical roll grows the other way.
+    let thin = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(0.9, 30.0));
+    let grown = keep_note_visible(thin, true);
+    assert!(grown.width() >= 2.5, "grown to {}", grown.width());
+    assert_eq!(grown.height(), thin.height());
+
+    // A block already big enough is left exactly as it is.
+    let roomy = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(20.0, 12.0));
+    assert_eq!(keep_note_visible(roomy, false), roomy);
+    assert_eq!(keep_note_visible(roomy, true), roomy);
+}

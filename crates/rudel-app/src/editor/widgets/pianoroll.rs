@@ -20,6 +20,10 @@ pub(super) struct SmearTrail {
 /// Most smeared blocks kept before the oldest are dropped.
 const MAX_SMEAR_BLOCKS: usize = 4096;
 
+/// Smallest height (width, when vertical) a note block is drawn at, in points.
+/// Below this an unfolded roll over a wide MIDI range paints nothing visible.
+const MIN_NOTE_EXTENT: f32 = 2.5;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum RollValue {
     Number(f64),
@@ -134,13 +138,18 @@ pub(super) fn paint_pianoroll(
         } else {
             horizontal_roll_rect(rect, input)
         };
-        let block = block.intersect(rect);
+        let block = keep_note_visible(block, options.vertical).intersect(rect);
         if block.width() <= 0.5 || block.height() <= 0.5 {
             continue;
         }
+        // Rounding cannot exceed half the block, or a thin note is rounded away
+        // to nothing. An unfolded roll spreads `minMidi..maxMidi` over the
+        // widget — 81 slots by default — so its notes are about a pixel tall and
+        // vanished completely against the fixed 1.5 radius.
+        let rounding = 1.5f32.min(block.height() / 2.0).min(block.width() / 2.0);
         let fill = (!active && options.fill) || (active && options.fill_active);
         if fill {
-            painter.rect_filled(block, 1.5, color);
+            painter.rect_filled(block, rounding, color);
             if record {
                 if trail.blocks.len() >= MAX_SMEAR_BLOCKS {
                     trail.blocks.remove(0);
@@ -152,7 +161,7 @@ pub(super) fn paint_pianoroll(
         if stroke {
             painter.rect_stroke(
                 block,
-                1.5,
+                rounding,
                 egui::Stroke::new(1.0, color),
                 egui::StrokeKind::Inside,
             );
@@ -279,6 +288,29 @@ fn autorange_midi(values: &[RollValue]) -> Option<(f64, f64)> {
         (min.min(value), max.max(value))
     });
     Some((min, max))
+}
+
+/// Grow a note block across its value axis so it stays visible.
+///
+/// An unfolded roll gives every semitone between `minMidi` and `maxMidi` a slot
+/// — 81 of them by default — and the inline widget is only about eighty points
+/// tall, so a note came out under a point high and the roll looked empty.
+/// Upstream draws the same way, into a canvas tall enough never to notice.
+pub(super) fn keep_note_visible(block: egui::Rect, vertical: bool) -> egui::Rect {
+    let across = if vertical {
+        block.width()
+    } else {
+        block.height()
+    };
+    if across >= MIN_NOTE_EXTENT {
+        return block;
+    }
+    let grow = (MIN_NOTE_EXTENT - across) / 2.0;
+    block.expand2(if vertical {
+        egui::vec2(grow, 0.0)
+    } else {
+        egui::vec2(0.0, grow)
+    })
 }
 
 fn roll_value_index(
