@@ -27,6 +27,13 @@ pub(super) fn single(name: &str, v: Value) -> Value {
 /// voices as silence — and tunes routinely colour or label a layer before
 /// naming its sound. `createParam` applies this on all three of its paths (bare
 /// method, standalone function, and argument), so every caller here does too.
+///
+/// A map with no unnamed `value` is nested whole under the control's key, which
+/// is the `return { [name]: xs }` fall-through. That is how a control can carry
+/// a *pattern of events* rather than a scalar: `.anchor(melody)` stores
+/// `{anchor: {note: …}}`, and `renderVoicing` reads `anchor?.note || anchor`
+/// back out of it. Merging the map into the hap instead overwrote the very
+/// controls the voicing was about to read.
 fn with_val(name: &str, v: Value) -> Value {
     match v {
         Value::Map(mut m) if m.contains_key("value") => {
@@ -35,7 +42,6 @@ fn with_val(name: &str, v: Value) -> Value {
             }
             Value::Map(m)
         }
-        Value::Map(_) => v,
         other => single(name, other),
     }
 }

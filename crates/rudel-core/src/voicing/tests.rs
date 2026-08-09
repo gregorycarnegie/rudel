@@ -77,6 +77,39 @@ fn voicing_reads_dictionary_control_key() {
 }
 
 #[test]
+fn duck_mode_voices_against_an_anchor_event() {
+    // `.anchor(melody).mode('duck')` is how a tune keeps a comping chord out of
+    // the melody's way: the voicing is aligned to the anchor note, then any
+    // tone landing *on* it is dropped. The anchor arrives as a whole event
+    // (`{anchor: {note: …}}`), not a scalar, so reading it means looking inside.
+    let voiced = |anchor: Value| {
+        let mut m = ValueMap::new();
+        m.insert("chord".to_string(), Value::Str("C^7".into()));
+        m.insert("dictionary".to_string(), Value::Str("lefthand".into()));
+        m.insert("mode".to_string(), Value::Str("duck".into()));
+        m.insert("anchor".to_string(), anchor);
+        notes(&pure(Value::Map(m)).voicing())
+    };
+    // Anchored on B4 (71), the lefthand C^7 voicing sits below it: B3 D4 E4 G4.
+    let mut anchor_event = ValueMap::new();
+    anchor_event.insert("note".to_string(), Value::F64(71.0));
+    assert_eq!(voiced(Value::Map(anchor_event)), vec![59, 62, 64, 67]);
+    // A bare number and a note name anchor the same way...
+    assert_eq!(voiced(Value::F64(71.0)), vec![59, 62, 64, 67]);
+    assert_eq!(voiced(Value::Str("B4".into())), vec![59, 62, 64, 67]);
+    // ...and a tone that collides with the anchor is ducked out: anchored on
+    // G4 (67), the G4 in the voicing goes.
+    let mut collides = ValueMap::new();
+    collides.insert("note".to_string(), Value::F64(67.0));
+    let ducked = voiced(Value::Map(collides));
+    assert!(
+        !ducked.contains(&67),
+        "the anchor's own note is dropped: {ducked:?}"
+    );
+    assert_eq!(ducked.len(), 3);
+}
+
+#[test]
 fn root_notes_reads_list_backed_chord() {
     let pat = pure(Value::List(vec![
         Value::Str("A".into()),

@@ -1,4 +1,3 @@
 {
- "examples/giantSteps": "unsupported: the chord layer uses `.anchor(melody).mode('duck')`, which voices each chord against a reference pattern and drops the tones it collides with. Rudel voices from the dictionary's own anchor, so the layer comes out an octave low with 9 haps too many. A missing voicing mode, not a defect in what is there.",
  "examples/juxUndTollerei": "upstream quirk, deliberately not matched: Strudel's `every`/`firstOf` — and so `palindrome()`, which is `every(2, rev)` — returns nothing for negative cycles, while `when`, `rev` and `fast` all behave normally there. The tune's `.off(1/4, x => x.slow(2).late(.005))` therefore pulls nothing in from cycle -1 upstream, where Rudel correctly carries the previous cycle's note across. Matching this would mean reproducing an upstream bug; the 4 extra haps are ours and they are right."
 }

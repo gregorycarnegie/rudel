@@ -86,6 +86,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - **`superimpose` applied only its first function.** It is variadic upstream —
   `stack(this, ...funcs.map(f => f(this)))`, the same shape as `layer` — so a
   tune superimposing two voices silently lost the second.
+- **A control could not carry a whole event.** `withVal`'s fall-through is
+  `return { [name]: xs }` — a map with no unnamed `value` is nested *under* the
+  control's key, which is how `.anchor(melody)` stores `{anchor: {note: …}}` for
+  `renderVoicing` to read back as `anchor?.note || anchor`. Rudel merged such a
+  map into the hap instead, overwriting the very controls the voicing was about
+  to read, so `.anchor(pat).mode('duck')` fell back to the dictionary's own
+  anchor: the comping layer voiced an octave low and kept the tone it was
+  supposed to duck out of the melody's way.
 - **`degradeBy` did not patternify its amount.** Upstream registers it with
   patternify, so a signal or mini pattern is sampled per cycle; Rudel took a
   single `f64` and collapsed the argument to one arbitrary value, keeping events
@@ -98,14 +106,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 - `wrap_control_dyn` is now `control_dyn`: the distinction only existed because
   the bag rule was applied on one path.
-- Tune parity went from 11 exact to **25 of 27** on the back of the above. The
-  two left are named in `tunes_parity_allowlist.json` and are not ordinary bugs:
-  Giant Steps needs `.anchor(…).mode('duck')`, a voicing mode Rudel does not
-  have, and Jux und tollerei differs because Strudel's `every`/`firstOf` — and
-  so `palindrome()` — returns nothing for negative cycles, while `when`, `rev`
-  and `fast` behave normally there. The tune's `off` copy therefore pulls
-  nothing in from cycle -1 upstream; Rudel carries the previous cycle's note
-  across, which is the correct reading, so that one is deliberately not matched.
+- Tune parity went from 11 exact to **26 of 27** on the back of the above. The
+  one left is not a bug to fix: Jux und tollerei differs because Strudel's
+  `every`/`firstOf` — and so `palindrome()`, which is `every(2, rev)` — returns
+  nothing for negative cycles, while `when`, `rev` and `fast` behave normally
+  there. The tune's `off` copy therefore pulls nothing in from cycle -1
+  upstream; Rudel carries the previous cycle's note across, which is the correct
+  reading, so that one is deliberately not matched and is recorded as such in
+  `tunes_parity_allowlist.json`.
 
 ## [0.8.0] — 2026-08-09
 

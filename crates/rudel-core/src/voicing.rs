@@ -210,6 +210,24 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
     }
 }
 
+/// The MIDI note an `anchor` control refers to, which is upstream's
+/// `x2midi(anchor?.note || anchor, 4)`.
+///
+/// The anchor is often a whole event rather than a scalar — `.anchor(melody)`
+/// stores the melody's control map under the key, and the note to voice against
+/// is the `note` inside it. A bare name or number is used as it stands, and an
+/// octave-less name defaults to octave 4.
+fn anchor_midi(value: &Value) -> Option<i32> {
+    let target = match value {
+        Value::Map(m) => m.get("note").unwrap_or(value),
+        other => other,
+    };
+    match target {
+        Value::Str(s) => note_to_midi_with_octave(s, 4),
+        other => other.as_f64().map(|f| f.round() as i32),
+    }
+}
+
 /// Extract a voicing's controls from a hap value (chord string, or a map with a
 /// `chord` key plus optional `dict`/`anchor`/`mode`/`offset`/`octaves`/`n`).
 /// Returns `(chord, opts, extra_controls)`.
@@ -226,10 +244,7 @@ fn opts_from_value(value: &Value) -> Option<(String, VoicingOpts, ValueMap)> {
                 opts.dict = d.to_string();
             }
             if let Some(a) = m.get("anchor") {
-                opts.anchor = match a {
-                    Value::Str(s) => note_to_midi_with_octave(s, 4),
-                    other => other.as_f64().map(|f| f.round() as i32),
-                };
+                opts.anchor = anchor_midi(a);
             }
             if let Some(mode) = m.get("mode").and_then(|v| v.as_str()) {
                 opts.mode = Some(Mode::from_str(mode));
