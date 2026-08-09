@@ -9,6 +9,43 @@ This file starts at 0.7.0. Earlier history is in the git log.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Added
+
+- **The tune corpus is now compared against Strudel's haps, not just run.**
+  Upstream's `tunes.test.mjs` snapshots `queryCode(tune, testCycles[key])` for
+  every website tune — each hap's spans and every control that reaches the synth
+  — and commits the result. `gen_tunes_oracle.mjs` carries that into the corpus
+  (parsing the committed snapshot rather than standing up a Strudel runtime, so
+  the expectation is upstream's own), and `tunes.rs` compares hap for hap. 11 of
+  the 27 website tunes that evaluate reproduce it exactly; the other 16 are
+  named with the difference in `tunes_parity_allowlist.json`, which fails in
+  both directions like every other allowlist here.
+
+  Two representation differences are normalised rather than reported, because
+  they are spellings and not events: `note` names against MIDI numbers (Strudel
+  converts at playback, Rudel when the control is set), and float formatting,
+  compared to nine decimals.
+
+### Fixed
+
+- **An unnamed `value` was not promoted into the control that followed it.**
+  Strudel's `withVal` moves it — `bag = {...xs}; xs = xs.value; delete bag.value`
+  — so `"A5".color('#54C571').note()` is `{note: "A5", color: …}`. Rudel left
+  maps untouched, emitting `{value: "A5", color: …}` with the control never set,
+  which reaches the voices as silence; tunes routinely colour or label a layer
+  before naming its sound. Fixed in `controls/base.rs`, where every control
+  spelling goes through one helper, so it holds for all three of `createParam`'s
+  paths — bare method, standalone function, and argument. Swimming, Wavy
+  kalimba, Zelda's Rescue, Bass fuge, Barry Harris and the sample-drum demo went
+  from wrong to exact on the back of it.
+
+### Internal
+
+- `wrap_control_dyn` is now `control_dyn`: the distinction only existed because
+  the bag rule was applied on one path.
+
 ## [0.8.0] — 2026-08-09
 
 A release about whole tunes. The example corpus had only ever been *snippets* —

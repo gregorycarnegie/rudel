@@ -459,3 +459,29 @@ fn a_control_called_with_no_argument_promotes_the_pattern_it_is_on() {
         other => panic!("expected control map, got {other:?}"),
     }
 }
+
+#[test]
+fn a_control_promotes_an_unnamed_value_however_it_is_called() {
+    // Strudel's `withVal` runs on all three of `createParam`'s paths, so a hap
+    // that already carries an unnamed `value` — which is what a `.color()` or
+    // `.label()` before the sound leaves behind — has it moved into the
+    // control's key rather than left inert beside an unset control.
+    for src in [
+        r#""c3".color('red').note()"#, // bare method
+        r#"note("c3".color('red'))"#,  // standalone function
+    ] {
+        let pat = eval(src).unwrap_or_else(|e| panic!("eval {src}: {e}"));
+        match &values(&pat, 0, 1)[0] {
+            Value::Map(m) => {
+                assert_eq!(m.get("note").and_then(|v| v.as_str()), Some("c3"), "{src}");
+                assert_eq!(
+                    m.get("color").and_then(|v| v.as_str()),
+                    Some("red"),
+                    "{src}"
+                );
+                assert!(m.get("value").is_none(), "value must not survive: {src}");
+            }
+            other => panic!("expected control map for {src}, got {other:?}"),
+        }
+    }
+}

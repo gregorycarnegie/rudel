@@ -10,13 +10,39 @@ pub(super) fn single(name: &str, v: Value) -> Value {
     Value::Map(m)
 }
 
-/// Wrap each value of `pat` into `{ name: value }`. If a value is already a
-/// map it is left untouched (it already carries its keys).
-pub(super) fn control(name: &'static str, pat: Pattern) -> Pattern {
-    pat.fmap(move |v| match v {
+/// One value wrapped into `{ name: value }`, which is Strudel's `withVal`.
+///
+/// A value that is already a map keeps its keys — except for an *unnamed*
+/// `value`, which is promoted into the control's own key:
+///
+/// ```js
+/// if (typeof xs === 'object' && xs.value !== undefined) {
+///   bag = { ...xs }; xs = xs.value; delete bag.value;
+/// }
+/// ```
+///
+/// That is how `"A5".color('#54C571').note()` becomes
+/// `{note: "A5", color: '#54C571'}`. Leaving the map alone instead carries an
+/// inert `value` alongside a control that was never set, which reaches the
+/// voices as silence — and tunes routinely colour or label a layer before
+/// naming its sound. `createParam` applies this on all three of its paths (bare
+/// method, standalone function, and argument), so every caller here does too.
+fn with_val(name: &str, v: Value) -> Value {
+    match v {
+        Value::Map(mut m) if m.contains_key("value") => {
+            if let Some(inner) = m.shift_remove("value") {
+                m.insert(name.to_string(), inner);
+            }
+            Value::Map(m)
+        }
         Value::Map(_) => v,
         other => single(name, other),
-    })
+    }
+}
+
+/// Wrap each value of `pat` into `{ name: value }`.
+pub(super) fn control(name: &'static str, pat: Pattern) -> Pattern {
+    pat.fmap(move |v| with_val(name, v))
 }
 
 /// Wrap each value of `pat` into `{ name: value }` for a runtime control name
@@ -24,27 +50,14 @@ pub(super) fn control(name: &'static str, pat: Pattern) -> Pattern {
 /// generic `ctrl(name, value)` setter for controls without a dedicated method.
 pub fn control_dyn(name: impl Into<String>, pat: impl IntoPattern) -> Pattern {
     let name = name.into();
-    pat.into_pattern().fmap(move |v| match v {
-        Value::Map(_) => v,
-        other => single(&name, other),
-    })
+    pat.into_pattern().fmap(move |v| with_val(&name, v))
 }
 
 /// Wrap each current value of `pat` into `{ name: value }`. This is the no-arg
 /// control method behavior used by Strudel for chains like
 /// `i(...).tune(...).freq()`.
 pub fn wrap_control_dyn(name: impl Into<String>, pat: impl IntoPattern) -> Pattern {
-    let name = name.into();
-    pat.into_pattern().fmap(move |v| match v {
-        Value::Map(mut m) if m.contains_key("value") => {
-            if let Some(value) = m.shift_remove("value") {
-                m.insert(name.clone(), value);
-            }
-            Value::Map(m)
-        }
-        Value::Map(_) => v,
-        other => single(&name, other),
-    })
+    control_dyn(name, pat)
 }
 
 /// View a value as positional parts: a list yields its items, anything else
