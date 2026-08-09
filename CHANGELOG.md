@@ -68,13 +68,32 @@ This file starts at 0.7.0. Earlier history is in the git log.
   convergents and stops at the same bound, which is what Fraction.js does, so
   `1/6` is `1/6` and an irrational still lands on a small denominator.
 
+- **A plain string argument was parsed as mini-notation.** Upstream only treats
+  a string as mini when the transpiler wrapped it — double quotes and backticks,
+  never single quotes — and `reify` leaves the rest alone, because the
+  string-parser hook is installed by `miniAllStrings()`, which nothing calls.
+  Rudel parsed every string, so `cat('C3 dorian', 'Bb2 major')` became a
+  sequence of four words and `.scale(...)` was handed `"C3"` and `"dorian"` as
+  scale names on alternating cycles, producing notes belonging to no scale.
+- **A fractional scale degree was rounded, not ceiled.** `scaleStep` opens with
+  `step = Math.ceil(step)`. It shows up wherever a degree is computed rather
+  than written — `n("0").add(n(rand.range(0,12))).scale(...)` lands on a
+  fraction every time — and put roughly half of those a degree low.
+- **`rootNotes` returned a MIDI number instead of a note name.** Upstream builds
+  `root + octave` (`"C4"`), and the difference matters downstream: a number is
+  indistinguishable from a scale degree, so `rootNotes(4).scale('C minor')` read
+  60 as *degree* 60 and landed eight octaves up.
+- **`superimpose` applied only its first function.** It is variadic upstream —
+  `stack(this, ...funcs.map(f => f(this)))`, the same shape as `layer` — so a
+  tune superimposing two voices silently lost the second.
+
 ### Internal
 
 - `wrap_control_dyn` is now `control_dyn`: the distinction only existed because
   the bag rule was applied on one path.
-- Tune parity went from 11 exact to 18 of 27 on the back of the above. The nine
-  left are named in `tunes_parity_allowlist.json`; most are a scale degree out
-  by one, which is now the largest remaining cluster.
+- Tune parity went from 11 exact to 23 of 27 on the back of the above. The four
+  left are named in `tunes_parity_allowlist.json`; all four are now extra or
+  missing haps around a wrapped copy (`off`, `jux` + `late`), not wrong values.
 
 ## [0.8.0] — 2026-08-09
 

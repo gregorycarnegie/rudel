@@ -95,9 +95,11 @@ fn voicing_via_koto() {
     // maj7 spelling routes through the same dictionary key
     let pat = eval(r#"pure("Cmaj7").voicings("lefthand")"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
-    // rootNotes maps a chord to its root in an octave
+    // rootNotes maps a chord to its root in an octave, as a note *name* —
+    // upstream builds `root + octave`, and a bare number here would be
+    // indistinguishable from a scale degree further down the chain.
     let pat = eval(r#"pure("Am7").root_notes(3)"#).expect("eval");
-    assert_eq!(values(&pat, 0, 1), vec![Value::F64(57.0)]); // A3
+    assert_eq!(values(&pat, 0, 1), vec![Value::Str("A3".into())]);
     // chord progressions resolve through mini-notation alternation
     assert!(eval(r#"seq("<Cmaj7 A7 Dm7 G7>").voicing()"#).is_ok());
 }

@@ -2,8 +2,21 @@ use super::KPattern;
 use koto::prelude::*;
 use rudel_core::{Frac, Pattern, Value, ValueMap};
 
-/// Convert a Koto argument into a pattern: numbers become `pure` values,
-/// strings parse as mini-notation, and patterns pass through.
+/// Convert a Koto argument into a pattern: numbers and strings become `pure`
+/// values, and patterns pass through.
+///
+/// A bare string is *not* mini-notation. Upstream only parses a string as mini
+/// when the transpiler wrapped it — which it does for double quotes and
+/// backticks, never for single quotes — and `reify` leaves plain strings alone
+/// because `setStringParser` is only installed by `miniAllStrings()`, which
+/// nothing calls. By the time an argument reaches here the preprocessor has
+/// already applied the same rule, so a double-quoted literal arrives as an
+/// `m(...)` pattern and a single-quoted one as this `KValue::Str`.
+///
+/// Parsing it anyway split every literal on whitespace:
+/// `cat('C3 dorian', 'Bb2 major')` became a sequence of four words, so
+/// `.scale(...)` was handed `"C3"` and `"dorian"` as scale names on alternating
+/// cycles and quietly produced notes belonging to no scale at all.
 pub(crate) fn arg_to_pattern(value: &KValue) -> Pattern {
     match value {
         KValue::Number(n) => {
@@ -14,7 +27,7 @@ pub(crate) fn arg_to_pattern(value: &KValue) -> Pattern {
             }
         }
         KValue::Bool(b) => rudel_core::pure(Value::Bool(*b)),
-        KValue::Str(s) => rudel_mini::parse(s).unwrap_or_else(|_| rudel_core::silence()),
+        KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
         KValue::Object(o) if o.is_a::<KPattern>() => o.cast::<KPattern>().unwrap().0.clone(),
         _ => rudel_core::silence(),
     }

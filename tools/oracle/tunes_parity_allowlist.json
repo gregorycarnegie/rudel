@@ -1,11 +1,6 @@
 {
- "examples/amensister": "note: degrees land a step off (ours 31 where upstream has 33) and the layer is offset by an eighth — ours puts at 1/4 what upstream puts at 1/8. A `.scale()` fed through `off`/`superimpose`.",
- "examples/belldub": "note: one hap of the bell layer voices 62 where upstream has 65. Everything else in the tune matches.",
- "examples/festivalOfFingers": "note: ours 158/161 where upstream has 67/70 — degrees are octave-shifted far above the scale (`.add(n(i*7))` inside `echoWith` compounding), which then pins `pan` at its 0.75 ceiling.",
+ "examples/amensister": "2 extra haps: ours emits notes 27 and 36 in the bass layer that upstream does not, from `sine.add(saw.slow(4)).range(0,7).segment(8)` feeding `.scale()` — the rest of the tune matches.",
  "examples/giantSteps": "note: the chord layer voices an octave low (ours 58/61 where upstream has 70/73) and produces 9 haps too many — `anchor`/`mode('duck')` is not ducking the voicing against the melody.",
- "examples/goodTimes": "note: ours 56 where upstream has 55, one semitone sharp, with `pan` following it. A scale-degree rounding difference.",
- "examples/holyflute": "one hap short: upstream has a whole-cycle event at note 43 that ours does not emit at all. Everything ours does emit matches.",
- "examples/juxUndTollerei": "4 extra haps: ours emits 1/200-long fragments at cycle start that upstream does not, so `jux` + `late(0.005)` leaves a sliver the query should not return.",
- "examples/randomBells": "note: ours is one scale degree below upstream (69 vs 72, 55 vs 57) where the degree is fractional — `.add(n(rand.range(0,12)))` before `.scale()`. The `velocity` drawn from the same `rand` matches exactly, so the RNG agrees and only the degree-to-note rounding differs.",
- "examples/sampleDemo": "2 extra haps: ours emits a fragment before cycle 0 and one at 3/4 that upstream does not, from an `.off()` whose wrapped copy is not clipped to the query."
+ "examples/juxUndTollerei": "4 extra haps: ours splits at 1/200 where upstream does not, emitting a sliver at cycle start and a second piece after it. `jux` + `late(0.005)` on a pattern whose copy wraps past the cycle.",
+ "examples/sampleDemo": "2 extra haps: ours emits a fragment whose whole starts at -3/4 and one at 3/4 that upstream does not, from an `.off()` copy that wraps past the query."
 }

@@ -317,6 +317,13 @@ impl Pattern {
     }
 
     /// Map chord symbols to their root note in the given octave (`rootNotes`).
+    ///
+    /// The root comes out as a *name* (`"C4"`), which is what upstream builds
+    /// (`root + octave`) and what the rest of the chain then reads it as. A MIDI
+    /// number here looks identical to a scale degree, so a following `.scale()`
+    /// takes the note-quantising branch for one and the degree branch for the
+    /// other: `rootNotes(4).scale('C minor')` read 60 as degree 60 and landed
+    /// eight octaves up.
     pub fn root_notes(&self, octave: i64) -> Pattern {
         let octave = octave as i32;
         self.with_value(move |value| {
@@ -328,15 +335,18 @@ impl Pattern {
             let Some((root, _)) = tokenize_chord(&chord) else {
                 return value;
             };
-            let Some(midi) = note_to_midi_with_octave(&format!("{root}{octave}"), octave) else {
+            let name = format!("{root}{octave}");
+            // Upstream concatenates without checking; keep the guard so an
+            // unparseable root passes the value through instead of inventing one.
+            if note_to_midi_with_octave(&name, octave).is_none() {
                 return value;
-            };
+            }
             match value {
                 Value::Map(mut m) => {
-                    m.insert("note".to_string(), Value::F64(midi as f64));
+                    m.insert("note".to_string(), Value::Str(name));
                     Value::Map(m)
                 }
-                _ => Value::F64(midi as f64),
+                _ => Value::Str(name),
             }
         })
     }

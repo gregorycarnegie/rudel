@@ -13,6 +13,17 @@ fn superimpose_with_koto_callback() {
     // superimpose(|x| x.add(7)) over a single value -> two haps
     let pat = eval(r#"seq(0).superimpose(|x| x.add(7))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(0), Value::Int(7)]);
+    // ...and it is variadic, like `layer`: upstream stacks the pattern with a
+    // copy through *every* function. Applying only the first dropped a whole
+    // voice from any tune that superimposes two.
+    let pat = eval(r#"seq(0).superimpose(|x| x.add(7), |x| x.sub(5))"#).expect("eval");
+    assert_eq!(
+        values(&pat, 0, 1),
+        vec![Value::Int(0), Value::Int(7), Value::Int(-5)]
+    );
+    // No functions at all is just the pattern.
+    let pat = eval(r#"seq(0).superimpose()"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(0)]);
 }
 
 #[test]

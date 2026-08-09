@@ -618,11 +618,17 @@ fn scale_resolve(v: &Value, scale: &str, anchor: Option<i32>) -> Option<f64> {
 
 /// Parse a scale-degree value, allowing string forms like `"3"`, `"-2"`, `"4#"`,
 /// `"2b"`. Returns `(degree, semitone_offset)`.
+///
+/// A fractional degree is *ceiled*, not rounded: `scaleStep` opens with
+/// `step = Math.ceil(step)`. It matters wherever a degree is computed rather
+/// than written — `n("0").add(n(rand.range(0,12))).scale(...)` lands on a
+/// fraction every time, and rounding put roughly half of those a scale degree
+/// below the note upstream plays.
 fn step_number_and_offset(v: &Value) -> Option<(i32, i32)> {
     match v {
         Value::Int(n) => Some((*n as i32, 0)),
-        Value::F64(n) => Some((n.round() as i32, 0)),
-        Value::Frac(f) => Some((f.to_f64().round() as i32, 0)),
+        Value::F64(n) => Some((n.ceil() as i32, 0)),
+        Value::Frac(f) => Some((f.to_f64().ceil() as i32, 0)),
         Value::Str(s) => {
             let s = s.trim();
             let digits_end = s

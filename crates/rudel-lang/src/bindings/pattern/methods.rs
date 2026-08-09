@@ -380,6 +380,30 @@ pub(super) fn kpattern_layer(ctx: MethodContext<KPattern>) -> KotoResult<KValue>
     Ok(KPattern::wrap(rudel_core::stack(&results)))
 }
 
+/// `pat.superimpose(...funcs)`: the pattern itself stacked with a copy through
+/// each function — `stack(this, ...funcs.map(f => f(this)))`.
+///
+/// Variadic like `layer`, which is the same construct minus the original.
+/// Taking only the first function silently dropped every copy after it, so
+/// `superimpose(x => x.slow(2).add(12), x => x.slow(4).sub(5))` lost its whole
+/// second voice.
+pub(super) fn kpattern_superimpose(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let mut results = vec![pat.clone()];
+    let mut first_err = None;
+    for func in collect_callables(ctx.args) {
+        let cb = Callback::new(&ctx, func);
+        results.push(cb.apply(&pat));
+        if let Err(e) = cb.finish() {
+            first_err.get_or_insert(e);
+        }
+    }
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+    Ok(KPattern::wrap(rudel_core::stack(&results)))
+}
+
 /// `pat.fmap(f)`: Strudel's value-level mapper. The Koto VM isn't Send+Sync,
 /// so map one probe window eagerly and repeat that shape.
 pub(super) fn kpattern_fmap(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

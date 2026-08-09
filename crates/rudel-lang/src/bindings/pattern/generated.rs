@@ -399,7 +399,7 @@ kpattern_methods! {
     i64_frac_f64_arg: [echo],
     i64_f64_frac_arg: [stut],
     fn_arg: [
-        superimpose, jux, jux_flip, sometimes, often, rarely, almost_always, almost_never,
+        jux, jux_flip, sometimes, often, rarely, almost_always, almost_never,
         some_cycles, apply, always, never,
     ],
     i64_fn_arg: [chunk, chunk_back, fast_chunk],
@@ -410,6 +410,8 @@ kpattern_methods! {
     forward: [
         #[koto_method]
         layer => kpattern_layer,
+        #[koto_method]
+        superimpose => kpattern_superimpose,
         #[koto_method]
         fmap => kpattern_fmap,
         #[koto_method]
