@@ -1798,10 +1798,12 @@ fn a_choked_voices_dry_and_wet_paths_sum_rather_than_replace() {
     // per-sample fade branch — which re-implements the whole dry / room / delay
     // split and so needs its own proof that the three add up. The reverb path
     // has no left/right symmetry to lean on, so this is what pins it.
-    let with = |dry: f32, room: f32| OrbitSend {
+    // One render per path, so each is isolated: a send held constant across all
+    // of them would land twice on the right-hand side of the sum.
+    let with = |dry: f32, room: f32, delay: f32| OrbitSend {
         dry,
         room,
-        delay: 0.4,
+        delay,
         delay_cfg: DelayConfig {
             time: 0.005,
             feedback: 0.0,
@@ -1809,28 +1811,31 @@ fn a_choked_voices_dry_and_wet_paths_sum_rather_than_replace() {
         ..Default::default()
     };
     let n = 4096;
-    let dry_only = render_choked(with(1.0, 0.0), n);
-    let wet_only = render_choked(with(0.0, 0.7), n);
-    let both = render_choked(with(1.0, 0.7), n);
+    let dry_only = render_choked(with(1.0, 0.0, 0.0), n);
+    let room_only = render_choked(with(0.0, 0.7, 0.0), n);
+    let delay_only = render_choked(with(0.0, 0.0, 0.4), n);
+    let all = render_choked(with(1.0, 0.7, 0.4), n);
 
-    let level = peak_of(&both);
+    let level = peak_of(&all);
     assert!(level > 1e-3, "the choked voice should be audible");
-    let worst = both
+    let worst = all
         .iter()
-        .zip(dry_only.iter().zip(&wet_only))
-        .fold(0.0f32, |m, (b, (d, w))| {
-            m.max((b.0 - (d.0 + w.0)).abs())
-                .max((b.1 - (d.1 + w.1)).abs())
+        .zip(dry_only.iter().zip(room_only.iter().zip(&delay_only)))
+        .fold(0.0f32, |m, (a, (d, (r, e)))| {
+            m.max((a.0 - (d.0 + r.0 + e.0)).abs())
+                .max((a.1 - (d.1 + r.1 + e.1)).abs())
         });
     assert!(
         worst < level * 1e-3,
-        "a choked voice's dry and wet paths should sum: worst {worst:.6} against {level:.4}"
+        "a choked voice's dry, room and delay paths should sum: worst {worst:.6} against {level:.4}"
     );
-    // ...and the wet half is really there, so the sum is not two copies of dry.
-    assert!(
-        peak_of(&wet_only) > level * 0.01,
-        "the choked wet sends should carry signal of their own"
-    );
+    // ...and each wet path is really there, so the sum is not copies of dry.
+    for (what, path) in [("room", &room_only), ("delay", &delay_only)] {
+        assert!(
+            peak_of(path) > level * 0.01,
+            "the choked {what} send should carry signal of its own"
+        );
+    }
 }
 
 /// The same voice hard-panned, so exactly one of an orbit's six accumulation
@@ -2173,6 +2178,64 @@ fn a_later_event_retunes_the_orbit_it_lands_on() {
         peak_of(&short[40000..]) < 1e-9,
         "a 50ms room should be silent a second on, got {}",
         peak_of(&short[40000..])
+    );
+
+    // ...but only an event that *sends* to the effect gets to retune it.
+    // superdough reads `delaytime`/`roomsize` inside its `if (delay > 0)` /
+    // `if (room > 0)` branches, so a layer using neither leaves both alone —
+    // and since it carries the defaults, honouring it would overwrite whatever
+    // the layer sharing its orbit had set. "Amensister" has a chord line on
+    // `delaytime(.125)` sharing orbit 1 with a bass line, eight notes a cycle,
+    // that sets no delay at all; each of those notes yanked the delay's read
+    // head across the echo still ringing in the buffer.
+    //
+    // An audible voice sets an effect going, a *silent* one on the same orbit
+    // and sending to nothing follows it, and the tail has to survive.
+    let tail_past_a_bystander = |send: OrbitSend, warm: usize, n: usize| {
+        let mut mixer = OfflineMixer::new(44100.0);
+        let mut ev = routed_event(send);
+        if let rudel_dsp::VoiceSpec::Synth(p) = &mut ev.spec {
+            p.duration = 0.01;
+        }
+        mixer.schedule(ev);
+        let mut warmup = vec![(0.0f32, 0.0f32); warm];
+        mixer.render_block(&mut warmup);
+        mixer.schedule(quiet_with(OrbitSend {
+            dry: 1.0,
+            ..Default::default() // room 0, delay 0, default delaytime and size
+        }));
+        let mut out = vec![(0.0f32, 0.0f32); n];
+        mixer.render_block(&mut out);
+        out
+    };
+
+    // A 5 ms delay ringing at 0.9 feedback. Retuned to the default 3/16 of a
+    // second, the read head would land 8268 frames back in a buffer only 2000
+    // frames old, and the echoes would stop dead.
+    let out = tail_past_a_bystander(
+        OrbitSend {
+            dry: 0.0,
+            delay: 1.0,
+            delay_cfg: DelayConfig {
+                time: 0.005,
+                feedback: 0.9,
+            },
+            ..Default::default()
+        },
+        2000,
+        4096,
+    );
+    assert!(
+        peak_of(&out[2000..]) > 1e-3,
+        "a voice with no delay send must not retune the delay under it"
+    );
+
+    // Same for the reverb: rebuilding the convolver at the default size would
+    // reset its state and take the 3-second tail with it.
+    let out = tail_past_a_bystander(roomy(3.0), 4096, 44100);
+    assert!(
+        peak_of(&out[40000..]) > 1e-6,
+        "a voice with no room send must not rebuild the reverb under it"
     );
 }
 

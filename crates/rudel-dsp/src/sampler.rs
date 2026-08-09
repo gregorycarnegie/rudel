@@ -57,7 +57,11 @@ impl SamplerParams {
             pan: 0.5,
             speed: 1.0,
             attack: 0.001,
-            release: 0.05,
+            // superdough's `getADSRValues` with nothing set: `[0.001, 0.001, 1,
+            // 0.01]`. The release only shows when `clip`/`loop` cut a sample
+            // short of its own end — and there it was five times too long, so a
+            // clipped note bled into the next one.
+            release: 0.01,
             cutoff: None,
             resonance: 0.707,
             model: FilterModel::Db12,
@@ -151,6 +155,10 @@ pub struct SamplerVoice {
     /// Vibrato / pitch envelope, scaling the read step per sample. `None` when
     /// neither is set, which is the overwhelmingly common case.
     pitch: Option<PitchMod>,
+    /// `speed < 0`: read the buffer back-to-front. `pos` still walks forwards,
+    /// so everything positional (`begin`/`end`, looping, the hold timer) works
+    /// unchanged — only the frame lookup flips.
+    rev: bool,
 }
 
 impl SamplerVoice {
@@ -172,8 +180,13 @@ impl SamplerVoice {
         } else {
             params.speed as f64
         };
-        // resample ratio: source rate vs engine rate, times speed
-        let step = (params.sample.sample_rate as f64 / sample_rate as f64) * speed;
+        // resample ratio: source rate vs engine rate, times speed. A negative
+        // speed plays the buffer *reversed* at |speed| — superdough swaps in a
+        // reversed copy and uses `Math.abs(speed)` as the rate, so `begin`/`end`
+        // and looping index the reversed buffer. Stepping backwards from `begin`
+        // instead would run straight off the front of the sample.
+        let rev = speed < 0.0;
+        let step = (params.sample.sample_rate as f64 / sample_rate as f64) * speed.abs();
         let natural = if step != 0.0 {
             (end - begin).abs() / step.abs() / sample_rate as f64
         } else {
@@ -224,6 +237,18 @@ impl SamplerVoice {
             loop_start,
             loop_end,
             pitch: (!params.pitch.is_idle()).then_some(params.pitch),
+            rev,
+        }
+    }
+
+    /// Read frame `i`, counting from the end of the buffer when the voice is
+    /// reversed. `i + 1 < len` is checked by the caller, so both are in bounds.
+    fn frame(&self, i: usize) -> f32 {
+        let data = &self.sample.data;
+        if self.rev {
+            data[data.len() - 1 - i]
+        } else {
+            data[i]
         }
     }
 
@@ -256,8 +281,8 @@ impl VoiceLike for SamplerVoice {
             return (0.0, 0.0);
         }
         let frac = (self.pos - i as f64) as f32;
-        let s0 = self.sample.data[i];
-        let s1 = self.sample.data[i + 1];
+        let s0 = self.frame(i);
+        let s1 = self.frame(i + 1);
         let mut s = s0 + (s1 - s0) * frac;
         self.mods.tick();
         if let Some(f) = &mut self.filter {

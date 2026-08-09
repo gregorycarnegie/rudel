@@ -1,10 +1,10 @@
 //! Manual smoke test: fetch a real General MIDI preset and render a note.
 //! Not a unit test — it needs the network.
-use rudel_audio::{OfflineMixer, SampleBank, collect_events, soundfont};
+use rudel_audio::{OfflineMixer, SampleBank, collect_events, samples::decode_bytes, soundfont};
 
 fn main() {
     for (name, note) in [("gm_piano", "c4"), ("gm_flute", "g5")] {
-        let preset = soundfont::load_gm_preset(name, 0, fetch, decode).unwrap();
+        let preset = soundfont::load_gm_preset(name, 0, fetch, decode_bytes).unwrap();
         println!("{name}: {} zones", preset.zones.len());
         let mut bank = SampleBank::new();
         bank.register_font(name, 0, preset);
@@ -29,17 +29,4 @@ fn main() {
 fn fetch(url: &str) -> Result<String, String> {
     let mut r = ureq::get(url).call().map_err(|e| e.to_string())?;
     r.body_mut().read_to_string().map_err(|e| e.to_string())
-}
-
-fn decode(bytes: &[u8]) -> Result<rudel_dsp::Sample, String> {
-    let arc: std::sync::Arc<[u8]> = bytes.to_vec().into();
-    let w = fundsp::wave::Wave::load_slice(arc).map_err(|e| e.to_string())?;
-    let channels = w.channels();
-    let data = (0..w.len())
-        .map(|i| (0..channels).map(|c| w.at(c, i)).sum::<f32>() / channels as f32)
-        .collect();
-    Ok(rudel_dsp::Sample {
-        data,
-        sample_rate: w.sample_rate() as f32,
-    })
 }

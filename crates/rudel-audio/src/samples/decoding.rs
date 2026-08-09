@@ -1,21 +1,99 @@
 //! In-memory audio decoding, including the lenient WAV fallback.
 
-use fundsp::wave::Wave;
 use rudel_dsp::Sample;
-/// Decode in-memory audio bytes into a mono [`Sample`]. Symphonia (via fundsp)
-/// handles all formats; WAVs it rejects fall back to our lenient in-house
-/// reader, since old sample packs (e.g. dirt-samples' `mute`/`pluck`) have
-/// nonstandard 20-byte PCM fmt chunks symphonia refuses to parse.
+use symphonia::core::{
+    codecs::{CodecParameters, audio::AudioDecoderOptions},
+    errors::Error,
+    formats::{FormatOptions, TrackType, probe::Hint},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+};
+
+/// Decode in-memory audio bytes into a mono [`Sample`]. Symphonia handles all
+/// formats; WAVs it rejects fall back to our lenient in-house reader, since old
+/// sample packs (e.g. dirt-samples' `mute`/`pluck`) have nonstandard 20-byte
+/// PCM fmt chunks symphonia refuses to parse.
 pub(super) fn decode_sample_bytes(bytes: Vec<u8>) -> Result<Sample, String> {
     let is_wav = bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(&b"WAVE"[..]);
     let bytes: std::sync::Arc<[u8]> = bytes.into();
-    match Wave::load_slice(bytes.clone()) {
-        Ok(wave) => Ok(wave_to_sample(&wave)),
+    match decode_symphonia(bytes.clone()) {
+        Ok(sample) => Ok(sample),
         Err(e) if is_wav => {
             decode_wav_lenient(&bytes).map_err(|e2| format!("decode audio: {e}; lenient wav: {e2}"))
         }
         Err(e) => Err(format!("decode audio: {e}")),
     }
+}
+
+/// Decode the first audio track with symphonia, mixed down to mono.
+///
+/// Gapless is the reason this is not `fundsp`'s `Wave::load_slice`, which
+/// hard-codes it off. A LAME-encoded MP3 carries ~1100 frames of encoder delay
+/// at the head — silence the encoder added and the file's own Xing/LAME header
+/// says to drop. `decodeAudioData` in the browser drops it, so upstream never
+/// sees it; keeping it made every MP3 sample start ~25 ms late. That is
+/// inaudible on a drum hit at `speed(1)`, but the offset is in *source* frames,
+/// so it stretches with playback rate: the "Wavy kalimba" tune plays one MP3 at
+/// 0.25 and 0.125 (a melody and a bass line three octaves down), which put its
+/// two layers 100 ms apart from each other.
+///
+/// `gapless` is a *decoder* option here and defaults to on, but it is set
+/// explicitly: it was a format option that defaulted to off in symphonia 0.5,
+/// so leaving it implicit would make a silent regression out of a default the
+/// upstream is free to change again.
+fn decode_symphonia(bytes: std::sync::Arc<[u8]>) -> Result<Sample, Error> {
+    let stream = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default());
+    let mut reader = symphonia::default::get_probe().probe(
+        &Hint::new(),
+        stream,
+        FormatOptions::default(),
+        MetadataOptions::default(),
+    )?;
+    // Scoped so the track borrow of `reader` ends before the packet loop takes
+    // it mutably.
+    let (track_id, mut decoder) = {
+        let track = reader
+            .first_track(TrackType::Audio)
+            .ok_or(Error::DecodeError("no audio track"))?;
+        let Some(CodecParameters::Audio(params)) = track.codec_params.as_ref() else {
+            return Err(Error::DecodeError("track has no audio codec parameters"));
+        };
+        let decoder = symphonia::default::get_codecs()
+            .make_audio_decoder(params, &AudioDecoderOptions::default().gapless(true))?;
+        (track.id, decoder)
+    };
+
+    let mut interleaved: Vec<f32> = Vec::new();
+    let mut packet_samples: Vec<f32> = Vec::new();
+    let mut spec = None;
+    // `Ok(None)` is the end of the stream. A read error ends it too: a
+    // truncated download is still worth whatever decoded.
+    while let Ok(Some(packet)) = reader.next_packet() {
+        if packet.track_id != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                spec = Some(decoded.spec().clone());
+                // Resizes to exactly this packet's samples rather than
+                // appending, so it is a scratch buffer, not the accumulator.
+                decoded.copy_to_vec_interleaved(&mut packet_samples);
+                interleaved.extend_from_slice(&packet_samples);
+            }
+            // Documented as recoverable: skip the packet, keep the stream.
+            Err(Error::DecodeError(_)) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    let spec = spec.ok_or(Error::DecodeError("no audio decoded"))?;
+    let channels = spec.channels().count().max(1);
+    Ok(Sample {
+        data: interleaved
+            .chunks(channels)
+            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+            .collect(),
+        sample_rate: spec.rate() as f32,
+    })
 }
 
 /// Fallback lenient WAV decode (replaces the archived `wavers` crate): skips
@@ -78,20 +156,40 @@ pub(super) fn decode_wav_lenient(bytes: &[u8]) -> Result<Sample, String> {
     Ok(Sample { data, sample_rate })
 }
 
-/// Average a decoded [`Wave`]'s channels down to a mono [`Sample`].
-fn wave_to_sample(wave: &Wave) -> Sample {
-    let channels = wave.channels().max(1);
-    let len = wave.len();
-    let mut data = Vec::with_capacity(len);
-    for i in 0..len {
-        let mut sum = 0.0f32;
-        for c in 0..channels {
-            sum += wave.at(c, i);
-        }
-        data.push(sum / channels as f32);
-    }
-    Sample {
-        data,
-        sample_rate: wave.sample_rate() as f32,
+#[cfg(test)]
+mod tests {
+    use super::decode_sample_bytes;
+
+    /// A quarter-second 440 Hz tone, LAME-encoded:
+    ///
+    /// ```text
+    /// ffmpeg -f lavfi -i "sine=frequency=440:duration=0.25:sample_rate=44100" \
+    ///        -ac 1 -codec:a libmp3lame -b:a 64k tone.mp3
+    /// ```
+    ///
+    /// Its Xing/LAME header declares the encoder delay, so a decode that
+    /// ignores it starts the sample with ~1100 frames of silence the browser
+    /// would never play.
+    const MP3: &[u8] = include_bytes!("../../tests/fixtures/tone.mp3");
+
+    #[test]
+    fn an_mp3s_encoder_delay_is_trimmed_off_the_front() {
+        let sample = decode_sample_bytes(MP3.to_vec()).expect("decode the fixture");
+        let peak = sample.data.iter().fold(0.0f32, |a, b| a.max(b.abs()));
+        assert!(peak > 0.1, "the fixture should be a tone, peak {peak}");
+        let onset = sample
+            .data
+            .iter()
+            .position(|v| v.abs() > peak * 0.01)
+            .expect("the tone starts somewhere");
+        // Untrimmed this is ~1105 frames — the LAME encoder delay plus the
+        // decoder's own. 25 ms of silence is inaudible in a drum hit at
+        // `speed(1)` and 200 ms of it is not at `speed(0.125)`, which is how
+        // this surfaced: the offset is in source frames, so it stretches with
+        // the playback rate and pulls a tune's layers apart from each other.
+        assert!(
+            onset < 100,
+            "the tone should start at once, not {onset} frames in"
+        );
     }
 }

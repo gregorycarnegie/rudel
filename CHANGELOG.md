@@ -11,6 +11,63 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-08-09
+
+A release about listening again. 0.9.0 got the example tunes sounding like
+instruments; this is the five that still did not sound *right* next to Strudel,
+and every one turned out to be a different mechanism rather than a matter of
+taste. Three of them shared a single cause.
+
+### Fixed
+
+- **`speed` below zero plays the sample backwards instead of blowing up.** A
+  negative speed made the read step negative, so the voice walked off the front
+  of the buffer: the position saturated at frame 0 while the interpolation
+  fraction kept growing, and linear interpolation between two fixed neighbours
+  became linear *extrapolation* — an unbounded DC ramp, tens of times full scale
+  by the end of the note. It was audible as popping and as everything else
+  seeming to duck around it. superdough reverses the buffer and plays it at
+  `Math.abs(speed)`, so `begin`/`end` and looping index the reversed copy; the
+  voice now flips the frame lookup and leaves the position walking forwards,
+  which gets the same result without copying the sample per note. This is what
+  the "Delay", "Orbit" and "Amensister" tunes were reaching for with
+  `sometimes(x => x.speed("-1"))` — the only three of the website tunes that ask
+  for a negative speed.
+
+- **A sample's default release is 10 ms, not 50 ms.** superdough's
+  `getADSRValues` returns a `0.01` release when a hap sets no envelope controls.
+  The five-times-longer default only showed when `clip` or `loop` cut a sample
+  short of its own end, and there it smeared each note into the next — "Wavy
+  kalimba" clips to as little as 0.1 s a note.
+
+- **An MP3's encoder delay is trimmed, as the browser trims it.** Sample
+  decoding went through `fundsp`'s `Wave::load_slice`, which hard-codes
+  symphonia's gapless support off; the decode is now symphonia 0.6 directly,
+  with it on (and `fundsp`, which nothing else used, is gone). A LAME-encoded
+  MP3 carries ~1100 frames of encoder delay at the head that its own Xing/LAME
+  header says to drop — `decodeAudioData` drops it, so upstream never hears it.
+  Keeping it started every MP3 sample ~25 ms late, which is nothing on a drum
+  hit at `speed(1)`. But the offset is in *source* frames, so it stretches with
+  the playback rate: "Wavy kalimba" plays one MP3 as both a melody and a bass
+  line three octaves below it, and the two layers came out 100 ms apart.
+
+- **A voice only configures the orbit effects it actually sends to.** Every
+  event applied its `delaytime`/`roomsize` to the orbit it landed on, including
+  events sending nothing to either — and those carry the defaults, so they
+  overwrote whatever the layer sharing that orbit had set. superdough reads
+  those controls inside its `if (room > 0)` and `if (delay > 0 && …)` branches
+  for exactly this reason. In "Amensister" a chord line on `delaytime(.125)`
+  shares orbit 1 with a bass line of eight notes a cycle that sets no delay at
+  all, and each of those notes yanked the delay's read head across the echo
+  still ringing in the buffer — heard as the mix dipping.
+
+- **Csound diagnostics are readable again.** Csound's message callback is a
+  stream, not a line writer: a syntax error echoes the offending source *one
+  character per call* to mark the fault position. Recording each call as its own
+  line turned the whole diagnostic into a column of single letters, and the
+  eight-line cap then truncated it after eight of them. Text is now buffered and
+  cut on newlines, with the unterminated tail flushed when the messages are read.
+
 ## [0.9.0] — 2026-08-09
 
 A release about sounding right. 0.8.0 got the example tunes to *evaluate*; this

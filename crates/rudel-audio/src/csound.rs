@@ -85,27 +85,50 @@ type MessageCallback = unsafe extern "C" fn(CsoundPtr, c_int, *const c_char);
 /// instance's *host data*, which is how a Csound callback finds its way back
 /// to the host — a global would work for one instance and quietly mix two.
 #[derive(Default)]
-struct Messages(std::sync::Mutex<Vec<String>>);
+struct Messages(std::sync::Mutex<Sink>);
+
+/// Completed lines, plus whatever has arrived since the last newline.
+#[derive(Default)]
+struct Sink {
+    lines: Vec<String>,
+    partial: String,
+}
 
 impl Messages {
-    /// Record one message. Csound writes a whole diagnostic — the error, the
-    /// line number, the offending source — as a single call with embedded
-    /// newlines, so it is split here: the cap below is only meaningful if it
-    /// counts lines a reader sees.
+    /// Record one message. The callback is a *stream*, not a line writer: a
+    /// syntax error echoes the offending source one character per call (that is
+    /// how `synterr` marks the fault position), so treating each call as a line
+    /// turns the whole diagnostic into a column of single letters — and the cap
+    /// below then truncates it after eight of them. Text is buffered and cut on
+    /// newlines instead.
     fn push(&self, text: &str) {
         let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-            // Bounded: `perform_ksmps` runs in the audio callback and an
-            // orchestra printing every k-cycle would grow this without limit.
-            if held.len() >= 200 {
-                return;
+        // Bounded: `perform_ksmps` runs in the audio callback and an orchestra
+        // printing every k-cycle would grow this without limit. A line that
+        // never ends is capped the same way.
+        if held.lines.len() >= 200 || held.partial.len() >= 4096 {
+            return;
+        }
+        held.partial.push_str(text);
+        while let Some(nl) = held.partial.find('\n') {
+            let line = held.partial.drain(..=nl).collect::<String>();
+            let line = line.trim();
+            if !line.is_empty() {
+                held.lines.push(line.to_string());
             }
-            held.push(line.to_string());
         }
     }
 
     fn take(&self) -> Vec<String> {
-        std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()))
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A diagnostic need not end in a newline, and the last line is usually
+        // the one that says what went wrong.
+        let tail = std::mem::take(&mut held.partial);
+        let tail = tail.trim();
+        if !tail.is_empty() {
+            held.lines.push(tail.to_string());
+        }
+        std::mem::take(&mut held.lines)
     }
 }
 
@@ -576,6 +599,28 @@ mod tests {
         // And the instance survives it: a later, valid orchestra still compiles.
         cs.compile_orc("instr Fine\n  out(a(0), a(0))\nendin\n")
             .expect("a later compile should still work");
+    }
+
+    #[test]
+    fn a_diagnostic_split_across_calls_comes_back_as_lines() {
+        // Csound's message callback is a stream. A syntax error echoes the
+        // offending source one *character* per call, so a sink that treats each
+        // call as a line reports the fault as a column of single letters — and
+        // the eight-line cap then truncates it to eight of them.
+        let sink = Messages::default();
+        sink.push("\nerror: syntax error (token \"it\")\nline 12:\n");
+        for ch in ">>> opcode set_tempo(it  <<<".chars() {
+            sink.push(&ch.to_string());
+        }
+        assert_eq!(
+            sink.take(),
+            [
+                "error: syntax error (token \"it\")",
+                "line 12:",
+                // Flushed by `take` even though no newline ever arrived.
+                ">>> opcode set_tempo(it  <<<",
+            ]
+        );
     }
 
     #[test]

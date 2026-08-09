@@ -138,12 +138,23 @@ impl OrbitBus {
     /// reverb is only rebuilt when a parameter actually changed — otherwise a
     /// stack of voices all carrying the same defaults would reset the tail on
     /// every note.
+    ///
+    /// A voice only gets to configure an effect it actually *sends to*:
+    /// superdough calls `getReverb`/`getDelay` from inside its `if (room > 0)`
+    /// and `if (delay > 0 && ...)` branches, so a voice sending nothing there
+    /// never touches those settings. Reading the
+    /// controls off every event instead means one layer's defaults keep
+    /// overwriting another's: in "Amensister" the chord layer's
+    /// `delay(.8).delaytime(.125)` shares orbit 1 with a bass line that sets no
+    /// delay at all, and each bass note — eight a cycle — retuned the delay
+    /// back to the default 3/16, yanking the read head across the echo still
+    /// ringing in the buffer.
     fn configure(&mut self, send: &OrbitSend) {
-        if send.reverb != self.reverb_cfg {
+        if send.room > 0.0 && send.reverb != self.reverb_cfg {
             self.reverb = build_reverb(self.sample_rate, &send.reverb);
             self.reverb_cfg = send.reverb.clone();
         }
-        if send.delay_cfg != self.delay_cfg {
+        if send.delay > 0.0 && send.delay_cfg != self.delay_cfg {
             self.delay.configure(send.delay_cfg);
             self.delay_cfg = send.delay_cfg;
         }

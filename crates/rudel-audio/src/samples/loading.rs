@@ -467,7 +467,7 @@ pub(crate) fn fetch_cached_text(url: &str) -> Result<String, String> {
 }
 
 /// Decode in-memory audio bytes (a soundfont zone's payload, say).
-pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<Sample, String> {
+pub fn decode_bytes(bytes: &[u8]) -> Result<Sample, String> {
     decode_sample_bytes(bytes.to_vec())
 }
 

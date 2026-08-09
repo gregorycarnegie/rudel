@@ -11,7 +11,10 @@ rust-version.workspace = true
 rudel-core = { path = "../rudel-core" }
 rudel-dsp = { path = "../rudel-dsp" }
 cpal = "0.18.1"
-fundsp = "0.23.0"
+# Sample decoding. `all` is the codec set fundsp pulled in when it owned this,
+# and is not optional: MP3 is behind a feature flag and off by default. Gapless
+# playback is why the decode is ours at all (see samples/decoding.rs).
+symphonia = { version = "0.6.0", features = ["all"] }
 # Csound is opened at runtime, never linked: see src/csound.rs.
 libloading = "0.9.0"
 serde_json.workspace = true

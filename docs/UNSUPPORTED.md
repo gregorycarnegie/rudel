@@ -471,6 +471,15 @@ including for orchestras as large as `livecode.orc`. Set `OPCODE6DIR64` to the
 same directory as well if an orchestra reaches for a *plugin* opcode, which the
 installers register and an unpacked copy does not.
 
+The installed Csound has to be recent enough for the orchestra, and the desktop
+releases lag the WebAssembly ones. `@strudel/csound` pins `@csound/browser`
+6.18.7, which parses the parenthesised opcode syntax (`opcode set_tempo(itempo):
+void`); the 6.18.0 desktop installer does not, and rejects `livecode.orc` — the
+orchestra behind the "Lounge sponge" tune — at its first `opcode` line with
+`syntax error, unexpected T_IDENT, expecting ','`. Csound 6.19 or newer parses
+it. Nothing on Rudel's side can substitute for the parser, so the compile error
+is reported as Csound wrote it and the rest of the pattern keeps playing.
+
 Csound is **not** a build dependency: nothing links against it, and a Rudel
 built and run on a machine without it behaves exactly as before. Only a script
 that asks for Csound loads the library, and if it is not there the error names

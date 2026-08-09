@@ -475,6 +475,60 @@ fn a_fractional_step_interpolates_between_neighbouring_frames() {
 }
 
 #[test]
+fn a_negative_speed_plays_the_buffer_backwards() {
+    // superdough reverses the buffer and plays it at |speed|, so a ramp comes
+    // out descending and still inside the buffer's own range. Stepping `pos`
+    // backwards instead walks off the front of the sample, where the position
+    // clamps to frame 0 and the interpolation extrapolates without bound — a
+    // loud DC ramp rather than a reversed sound.
+    let sr = 44100.0;
+    let n = 64;
+    let out = play(
+        {
+            let mut p = plain(ramp(n, sr));
+            p.speed = -1.0;
+            p
+        },
+        sr,
+    );
+    // n - 1 interpolated frames, plus the zero from the tick that ends the voice.
+    assert_eq!(out.len(), n, "reversed playback still covers the buffer");
+    assert!(
+        out.iter().all(|s| (0.0..=1.0).contains(s)),
+        "stays within the ramp's range: {:?}",
+        &out[..8]
+    );
+    assert!(
+        out.windows(2).all(|w| w[1] < w[0]),
+        "a reversed ramp descends: {:?}",
+        &out[..8]
+    );
+    // Frame `i` of the reversed buffer is frame `n - 1 - i` of the original.
+    assert!(
+        (out[0] - (n - 1) as f32 / n as f32).abs() < 1e-6,
+        "{}",
+        out[0]
+    );
+
+    // `begin` indexes the reversed buffer, so half way in is the original's
+    // frame `n/2 - 1`, counting down.
+    let out = play(
+        {
+            let mut p = plain(ramp(n, sr));
+            p.speed = -1.0;
+            p.begin = 0.5;
+            p
+        },
+        sr,
+    );
+    assert!(
+        (out[0] - (n / 2 - 1) as f32 / n as f32).abs() < 1e-6,
+        "{}",
+        out[0]
+    );
+}
+
+#[test]
 fn gain_scales_the_output() {
     let sr = 44100.0;
     let peak = |gain: f32| {
