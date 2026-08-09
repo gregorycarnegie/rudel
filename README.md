@@ -5,6 +5,7 @@
 [![Rust edition: 2024](https://img.shields.io/badge/rust%20edition-2024-orange)](Cargo.toml)
 [![MSRV: 1.96](https://img.shields.io/badge/MSRV-1.96-orange)](Cargo.toml)
 [![Koto: 0.16.1](https://img.shields.io/badge/Koto-0.16.1-blue)](https://koto.dev)
+[![Csound: optional at runtime](https://img.shields.io/badge/Csound-optional%20at%20runtime-blue)](#csound)
 [![Workspace: 8 crates](https://img.shields.io/badge/workspace-8%20crates-informational)](#workspace)
 [![Checks: test + clippy](https://img.shields.io/badge/checks-test%20%2B%20clippy-brightgreen)](#tests)
 
@@ -50,6 +51,44 @@ stack(
 
 The app starts with native audio. Use the output selector for MIDI or OSC; OSC
 defaults to `127.0.0.1:57120` for local SuperDirt.
+
+## Csound
+
+Rudel can play a pattern on a [Csound](https://csound.com/) instrument instead of
+one of its own voices, the way `@strudel/csound` does — `loadCsound`, `loadOrc`,
+and the `csound` / `csoundm` outputs.
+
+This is the one feature with an outside dependency. There is no pure-Rust
+Csound, and the WebAssembly build Strudel loads in the browser needs a browser to
+run, so Rudel uses the native library. **Nothing links against it**: Rudel builds
+and runs exactly as before without Csound, the library is opened only when a
+script first asks for it, and a script that asks when it is not there gets an
+error saying so while the rest of the pattern keeps playing.
+
+To get started, install Csound ([downloads](https://csound.com/download.html);
+the 64-bit build, which is what the installers give you), then paste this in and
+press **Play**:
+
+```koto
+loadCsound`
+instr Beep
+    asig = vco2(p5, p4)
+    asig *= linsegr:a(0, .01, 1, p3, 1, .1, 0)
+    out(asig, asig)
+endin`
+
+note("c3 e3 g3 c4").csound('Beep')
+```
+
+`loadOrc('github:user/repo/branch/some.orc')` loads an orchestra from a URL
+instead. An orchestra that will not compile reports Csound's own message — the
+line number and the offending source — in the app's error panel.
+
+Rudel looks for `csound64.dll` / `libcsound64.so` / `libcsound64.dylib` on the
+usual library path, then in the default install locations. Set
+`RUDEL_CSOUND_LIB` to a full path to override that, which is also all an
+unpacked build needs. Details, including how Csound is mixed in, are in
+[`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md#csound-strudelcsound--supported-with-csound-installed-separately).
 
 ## Examples
 

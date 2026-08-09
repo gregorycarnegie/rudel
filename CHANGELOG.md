@@ -11,6 +11,22 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-09
+
+A release about sounding right. 0.8.0 got the example tunes to *evaluate*; this
+one is what happened when they were listened to, and then compared against
+Strudel's own hap snapshot event by event. Two things turned out to be wrong at
+once: rudel started with no sample banks registered, so every tune written for
+strudel.cc came out as beeps rather than instruments — and underneath that, a
+dozen parity bugs in how controls, arithmetic and voicings resolve. **All 31
+tunes on <https://strudel.cc/examples> now run**, up from 22, and 28 of them
+reproduce Strudel's events exactly, up from 11.
+
+Csound is supported as of this release — the one feature with a dependency
+outside the workspace, and an optional one. **Several fixes change what existing
+patterns sound like**; they are corrections toward Strudel, and are listed under
+Migrating.
+
 ### Added
 
 - **The default sample banks load at startup.** Rudel began with nothing
@@ -57,9 +73,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   — and commits the result. `gen_tunes_oracle.mjs` carries that into the corpus
   (parsing the committed snapshot rather than standing up a Strudel runtime, so
   the expectation is upstream's own), and `tunes.rs` compares hap for hap. 11 of
-  the 27 website tunes that evaluate reproduce it exactly; the other 16 are
-  named with the difference in `tunes_parity_allowlist.json`, which fails in
-  both directions like every other allowlist here.
+  the 27 website tunes that evaluated reproduced it exactly when the comparison
+  was first turned on; 28 of 31 do now, and the three that do not are named with
+  the difference in `tunes_parity_allowlist.json`, which fails in both
+  directions like every other allowlist here.
 
   Two representation differences are normalised rather than reported, because
   they are spellings and not events: `note` names against MIDI numbers (Strudel
@@ -180,14 +197,57 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 - `wrap_control_dyn` is now `control_dyn`: the distinction only existed because
   the bag rule was applied on one path.
-- Tune parity went from 11 exact to **26 of 27** on the back of the above. The
-  one left is not a bug to fix: Jux und tollerei differs because Strudel's
-  `every`/`firstOf` — and so `palindrome()`, which is `every(2, rev)` — returns
-  nothing for negative cycles, while `when`, `rev` and `fast` behave normally
-  there. The tune's `off` copy therefore pulls nothing in from cycle -1
-  upstream; Rudel carries the previous cycle's note across, which is the correct
-  reading, so that one is deliberately not matched and is recorded as such in
-  `tunes_parity_allowlist.json`.
+- Tune parity went from 11 exact to **28 of 31** on the back of the above. None
+  of the three left is a bug to fix, and none differs in a way a listener could
+  hear:
+  - **Jux und tollerei** — Strudel's `every`/`firstOf`, and so `palindrome()`
+    (which is `every(2, rev)`), returns nothing for negative cycles, while
+    `when`, `rev` and `fast` behave normally there. The tune's `off` copy
+    therefore pulls nothing in from cycle -1 upstream; Rudel carries the
+    previous cycle's note across, which is the correct reading.
+  - **CSound demo** — `.csound(name)` is an `onTrigger` upstream, which hangs
+    off the hap's *context*, so the instrument never appears in the snapshot;
+    Rudel has no onTrigger and carries it as a control. Spans and notes match
+    one for one.
+  - **Lounge sponge** — the same, plus `n` after `.scale(...)`: Strudel leaves
+    the note name it resolved to (`n:E5`), Rudel the MIDI number (`n:76`). Both
+    are 659.26 Hz, and the test only normalises names for the `note` key.
+- A guard that every registered control is read by something that makes sound
+  (`crates/rudel-audio/tests/control_coverage.rs`). `clip` and `velocity` both
+  got past every other check the same way — registered, riding along on the hap
+  so the tune oracle was satisfied, then dropped silently at the boundary
+  between the control map and the voice. It scans the crates that turn a control
+  into output for each canonical key, and inventories the ~120 with no reader,
+  grouped with the reason. It says a control is *wired up*, not that it is
+  correct; that is what the DSP goldens and the tune oracle are for.
+
+### Migrating
+
+Every entry below is a correction toward Strudel, so the "to restore" column is
+mostly empty on purpose — the old behaviour was the bug. The changes worth
+knowing about before you re-evaluate an existing set:
+
+| pattern | was | now | to restore |
+| --- | --- | --- | --- |
+| `s("piano")`, `s("ocarina_vib")`, any bank name | a synth beep, the name being unregistered | the sample, from the banks loaded at launch | name a synth: `s("triangle")` |
+| `"c2".add(12)` | 12 — the note name coerced to zero | 48, `parseNumeral` resolving the name first | write the number: `"36".add(12)` |
+| `cat('C3 dorian', 'Bb2 major')` | four values, the single-quoted strings parsed as mini | two plain strings | use double quotes for mini-notation |
+| `.velocity(0.5)` | ignored | multiplies `gain`, before any voice | drop the call |
+| `.clip(0.5).piano()` | kept your `clip` | `piano()` sets `clip` to 1 | `.piano().clip(0.5)` |
+| `v("8:.125")` | the whole list under `vib` | `vib` 8, `vibmod` 0.125 | — |
+| `rootNotes(4)` | a MIDI number | a note name (`"C4"`) | — |
+| `.superimpose(f, g)` | only `f` applied | both | — |
+| `.voicing()` | bare numbers | a `note` control | — |
+
+A fractional scale degree is now ceiled rather than rounded, matching
+`scaleStep`. That only shows up where a degree is computed rather than written —
+`n("0").add(n(rand.range(0,12))).scale(…)` lands on a fraction every time — and
+moves roughly half of those up a degree.
+
+Sample playback follows `sampler.mjs`'s rule: a sample plays its whole slice
+unless `clip`, `loop` or `release` asks for it to be cut to the hap. A sustained
+instrument left uncut rings past its note, so if a layer of yours now overlaps
+into noise, `.clip(1)` is the control that was always meant to bound it.
 
 ## [0.8.0] — 2026-08-09
 
