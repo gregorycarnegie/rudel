@@ -465,9 +465,11 @@ output that needs a browser or Node to run at all. Rudel therefore opens
 | macOS | `libcsound64.dylib`, then `CsoundLib64.framework`, Homebrew and `/usr/local/lib` |
 | Linux | `libcsound64.so`, then `/usr/lib` and `/usr/local/lib` |
 
-Set `RUDEL_CSOUND_LIB` to the library's full path to override the search — which
-is also how to use an unpacked build rather than an installer, in which case set
-`OPCODE6DIR64` to the same directory so Csound finds its plugin opcodes.
+Set `RUDEL_CSOUND_LIB` to the library's full path to override the search. That
+is all an unpacked build (Csound's `…-windows-x64-binaries.zip`, say) needs —
+including for orchestras as large as `livecode.orc`. Set `OPCODE6DIR64` to the
+same directory as well if an orchestra reaches for a *plugin* opcode, which the
+installers register and an unpacked copy does not.
 
 Csound is **not** a build dependency: nothing links against it, and a Rudel
 built and run on a machine without it behaves exactly as before. Only a script
