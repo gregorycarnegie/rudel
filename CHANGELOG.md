@@ -13,6 +13,23 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **The default sample banks load at startup.** Rudel began with nothing
+  registered, so a pattern naming `piano`, `ocarina_vib` or a drum machine fell
+  through to a synth voice — which is why tunes written against strudel.cc came
+  out as beeps rather than instruments. The seven maps the Strudel REPL
+  prebakes (piano, VCSL, tidal-drum-machines, uzu-drumkit, uzu-wavetables,
+  mridangam, and the Dirt-Samples subset) are now registered on launch.
+
+  Only the *maps* are read: seven small JSON files, ~2.5s for the 857 sounds
+  they describe. A sound's audio is downloaded the first time something plays
+  it and cached on disk from then on, which is how the browser serves Strudel.
+  Fetching every file up front — the obvious reading of "preload" — measures
+  3.1 GB and about nine minutes, nearly all of it audio nobody asked to hear.
+  The bank records a miss from the audio thread (which can neither block nor
+  spawn) and the host turns it into a background job, the same path soundfonts
+  already used. Failures are logged rather than raised: rudel has to start
+  offline, and a bank nobody asked for should not open with a red error.
+
 - **The tune corpus is now compared against Strudel's haps, not just run.**
   Upstream's `tunes.test.mjs` snapshots `queryCode(tune, testCycles[key])` for
   every website tune — each hap's spans and every control that reaches the synth

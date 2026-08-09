@@ -43,6 +43,10 @@ struct SampleJob {
     key: String,
     label: String,
     handle: JoinHandle<Result<usize, String>>,
+    /// Report a failure to the console rather than the error bar. Set for the
+    /// startup sample banks: they are not something the user asked for, and
+    /// working offline should not open with seven red messages.
+    quiet: bool,
 }
 
 pub(crate) struct RudelApp {
@@ -138,11 +142,16 @@ impl RudelApp {
             }
             Err(e) => (None, Some(e)),
         };
-        RudelApp {
+        let mut app = RudelApp {
             engine,
             audio_error,
             ..RudelApp::headless()
-        }
+        };
+        // The sample banks the Strudel REPL preloads. Queued in the background,
+        // cached on disk, and quiet on failure, so a first run picks them up
+        // and later ones (offline included) start instantly.
+        app.prebake_default_samples();
+        app
     }
 
     /// The full app state with no audio device attached. [`RudelApp::new`]

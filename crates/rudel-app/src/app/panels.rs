@@ -17,6 +17,7 @@ impl eframe::App for RudelApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         pump_input_bus(ui.ctx());
         self.poll_font_requests();
+        self.poll_sample_requests();
         self.poll_sample_jobs(ui.ctx());
         let midi_connecting =
             self.poll_midi_connect() | self.poll_midi_in_connect() | self.poll_script_midi_inputs();
@@ -881,7 +882,11 @@ mod tests {
             "a cached cycle must not freeze the flash on one event"
         );
         let pat = app.current.clone().expect("a pattern");
-        assert_eq!(on_sd, active_source_spans_at(&pat, 0.75), "matches uncached");
+        assert_eq!(
+            on_sd,
+            active_source_spans_at(&pat, 0.75),
+            "matches uncached"
+        );
 
         // Re-evaluating replaces the pattern: the cached cycle is from the old
         // one and has to go, or the editor keeps flashing bytes that moved.

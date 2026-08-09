@@ -11,6 +11,39 @@ pub(crate) use loading::{decode_bytes, fetch_cached_bytes, fetch_cached_text};
 use crate::soundfont::Preset;
 use rudel_dsp::{Sample, WaveTable};
 use std::{collections::HashMap, sync::Arc};
+
+/// The sample maps loaded at startup, mirroring the `prebake()` the Strudel
+/// REPL runs before it evaluates anything (`website/src/repl/prebake.mjs`).
+///
+/// Without these, a pattern naming `piano`, `ocarina_vib` or a drum machine has
+/// nothing to play and falls back to a synth voice — which is why tunes written
+/// against strudel.cc sound like beeps rather than instruments.
+///
+/// Only the maps are read at startup, via `register_samples_source`: seven
+/// small JSON files, about two and a half seconds for the 857 sounds they
+/// describe. The audio for a sound is downloaded the first time something plays
+/// it and cached on disk from then on, which is how the browser serves Strudel.
+/// Fetching every file up front instead measures 3.1 GB and roughly nine
+/// minutes, nearly all of it audio nobody asked to hear.
+///
+/// Bare `bd`/`sd`/`hh` are deliberately absent — those are *synthesised* by the
+/// built-in drum voices in both engines, so they need no samples at all.
+pub const DEFAULT_SAMPLE_BANKS: &[&str] = &[
+    // Salamander Grand Piano, behind `.piano()`.
+    "https://strudel.b-cdn.net/piano.json",
+    // Versilian Community Sample Library: the orchestral and world instruments
+    // (`ocarina_vib`, `clavisynth`, `psaltery_pluck`, ...).
+    "https://strudel.b-cdn.net/vcsl.json",
+    // `.bank('RolandTR909')` and its 600-odd siblings.
+    "https://strudel.b-cdn.net/tidal-drum-machines.json",
+    "https://strudel.b-cdn.net/uzu-drumkit.json",
+    "https://strudel.b-cdn.net/uzu-wavetables.json",
+    "https://strudel.b-cdn.net/mridangam.json",
+    // The Dirt-Samples subset upstream registers inline (casio, crow, insect,
+    // wind, east, space, ...). The full pack is `github:tidalcycles/dirt-samples`,
+    // which the tunes that want it load themselves, exactly as upstream.
+    "https://strudel.b-cdn.net/Dirt-Samples.json",
+];
 /// A group of samples sharing one tuning. Flat (drum-machine) sounds use a
 /// single group with `note: None`; pitched (note-keyed) maps have one group per
 /// note name, used to pick the closest sample and repitch it.
@@ -36,6 +69,25 @@ pub struct SampleBank {
     /// Wavetable collections loaded by `tables(...)`, keyed by sound name; `n`
     /// indexes into the list, as it does for samples.
     tables: HashMap<String, Vec<WaveTable>>,
+    /// Sounds a registered map knows the files for but has not downloaded, as
+    /// `(MIDI tuning, url)` in declaration order so `n` stays stable once they
+    /// arrive. Looking one up records a request and plays nothing that cycle;
+    /// see [`resolve`](Self::resolve).
+    pending: HashMap<String, Vec<(Option<i32>, String)>>,
+}
+
+/// Sounds looked up while still pending, waiting for the host to fetch them.
+static SAMPLE_REQUESTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+/// Note that `name` was played but its audio is not downloaded yet.
+pub fn request_sample(name: &str) {
+    SAMPLE_REQUESTS.lock().unwrap().insert(name.to_string());
+}
+
+/// Take everything requested since the last call.
+pub fn take_sample_requests() -> Vec<String> {
+    SAMPLE_REQUESTS.lock().unwrap().drain().collect()
 }
 
 /// A soundfont zone resolved for one note: what to play, how fast, and where
@@ -83,9 +135,30 @@ impl SampleBank {
         }
     }
 
-    /// Check if the bank contains any samples for the given sound name.
+    /// Check if the bank can play the given sound name — registered counts,
+    /// whether or not the audio has been downloaded yet.
     pub fn contains(&self, name: &str) -> bool {
-        self.map.contains_key(name)
+        self.map.contains_key(name) || self.pending.contains_key(name)
+    }
+
+    /// Register a sound's files without downloading them, so a map can be known
+    /// in full for the price of its JSON. The audio is fetched by
+    /// [`load_pending`](Self::load_pending) when something first plays it.
+    pub fn register_pending(&mut self, name: &str, files: Vec<(Option<i32>, String)>) {
+        if self.map.contains_key(name) {
+            return; // already loaded for real; a later map does not displace it
+        }
+        self.pending.insert(name.to_string(), files);
+    }
+
+    /// The files registered for a pending sound, if it is still pending.
+    pub fn pending_files(&self, name: &str) -> Option<Vec<(Option<i32>, String)>> {
+        self.pending.get(name).cloned()
+    }
+
+    /// Drop a sound's pending entry once its audio has been registered.
+    pub fn clear_pending(&mut self, name: &str) {
+        self.pending.remove(name);
     }
 
     /// Register a bank alias: a sound pack loaded as `<canonical>_<sound>` also
@@ -108,10 +181,18 @@ impl SampleBank {
             .unwrap_or(bank)
     }
 
-    /// All registered sound names, sorted.
+    /// All sound names the bank can play, sorted — downloaded and pending
+    /// alike, since the completion list should offer everything a registered
+    /// map knows about.
     pub fn names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.map.keys().cloned().collect();
+        let mut names: Vec<String> = self
+            .map
+            .keys()
+            .chain(self.pending.keys())
+            .cloned()
+            .collect();
         names.sort();
+        names.dedup();
         names
     }
 
@@ -135,7 +216,16 @@ impl SampleBank {
     /// group's length, so a negative `n` selects from the end — matching
     /// superdough's `getSoundIndex` (`_mod(Math.round(n), numSounds)`).
     pub fn resolve(&self, name: &str, index: i64, midi: Option<f64>) -> Option<(Arc<Sample>, f64)> {
-        let groups = self.map.get(name)?;
+        let Some(groups) = self.map.get(name) else {
+            // Known from a registered map but not downloaded yet. Record the
+            // miss for the host to fetch in the background — this runs on the
+            // audio thread, which can neither block nor spawn — and stay silent
+            // for now. The same shape as `request_font`.
+            if self.pending.contains_key(name) {
+                request_sample(name);
+            }
+            return None;
+        };
         if groups.iter().any(|g| g.note.is_some()) {
             // Pitched map: pick the closest tuned group (fallback target C3=36).
             let target = midi.unwrap_or(36.0);

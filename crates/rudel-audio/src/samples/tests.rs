@@ -167,7 +167,8 @@ fn lenient_decoder_scales_every_supported_sample_width() {
     let s16 = decode_wav_lenient(&wav(1, 16, 1, 44100, &[0, 0, 0, 0x40], &[], false)).unwrap();
     assert_eq!(half(&s16), 0.5);
 
-    let s24 = decode_wav_lenient(&wav(1, 24, 1, 44100, &[0, 0, 0, 0, 0, 0x40], &[], false)).unwrap();
+    let s24 =
+        decode_wav_lenient(&wav(1, 24, 1, 44100, &[0, 0, 0, 0, 0, 0x40], &[], false)).unwrap();
     assert_eq!(half(&s24), 0.5);
 
     let s32 = decode_wav_lenient(&wav(1, 32, 1, 44100, [0; 4].as_slice(), &[], false)).unwrap();
@@ -461,4 +462,48 @@ fn load_dir_keeps_sorted_sample_indices() {
     assert_eq!(count, 2);
     assert!((bank.get("tone", 0).unwrap().data[0] - 0.1).abs() < 1e-4);
     assert!((bank.get("tone", 1).unwrap().data[0] - 0.2).abs() < 1e-4);
+}
+
+#[test]
+fn registering_a_map_defers_the_audio_until_something_plays_it() {
+    // Strudel's prebake registers a map's names and lets the browser fetch a
+    // file only when it is first played. Loading every bank in full instead
+    // measured at 3.1 GB and about nine minutes for the seven maps the REPL
+    // preloads, nearly all of it audio nobody asked to hear.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_wav(&root.join("a.wav"), &[0.1; 32], 44100);
+    write_wav(&root.join("b.wav"), &[0.2; 32], 44100);
+    let map = root.join("strudel.json");
+    std::fs::write(&map, r#"{ "bd": ["a.wav", "b.wav"], "sd": "b.wav" }"#).unwrap();
+
+    let mut bank = SampleBank::new();
+    let sounds = bank
+        .register_samples_source(map.to_str().unwrap())
+        .expect("register map");
+    assert_eq!(sounds, 2, "both sounds are known");
+
+    // Known and offered for completion, but nothing is decoded yet.
+    assert!(bank.contains("bd"));
+    assert_eq!(bank.names(), vec!["bd".to_string(), "sd".to_string()]);
+    let _ = take_sample_requests(); // clear anything an earlier test left
+
+    // Playing it comes up empty *and* records the miss for the host to fetch.
+    assert!(bank.resolve("bd", 0, None).is_none());
+    assert_eq!(take_sample_requests(), vec!["bd".to_string()]);
+
+    // Once fetched, it plays and stops being pending.
+    assert_eq!(bank.load_pending("bd").expect("load pending"), 2);
+    assert_eq!(bank.get("bd", 0).unwrap().data.len(), 32);
+    assert!((bank.get("bd", 1).unwrap().data[0] - 0.2).abs() < 1e-3);
+    assert!(bank.pending_files("bd").is_none());
+    let _ = take_sample_requests();
+    assert!(bank.resolve("bd", 0, None).is_some());
+    assert!(
+        take_sample_requests().is_empty(),
+        "a loaded sound must not keep asking to be fetched"
+    );
+
+    // A second load is a no-op rather than an error.
+    assert_eq!(bank.load_pending("bd").expect("already loaded"), 0);
 }

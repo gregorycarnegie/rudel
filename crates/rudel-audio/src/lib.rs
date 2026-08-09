@@ -26,6 +26,6 @@ pub use clock::Clock;
 pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
 pub use midimap_source::{load_midimaps, spawn_midimaps};
 pub use mixer::{Engine, OfflineMixer};
-pub use samples::SampleBank;
+pub use samples::{DEFAULT_SAMPLE_BANKS, SampleBank, take_sample_requests};
 pub use scope::{ScopeTap, ScopeTaps};
 pub use soundfont::{gm_names, set_soundfont_url, take_font_requests};

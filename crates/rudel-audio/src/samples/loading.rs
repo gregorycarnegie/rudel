@@ -193,6 +193,104 @@ impl SampleBank {
         Ok(loaded)
     }
 
+    /// Register a sample source's *names* without downloading any audio, which
+    /// is what Strudel's `prebake` does: the map is a list of URLs, and the
+    /// browser only fetches a file the first time something plays it.
+    ///
+    /// Fetching eagerly instead means a startup that downloads every bank in
+    /// full — measured at 3.1 GB and about nine minutes for the seven maps the
+    /// REPL preloads, nearly all of it audio nobody asked to hear. Returns the
+    /// number of sounds registered.
+    pub fn register_samples_source(&mut self, source: &str) -> Result<usize, String> {
+        use sample_map::SoundFiles;
+
+        let (json, base) = Self::resolve_map_source(source)?;
+        let mut count = 0;
+        for (name, files) in sample_map::parse_sample_map(&json, &base)? {
+            let files: Vec<(Option<i32>, String)> = match files {
+                SoundFiles::Flat(urls) => urls.into_iter().map(|u| (None, u)).collect(),
+                SoundFiles::Pitched(groups) => groups
+                    .into_iter()
+                    .flat_map(|(midi, urls)| {
+                        urls.into_iter()
+                            .map(move |u| (Some(midi), u))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect(),
+            };
+            if files.is_empty() {
+                continue;
+            }
+            self.register_pending(&name, files);
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Download and decode the files of one pending sound. Takes the list
+    /// rather than reading it from a bank so the caller can hold its lock for
+    /// as little as possible — the audio thread reads that bank continuously.
+    pub(crate) fn fetch_pending_entries(
+        name: &str,
+        files: Vec<(Option<i32>, String)>,
+    ) -> Vec<LoadedSample> {
+        let decoded = parallel_map(files, 16, |(_, url)| fetch_and_decode(url));
+        let mut loaded = Vec::new();
+        for ((note, url), sample) in decoded {
+            match sample {
+                Ok(s) => loaded.push(LoadedSample {
+                    name: name.to_string(),
+                    note,
+                    sample: Arc::new(s),
+                }),
+                Err(e) => eprintln!("[rudel-audio] sample {name:?} ({url}): {e}"),
+            }
+        }
+        loaded
+    }
+
+    /// Download one pending sound into this bank. The in-process convenience
+    /// form of [`fetch_pending_entries`](Self::fetch_pending_entries); the
+    /// engine splits the two around its lock.
+    pub fn load_pending(&mut self, name: &str) -> Result<usize, String> {
+        let Some(files) = self.pending_files(name) else {
+            return Ok(0);
+        };
+        let loaded = Self::fetch_pending_entries(name, files);
+        let count = self.extend_loaded(loaded);
+        // Cleared either way: a sound whose files all 404 must not be retried
+        // on every event for the rest of the session.
+        self.clear_pending(name);
+        Ok(count)
+    }
+
+    /// The `strudel.json` text and base URL behind a sample source.
+    fn resolve_map_source(source: &str) -> Result<(String, String), String> {
+        let resolved = sample_map::resolve_special_paths(source.trim());
+        let url = if resolved.starts_with("github:") {
+            sample_map::github_path(&resolved, "strudel.json")?
+        } else {
+            resolved
+        };
+        if is_http(&url) {
+            let json = fetch_text(&url)?;
+            let base = sample_map::base_url_of(&url);
+            return Ok((json, base));
+        }
+        let url = expand_home(&url);
+        let path = Path::new(&url);
+        if path.is_file() {
+            let json = std::fs::read_to_string(path).map_err(|e| format!("read {url}: {e}"))?;
+            let base = path
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            return Ok((json, base));
+        }
+        Err(format!("samples: not a URL or .json file: {url}"))
+    }
+
     /// Load a wavetable collection (`tables(source, frameLen)`), porting
     /// `wavetable.mjs`'s `tables`/`_processTables`: the source is resolved the
     /// same way `samples()` resolves one, each entry's files are fetched and

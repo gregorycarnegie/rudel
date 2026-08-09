@@ -13,22 +13,29 @@ impl RudelApp {
                 i += 1;
                 continue;
             }
-            let job = self.sample_jobs.swap_remove(i);
-            match job.handle.join() {
+            // `join` consumes the handle, so read what the error path needs
+            // off the job first.
+            let SampleJob {
+                key,
+                label,
+                handle,
+                quiet,
+            } = self.sample_jobs.swap_remove(i);
+            match handle.join() {
                 Ok(Ok(n)) => {
                     loaded += n;
                     finished += 1;
                 }
                 Ok(Err(e)) => {
-                    self.loaded_sample_sources.remove(&job.key);
-                    self.io_error = Some(format!("{}: {e}", job.label));
-                    failed = true;
+                    self.loaded_sample_sources.remove(&key);
+                    self.report_sample_failure(&label, quiet, &e);
+                    failed |= !quiet;
                     finished += 1;
                 }
                 Err(_) => {
-                    self.loaded_sample_sources.remove(&job.key);
-                    self.io_error = Some(format!("{}: loader thread panicked", job.label));
-                    failed = true;
+                    self.loaded_sample_sources.remove(&key);
+                    self.report_sample_failure(&label, quiet, "loader thread panicked");
+                    failed |= !quiet;
                     finished += 1;
                 }
             }
@@ -73,13 +80,81 @@ impl RudelApp {
                 key: format!("soundfont:{name}:{n}"),
                 label: format!("soundfont {name:?}"),
                 handle,
+                quiet: false,
+            });
+        }
+    }
+
+    /// Surface a failed sample job: the error bar for something the user asked
+    /// for, the console for a startup bank, which is expected to fail offline.
+    fn report_sample_failure(&mut self, label: &str, quiet: bool, error: &str) {
+        let message = format!("{label}: {error}");
+        if quiet {
+            self.log_lines.push(message);
+        } else {
+            self.io_error = Some(message);
+        }
+    }
+
+    /// Register the sample banks the Strudel REPL preloads, so a pattern naming
+    /// `piano` or a drum machine has something to play without the user having
+    /// to find and load a pack first.
+    ///
+    /// Only the maps are fetched — seven small JSON files — and the audio for a
+    /// sound is downloaded the first time something plays it, which is what the
+    /// browser does for Strudel. Failures are logged rather than raised: they
+    /// are not something the user asked for, and rudel has to start offline.
+    pub(super) fn prebake_default_samples(&mut self) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        for source in rudel_audio::DEFAULT_SAMPLE_BANKS {
+            let source = (*source).to_string();
+            if !self.loaded_sample_sources.insert(source.clone()) {
+                continue;
+            }
+            let handle = engine.spawn_register_samples(source.clone());
+            self.sample_jobs.push(SampleJob {
+                key: source.clone(),
+                label: format!("samples({source:?})"),
+                handle,
+                quiet: true,
+            });
+        }
+    }
+
+    /// Download any sound a pattern played that a registered map knows but has
+    /// not fetched yet. The bank records the miss (it is read from the audio
+    /// thread, which can neither block nor spawn); this turns each one into a
+    /// background job, exactly as `poll_font_requests` does for soundfonts.
+    pub(super) fn poll_sample_requests(&mut self) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        for name in rudel_audio::take_sample_requests() {
+            let key = format!("pending:{name}");
+            if !self.loaded_sample_sources.insert(key.clone()) {
+                continue;
+            }
+            let handle = engine.spawn_pending_sample(name.clone());
+            self.sample_jobs.push(SampleJob {
+                key,
+                label: format!("sample {name:?}"),
+                handle,
+                quiet: true,
             });
         }
     }
 
     fn queue_sample_source(&mut self, source: String) {
+        self.queue_sample_source_quiet(source, false);
+    }
+
+    fn queue_sample_source_quiet(&mut self, source: String, quiet: bool) {
         if self.engine.is_none() {
-            self.io_error = Some("no audio engine to load samples into".to_string());
+            if !quiet {
+                self.io_error = Some("no audio engine to load samples into".to_string());
+            }
             return;
         }
         if !self.loaded_sample_sources.insert(source.clone()) {
@@ -90,6 +165,7 @@ impl RudelApp {
             key: source.clone(),
             label: format!("samples({source:?})"),
             handle,
+            quiet,
         });
         self.status = format!("loading samples ({} job(s))", self.sample_jobs.len());
     }
@@ -112,6 +188,7 @@ impl RudelApp {
             key,
             label: "samples(map)".to_string(),
             handle,
+            quiet: false,
         });
         self.status = format!("loading samples ({} job(s))", self.sample_jobs.len());
     }
@@ -162,6 +239,7 @@ impl RudelApp {
             key,
             label: format!("midimaps({source:?})"),
             handle: rudel_audio::spawn_midimaps(source),
+            quiet: false,
         });
     }
 
@@ -181,6 +259,7 @@ impl RudelApp {
             key,
             label: format!("tables({source:?})"),
             handle,
+            quiet: false,
         });
     }
 
@@ -243,6 +322,7 @@ impl RudelApp {
             key,
             label: format!("loadSoundfont({path:?})"),
             handle,
+            quiet: false,
         });
     }
 

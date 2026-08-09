@@ -156,6 +156,48 @@ impl Engine {
         })
     }
 
+    /// Start a background *registration* of a sample source: fetch only the
+    /// map and record what each sound's files are, leaving the audio to
+    /// [`spawn_pending_sample`](Self::spawn_pending_sample) when it is first
+    /// played.
+    ///
+    /// [`spawn_pending_sample`]: Engine::spawn_pending_sample
+    pub fn spawn_register_samples(&self, source: String) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            // Fetch the map outside the lock; only the registration takes it.
+            let mut staging = SampleBank::new();
+            let count = staging.register_samples_source(&source)?;
+            let mut bank = write_lock(&bank);
+            for name in staging.names() {
+                if let Some(files) = staging.pending_files(&name) {
+                    bank.register_pending(&name, files);
+                }
+            }
+            Ok(count)
+        })
+    }
+
+    /// Download the audio for one sound a registered map already knows about.
+    pub fn spawn_pending_sample(&self, name: String) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            // Read the file list under the lock, download outside it, merge
+            // under it again: the audio thread reads this bank every block and
+            // the fetch can take seconds.
+            let Some(files) = read_lock(&bank).pending_files(&name) else {
+                return Ok(0);
+            };
+            let loaded = SampleBank::fetch_pending_entries(&name, files);
+            let mut bank = write_lock(&bank);
+            let count = bank.extend_loaded(loaded);
+            // Cleared even when every file failed, so a broken entry is not
+            // retried on every event for the rest of the session.
+            bank.clear_pending(&name);
+            Ok(count)
+        })
+    }
+
     /// Start a background soundfont load: fetch the preset backing `(name, n)`,
     /// decode its zones and register it. HTTP responses go through the same
     /// on-disk cache as sample downloads, so a font is fetched once per machine.

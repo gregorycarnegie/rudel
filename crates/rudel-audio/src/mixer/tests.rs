@@ -906,8 +906,14 @@ fn scheduler_window_rejects_empty_and_non_finite_windows() {
     // pattern query — `collect_events_at` over a NaN span yields nothing
     // useful and an infinite one would try to enumerate every cycle.
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        assert!(next_schedule_window(5.0, bad, 5.05).is_none(), "current {bad}");
-        assert!(next_schedule_window(5.0, 5.0, bad).is_none(), "target {bad}");
+        assert!(
+            next_schedule_window(5.0, bad, 5.05).is_none(),
+            "current {bad}"
+        );
+        assert!(
+            next_schedule_window(5.0, 5.0, bad).is_none(),
+            "target {bad}"
+        );
     }
 }
 
