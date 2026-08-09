@@ -18,7 +18,6 @@
  "gravityX#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
  "gravityY#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
  "gravityZ#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
- "inhabit#1": "js-syntax: the snippet's parentheses are unbalanced across lines in a way only JS's ASI tolerates.",
  "onTriggerTime#0": "js-syntax: a block-bodied arrow function (`(t) => { ... }`), which Koto would read as a map literal.",
  "orientationAlpha#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
  "orientationBeta#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
