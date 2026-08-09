@@ -83,9 +83,22 @@ fn spec_for(map: &ValueMap, duration: f32, bank: &SampleBank, cps: f64, cycle: f
                 if transpose != 0.0 {
                     params.speed *= 2f32.powf(transpose as f32 / 12.0);
                 }
-                // A looping sample plays for the hap's duration rather than its
-                // own natural length.
-                if params.loop_on {
+                // How long the sample sounds, following `sampler.mjs`:
+                //
+                //   if (clip == null && loop == null && value.release == null)
+                //     duration = sliceDuration;
+                //
+                // — a sample plays its whole slice *unless* the pattern asked
+                // for it to be cut, and `clip`, `loop` or `release` all ask.
+                // Playing the natural length regardless is fine for a drum hit
+                // but not for a sustained instrument: a VCSL ocarina runs for
+                // seconds, so every note of `s('ocarina_vib').clip(1)` rang far
+                // past its hap and the layers piled up into noise.
+                if params.loop_on
+                    || ["clip", "loop", "release"]
+                        .iter()
+                        .any(|k| map.contains_key(*k))
+                {
                     params.duration = duration;
                 }
                 return VoiceSpec::Sampler(params);
@@ -352,6 +365,39 @@ mod tests {
         );
         let events = collect_events(&pure(Value::Str("bd".into())), 1.0, 0.0, 1.0, &bank);
         assert!(matches!(events[0].spec, VoiceSpec::Sampler(_)));
+    }
+
+    #[test]
+    fn a_sample_is_cut_to_the_hap_only_when_asked() {
+        // `sampler.mjs`: a sample plays its whole slice unless `clip`, `loop`
+        // or `release` is set, in which case it holds for the hap and releases.
+        // Always playing the natural length let a sustained instrument ring far
+        // past its note — the layers of a tune then pile up into noise.
+        let mut bank = SampleBank::new();
+        bank.register(
+            "ocarina",
+            Arc::new(Sample {
+                data: vec![0.5; 44100 * 4], // four seconds of sustain
+                sample_rate: 44100.0,
+            }),
+        );
+        let hold = |src: &str| {
+            let pattern = rudel_lang::eval(src).expect("eval");
+            match &collect_events(&pattern, 1.0, 0.0, 1.0, &bank)[0].spec {
+                VoiceSpec::Sampler(p) => p.duration,
+                _ => panic!("expected a sampler voice"),
+            }
+        };
+        // Bare: 0 means "play to the sample's natural end".
+        assert_eq!(hold(r#"s("ocarina")"#), 0.0);
+        // Any of the three cuts it to the hap.
+        for src in [
+            r#"s("ocarina").clip(1)"#,
+            r#"s("ocarina").release(0.1)"#,
+            r#"s("ocarina").loop(1)"#,
+        ] {
+            assert!(hold(src) > 0.0, "should hold for the hap: {src}");
+        }
     }
 
     #[test]
