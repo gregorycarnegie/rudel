@@ -24,8 +24,8 @@ pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0};
 pub(super) use convert::{
     arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, koto_to_value,
 };
-pub(in crate::bindings) use methods::euclid_call;
 pub(crate) use methods::hap_to_koto;
+pub(in crate::bindings) use methods::{euclid_call, stepwise_call};
 pub(crate) use modulate::register_modulate_fns;
 pub(super) use pick::pick_args;
 pub(crate) use repl::{apply_pattern_transforms, push_all, register_slot, reset_slots, set_each};

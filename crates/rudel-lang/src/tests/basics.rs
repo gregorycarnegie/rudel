@@ -414,3 +414,45 @@ fn the_euclid_family_takes_patterned_counts() {
         assert!(!shape(&pat, 4).is_empty(), "{src} produced nothing");
     }
 }
+
+/// The stepwise counts patternify (https://strudel.cc/learn/stepwise/), and the
+/// standalone spelling has to agree with the method it wraps. `stepwise_parity`
+/// pins the events themselves against Strudel; this pins that both ways in reach
+/// them.
+#[test]
+fn the_stepwise_counts_patternify_in_both_spellings() {
+    let pairs = [
+        (
+            r#"expand("3 2 1", s("bd sd"))"#,
+            r#"s("bd sd").expand("3 2 1")"#,
+        ),
+        (
+            r#"take("1 2", s("bd sd cp"))"#,
+            r#"s("bd sd cp").take("1 2")"#,
+        ),
+        (
+            r#"drop("1 2", s("bd sd cp"))"#,
+            r#"s("bd sd cp").drop("1 2")"#,
+        ),
+        (
+            r#"shrink("1 -1", s("bd sd cp"))"#,
+            r#"s("bd sd cp").shrink("1 -1")"#,
+        ),
+        (
+            r#"grow("1 -1", s("bd sd cp"))"#,
+            r#"s("bd sd cp").grow("1 -1")"#,
+        ),
+    ];
+    for (standalone, method) in pairs {
+        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
+        assert!(!shape(&a, 2).is_empty(), "`{standalone}` produced nothing");
+    }
+    // A literal count still takes the direct path, and must agree with itself
+    // patterned.
+    assert_eq!(
+        shape(&eval(r#"s("bd sd cp").expand(2)"#).expect("literal"), 2),
+        shape(&eval(r#"s("bd sd cp").expand("2")"#).expect("patterned"), 2)
+    );
+}

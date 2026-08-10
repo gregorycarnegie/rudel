@@ -181,6 +181,26 @@ pub(in crate::bindings) fn euclid_call(
     )
 }
 
+/// A stepwise transform whose count may be a pattern: `expand("3 2 1 1 2 3")`
+/// is three (then two, then one…) differently-expanded copies laid end to end,
+/// not one copy per sixth of a cycle.
+///
+/// Upstream registers these with `stepJoin` rather than the usual `innerJoin`
+/// (`stepRegister`), which is the whole content of "the argument can also be
+/// patterned, and will be treated in a stepwise fashion" on the stepwise page.
+/// A plain number keeps the direct path, as for the euclid family above.
+pub(in crate::bindings) fn stepwise_call(
+    pat: &Pattern,
+    arg: Option<&KValue>,
+    build: fn(&Pattern, i64) -> Pattern,
+) -> Pattern {
+    match arg {
+        Some(KValue::Number(n)) => build(pat, f64::from(n) as i64),
+        Some(other) => pat.stepwise_pat(arg_to_pattern(other), build),
+        None => build(pat, 0),
+    }
+}
+
 fn kpattern_euclid_family(
     ctx: MethodContext<KPattern>,
     rotated: bool,
@@ -808,7 +828,6 @@ pub(super) fn kpattern_ctrl(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
 }
 
 pattern_arg_methods! {
-    kpattern_sound => s,
     kpattern_struct_alias => struct_pat,
 }
 

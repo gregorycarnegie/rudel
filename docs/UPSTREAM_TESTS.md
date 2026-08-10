@@ -64,6 +64,10 @@ snapshot suite the doc-example corpus supersedes.
 
 Rudel additionally runs parity tests upstream has no equivalent for, because
 they compare a Rust reimplementation against JS the browser executes directly:
+the stepwise corpus (`stepwise_parity.rs`, 45 cases from
+<https://strudel.cc/learn/stepwise/> and the `@example`s of the functions it
+documents, evaluated by the real engine — the doc-example corpus only asks that
+a snippet runs, and a wrong *step count* is silent rather than loud);
 the DSP goldens (`zzfx`, `lfo`, `modenv`, `adsr`, `distortion`, `warp`,
 `bytebeat`, the `djf`/`ladder`/`transient` worklets) and the Web Audio goldens
 rendered through `node-web-audio-api` (`biquad`, `vowel`, `phaser`).

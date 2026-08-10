@@ -56,7 +56,15 @@ node gen_core_oracle.mjs        # -> core_golden.json
 node gen_tonal_oracle.mjs       # -> tonal_golden.json  (needs the tonal/xen/edo deps above)
 node gen_tune_table_oracle.mjs  # -> tune_table_golden.json  (whole tune.js archive)
 node gen_examples_oracle.mjs    # -> examples_golden.json  (every jsdoc @example)
+node gen_stepwise_oracle.mjs    # -> stepwise_golden.json  (the stepwise page)
 ```
+
+`gen_stepwise_oracle.mjs` runs the real engine rather than scanning source: each
+case is a snippet evaluated by Strudel, and `stepwise_parity.rs` evaluates the
+*same string* through Rudel. It exists because a step count is metadata — the
+page itself notes that `expand(2)` and `expand(4)` sound identical on their own —
+so a stepwise example can evaluate and query, as `doc_examples.rs` requires, and
+still be wrong until a `stepcat` or a `pace` reads the count back.
 
 `gen_examples_oracle.mjs` is a source scan, like `gen_reference_oracle.mjs`: it
 reconstructs the corpus upstream's `test/examples.test.mjs` walks (509 snippets

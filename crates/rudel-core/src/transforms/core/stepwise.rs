@@ -1,7 +1,114 @@
 use super::IntoPattern;
-use crate::{fraction::Frac, pattern::Pattern, value::Value};
+use crate::{fraction::Frac, hap::Hap, pattern::Pattern, timespan::TimeSpan, value::Value};
+
+/// `stepcat` over weights that may be unknown, which is what a pattern with no
+/// step count contributes.
+///
+/// Upstream's `stepcat` fills an unknown weight with the *average* of the known
+/// ones, falls back to `fastcat` when none are known, and refuses the case where
+/// a weight is explicitly `undefined` for every entry. `Pattern::stepcat`
+/// defaults an unknown count to `1` instead, which is right when the caller
+/// passed patterns and wrong when it passed weights, so the join below builds
+/// its slices through this.
+fn stepcat_maybe(timed: &[(Option<Frac>, Pattern)]) -> Pattern {
+    let known: Vec<Frac> = timed.iter().filter_map(|(w, _)| *w).collect();
+    if known.is_empty() {
+        let pats: Vec<Pattern> = timed.iter().map(|(_, p)| p.clone()).collect();
+        return crate::pattern::fastcat(&pats);
+    }
+    let sum = known.iter().fold(Frac::zero(), |a, b| a + *b);
+    let average = sum / Frac::int(known.len() as i64);
+    let pairs: Vec<(Frac, Pattern)> = timed
+        .iter()
+        .map(|(w, p)| (w.unwrap_or(average), p.clone()))
+        .collect();
+    crate::pattern::timecat(&pairs)
+}
+
+/// Cut one cycle of pattern-of-pattern haps into the spans where the set of
+/// inner patterns is constant, pairing each span with those patterns stacked
+/// (upstream's `_slices`/`_fitslice`).
+fn slices(haps: &[Hap]) -> Vec<(Frac, Pattern)> {
+    let mut points = vec![Frac::zero(), Frac::one()];
+    for hap in haps {
+        points.push(hap.part.begin);
+        points.push(hap.part.end);
+    }
+    points.sort();
+    points.dedup();
+    points
+        .windows(2)
+        .map(|edges| {
+            let span = TimeSpan::new(edges[0], edges[1]);
+            let inner: Vec<Pattern> = haps
+                .iter()
+                .filter(|hap| span.intersection(&hap.part).is_some())
+                .map(|hap| match &hap.value {
+                    Value::Pat(pat) => (**pat).clone(),
+                    other => crate::pattern::pure(other.clone()),
+                })
+                .collect();
+            (edges[1] - edges[0], crate::pattern::stack(&inner))
+        })
+        .collect()
+}
+
+/// Re-weight the slices by the step counts of the patterns in them, so a slice
+/// occupying a quarter of the cycle but holding six steps is laid out as six
+/// (upstream's `_retime`). A slice whose pattern has no step count has no
+/// weight, and [`stepcat_maybe`] decides what to do with it.
+fn retime(timed: Vec<(Frac, Pattern)>) -> Vec<(Option<Frac>, Pattern)> {
+    timed
+        .into_iter()
+        .map(|(_dur, pat)| (pat.steps, pat))
+        .collect()
+}
 
 impl Pattern {
+    /// `stepJoin`: flatten a pattern *of patterns* by laying the inner patterns
+    /// out across the cycle in proportion to their step counts, rather than to
+    /// the spans they arrived in.
+    ///
+    /// This is what makes a *patterned* argument to a stepwise function mean
+    /// what <https://strudel.cc/learn/stepwise/> says it means: "the patterns
+    /// from the changing values in the argument will be `stepcat`ted together".
+    /// `expand("3 2 1")` is three differently-expanded copies laid end to end by
+    /// their own step counts — an `inner_join` would instead give each a third
+    /// of the cycle and lose the point.
+    pub fn step_join(&self) -> Pattern {
+        let laid_out = |pat: &Pattern, cycle: Frac| {
+            let haps = pat._early(cycle).query_arc(Frac::zero(), Frac::one());
+            stepcat_maybe(&retime(slices(&haps)))
+        };
+        // The step count of the joined pattern is the one the first cycle lays
+        // out, which is what upstream carries as the new pattern's `_steps`.
+        let steps = laid_out(self, Frac::zero()).steps;
+        let inner = self.clone();
+        Pattern::new(move |state| laid_out(&inner, state.span.begin.sam()).query(state))
+            .split_queries()
+            .set_steps(steps)
+    }
+
+    /// Apply a stepwise transform whose argument is a pattern, the way
+    /// upstream's `stepRegister` does: build one result per argument value, then
+    /// [`step_join`](Self::step_join) them.
+    ///
+    /// `build` is the plain-integer form, so every stepwise function that takes
+    /// a count shares this.
+    pub fn stepwise_pat(
+        &self,
+        arg: impl IntoPattern,
+        build: fn(&Pattern, i64) -> Pattern,
+    ) -> Pattern {
+        let pat = self.clone();
+        arg.into_pattern()
+            .fmap(move |v| {
+                let n = v.as_f64().unwrap_or(0.0) as i64;
+                Value::Pat(Box::new(build(&pat, n)))
+            })
+            .step_join()
+    }
+
     /// `keep`: keep this pattern's values, taking only keys from `other` that
     /// are not already set here (the inverse of [`set`](Self::set)).
     pub fn keep(&self, other: impl IntoPattern) -> Pattern {

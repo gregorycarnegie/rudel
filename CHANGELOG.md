@@ -11,6 +11,49 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-08-10
+
+A release about a test that was asking the wrong question. Every example on
+[the stepwise page](https://strudel.cc/learn/stepwise/) produced no events — all
+25 of them — and the documented-example corpus passed them all, because it pins
+that a snippet *evaluates and queries*, and these did. A step count is metadata:
+the page itself points out that `expand(2)` and `expand(4)` sound identical on
+their own, so getting one wrong is silent until a `stepcat` or a `pace` reads it
+back and the pattern collapses.
+
+The fix is small in both places it lands. What was missing was an oracle that
+asks about the events rather than the reach, and there is now one.
+
+### Fixed
+
+- **The stepwise page works.** Every example on
+  [strudel.cc/learn/stepwise](https://strudel.cc/learn/stepwise/) produced no
+  events at all — `fastcat("bd hh hh", "bd hh hh cp hh").sound()`,
+  `stepalt(["bd cp", "mt"], "bd").sound()`,
+  `sound("tha dhi thom nam").bank("mridangam").expand("3 2 1 1 2 3").pace(8)`
+  and the rest. Two causes:
+
+  - `sound` had a hand-written binding that shadowed the control registry, so a
+    bare `.sound()` set the control from a *missing* argument, i.e. from
+    silence. `.s()` was fine, because it went through the registry. Deleting the
+    shadow hands `sound` back to the one path.
+  - The stepwise counts were not patternified: `expand("3 2 1 1 2 3")` read a
+    whole pattern as `0`, and the `pace(8)` after it turned a zero step count
+    into silence. Upstream registers these with `stepJoin` instead of the usual
+    `innerJoin`, which is what makes a patterned count *stepcat* its variants
+    rather than sample one per cycle — the page's own "will be treated in a
+    stepwise fashion". `Pattern::step_join` now ports that, and `expand`,
+    `extend`, `contract`, `shrink`, `grow`, `take`, `drop` and `replicate` route
+    through it, as methods and as standalone pattern-last forms.
+
+  This went unnoticed because the documented-example corpus pins *reach* — every
+  snippet evaluates and queries — and a wrong step count is silent, not loud. A
+  new oracle (`tools/oracle/gen_stepwise_oracle.mjs`,
+  `crates/rudel-lang/tests/stepwise_parity.rs`) now pins the events themselves:
+  45 cases, hap for hap against the real Strudel engine.
+- **`FULL_STRUDEL.md` is UTF-8 again.** A 0.10.0 edit wrote one em dash as
+  CP-1252.
+
 ## [0.10.0] — 2026-08-10
 
 A release about a second way to write a pattern. Mondo Notation is Strudel's

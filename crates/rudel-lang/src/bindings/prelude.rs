@@ -726,6 +726,31 @@ pub(crate) fn register(prelude: &KMap) {
         }
     }
 
+    // The stepwise counts, pattern-last like every other standalone transform.
+    // A patterned count is laid out stepwise (https://strudel.cc/learn/stepwise/),
+    // so these share `stepwise_call` with the methods instead of living in the
+    // plain-integer group.
+    type StepwiseBuild = fn(&Pattern, i64) -> Pattern;
+    for (names, build) in [
+        (&["expand"][..], (|p, n| p.expand(n)) as StepwiseBuild),
+        (&["extend"][..], (|p, n| p.extend(n)) as StepwiseBuild),
+        (&["contract"][..], (|p, n| p.contract(n)) as StepwiseBuild),
+        (&["shrink"][..], (|p, n| p.shrink(n)) as StepwiseBuild),
+        (&["grow"][..], (|p, n| p.grow(n)) as StepwiseBuild),
+        (&["take"][..], (|p, n| p.take(n)) as StepwiseBuild),
+        (&["drop"][..], (|p, n| p.drop(n)) as StepwiseBuild),
+        (&["replicate"][..], (|p, n| p.replicate(n)) as StepwiseBuild),
+    ] {
+        for name in names {
+            add_curried_fn(prelude, name, 2, move |a| {
+                let last = a.len().saturating_sub(1);
+                let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+                let count = a.first().filter(|_| last >= 1);
+                Ok(KPattern(super::pattern::stepwise_call(&pat, count, build)).into())
+            });
+        }
+    }
+
     register_pattern_fns!(prelude;
         pattern1: [
             "fast" => fast, "slow" => slow, "ply" => ply,
@@ -755,11 +780,9 @@ pub(crate) fn register(prelude: &KMap) {
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back, "iterback" => iter_back,
             "repeatCycles" => repeat_cycles, "repeat_cycles" => repeat_cycles,
-            "expand" => expand, "extend" => extend, "contract" => contract,
-            "shrink" => shrink, "grow" => grow,
-            "chop" => chop, "striate" => striate, "take" => take, "drop" => drop,
+            "chop" => chop, "striate" => striate,
             "rootNotes" => root_notes, "root_notes" => root_notes,
-            "shuffle" => shuffle, "scramble" => scramble, "replicate" => replicate,
+            "shuffle" => shuffle, "scramble" => scramble,
         ];
         f64_1: [
             "degradeBy" => degrade_by, "degrade_by" => degrade_by,

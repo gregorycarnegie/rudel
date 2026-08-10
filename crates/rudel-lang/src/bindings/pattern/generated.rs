@@ -14,6 +14,7 @@ macro_rules! kpattern_methods {
         pattern_arg: [$($pattern_arg_method:ident),* $(,)?],
         no_arg: [$($no_arg_method:ident),* $(,)?],
         i64_arg: [$($i64_arg_method:ident),* $(,)?],
+        stepwise_arg: [$($stepwise_arg_method:ident),* $(,)?],
         f64_arg: [$($f64_arg_method:ident),* $(,)?],
         frac_arg: [$($frac_arg_method:ident),* $(,)?],
         pattern_pattern_arg: [$($pattern_pattern_arg_method:ident),* $(,)?],
@@ -84,6 +85,18 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 fn $i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                     with_i64_arg(&ctx, |pat, n| pat.$i64_arg_method(n))
+                }
+            )*
+
+            // Same shape as `i64_arg`, but a patterned count is laid out
+            // stepwise rather than sampled per cycle.
+            $(
+                #[koto_method]
+                fn $stepwise_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
+                    let arg = ctx.args.first().cloned();
+                    with_instance(&ctx, |pat| {
+                        stepwise_call(pat, arg.as_ref(), |p, n| p.$stepwise_arg_method(n))
+                    })
                 }
             )*
 
@@ -353,9 +366,12 @@ kpattern_methods! {
         to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
     ],
     i64_arg: [
-        iter, iter_back, repeat_cycles, expand, extend, contract, shrink, grow,
-        chop, striate, take, drop, root_notes, shuffle, scramble, replicate,
+        iter, iter_back, repeat_cycles,
+        chop, striate, root_notes, shuffle, scramble,
     ],
+    // https://strudel.cc/learn/stepwise/ — the count may be a pattern, and is
+    // then laid out stepwise rather than sampled per cycle.
+    stepwise_arg: [expand, extend, contract, shrink, grow, take, drop, replicate],
     f64_arg: [cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
     pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy],
@@ -449,8 +465,6 @@ kpattern_methods! {
         ctrl => kpattern_ctrl,
         #[koto_method(alias = "as")]
         as_controls => kpattern_as_controls,
-        #[koto_method]
-        sound => kpattern_sound,
         #[koto_method(alias = "struct")]
         struct_alias => kpattern_struct_alias,
         #[koto_method(alias = "loop")]
