@@ -24,6 +24,7 @@ pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0};
 pub(super) use convert::{
     arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, koto_to_value,
 };
+pub(in crate::bindings) use methods::euclid_call;
 pub(crate) use methods::hap_to_koto;
 pub(crate) use modulate::register_modulate_fns;
 pub(super) use pick::pick_args;
@@ -76,7 +77,7 @@ pub(crate) fn extend_control_entries() {
             entries.insert(
                 name,
                 KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                    control_method_call(ctx, name, builder)
+                    control_method_call(ctx, builder)
                 })),
             );
         }
@@ -96,9 +97,7 @@ pub(crate) fn extend_control_entries() {
                 name.as_str(),
                 KValue::NativeFunction(KNativeFunction::new(move |ctx| {
                     let key = key.clone();
-                    control_method_call(ctx, &key.clone(), move |arg| {
-                        rudel_core::control_dyn(key.clone(), arg)
-                    })
+                    control_method_call(ctx, move |arg| rudel_core::control_dyn(key.clone(), arg))
                 })),
             );
         }
@@ -126,33 +125,6 @@ pub(crate) fn method_names() -> Vec<String> {
     names
 }
 
-/// Apply a control to the pattern's own values, i.e. Strudel's `withVal`.
-///
-/// A hap value is often already a control map carrying an unnamed `value` —
-/// `"A5".color('#54C571')` is `{value: "A5", color: "#54C571"}` — and upstream
-/// promotes that field into the control's own key while keeping the rest of the
-/// map:
-///
-/// ```js
-/// if (typeof xs === 'object' && xs.value !== undefined) {
-///   bag = { ...xs }; xs = xs.value; delete bag.value;
-/// }
-/// ```
-///
-/// Handing the whole map to the builder instead leaves `value` in place and
-/// never writes the control at all, so a tune that colours a layer before
-/// naming its sound — which is how most of them are written — emits
-/// `{value: "A5", color: …}` where Strudel emits `{note: "A5", color: …}`.
-///
-/// `wrap_control_dyn` is that rule in one `fmap`; it needs the canonical key,
-/// which `control_name` resolves from the method spelling (the method may be an
-/// alias — bare `.v()` writes `vib`). Rebuilding it as two patterns joined by
-/// `set` would not do: `set` re-aligns its operands structurally, and two views
-/// of one pattern come back multiplied rather than zipped.
-fn with_own_values(pat: &Pattern, name: &str) -> Pattern {
-    pat.wrap_control(rudel_core::control_name(name))
-}
-
 /// Call a control as a `KPattern` method: extract the instance and the value
 /// argument the same way the generated `#[koto_method]` wrappers do.
 ///
@@ -161,9 +133,12 @@ fn with_own_values(pat: &Pattern, name: &str) -> Pattern {
 /// (`if (typeof value === 'undefined') return pat.fmap(withVal)`), and the
 /// reason a tune can write `"0 2 4".note()` or `"bd sd".s()`. Setting from a
 /// missing argument would set from silence.
+///
+/// Both paths go through the control's own builder rather than wrapping by
+/// name, because only the builder knows a control that spreads over several
+/// keys: `"bd:3".s()` has to set `s` *and* `n`, the way `s("bd:3")` does.
 fn control_method_call(
     ctx: &mut koto::runtime::CallContext,
-    name: &str,
     builder: impl Fn(Pattern) -> Pattern,
 ) -> koto::runtime::Result<KValue> {
     use koto::runtime::{ErrorKind, MethodContext, runtime_error};
@@ -172,7 +147,7 @@ fn control_method_call(
             let bare = extra_args.is_empty();
             let mctx = MethodContext::new(o, extra_args, ctx.vm);
             if bare {
-                args::with_instance(&mctx, |pat| with_own_values(pat, name))
+                args::with_instance(&mctx, |pat| builder(pat.clone()))
             } else {
                 args::with_pattern_arg(&mctx, |pat, arg| pat.set(builder(arg)))
             }

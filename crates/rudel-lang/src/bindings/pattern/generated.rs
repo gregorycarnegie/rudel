@@ -19,8 +19,6 @@ macro_rules! kpattern_methods {
         pattern_pattern_arg: [$($pattern_pattern_arg_method:ident),* $(,)?],
         frac_frac_arg: [$($frac_frac_arg_method:ident),* $(,)?],
         f64_f64_arg: [$($f64_f64_arg_method:ident),* $(,)?],
-        i64_i64_arg: [$($i64_i64_arg_method:ident),* $(,)?],
-        i64_i64_i64_arg: [$($i64_i64_i64_arg_method:ident),* $(,)?],
         i64_frac_f64_arg: [$($i64_frac_f64_arg_method:ident),* $(,)?],
         i64_f64_frac_arg: [$($i64_f64_frac_arg_method:ident),* $(,)?],
         fn_arg: [$($fn_arg_method:ident),* $(,)?],
@@ -63,8 +61,6 @@ macro_rules! kpattern_methods {
         camel_f64: [$($camel_f64:ident => $snake_f64:ident),* $(,)?],
         camel_frac: [$($camel_frac:ident => $snake_frac:ident),* $(,)?],
         camel_frac_frac: [$($camel_frac_frac:ident => $snake_frac_frac:ident),* $(,)?],
-        camel_i64_i64: [$($camel_i64_i64:ident => $snake_i64_i64:ident),* $(,)?],
-        camel_i64_i64_i64: [$($camel_i64_i64_i64:ident => $snake_i64_i64_i64:ident),* $(,)?],
         camel_i64_fn: [$($camel_i64_fn:ident => $snake_i64_fn:ident),* $(,)?],
         camel_f64_fn: [$($camel_f64_fn:ident => $snake_f64_fn:ident),* $(,)?],
     ) => {
@@ -123,20 +119,6 @@ macro_rules! kpattern_methods {
                 #[koto_method]
                 fn $f64_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                     with_f64_f64_args(&ctx, |pat, a, b| pat.$f64_f64_arg_method(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $i64_i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_i64_args(&ctx, |pat, a, b| pat.$i64_i64_arg_method(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $i64_i64_i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_i64_i64_args(&ctx, |pat, a, b, c| pat.$i64_i64_i64_arg_method(a, b, c))
                 }
             )*
 
@@ -311,22 +293,6 @@ macro_rules! kpattern_methods {
             $(
                 #[koto_method]
                 #[allow(non_snake_case)]
-                fn $camel_i64_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_i64_args(&ctx, |pat, a, b| pat.$snake_i64_i64(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_i64_i64_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_i64_i64_args(&ctx, |pat, a, b, c| pat.$snake_i64_i64_i64(a, b, c))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
                 fn $camel_i64_fn(ctx: MethodContext<Self>) -> KotoResult<KValue> {
                     with_cb_i64(&ctx, |pat, n, cb| pat.$snake_i64_fn(n, |p| cb.apply(p)))
                 }
@@ -395,8 +361,6 @@ kpattern_methods! {
     pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
-    i64_i64_arg: [euclid, euclid_legato],
-    i64_i64_i64_arg: [euclid_rot, euclid_legato_rot],
     i64_frac_f64_arg: [echo],
     i64_f64_frac_arg: [stut],
     fn_arg: [
@@ -427,6 +391,18 @@ kpattern_methods! {
         tag => kpattern_tag,
         #[koto_method(alias = "degradeByWith")]
         degrade_by_with => kpattern_degrade_by_with,
+        #[koto_method(alias = "setSteps")]
+        set_steps => kpattern_set_steps,
+        // The euclid family takes patterned counts, so it cannot go in a
+        // plain-integer argument group.
+        #[koto_method]
+        euclid => kpattern_euclid,
+        #[koto_method(alias = "euclidRot")]
+        euclid_rot => kpattern_euclid_rot,
+        #[koto_method(alias = "euclidLegato")]
+        euclid_legato => kpattern_euclid_legato,
+        #[koto_method(alias = "euclidLegatoRot")]
+        euclid_legato_rot => kpattern_euclid_legato_rot,
         #[koto_method]
         soundfont => kpattern_soundfont,
         #[koto_method]
@@ -640,8 +616,6 @@ kpattern_methods! {
     camel_f64: [],
     camel_frac: [pressBy => press_by, loopAt => loop_at, steps => pace],
     camel_frac_frac: [swingBy => swing_by],
-    camel_i64_i64: [euclidLegato => euclid_legato],
-    camel_i64_i64_i64: [euclidRot => euclid_rot, euclidLegatoRot => euclid_legato_rot],
     camel_i64_fn: [chunkBack => chunk_back, fastChunk => fast_chunk, slowChunk => chunk],
     camel_f64_fn: [
         juxBy => jux_by, juxFlipBy => jux_flip_by, fluxBy => jux_flip_by,

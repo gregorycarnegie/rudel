@@ -79,7 +79,7 @@ pub(super) fn value_parts(v: &Value) -> Vec<Value> {
 /// `{ names[0]: x, names[1]: y }`. Extra parts are dropped, missing parts
 /// leave their key unset. Powers Strudel's multi-control helpers.
 pub(super) fn spread_control(names: &'static [&'static str], pat: Pattern) -> Pattern {
-    pat.fmap(move |v| match v {
+    pat.fmap(carrying(move |v| match v {
         Value::Map(_) => v,
         other => {
             let mut m = ValueMap::new();
@@ -88,7 +88,42 @@ pub(super) fn spread_control(names: &'static [&'static str], pat: Pattern) -> Pa
             }
             Value::Map(m)
         }
-    })
+    }))
+}
+
+/// Give a control's per-value function [`with_val`]'s carried-map rule.
+///
+/// `with_val` documents it for the one-key case: a hap value is often already a
+/// control map holding an unnamed `value` (`"cp".delay(0.6)` is
+/// `{value: "cp", delay: 0.6}`), and upstream's `createParam` promotes that
+/// field into the control's own key(s) while keeping the rest of the map. Every
+/// control has to apply it, not just the ones built by `control` — otherwise
+/// `[bd (cp # delay .6)].s()` emits an inert `value` beside a `delay` that
+/// plays nothing, where Strudel emits `{s: "cp", delay: 0.6}`.
+///
+/// The controls that read `:`-lists (`s`, `mode`) spell out their own value
+/// handling and so need the rule wrapped around it rather than baked in.
+pub(super) fn carrying(
+    f: impl Fn(Value) -> Value + Send + Sync + 'static,
+) -> impl Fn(Value) -> Value + Send + Sync + 'static {
+    move |v| match v {
+        Value::Map(mut carried) if carried.contains_key("value") => {
+            let inner = carried.shift_remove("value").expect("checked above");
+            match f(inner) {
+                Value::Map(written) => {
+                    carried.extend(written);
+                    Value::Map(carried)
+                }
+                // A control that produced a bare value has nowhere to put it
+                // but back where it came from.
+                other => {
+                    carried.insert("value".to_string(), other);
+                    Value::Map(carried)
+                }
+            }
+        }
+        other => f(other),
+    }
 }
 
 impl Pattern {

@@ -1,4 +1,4 @@
-use super::base::single;
+use super::base::{carrying, single};
 use crate::{
     pattern::Pattern,
     transforms::IntoPattern,
@@ -7,7 +7,7 @@ use crate::{
 
 /// The `s`/`sound` control, with `"name:index"` splitting into `{ s, n }`.
 pub fn s(pat: impl IntoPattern) -> Pattern {
-    pat.into_pattern().fmap(|v| match v {
+    pat.into_pattern().fmap(carrying(|v| match v {
         Value::Str(ref string) if string.contains(':') => {
             let mut parts = string.splitn(2, ':');
             let mut m = ValueMap::new();
@@ -37,7 +37,7 @@ pub fn s(pat: impl IntoPattern) -> Pattern {
         }
         Value::Map(_) => v,
         other => single("s", other),
-    })
+    }))
 }
 
 /// Alias for [`s`].
@@ -49,7 +49,7 @@ pub fn sound(pat: impl IntoPattern) -> Pattern {
 /// spells as the list `["below", "G4"]`) also sets `anchor`, matching Strudel's
 /// `registerControl(['mode', 'anchor'])`.
 pub fn mode(pat: impl IntoPattern) -> Pattern {
-    pat.into_pattern().fmap(|v| match v {
+    pat.into_pattern().fmap(carrying(|v| match v {
         Value::Map(_) => v,
         Value::List(ref items) if !items.is_empty() => {
             let mut m = ValueMap::new();
@@ -72,7 +72,7 @@ pub fn mode(pat: impl IntoPattern) -> Pattern {
             Value::Map(m)
         }
         other => single("mode", other),
-    })
+    }))
 }
 
 impl Pattern {

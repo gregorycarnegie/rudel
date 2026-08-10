@@ -147,6 +147,77 @@ pub(super) fn ply_build(
     .set_steps(steps)
 }
 
+/// The euclid family, with counts that may be patterns:
+/// `s("bd").euclid("<3 5>", 8)` alternates rhythm by cycle, the way
+/// mini-notation's `bd(<3 5>,8)` already did.
+///
+/// Plain numbers keep the direct path. It produces the same haps as the
+/// patternified one, but building the rhythm per cycle through an `inner_join`
+/// only to arrive at a constant is work — and the direct call is what every
+/// existing golden was recorded against.
+///
+/// `rotated` says whether the third count is a rotation, and `build` is the
+/// integer method the counts end up in, so the four exports share one body.
+pub(in crate::bindings) fn euclid_call(
+    pat: &Pattern,
+    counts: [Option<&KValue>; 3],
+    rotated: bool,
+    build: fn(&Pattern, i64, i64, i64) -> Pattern,
+) -> Pattern {
+    let arity = if rotated { 3 } else { 2 };
+    let count = |i: usize| counts[i].unwrap_or(&KValue::Null);
+    if counts[..arity]
+        .iter()
+        .all(|c| matches!(c, Some(KValue::Number(_))))
+    {
+        let n = |i: usize| arg_to_f64(count(i)) as i64;
+        return build(pat, n(0), n(1), if rotated { n(2) } else { 0 });
+    }
+    pat.euclid_pat(
+        arg_to_pattern(count(0)),
+        arg_to_pattern(count(1)),
+        rotated.then(|| arg_to_pattern(count(2))),
+        build,
+    )
+}
+
+fn kpattern_euclid_family(
+    ctx: MethodContext<KPattern>,
+    rotated: bool,
+    build: fn(&Pattern, i64, i64, i64) -> Pattern,
+) -> KotoResult<KValue> {
+    let counts = [0, 1, 2].map(|i| ctx.args.get(i));
+    with_instance(&ctx, |pat| euclid_call(pat, counts, rotated, build))
+}
+
+pub(super) fn kpattern_euclid(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    kpattern_euclid_family(ctx, false, |pat, a, b, _| pat.euclid(a, b))
+}
+
+pub(super) fn kpattern_euclid_rot(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    kpattern_euclid_family(ctx, true, Pattern::euclid_rot)
+}
+
+pub(super) fn kpattern_euclid_legato(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    kpattern_euclid_family(ctx, false, |pat, a, b, _| pat.euclid_legato(a, b))
+}
+
+pub(super) fn kpattern_euclid_legato_rot(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    kpattern_euclid_family(ctx, true, Pattern::euclid_legato_rot)
+}
+
+/// `pat.setSteps(n)`: set the step-count metadata without resampling
+/// (stepwise.mjs `setSteps`). `null` clears it, which is how a pattern says it
+/// has no step count to stack or concatenate by.
+pub(super) fn kpattern_set_steps(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let steps = match &method_arg(&ctx, 0) {
+        KValue::Null => None,
+        other => Some(arg_to_frac(other)),
+    };
+    Ok(KPattern::wrap(pat.set_steps(steps)))
+}
+
 /// `pat.plyWith(factor, f)`: repeat each event `factor` times, applying `f`
 /// cumulatively (`f` 0×, 1×, 2×, … like `applyN`).
 pub(super) fn kpattern_ply_with(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

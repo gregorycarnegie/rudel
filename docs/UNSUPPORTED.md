@@ -4,7 +4,7 @@ Rudel is a **native Rust** application. Strudel is a **browser** application. A
 number of Strudel packages exist only to bridge to browser/web-platform APIs
 (WebGL, DeviceMotion, Web Serial, the Gamepad API, MQTT-over-WebSockets, the
 Csound WASM build, web components / iframes) or to provide alternative language
-front-ends (Tidal, Mondo). Rudel deliberately does not port these; this page is
+front-ends (Tidal). Rudel deliberately does not port these; this page is
 the authoritative list of what is intentionally unsupported, what is deferred,
 and how Rudel differs where it does provide an equivalent surface.
 
@@ -494,25 +494,51 @@ which has the same effect. Master volume still applies.
 
 ## Alternative language front-ends
 
-### Tidal, Mondo, Mondough (`@strudel/tidal`, `@strudel/mondo`, `@strudel/mondough`) — intentionally unsupported
+### Mondo (`@strudel/mondo`, `@strudel/mondough`) — supported
 
-These packages provide *alternative source languages* that compile down to the
-same Strudel pattern engine:
+[Mondo Notation](https://strudel.cc/learn/mondo-notation/) is available, two
+ways:
 
-- `@strudel/tidal` (`initTidal`, `tidal`) — an experimental interpreter for
-  Haskell-flavoured TidalCycles code.
-- `@strudel/mondo` (`mondo`, `mondolang`) — a small Lisp-like functional
-  composition language that translates to JS.
-- `@strudel/mondough` (`mondo`, `mondi`, `mondolang`) — the Mondo notation
-  wired into Strudel.
+- **A whole document**, which is how upstream's examples are written — put
+  `// mondo` on the first line and the rest of the script is read as mondo.
+  (Upstream types those into a REPL switched to mondo mode; the marker line
+  stands in for that mode here.) A script that is mondo *without* the marker
+  fails to compile as Koto, and the error says so rather than pointing at the
+  first `$`.
+- **One pattern inside a Koto script**, the surface upstream's library exposes:
+  a tagged template, `` mondo`s hh*8` `` (or `mondolang`, or `mondi` for a
+  bracketed sequence).
 
-Rudel's authoring surface is **Koto** (its scripting layer) plus Strudel-style
-**mini-notation** (`crates/rudel-mini`). These provide the same underlying
-pattern engine through a different, native front-end. Porting additional parser
-front-ends (Tidal/Haskell, Mondo Lisp) is **intentionally out of scope**:
-they are parallel language choices, not additional musical capability, and the
-Koto + mini-notation combination is Rudel's deliberate single authoring surface.
-There is no native equivalent surface for these alternative languages.
+It is compiled to Koto by
+`crates/rudel-lang/src/preprocess/mondo.rs`, which ports upstream's parser and
+plays the role of `mondough.mjs`'s evaluator, so every control, transform and
+signal Rudel exposes is reachable from mondo without a second dispatch table.
+
+Function calls, `#` chaining, `#`-lambdas, all four bracket kinds, the infix
+operators (`* / ! @ % ? & : ..`), `,`/`$` stacks, `|` choices, strings, comments
+and `def` all work. Two things do not:
+
+- **`:` and `..` need literal operands.** `bd:3`, `C4:minor` and `0..7` compile
+  through mini-notation, which builds exactly the same values; `bd:<0 1>` does
+  not. Use `# euclid <3 6> <8>` for the patterned euclid case.
+- **`def` binds values, not functions.** `(def melody [0 1 2])` works;
+  `(def (f x) …)` does not. Upstream's runner is a full Lisp — `let`, `match`,
+  `if`, recursion, `cons`/`car`/`cdr` — but that half of it is exercised only by
+  its own arithmetic test suite, never by the pattern language, so it is not
+  ported.
+
+Source locations are not mapped through the compiler, so mini-notation
+highlighting is off by the length of the rewrite in a script that mixes mondo
+with ordinary patterns.
+
+### Tidal (`@strudel/tidal`) — intentionally unsupported
+
+`@strudel/tidal` (`initTidal`, `tidal`) is an experimental interpreter for
+Haskell-flavoured TidalCycles code — a third *source language* over the same
+pattern engine. Unlike Mondo, it is a different language rather than a different
+notation for the one Rudel already has, and it is experimental upstream. Rudel's
+authoring surface stays **Koto** plus Strudel-style **mini-notation**
+(`crates/rudel-mini`), with Mondo as the one alternative notation.
 
 ## Web embedding
 

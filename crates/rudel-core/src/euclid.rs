@@ -198,6 +198,49 @@ impl Pattern {
         self.struct_pat(bools_pattern(&euclid_rot(pulses, steps, rotation)))
     }
 
+    /// The euclid family with **patterned counts**: `s("bd").euclid("<3 5>", 8)`,
+    /// and the same thing mini-notation's `bd(<3 5>,8)` does.
+    ///
+    /// This is Strudel's `register` patternification, which every euclid export
+    /// gets there: the rhythm is built per hap of `pulses`, the remaining counts
+    /// are sampled by `app_left` at that hap's span, and the resulting pattern
+    /// of patterns is `inner_join`ed. Sampling the counts once at the query
+    /// start instead — which is what a plain `bind` would do — makes a count
+    /// pattern longer than one cycle stop changing after the first.
+    ///
+    /// `build` is the plain-integer method the counts are handed to, so
+    /// `euclid`, `euclidRot` and their legato variants all share one shape.
+    /// `rotation` is `None` for the two that have no rotation argument.
+    pub fn euclid_pat(
+        &self,
+        pulses: impl IntoPattern,
+        steps: impl IntoPattern,
+        rotation: Option<Pattern>,
+        build: fn(&Pattern, i64, i64, i64) -> Pattern,
+    ) -> Pattern {
+        let rotated = rotation.is_some();
+        let pat = self.clone();
+        let counted = pulses.into_pattern().fmap(move |p| {
+            let pat = pat.clone();
+            Value::func(move |s| {
+                let (pat, p) = (pat.clone(), p.clone());
+                match rotated {
+                    // A third argument to come: hand back another function for
+                    // `app_left` to feed the rotation to.
+                    true => Value::func(move |r| {
+                        Value::Pat(Box::new(build(&pat, count(&p), count(&s), count(&r))))
+                    }),
+                    false => Value::Pat(Box::new(build(&pat, count(&p), count(&s), 0))),
+                }
+            })
+        });
+        let counted = counted.app_left(&steps.into_pattern());
+        match rotation {
+            Some(rotation) => counted.app_left(&rotation).inner_join(),
+            None => counted.inner_join(),
+        }
+    }
+
     /// `euclid` variant that morphs from straight euclidean (`perc = 0`) to an
     /// even pulse (`perc = 1`) (`euclidish`/`eish`). `perc` may be a continuous
     /// pattern (e.g. `sine.slow(8)`), sampled once per cycle.
@@ -225,6 +268,12 @@ impl Pattern {
             .app_left(&perc.into_pattern())
             .inner_join()
     }
+}
+
+/// A hap value read as a euclid count, matching mini-notation's reading of the
+/// same argument.
+fn count(v: &Value) -> i64 {
+    v.as_f64().unwrap_or(0.0) as i64
 }
 
 /// Build a boolean pattern from a Euclidean rhythm, e.g. for `struct`.

@@ -741,6 +741,13 @@ pub fn parray(pats: &[Pattern]) -> Pattern {
 
 /// Concatenate patterns, one per cycle (`slowcat`/`cat`).
 pub fn slowcat(pats: &[Pattern]) -> Pattern {
+    // Nothing to concatenate is silence, as it is for `stack`/`timecat`. This
+    // is reachable from user input rather than only from bad calls: a degenerate
+    // `euclid(0, 0)` produces an empty rhythm, and picking `pats[n % 0]` below
+    // would take the whole app down on a typo.
+    if pats.is_empty() {
+        return silence();
+    }
     if pats.len() == 1 {
         return pats[0].clone();
     }

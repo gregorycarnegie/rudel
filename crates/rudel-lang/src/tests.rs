@@ -4,6 +4,7 @@ mod basics;
 mod callbacks;
 mod controls;
 mod modulate;
+mod mondo;
 mod pick;
 mod preprocess;
 mod repl;

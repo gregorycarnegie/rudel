@@ -385,3 +385,32 @@ fn filter_when_selects_by_onset_time() {
     assert_eq!(values(&one, 0, 1).len(), 4, "cycle 0 kept");
     assert_eq!(values(&one, 1, 2).len(), 0, "cycle 1 dropped");
 }
+
+#[test]
+fn the_euclid_family_takes_patterned_counts() {
+    // Upstream's `register` patternifies every euclid argument, so the counts
+    // may alternate by cycle. Mini-notation's operator always could; the method
+    // and standalone spellings share its implementation, so all three agree.
+    let mini = eval(r#"s("bd(<3 5>,8)")"#).expect("mini");
+    for src in [
+        r#"s("bd").euclid("<3 5>", 8)"#,
+        r#"euclid("<3 5>", 8, s("bd"))"#,
+    ] {
+        let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert_eq!(shape(&pat, 4), shape(&mini, 4), "{src}");
+    }
+    // Literal counts keep the direct path, and must not have drifted from it.
+    assert_eq!(
+        shape(&eval(r#"s("bd").euclid(3, 8)"#).expect("literal"), 2),
+        shape(&eval(r#"s("bd(3,8)")"#).expect("mini literal"), 2)
+    );
+    // The rotation and legato variants patternify too.
+    for src in [
+        r#"s("bd").euclidRot("<3 5>", 8, "<0 2>")"#,
+        r#"s("bd").euclidLegato("<3 5>", 8)"#,
+        r#"euclidLegatoRot("<3 5>", 8, 2, s("bd"))"#,
+    ] {
+        let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert!(!shape(&pat, 4).is_empty(), "{src} produced nothing");
+    }
+}

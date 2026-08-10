@@ -88,8 +88,6 @@ macro_rules! register_pattern_fns {
      frac1:    [$($n_c1:literal => $c1:ident),* $(,)?];
      f64_2:    [$($n_d2:literal => $d2:ident),* $(,)?];
      frac2:    [$($n_e2:literal => $e2:ident),* $(,)?];
-     i64_2:    [$($n_f2:literal => $f2:ident),* $(,)?];
-     i64_3:    [$($n_i3:literal => $i3:ident),* $(,)?];
      i64_frac_f64: [$($n_ja:literal => $ja:ident),* $(,)?];
      i64_f64_frac: [$($n_jb:literal => $jb:ident),* $(,)?];
      pat2:     [$($n_g2:literal => $g2:ident),* $(,)?];
@@ -139,21 +137,6 @@ macro_rules! register_pattern_fns {
             let x = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
             let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
             Ok(KPattern(pat.$e2(x, y)).into())
-        });)*
-        $(add_curried_fn($p, $n_f2, 3, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
-            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)) as i64;
-            Ok(KPattern(pat.$f2(x, y)).into())
-        });)*
-        $(add_curried_fn($p, $n_i3, 4, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
-            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)) as i64;
-            let z = arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null)) as i64;
-            Ok(KPattern(pat.$i3(x, y, z)).into())
         });)*
         $(add_curried_fn($p, $n_ja, 4, |a: &[KValue]| {
             let last = a.len().saturating_sub(1);
@@ -712,6 +695,37 @@ pub(crate) fn register(prelude: &KMap) {
         Ok(KPattern(pat.bjork(&euc)).into())
     });
 
+    // The euclid family, pattern-last like every other standalone transform.
+    // Its counts may be patterns (`euclid("<3 5>", 8, s("bd"))`), so it shares
+    // `euclid_call` with the methods rather than living in an integer group.
+    type EuclidBuild = fn(&Pattern, i64, i64, i64) -> Pattern;
+    let euclid_plain: EuclidBuild = |pat, a, b, _| pat.euclid(a, b);
+    let euclid_legato: EuclidBuild = |pat, a, b, _| pat.euclid_legato(a, b);
+    for (names, rotated, build) in [
+        (&["euclid"][..], false, euclid_plain),
+        (&["euclidLegato", "euclid_legato"][..], false, euclid_legato),
+        (
+            &["euclidRot", "euclid_rot", "euclidrot"][..],
+            true,
+            Pattern::euclid_rot as EuclidBuild,
+        ),
+        (
+            &["euclidLegatoRot", "euclid_legato_rot"][..],
+            true,
+            Pattern::euclid_legato_rot as EuclidBuild,
+        ),
+    ] {
+        for name in names {
+            add_curried_fn(prelude, name, if rotated { 4 } else { 3 }, move |a| {
+                let last = a.len().saturating_sub(1);
+                let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+                let count = |i: usize| a.get(i).filter(|_| last > i);
+                let counts = [count(0), count(1), count(2)];
+                Ok(KPattern(super::pattern::euclid_call(&pat, counts, rotated, build)).into())
+            });
+        }
+    }
+
     register_pattern_fns!(prelude;
         pattern1: [
             "fast" => fast, "slow" => slow, "ply" => ply,
@@ -763,14 +777,6 @@ pub(crate) fn register(prelude: &KMap) {
             "focus" => focus, "compress" => compress, "zoom" => zoom,
             "ribbon" => ribbon, "rib" => rib,
             "swingBy" => swing_by, "swing_by" => swing_by,
-        ];
-        i64_2: [
-            "euclid" => euclid,
-            "euclidLegato" => euclid_legato, "euclid_legato" => euclid_legato,
-        ];
-        i64_3: [
-            "euclidRot" => euclid_rot, "euclid_rot" => euclid_rot, "euclidrot" => euclid_rot,
-            "euclidLegatoRot" => euclid_legato_rot, "euclid_legato_rot" => euclid_legato_rot,
         ];
         i64_frac_f64: ["echo" => echo];
         i64_f64_frac: ["stut" => stut];

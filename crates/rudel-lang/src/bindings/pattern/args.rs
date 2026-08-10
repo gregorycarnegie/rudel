@@ -126,25 +126,6 @@ pub(super) fn with_f64_f64_args(
     with_instance(ctx, |pat| f(pat, a, b))
 }
 
-pub(super) fn with_i64_i64_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, i64, i64) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_i64_arg(ctx, 0);
-    let b = method_i64_arg(ctx, 1);
-    with_instance(ctx, |pat| f(pat, a, b))
-}
-
-pub(super) fn with_i64_i64_i64_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, i64, i64, i64) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_i64_arg(ctx, 0);
-    let b = method_i64_arg(ctx, 1);
-    let c = method_i64_arg(ctx, 2);
-    with_instance(ctx, |pat| f(pat, a, b, c))
-}
-
 pub(super) fn with_i64_frac_f64_args(
     ctx: &MethodContext<KPattern>,
     f: impl FnOnce(&Pattern, i64, Frac, f64) -> Pattern,

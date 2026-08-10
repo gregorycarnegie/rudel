@@ -11,6 +11,69 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-10
+
+A release about a second way to write a pattern. Mondo Notation is Strudel's
+Lisp-like alternative to the mini-notation-and-method-chains spelling, and it
+turns out to cost almost nothing to support: it is a *source language* over the
+pattern engine Rudel already has, so the work is a parser and a code generator,
+not a second evaluator.
+
+Building it was also the best bug-finder this repo has had in a while. Every
+form in mondo lands on a Rudel function, so compiling upstream's own example
+page walked straight into three things Rudel got wrong — a control that dropped
+the value it was given, a `:`-list the method form would not split, and a
+degenerate euclid that panicked. Each is fixed where all the callers route
+through, and the euclid family gained the patterned counts it should have had
+all along.
+
+### Added
+
+- **Mondo Notation.** [Strudel's Lisp-like pattern notation](https://strudel.cc/learn/mondo-notation/)
+  now works in Rudel, two ways: `// mondo` on the first line reads the whole
+  script as mondo — which is how the examples on that page are written — and
+  `` mondo`s hh*8` `` (plus `mondolang` and `mondi`) embeds one pattern in a Koto
+  script, the surface upstream's library exposes. Function calls, `#` chaining
+  and `#`-lambdas, all four bracket kinds, the infix operators
+  (`* / ! @ % ? & : ..`), `,`/`$` stacks, `|` choices, strings, comments and
+  `def` are supported. A script that is mondo but has no marker gets an error
+  saying so, rather than Koto's `unexpected token` at the first `$`.
+
+  It is a compiler, not a second engine: `crates/rudel-lang/src/preprocess/mondo.rs`
+  ports upstream's parser and emits Koto, which is why every control, transform
+  and signal in the prelude is reachable from mondo with no dispatch table to
+  keep in sync. Upstream's own parser and desugaring tests are ported alongside
+  it, and each mondo spelling is checked to produce the same haps as the Koto
+  one it compiles to. Two limits, both in `docs/UNSUPPORTED.md`: `:` and `..`
+  take literal operands, and `def` binds values rather than functions.
+- **`setSteps` on a pattern**, the stepwise metadata setter Strudel exposes and
+  Rudel had only internally.
+- **The euclid family takes patterned counts.** `s("bd").euclid("<3 5>", 8)` now
+  alternates rhythm by cycle, as `euclid`, `euclidRot`, `euclidLegato`,
+  `euclidLegatoRot` and their standalone forms all do upstream — previously only
+  mini-notation's `bd(<3 5>,8)` could, and the binding silently produced nothing
+  for a patterned count. The patternification moved out of `rudel-mini` into
+  `rudel-core` so the operator and the bindings cannot drift apart, and literal
+  counts still take the direct path.
+
+### Fixed
+
+- **A control set from a pattern that already carried one no longer drops it.**
+  `"cp".delay(0.6)` is `{value: "cp", delay: 0.6}`, and upstream's `createParam`
+  promotes that unnamed `value` into the control's own key on *every* path.
+  Rudel applied the rule for single-key controls built by `control`, but not for
+  `s`/`mode` (which read `:`-lists) or the multi-key spread controls, so
+  `s(seq("bd", "cp".delay(0.6)))` emitted an inert `value` beside a `delay` that
+  played nothing where Strudel emits `{s: "cp", delay: 0.6}`.
+- **A bare control method spreads a `:`-list like its factory does.** `.s()` with
+  no argument wrapped the pattern's values by name, so `"bd:3".s()` produced
+  `{s: ["bd", 3]}` where `s("bd:3")` produced `{s: "bd", n: 3}`. Both now go
+  through the control's own builder.
+- **A degenerate euclid no longer takes the app down.** `euclid(0, 0)` produces
+  an empty rhythm, which reached `slowcat` with nothing to concatenate and
+  panicked on `pats[n % 0]`. An empty `slowcat`/`cat` is now silence, as an
+  empty `stack` or `timecat` already was.
+
 ## [0.9.1] — 2026-08-09
 
 A release about listening again. 0.9.0 got the example tunes sounding like

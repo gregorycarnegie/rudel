@@ -353,45 +353,13 @@ fn consume_op_seeds(op: Pair<Rule>, ctx: &mut Ctx) {
     }
 }
 
-/// `pat(pulse,steps,rot?)` with patterned args, matching Strudel's
-/// `register` patternification: fmap the curried call over the pulse
-/// pattern, `appLeft` the remaining args, then `innerJoin`.
+/// `pat(pulse,steps,rot?)` with patterned args. The patternification lives in
+/// `rudel-core` so the mini-notation operator and the `euclid`/`euclidRot`
+/// bindings cannot drift apart.
 fn euclid_op(pat: &Pattern, pulse: Pattern, step: Pattern, rotation: Option<Pattern>) -> Pattern {
     match rotation {
-        None => {
-            let pat = pat.clone();
-            pulse
-                .fmap(move |p| {
-                    let pat = pat.clone();
-                    Value::func(move |s| {
-                        Value::Pat(Box::new(pat.euclid(value_i64(&p), value_i64(&s))))
-                    })
-                })
-                .app_left(&step)
-                .inner_join()
-        }
-        Some(rot) => {
-            let pat = pat.clone();
-            pulse
-                .fmap(move |p| {
-                    let pat = pat.clone();
-                    let p = p.clone();
-                    Value::func(move |s| {
-                        let pat = pat.clone();
-                        let p = p.clone();
-                        Value::func(move |r| {
-                            Value::Pat(Box::new(pat.euclid_rot(
-                                value_i64(&p),
-                                value_i64(&s),
-                                value_i64(&r),
-                            )))
-                        })
-                    })
-                })
-                .app_left(&step)
-                .app_left(&rot)
-                .inner_join()
-        }
+        None => pat.euclid_pat(pulse, step, None, |p, a, b, _| p.euclid(a, b)),
+        rot => pat.euclid_pat(pulse, step, rot, Pattern::euclid_rot),
     }
 }
 
@@ -456,10 +424,6 @@ fn number_in(op: &Pair<Rule>) -> Option<f64> {
         .into_inner()
         .find(|p| p.as_rule() == Rule::number)
         .and_then(|p| p.as_str().parse().ok())
-}
-
-fn value_i64(v: &Value) -> i64 {
-    v.as_f64().unwrap_or(0.0) as i64
 }
 
 fn value_frac(v: &Value) -> Frac {

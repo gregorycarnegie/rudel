@@ -52,6 +52,36 @@ stack(
 The app starts with native audio. Use the output selector for MIDI or OSC; OSC
 defaults to `127.0.0.1:57120` for local SuperDirt.
 
+## Mondo Notation
+
+[Mondo Notation](https://strudel.cc/learn/mondo-notation/) is Strudel's
+Lisp-like way of writing the same patterns, and Rudel speaks it. Put `// mondo`
+on the first line and the whole script is read as mondo:
+
+```
+// mondo
+$ s [bd rim [~ bd] rim] # bank tr707
+$ n <0 2 4 [3 1] -1>*4 # scale C4:minor # jux rev # dec .2 # delay .5
+```
+
+Round parens call a function, `#` chains one call onto the last, and `$`
+separates patterns into a stack. That is this, in Koto:
+
+```koto
+stack(
+  s("bd rim [~ bd] rim").bank("tr707"),
+  n("<0 2 4 [3 1] -1>*4").scale("C4:minor").jux(rev).dec(0.2).delay(0.5)
+)
+```
+
+To reach for mondo inside an otherwise-Koto script, tag a single pattern with
+it instead: `` mondo`s hh*8` ``.
+
+Mondo is compiled to Koto rather than interpreted, so every control, transform
+and signal Rudel exposes is reachable from it. Its two limits — `:`/`..` want
+literal operands, and `def` binds values rather than functions — are in
+[`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md#mondo-strudelmondo-strudelmondough--supported).
+
 ## Csound
 
 Rudel can play a pattern on a [Csound](https://csound.com/) instrument instead of
@@ -138,8 +168,9 @@ Still evolving: richer synth families, more Strudel sample-bank loading modes,
 MIDI input/clock-in, per-pattern routing helpers, deeper editor ergonomics, and
 the long tail of Strudel/Tidal compatibility.
 
-Some Strudel packages bridge to browser-only platform APIs or provide alternative
-language front-ends and are intentionally not ported. See
+Some Strudel packages bridge to browser-only platform APIs, and one — the
+experimental TidalCycles interpreter — is an alternative source language rather
+than a notation over the one Rudel has; these are intentionally not ported. See
 [`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md) for the authoritative list of
 unsupported and intentionally different features.
 

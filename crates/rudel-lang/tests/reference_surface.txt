@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=998 methods=1097 controls=668
+# functions=998 methods=1099 controls=668
 
 [functions]
 FXr
@@ -1921,6 +1921,7 @@ semitone
 seq
 sequence
 set
+setSteps
 set_mix
 set_out
 set_poly
@@ -1929,6 +1930,7 @@ set_restart
 set_squeeze
 set_squeezein
 set_squeezeout
+set_steps
 shape
 shapevol
 shrink

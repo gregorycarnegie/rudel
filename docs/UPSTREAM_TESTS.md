@@ -51,17 +51,16 @@ record.
 | `test/metadata.test.mjs` | 28 | `rudel-lang/tests/{reference_parity,api_inventory,reference_snapshot}.rs` — asserts every documented Strudel name is exposed or allowlisted, and that the classification and exposed surface cannot drift | ported |
 | `packages/core/test/drawLine.test.mjs` | 6 | **Not covered.** `drawLine` renders an ASCII pattern diagram for the browser console; Rudel's visualisers are the native inline widgets. See `docs/UNSUPPORTED.md`. | not ported |
 | `packages/core/test/solmization.test.js` | 6 | **Not covered.** `sol2note` and the solmization tables are unused scaffolding in Strudel itself ("not used yet") and are not exposed by Rudel. | not ported |
-| `packages/mondo/test/mondo.test.mjs` | 178 | **Not covered.** `@strudel/mondo` is an alternative Lisp-like source language, intentionally unsupported (`docs/UNSUPPORTED.md`). | not ported |
+| `packages/mondo/test/mondo.test.mjs` | 178 | `rudel-lang/src/preprocess/mondo.rs` — the tokenizer/parser/sugar cases, which pin the language itself, plus `rudel-lang/src/tests/mondo.rs` comparing each mondo spelling against the Koto one it compiles to. The remaining ~150 cases drive upstream's runner as a general Lisp (SICP arithmetic, `let`/`match`/recursion/lists) through an evaluator the pattern language never uses; that half is not ported. See `docs/UNSUPPORTED.md`. | ported (partial by design) |
 | `test/tunes.test.mjs` | 1 (×N tunes) | **Not covered.** Snapshots the full example tunes from `testtunes.mjs`, several of which use unsupported features; the doc-example corpus is the equivalent breadth check. | not ported |
 
 ## Summary
 
-Of 21 upstream test files, 17 have a Rudel counterpart — 10 of them backed by a
+Of 21 upstream test files, 18 have a Rudel counterpart — 10 of them backed by a
 generated oracle that compares against the real Strudel engine rather than
-against re-typed expectations. The 4 that do not are `drawLine`, `solmization`,
-`mondo` and `tunes`: two cover surfaces Rudel deliberately does not expose, one
-covers an unsupported alternative language, and one is a snapshot suite the
-doc-example corpus supersedes.
+against re-typed expectations. The 3 that do not are `drawLine`, `solmization`
+and `tunes`: two cover surfaces Rudel deliberately does not expose, and one is a
+snapshot suite the doc-example corpus supersedes.
 
 Rudel additionally runs parity tests upstream has no equivalent for, because
 they compare a Rust reimplementation against JS the browser executes directly:

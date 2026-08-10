@@ -466,22 +466,34 @@ fn a_control_promotes_an_unnamed_value_however_it_is_called() {
     // that already carries an unnamed `value` — which is what a `.color()` or
     // `.label()` before the sound leaves behind — has it moved into the
     // control's key rather than left inert beside an unset control.
-    for src in [
-        r#""c3".color('red').note()"#, // bare method
-        r#"note("c3".color('red'))"#,  // standalone function
+    //
+    // The controls that read a `:`-list (`s`, `mode`) and the multi-key spread
+    // controls write their own values rather than going through `with_val`, so
+    // each has to carry the rule too.
+    for (src, key, expected) in [
+        (r#""c3".color('red').note()"#, "note", "c3"), // bare method
+        (r#"note("c3".color('red'))"#, "note", "c3"),  // standalone function
+        (r#""cp".color('red').s()"#, "s", "cp"),
+        (r#"s("cp".color('red'))"#, "s", "cp"),
+        (r#"s(seq("bd", "cp".color('red')))"#, "s", "bd"),
     ] {
         let pat = eval(src).unwrap_or_else(|e| panic!("eval {src}: {e}"));
         match &values(&pat, 0, 1)[0] {
             Value::Map(m) => {
-                assert_eq!(m.get("note").and_then(|v| v.as_str()), Some("c3"), "{src}");
-                assert_eq!(
-                    m.get("color").and_then(|v| v.as_str()),
-                    Some("red"),
-                    "{src}"
-                );
+                assert_eq!(m.get(key).and_then(|v| v.as_str()), Some(expected), "{src}");
                 assert!(m.get("value").is_none(), "value must not survive: {src}");
             }
             other => panic!("expected control map for {src}, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn a_bare_control_method_spreads_a_list_like_its_factory() {
+    // `s("bd:3")` splits into `{s, n}`; the no-argument method form, which sets
+    // the control from the pattern's own values, has to split it the same way
+    // rather than storing the list whole.
+    let a = eval(r#"pat("bd:3").s()"#).expect("method");
+    let b = eval(r#"s("bd:3")"#).expect("factory");
+    assert_eq!(shape(&a, 1), shape(&b, 1));
 }

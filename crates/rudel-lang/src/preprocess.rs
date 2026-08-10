@@ -1,5 +1,6 @@
 mod labels;
 mod mini;
+mod mondo;
 mod scanner;
 mod syntax;
 mod widgets;
@@ -7,6 +8,8 @@ mod widgets;
 use crate::WidgetOption;
 use labels::rewrite_labels;
 use mini::annotate_mini_offsets;
+pub(crate) use mondo::looks_like_mondo;
+use mondo::rewrite_mondo_templates;
 use std::collections::BTreeMap;
 use syntax::{
     hoist_leading_commas, indent_dot_continuations, rewrite_alignment_getters,
@@ -55,7 +58,10 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     script: &str,
     node_offset: usize,
 ) -> PreprocessResult {
-    let (script, widgets, anchors) = rewrite_editor_widgets_with_context(script, node_offset, "");
+    // Mondo compiles to Koto, so it runs first and everything below sees a
+    // script with no mondo left in it.
+    let script = rewrite_mondo_templates(script);
+    let (script, widgets, anchors) = rewrite_editor_widgets_with_context(&script, node_offset, "");
     let (script, mini_locations) = annotate_mini_offsets(&script, node_offset, &anchors);
     let script = strip_line_comments(&script);
     let script = rewrite_tagged_templates(&script);

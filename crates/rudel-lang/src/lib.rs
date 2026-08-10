@@ -172,7 +172,7 @@ pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), Strin
 /// Evaluate a Koto script, returning the pattern plus all host-facing side
 /// effects and editor metadata gathered during preprocessing/evaluation.
 pub fn eval_result(script: &str) -> Result<EvalResult, String> {
-    eval_result_with_preprocessor(|| preprocess_strudel_with_meta(script))
+    eval_result_with_preprocessor(script, || preprocess_strudel_with_meta(script))
 }
 
 /// Evaluate a source slice while preserving absolute source ranges from the
@@ -182,7 +182,24 @@ pub fn eval_result_with_source_range(
     script: &str,
     range: (usize, usize),
 ) -> Result<EvalResult, String> {
-    eval_result_with_preprocessor(|| preprocess_strudel_with_meta_in_range(script, range.0))
+    eval_result_with_preprocessor(script, || {
+        preprocess_strudel_with_meta_in_range(script, range.0)
+    })
+}
+
+/// Koto could not read the script. If Mondo Notation can, say so: a script
+/// pasted from upstream's docs is written in it, and the Koto error for that —
+/// `unexpected token` at the first `$` — says nothing about why.
+fn mondo_hint(original: &str, err: impl std::fmt::Display) -> String {
+    let err = err.to_string();
+    if !preprocess::looks_like_mondo(original) {
+        return err;
+    }
+    format!(
+        "{err}\n\nThis looks like Mondo Notation. Put `// mondo` on the first \
+         line to read the whole script as mondo, or wrap a single pattern in \
+         mondo`...`."
+    )
 }
 
 /// One evaluation at a time, process-wide. The REPL slots, trigger hooks and
@@ -194,6 +211,7 @@ pub fn eval_result_with_source_range(
 static EVAL_LOCK: Mutex<()> = Mutex::new(());
 
 fn eval_result_with_preprocessor(
+    original: &str,
     preprocess: impl FnOnce() -> preprocess::PreprocessResult,
 ) -> Result<EvalResult, String> {
     // A script that panics mid-evaluation must not wedge every later one.
@@ -232,7 +250,7 @@ fn eval_result_with_preprocessor(
     reset_slots();
     triggers::reset_hooks();
     widgets::reset_options();
-    let chunk = koto.compile(&script).map_err(|e| e.to_string())?;
+    let chunk = koto.compile(&script).map_err(|e| mondo_hint(original, e))?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
     // Fold in the options the widget calls actually evaluated to. The source
     // scan above could only read literals, so this is what makes a computed
