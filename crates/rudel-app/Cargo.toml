@@ -18,6 +18,9 @@ rudel-audio = { path = "../rudel-audio" }
 rudel-midi = { path = "../rudel-midi" }
 rudel-osc = { path = "../rudel-osc" }
 eframe = "0.36.1"
+# egui exposes `copy_text` but no clipboard *read*, so the context menu's Paste
+# has to go to the platform itself. Already in the tree via egui-winit.
+arboard = "3.6.1"
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1.31"

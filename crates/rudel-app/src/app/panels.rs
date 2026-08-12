@@ -1,7 +1,7 @@
 use super::{Output, RudelApp};
 use crate::{
     editor::{
-        CodeEditorInput, code_editor,
+        CodeEditorInput, EditorAction, code_editor,
         decorations::FlashSpan,
         settings::{EditorFontFamily, EditorTheme},
     },
@@ -450,7 +450,7 @@ impl RudelApp {
                 ui.visuals_mut().override_text_color = Some(draw.foreground);
                 ui.add_space(4.0);
                 self.editor_settings_panel(ui);
-                egui::ScrollArea::vertical()
+                let menu_action = egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         let sliders = self.editor_decorations.sliders().to_vec();
@@ -487,7 +487,17 @@ impl RudelApp {
                         if let Some(cursor) = editor_output.cursor_byte {
                             self.editor_cursor_byte = cursor;
                         }
+                        editor_output.action
                     });
+                // Outside the ScrollArea closure: these borrow all of `self`.
+                if let Some(action) = menu_action.inner {
+                    match action {
+                        EditorAction::Evaluate => self.evaluate(),
+                        EditorAction::EvaluateBlock => self.evaluate_current_block(),
+                        EditorAction::Hush => self.hush(),
+                        EditorAction::Panic => self.panic(),
+                    }
+                }
             });
     }
 

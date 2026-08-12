@@ -11,6 +11,17 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **A right-click menu in the editor.** Every action it offers already had a
+  keyboard shortcut and no other way in: evaluate, evaluate block, hush, panic,
+  cut/copy/paste/select-all, toggle comment, indent and outdent. Each entry
+  routes through the same code path as its shortcut rather than repeating the
+  edit, and shows the shortcut beside it. Paste needs the clipboard *read* egui
+  does not expose, so the platform clipboard is used directly; entries that
+  cannot act — cut and copy with no selection, paste with an empty clipboard —
+  are greyed rather than silently doing nothing.
+
 ## [0.10.1] — 2026-08-10
 
 A release about a test that was asking the wrong question. Every example on

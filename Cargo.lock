@@ -3398,6 +3398,7 @@ dependencies = [
 name = "rudel-app"
 version = "0.10.1"
 dependencies = [
+ "arboard",
  "eframe",
  "egui_kittest",
  "rudel-audio",

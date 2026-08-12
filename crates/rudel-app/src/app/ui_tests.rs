@@ -144,6 +144,44 @@ fn transport_shortcuts_evaluate_and_hush() {
 }
 
 #[test]
+fn right_clicking_the_editor_opens_a_menu_that_edits_and_evaluates() {
+    // The menu is the only place these actions are discoverable without knowing
+    // the shortcut, and it lives outside the editor's `has_focus` gate — so it
+    // is exactly the wiring that a state-level test would not catch.
+    let mut harness = harness();
+    harness.state_mut().code = "s(\"bd\")".to_string();
+    harness.run_steps(2);
+
+    // The editor has no label; its accesskit value is the code it holds.
+    harness
+        .get_all_by_value("s(\"bd\")")
+        .next()
+        .expect("the code editor")
+        .click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Toggle comment");
+
+    harness.get_by_label_contains("Toggle comment").click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().code,
+        "// s(\"bd\")",
+        "the menu entry runs the same edit as Ctrl+/"
+    );
+
+    // And an app-level entry reaches the engine, not just the text buffer.
+    harness
+        .get_all_by_value("// s(\"bd\")")
+        .next()
+        .expect("the code editor")
+        .click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Evaluate Ctrl+Enter").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().status, "evaluated");
+}
+
+#[test]
 fn inline_widgets_paint_while_playing() {
     // The inline widget surfaces (pianoroll/spiral/pitchwheel/scope) are the
     // one part of the app that only draws while a pattern is running, so this

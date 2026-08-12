@@ -9,6 +9,7 @@ mod contract;
 pub(crate) mod decorations;
 mod edit;
 mod highlight;
+mod menu;
 pub(crate) mod settings;
 mod sliders;
 mod text;
@@ -25,9 +26,11 @@ use edit::{
 };
 use highlight::highlighted_editor_job;
 pub(crate) use highlight::pack_color;
+pub(crate) use menu::EditorAction;
+use menu::{MenuChoice, editor_context_menu};
 use settings::{EditorSettings, apply_editor_style};
 use sliders::{SliderHostUpdate, SliderLayout, draw_slider_hosts};
-use text::byte_index_at_char;
+use text::{byte_index_at_char, char_slice};
 pub(crate) use widgets::mark_color;
 use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts};
 
@@ -40,6 +43,8 @@ pub(crate) struct EditorOutput {
     /// Cursor byte offset, as plain `usize` for the app layer (block eval);
     /// inside the editor module byte offsets are typed [`egui::text::ByteIndex`].
     pub(crate) cursor_byte: Option<usize>,
+    /// Picked from the right-click menu; run by the app, which owns the engine.
+    pub(crate) action: Option<EditorAction>,
 }
 
 pub(crate) struct CodeEditorInput<'a> {
@@ -293,6 +298,63 @@ pub(crate) fn code_editor(
         }
     }
 
+    // Right-click menu. Runs after the edit block so a menu-driven edit is the
+    // last word on the cursor, and outside its `has_focus` gate — clicking a
+    // menu entry takes focus off the editor.
+    let selection = output
+        .cursor_range
+        .filter(|range| !range.is_empty())
+        .map(|range| range.as_sorted_char_range());
+    let mut action = None;
+    if let Some(choice) = editor_context_menu(&output.response, selection.is_some()) {
+        let moved = match choice {
+            MenuChoice::App(app_action) => {
+                action = Some(app_action);
+                None
+            }
+            MenuChoice::Edit(shortcuts) => output.cursor_range.and_then(|range| {
+                apply_editor_text_edits(code, range, shortcuts, None, false, settings)
+            }),
+            MenuChoice::Copy => {
+                if let Some(range) = selection {
+                    ui.ctx().copy_text(char_slice(code, range).to_string());
+                }
+                None
+            }
+            MenuChoice::Cut => selection.map(|range| {
+                ui.ctx()
+                    .copy_text(char_slice(code, range.clone()).to_string());
+                text::replace_char_range(code, range.clone(), "");
+                egui::text::CCursorRange::one(egui::text::CCursor::new(range.start))
+            }),
+            MenuChoice::Paste => menu::clipboard_text().map(|text| {
+                let range = selection.unwrap_or(
+                    output
+                        .cursor_range
+                        .map(|range| range.as_sorted_char_range())
+                        .unwrap_or(
+                            egui::text::CharIndex(code.chars().count())
+                                ..egui::text::CharIndex(code.chars().count()),
+                        ),
+                );
+                let after = range.start + text.chars().count();
+                text::replace_char_range(code, range, &text);
+                egui::text::CCursorRange::one(egui::text::CCursor::new(after))
+            }),
+            MenuChoice::SelectAll => Some(egui::text::CCursorRange::two(
+                egui::text::CCursor::new(egui::text::CharIndex(0)),
+                egui::text::CCursor::new(egui::text::CharIndex(code.chars().count())),
+            )),
+        };
+        if let Some(range) = moved {
+            output.state.cursor.set_char_range(Some(range));
+            output.state.clone().store(ui.ctx(), output.response.id);
+            cursor_byte = Some(byte_index_at_char(code, range.primary.index));
+        }
+        output.response.request_focus();
+        ui.ctx().request_repaint();
+    }
+
     // Insert a reference name from the side panel: a drag lands at the pointer
     // position, a double-click at the current cursor (end of code when the
     // editor has never had one). Mutating `code` here keeps the insertion
@@ -380,6 +442,7 @@ pub(crate) fn code_editor(
         text_change: TextChange::from_texts(&before, code),
         slider_update,
         cursor_byte: cursor_byte.map(|byte: egui::text::ByteIndex| byte.0),
+        action,
     }
 }
 
