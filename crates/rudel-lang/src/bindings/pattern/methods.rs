@@ -606,6 +606,18 @@ pub(super) fn kpattern_filter(ctx: MethodContext<KPattern>) -> KotoResult<KValue
     Ok(KPattern::wrap(out))
 }
 
+/// `pat.filterValues(|v| ...)`: like `filter`, but the predicate sees the hap's
+/// value rather than the whole hap (core/pattern.mjs `filterValues`).
+pub(super) fn kpattern_filter_values(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let cb = Callback::new(&ctx, method_arg(&ctx, 0));
+    let out = filter_build(&pat, &cb, |hap| {
+        super::convert::value_to_koto(hap.value.clone())
+    });
+    cb.finish()?;
+    Ok(KPattern::wrap(out))
+}
+
 /// `pat.filterWhen(|t| ...)`: keep only the haps whose onset the predicate
 /// accepts. The argument is the whole's begin in cycles, as upstream.
 pub(super) fn kpattern_filter_when(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

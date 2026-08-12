@@ -1,9 +1,10 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=998 methods=1099 controls=668
+# functions=1004 methods=1109 controls=668
 
 [functions]
+Array
 FXr
 FXrel
 FXrelease
@@ -784,6 +785,7 @@ rarely
 ratio
 rdim
 real
+register
 registerSoundfonts
 rel
 release
@@ -808,6 +810,8 @@ rootNotes
 root_notes
 rsize
 rudel_label
+rudel_prop
+rudel_spread
 run
 s
 s_alt
@@ -833,6 +837,7 @@ sequence
 set
 setCpm
 setCps
+setDefaultVoicings
 setSoundfontUrl
 setVoicingRange
 setcpm
@@ -931,6 +936,7 @@ tri2
 triode
 tsdelay
 uid
+undefined
 undegrade
 undegradeBy
 undegrade_by
@@ -1252,7 +1258,9 @@ fast_gap
 fastcat
 fft
 filter
+filterValues
 filterWhen
+filter_values
 filter_when
 firstOf
 first_of
@@ -1607,6 +1615,8 @@ i
 imag
 inhabit
 inhabitmod
+innerJoin
+inner_join
 inside
 into
 inv
@@ -1618,6 +1628,7 @@ irspeed
 iter
 iterBack
 iter_back
+join
 jux
 juxBy
 juxFlip
@@ -1754,6 +1765,8 @@ osc
 oschost
 oscport
 out
+outerJoin
+outer_join
 outside
 overgain
 overlay
@@ -1963,7 +1976,9 @@ splice
 spread
 squeeze
 squeezeIn
+squeezeJoin
 squeezeOut
+squeeze_join
 squeezein
 squeezeout
 squiz
@@ -2071,6 +2086,7 @@ when
 whenKey
 when_key
 withBase
+withValue
 with_base
 within
 wordfall

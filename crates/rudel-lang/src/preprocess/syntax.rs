@@ -1,4 +1,4 @@
-use super::scanner::{Chunk, chunks, is_tagged_template};
+use super::scanner::{Chunk, chunks, code_mask, is_ident_char, is_tagged_template};
 
 /// Drop `//` comments, keeping the newline each sat on so line numbers hold.
 /// Strings and block comments are chunks of their own, so a `//` inside one is
@@ -122,6 +122,454 @@ pub(super) fn rewrite_alignment_getters(src: &str) -> String {
             rest = &rest[dot + 1..];
         }
         out.push_str(rest);
+    }
+    out
+}
+
+/// Rewrite JavaScript's logical operators into the words Koto spells them with:
+/// `&&` -> `and`, `||` -> `or`, and a leading `!` -> `not`.
+///
+/// `!=` is a comparison, not a negation, and keeps its `!`. Strings are skipped,
+/// so mini-notation's replicate operator (`"x!4"`) and any `|` inside a pattern
+/// are untouched.
+pub(super) fn rewrite_logical_operators(src: &str) -> String {
+    // Bytes, not chars: every operator matched here is ASCII and a UTF-8
+    // continuation byte can never look like one, so the rest passes through
+    // untouched and the result is still valid UTF-8.
+    let mut out: Vec<u8> = Vec::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let bytes = &src.as_bytes()[start..end];
+        if kind != Chunk::Code {
+            out.extend_from_slice(bytes);
+            continue;
+        }
+        let mut i = 0;
+        while i < bytes.len() {
+            // Keyword operators need separating from what is around them, but
+            // only where a blank is not already there — `a && b` should not
+            // come out as `a  and  b`.
+            let word = |out: &mut Vec<u8>, keyword: &[u8], width: usize| {
+                if !out.last().is_none_or(|b| b.is_ascii_whitespace()) {
+                    out.push(b' ');
+                }
+                out.extend_from_slice(keyword);
+                if !bytes.get(i + width).is_none_or(|b| b.is_ascii_whitespace()) {
+                    out.push(b' ');
+                }
+                i + width
+            };
+            i = match bytes.get(i..i + 2) {
+                Some(b"&&") => word(&mut out, b"and", 2),
+                Some(b"||") => word(&mut out, b"or", 2),
+                _ if bytes[i] == b'!' && bytes.get(i + 1) != Some(&b'=') => {
+                    word(&mut out, b"not", 1)
+                }
+                _ => {
+                    out.push(bytes[i]);
+                    i + 1
+                }
+            };
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| src.to_string())
+}
+
+/// Just past the `}` matching the `{` at `open`, skipping nested braces.
+fn matching_brace(mask: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    for (i, &byte) in mask.iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Split a function body into statements at the `;` and newlines that are not
+/// inside brackets, dropping the empties.
+fn body_statements(body: &str) -> Vec<&str> {
+    let mask = code_mask(body);
+    let mut depth = 0i32;
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    for (i, &byte) in mask.iter().enumerate() {
+        let delta = bracket_delta(byte);
+        if delta != 0 {
+            depth += delta;
+            continue;
+        }
+        if depth == 0 && (byte == b';' || byte == b'\n') {
+            out.push(&body[start..i]);
+            start = i + 1;
+        }
+    }
+    out.push(&body[start..]);
+    out.into_iter().filter(|s| !s.trim().is_empty()).collect()
+}
+
+/// Rewrite one JS statement into its Koto spelling: `if (c) x` takes Koto's
+/// `then`, and a `return` in tail position is just the value.
+fn koto_statement(stmt: &str, tail: bool) -> String {
+    let stmt = stmt.trim();
+    if let Some(rest) = stmt.strip_prefix("if") {
+        let rest = rest.trim_start();
+        if rest.starts_with('(') {
+            let mask = code_mask(rest);
+            let mut depth = 0i32;
+            for (i, &byte) in mask.iter().enumerate() {
+                depth += bracket_delta(byte);
+                if depth == 0 {
+                    let cond = &rest[1..i];
+                    let body = koto_statement(&rest[i + 1..], tail);
+                    return format!("if {} then {body}", cond.trim());
+                }
+            }
+        }
+    }
+    // A `return` at the end of the body is the block's value; Koto allows the
+    // keyword anywhere, but reads a bare trailing expression the same way.
+    // `return(...)` with no space is what an earlier pass leaves behind when it
+    // lifts a keyword off a parenthesised expression.
+    match stmt.strip_prefix("return") {
+        Some(value) if tail && value.starts_with(|c: char| c.is_whitespace() || c == '(') => {
+            value.trim().to_string()
+        }
+        _ => stmt.to_string(),
+    }
+}
+
+/// A brace-delimited function body found in the source. Everything from `from`
+/// to just past the `}` at `close` is replaced by `head` plus the rendered body.
+struct BlockBody {
+    from: usize,
+    head: String,
+    open: usize,
+    close: usize,
+}
+
+/// Index of the last non-whitespace byte before `at`.
+fn last_code_before(mask: &[u8], at: usize) -> Option<usize> {
+    mask[..at].iter().rposition(|b| !b.is_ascii_whitespace())
+}
+
+/// Where the identifier ending at `end` begins.
+fn ident_start(src: &str, end: usize) -> usize {
+    src[..end]
+        .char_indices()
+        .rev()
+        .find(|&(_, c)| !is_ident_char(c))
+        .map_or(0, |(i, c)| i + c.len_utf8())
+}
+
+/// The first `{ ... }` that is a *function body* — either an arrow's, or a
+/// `function` declaration's. Object literals and Koto maps have neither an `=>`
+/// nor a `function` header in front of them and are skipped.
+fn find_block_body(src: &str, mask: &[u8]) -> Option<BlockBody> {
+    for open in mask
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| **b == b'{')
+        .map(|(i, _)| i)
+    {
+        let Some(prev) = last_code_before(mask, open) else {
+            continue;
+        };
+        // `... => { body }`. The parameters to the left of the `=>` are left
+        // for `rewrite_arrow_functions`, which now sees an expression body.
+        if mask[prev] == b'>' && prev > 0 && mask[prev - 1] == b'=' {
+            return Some(BlockBody {
+                from: open,
+                head: String::new(),
+                open,
+                close: matching_brace(mask, open)?,
+            });
+        }
+        // `function name(a, b) { body }`, or the anonymous form.
+        if mask[prev] != b')' {
+            continue;
+        }
+        let mut depth = 0i32;
+        let params_open = (0..=prev).rev().find(|&i| {
+            depth -= bracket_delta(mask[i]);
+            mask[i] == b'(' && depth == 0
+        })?;
+        let name_end = mask[..params_open]
+            .iter()
+            .rposition(|b| !b.is_ascii_whitespace())
+            .map_or(0, |i| i + 1);
+        let name_start = ident_start(src, name_end);
+        let keyword_end = mask[..name_start]
+            .iter()
+            .rposition(|b| !b.is_ascii_whitespace())
+            .map_or(0, |i| i + 1);
+        let (name, from) = if &src[name_start..name_end] == "function" {
+            ("", name_start)
+        } else if src[..keyword_end].ends_with("function") {
+            (&src[name_start..name_end], keyword_end - "function".len())
+        } else {
+            continue;
+        };
+        let params = &src[params_open + 1..prev];
+        // An anonymous `function (x) {}` is just a lambda; a named one binds.
+        let head = if name.is_empty() {
+            format!("|{params}|")
+        } else {
+            format!("{name} = |{params}|")
+        };
+        return Some(BlockBody {
+            from,
+            head,
+            open,
+            close: matching_brace(mask, open)?,
+        });
+    }
+    None
+}
+
+/// Rewrite JavaScript function bodies written as a brace block into Koto's
+/// indented blocks:
+///
+/// ```text
+/// pat.withValue((v) => { const x = v.n; return x + 1 })
+///
+/// pat.withValue((v) =>
+///     x = v.n
+///     x + 1
+///   )
+/// ```
+///
+/// The closing bracket has to end up on a line of its own: Koto reads the
+/// indented lines as the function's body and will not let the enclosing call
+/// close on the body's last line. The body is indented two columns past the
+/// line the construct starts on, and everything after the `}` follows at that
+/// line's own indent, which is the shape Koto accepts for a block passed as an
+/// argument.
+///
+/// Runs before [`rewrite_arrow_functions`], which then sees an ordinary
+/// expression-bodied arrow and converts the parameters as usual. `function`
+/// declarations become plain assignments (`function f(a) {}` -> `f = |a|`).
+///
+/// ponytail: one construct per pass, repeated — nesting is at most a few deep
+/// in practice and the whole source is small.
+pub(super) fn rewrite_block_bodies(src: &str) -> String {
+    let mut current = src.to_string();
+    // Each round removes one `{`; that count is the ceiling.
+    for _ in 0..src.matches('{').count() {
+        let mask = code_mask(&current);
+        let Some(block) = find_block_body(&current, &mask) else {
+            break;
+        };
+        let line_start = current[..block.from].rfind('\n').map_or(0, |i| i + 1);
+        let indent = current[line_start..]
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .count();
+        let body = &current[block.open + 1..block.close];
+        let statements = body_statements(body);
+        let last = statements.len().saturating_sub(1);
+        let mut rendered = String::new();
+        for (i, stmt) in statements.iter().enumerate() {
+            rendered.push('\n');
+            rendered.push_str(&" ".repeat(indent + CONTINUATION_INDENT));
+            rendered.push_str(&koto_statement(stmt, i == last));
+        }
+        rendered.push('\n');
+        rendered.push_str(&" ".repeat(indent));
+        // The brackets that close the construct move onto the line just
+        // emitted, however many newlines the source left between them and the
+        // `}` — a blank line there would end the block early. Anything else
+        // after the `}` starts a statement of its own and keeps its lines.
+        let rest = &current[block.close + 1..];
+        let closers = rest.trim_start();
+        let rest = if closers.starts_with([')', ']', '}', ',', '.']) {
+            closers
+        } else {
+            rest.trim_start_matches([' ', '\t'])
+        };
+        current = format!("{}{}{}{rest}", &current[..block.from], block.head, rendered,);
+    }
+    current
+}
+
+/// Rewrite JavaScript's object spread into a call Koto can make:
+///
+/// ```text
+/// {...v, value: result}   ->   rudel_spread(v, {value: result})
+/// ```
+///
+/// Koto has no spread in a map declaration. `rudel_spread` copies the base map
+/// and lays the overrides on top, which is what the JS form means. Songs use it
+/// to return a hap value with one field replaced.
+///
+/// Only a spread that *opens* the literal is handled — the form every use in
+/// the wild takes, and the only one where "copy, then override" is the whole
+/// story.
+pub(super) fn rewrite_object_spreads(src: &str) -> String {
+    let mut current = src.to_string();
+    for _ in 0..src.matches("...").count() {
+        let mask = code_mask(&current);
+        let Some(open) =
+            (0..mask.len()).find(|&i| mask[i] == b'{' && mask[i + 1..].starts_with(b"..."))
+        else {
+            break;
+        };
+        let Some(close) = matching_brace(&mask, open) else {
+            break;
+        };
+        let inner = &current[open + 4..close];
+        // The spread base runs to the first comma outside brackets; whatever
+        // follows is the ordinary part of the literal.
+        let inner_mask = code_mask(inner);
+        let mut depth = 0i32;
+        let split = inner_mask
+            .iter()
+            .position(|&b| {
+                depth += bracket_delta(b);
+                depth == 0 && b == b','
+            })
+            .unwrap_or(inner.len());
+        let base = inner[..split].trim();
+        let overrides = inner[split.min(inner.len())..]
+            .trim_start_matches(',')
+            .trim();
+        current = format!(
+            "{}rudel_spread({base}, {{{overrides}}}){}",
+            &current[..open],
+            &current[close + 1..],
+        );
+    }
+    current
+}
+
+/// Fold a `{ ... }` map literal that is spread over several lines onto one.
+///
+/// Read `x.value` the way JavaScript does — the field if `x` is an object,
+/// `undefined` if it is not.
+///
+/// `hap.value` is Strudel's own name for a control map's payload, and helpers
+/// branch on it (`const isobj = v.value !== undefined`) to tell a plain note
+/// from a map of controls. Koto has no property access and errors on a field
+/// read against a string or list, so the test that was meant to *detect* the
+/// bare case is the thing that fails on it.
+///
+/// Only `value` is rewritten, and only when read as a property: `.value(`
+/// is a call and `.values` is a different name.
+pub(super) fn rewrite_value_property(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        let mut rest = text;
+        while let Some(at) = rest.find(".value") {
+            let after = &rest[at + ".value".len()..];
+            let receiver_start = ident_start(rest, at);
+            if after.starts_with('(') || after.starts_with(is_ident_char) || receiver_start == at {
+                out.push_str(&rest[..at + ".value".len()]);
+            } else {
+                out.push_str(&rest[..receiver_start]);
+                out.push_str(&format!(
+                    "rudel_prop({}, 'value')",
+                    &rest[receiver_start..at]
+                ));
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
+/// Turn JavaScript's `.length` *property* into the method call Koto needs.
+///
+/// `v.length` is how every JS helper asks how long a list or string is; Koto has
+/// no property access, so it has to become `v.length()`. A `.length(` that is
+/// already a call is left alone.
+pub(super) fn rewrite_length_property(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        let mut rest = text;
+        while let Some(at) = rest.find(".length") {
+            let after = &rest[at + ".length".len()..];
+            out.push_str(&rest[..at]);
+            // Not a property if a call already follows, or if the name runs on
+            // (`.lengthen`).
+            if after.starts_with('(') || after.starts_with(is_ident_char) {
+                out.push_str(".length");
+            } else {
+                out.push_str(".length()");
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
+/// Quote a map key that is written as a bare number.
+///
+/// JS object literals are keyed by number constantly — `{0: "...", 1: "..."}`
+/// is how songs name the sections a `pickRestart` selects between. Koto's map
+/// declaration takes an identifier or a string, so a numeric key is "expected
+/// '}' at end of map declaration" pointing at the key itself, which reads as a
+/// complaint about the brace instead. Quoting is faithful: JS object keys are
+/// strings too, and the pick lookup matches on the key's text.
+///
+/// Only a number in key position — right after the `{` or a `,` that opens an
+/// entry, and immediately followed by `:` — is touched.
+pub(super) fn quote_numeric_map_keys(src: &str) -> String {
+    if !src.contains('{') {
+        return src.to_string();
+    }
+    let mask = code_mask(src);
+    let mut out = String::with_capacity(src.len());
+    let mut depth = 0i32;
+    let mut i = 0usize;
+    while i < mask.len() {
+        let byte = mask[i];
+        match byte {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            _ => {}
+        }
+        out.push_str(&src[i..i + 1]);
+        i += 1;
+        if depth <= 0 || !matches!(byte, b'{' | b',') {
+            continue;
+        }
+        let blanks = mask[i..]
+            .iter()
+            // Newlines included: a JS object literal puts each entry on its own
+            // line, so the key rarely shares a line with the comma before it.
+            .take_while(|b| b.is_ascii_whitespace())
+            .count();
+        let key_start = i + blanks;
+        let key_len = mask[key_start..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit() || **b == b'.' || **b == b'-')
+            .count();
+        if key_len == 0 || mask.get(key_start + key_len) != Some(&b':') {
+            continue;
+        }
+        out.push_str(&src[i..key_start]);
+        out.push('\'');
+        out.push_str(&src[key_start..key_start + key_len]);
+        out.push('\'');
+        i = key_start + key_len;
     }
     out
 }
@@ -260,14 +708,45 @@ pub(super) fn rewrite_const_declarations(src: &str) -> String {
         .map(|line| {
             let indent_len = line.len() - line.trim_start().len();
             let (indent, rest) = line.split_at(indent_len);
-            if let Some(stripped) = rest.strip_prefix("const ") {
-                format!("{indent}{stripped}")
-            } else {
-                line.to_string()
+            // `let` is a Koto keyword too, but for a *typed* binding
+            // (`let x: Number = 1`), so a JS `let parts = {…}` parses as one
+            // and the map that follows is read as the type annotation.
+            match ["const ", "let ", "var "]
+                .iter()
+                .find_map(|kw| rest.strip_prefix(kw))
+            {
+                Some(stripped) => split_declarations(indent, stripped),
+                None => line.to_string(),
             }
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Break one JS declaration of several names — `const sk = 80, sh = silence` —
+/// into a line per name. Koto has no comma-separated binding, and reads the
+/// second name as another assignment target for the first value ("expected
+/// target for assignment"). Only commas outside brackets separate declarations;
+/// the ones inside a value's own list or map stay put.
+fn split_declarations(indent: &str, rest: &str) -> String {
+    let mask = code_mask(rest);
+    let mut depth = 0i32;
+    let mut out = String::with_capacity(rest.len());
+    let mut start = 0usize;
+    for (i, &byte) in mask.iter().enumerate() {
+        let delta = bracket_delta(byte);
+        if delta != 0 {
+            depth += delta;
+        } else if depth == 0 && byte == b',' {
+            out.push_str(indent);
+            out.push_str(rest[start..i].trim());
+            out.push('\n');
+            start = i + 1;
+        }
+    }
+    out.push_str(indent);
+    out.push_str(rest[start..].trim_start());
+    out
 }
 
 fn normalize_string_literal(literal: &str) -> String {
@@ -378,6 +857,272 @@ pub(super) fn hoist_leading_commas(src: &str) -> String {
     lines.join("\n")
 }
 
+/// Bracket characters, as `(opens, closes)`.
+fn bracket_delta(byte: u8) -> i32 {
+    match byte {
+        b'(' | b'[' | b'{' => 1,
+        b')' | b']' | b'}' => -1,
+        _ => 0,
+    }
+}
+
+/// Start of the expression the `?` at `at` tests, scanning left through the
+/// masked source. Brackets are skipped whole; the first thing at the outer
+/// level that cannot be part of an expression ends the walk.
+fn condition_start(mask: &[u8], at: usize) -> usize {
+    let mut depth = 0i32;
+    let mut i = at;
+    while i > 0 {
+        i -= 1;
+        let byte = mask[i];
+        let closing = matches!(byte, b')' | b']' | b'}');
+        if closing {
+            depth += 1;
+            continue;
+        }
+        if bracket_delta(byte) > 0 {
+            if depth == 0 {
+                return i + 1;
+            }
+            depth -= 1;
+            continue;
+        }
+        if depth > 0 {
+            continue;
+        }
+        let boundary = match byte {
+            b',' | b';' | b'?' | b':' | b'\n' => true,
+            // The `>` of a `=>`; a comparison `>` has no `=` before it.
+            b'>' => i > 0 && mask[i - 1] == b'=',
+            // A plain assignment, not `==`, `!=`, `<=`, `>=` or `=>`.
+            b'=' => {
+                !matches!(mask.get(i.wrapping_sub(1)), Some(b'=' | b'!' | b'<' | b'>'))
+                    && mask.get(i + 1) != Some(&b'=')
+            }
+            _ => false,
+        };
+        if boundary {
+            return i + 1;
+        }
+    }
+    0
+}
+
+/// The `:` belonging to the `?` at `at`, skipping bracketed groups and the
+/// colons of any ternary nested in the true branch.
+fn matching_colon(mask: &[u8], at: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut nested = 0usize;
+    for (i, &byte) in mask.iter().enumerate().skip(at + 1) {
+        let delta = bracket_delta(byte);
+        if delta != 0 {
+            depth += delta;
+            if depth < 0 {
+                return None;
+            }
+            continue;
+        }
+        if depth > 0 {
+            continue;
+        }
+        match byte {
+            b'?' => nested += 1,
+            b':' if nested == 0 => return Some(i),
+            b':' => nested -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Just past the else branch that starts after the `:` at `at`.
+fn else_end(mask: &[u8], at: usize) -> usize {
+    let mut depth = 0i32;
+    let mut nested = 0usize;
+    for (i, &byte) in mask.iter().enumerate().skip(at + 1) {
+        let delta = bracket_delta(byte);
+        if delta != 0 {
+            depth += delta;
+            if depth < 0 {
+                return i;
+            }
+            continue;
+        }
+        if depth > 0 {
+            continue;
+        }
+        match byte {
+            b',' | b';' | b'\n' => return i,
+            b'?' => nested += 1,
+            b':' if nested == 0 => return i,
+            b':' => nested -= 1,
+            _ => {}
+        }
+    }
+    mask.len()
+}
+
+/// Rewrite JavaScript's conditional operator into Koto's `if`/`then`/`else`
+/// expression:
+///
+/// ```text
+/// v.endsWith('m') ? [v, 'minor'] : [v, 'major']
+/// (if v.endsWith('m') then [v, 'minor'] else [v, 'major'])
+/// ```
+///
+/// The result is parenthesised so it stays a single operand wherever the
+/// ternary was — inside an argument list, an array, or a longer chain.
+///
+/// The *last* `?` is rewritten first and the pass repeats, which is what makes
+/// nesting work without tracking it: a ternary nested in another's condition or
+/// branches always sits to the right of, or inside brackets belonging to, an
+/// unprocessed one, so by the time an outer `?` is reached its parts are plain
+/// expressions again. `return` is the one keyword that can sit directly left of
+/// a condition and be swallowed by it, so it is put back.
+pub(super) fn rewrite_ternaries(src: &str) -> String {
+    let mut current = src.to_string();
+    // Each round consumes one `?`; the count in the original is the ceiling.
+    for _ in 0..src.matches('?').count() {
+        let mask = code_mask(&current);
+        let Some(at) = mask.iter().rposition(|&b| b == b'?') else {
+            break;
+        };
+        let Some(colon) = matching_colon(&mask, at) else {
+            break;
+        };
+        let mut start = condition_start(&mask, at);
+        let end = else_end(&mask, colon);
+        // `return x ? y : z` — the condition is `x`, not `return x`.
+        for keyword in ["return", "then", "else"] {
+            let head = current[start..at].trim_start();
+            if let Some(rest) = head.strip_prefix(keyword)
+                && rest.starts_with(|c: char| c.is_whitespace() || c == '(')
+            {
+                start = at - rest.len();
+            }
+        }
+        current = format!(
+            "{}(if {} then {} else {}){}",
+            &current[..start],
+            current[start..at].trim(),
+            current[at + 1..colon].trim(),
+            current[colon + 1..end].trim(),
+            &current[end..],
+        );
+    }
+    current
+}
+
+/// The last significant character of each line, ignoring blanks — a `"` stands
+/// in for any string literal and `/` for a comment, so a line ending inside one
+/// is never mistaken for a line ending in code. Lines with nothing on them get
+/// `None`. Shared by the two joining passes below.
+fn line_tails(src: &str) -> Vec<Option<char>> {
+    let mut tails = vec![None; src.split('\n').count()];
+    let mut line = 0usize;
+    for (kind, start, end) in chunks(src) {
+        for c in src[start..end].chars() {
+            if c == '\n' {
+                line += 1;
+            } else if !c.is_whitespace() {
+                tails[line] = Some(match kind {
+                    Chunk::Code => c,
+                    Chunk::Str => '"',
+                    _ => '/',
+                });
+            }
+        }
+    }
+    tails
+}
+
+/// Join a line whose code ends in `=` or `=>` onto the next one.
+///
+/// Songs write a long map or array on the lines *after* the assignment, and an
+/// arrow function's body on the line after its parameters:
+///
+/// ```text
+/// const fingering =
+/// {o:"x:x:x", g:"3:x:x"}
+///
+/// register('toscale', (pat) => pat.withValue((v) =>
+///   v.endsWith('m') ? [...] : [...]))
+/// ```
+///
+/// JS does not care where the value starts; Koto ends the statement at the
+/// newline. For `=` that is "expected expression after assignment operator"
+/// against a line that looks complete. For `=>` it is worse: the body becomes
+/// an *indented block*, which Koto will not let the enclosing call close on the
+/// body's own line (`... 'major']))` — one `)` too many), so the error lands on
+/// a paren that is perfectly balanced. Joining sidesteps both.
+///
+/// `==`, `!=`, `<=` and `>=` are comparisons, not assignments, and are left
+/// alone — as is a line ending in `=` inside a string or comment, which
+/// `line_tails` already distinguishes.
+pub(super) fn join_dangling_operators(src: &str) -> String {
+    let tails = line_tails(src);
+    let mut lines: Vec<String> = src.split('\n').map(str::to_string).collect();
+    // Back to front, so joining does not invalidate the indices still to come.
+    for i in (0..lines.len().saturating_sub(1)).rev() {
+        if !matches!(tails[i], Some('=') | Some('>')) {
+            continue;
+        }
+        let code = lines[i].trim_end().to_string();
+        let dangling = if tails[i] == Some('>') {
+            code.ends_with("=>")
+        } else {
+            !["==", "<=", ">=", "!="].iter().any(|op| code.ends_with(op))
+        };
+        if !dangling {
+            continue;
+        }
+        // Blank lines between the `=` and its value go with it.
+        let Some(value) = (i + 1..lines.len()).find(|&j| !lines[j].trim().is_empty()) else {
+            continue;
+        };
+        let next = lines.drain(i + 1..=value).next_back().unwrap_or_default();
+        lines[i] = format!("{code} {}", next.trim_start());
+    }
+    lines.join("\n")
+}
+
+/// Drop a `;` that ends a line. JS statements may carry one; Koto has no
+/// statement terminator and reads it as a stray token — and once a `.`
+/// continuation has been folded onto the line above, the `;` lands *inside* the
+/// call being closed (`.gain(0.3);)`), so the error names the paren instead.
+/// A `;` with code after it separates two statements and is left for
+/// [`rewrite_block_bodies`] to split, since only there is the indent known.
+pub(super) fn strip_trailing_semicolons(src: &str) -> String {
+    if !src.contains(';') {
+        return src.to_string();
+    }
+    let tails = line_tails(src);
+    let mut out = String::with_capacity(src.len());
+    let mut line = 0usize;
+    for (kind, start, end) in chunks(src) {
+        for (offset, c) in src[start..end].char_indices() {
+            // Only the *last* `;` on the line is the terminator; `tails` says
+            // this line ends in one, so it is this `;` if nothing but blanks
+            // follow it before the newline.
+            if kind == Chunk::Code
+                && c == ';'
+                && tails[line] == Some(';')
+                && src[start + offset + 1..]
+                    .chars()
+                    .take_while(|&c| c != '\n')
+                    .all(char::is_whitespace)
+            {
+                continue;
+            }
+            if c == '\n' {
+                line += 1;
+            }
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Extra indentation added to a `.`-continuation line, in spaces.
 const CONTINUATION_INDENT: usize = 2;
 
@@ -470,6 +1215,17 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
             // unless the chunk itself ended it.
             line_blank = text.ends_with('\n');
             indent = 0;
+            // A *template literal* spans lines, so the line now being emitted
+            // began inside it: its content starts at column zero and it opened
+            // no bracket. Leaving the previous line's numbers in place here is
+            // what made a `.`-continuation after a multi-line literal get
+            // measured against a line several above it, and land at a column
+            // Koto reads as the end of the argument list.
+            if text.contains('\n') {
+                line_col = 0;
+                previous_depth = depth;
+                previous_began_closing = false;
+            }
             continue;
         }
         for c in text.chars() {
@@ -481,8 +1237,15 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
             {
                 // Joined: this line *is* the previous one now, so it keeps that
                 // line's column and none of the indentation machinery applies.
+                //
+                // `previous_depth` deliberately stays where it was. The line
+                // just joined onto still *ends* a call opened several lines up,
+                // so a second `.` line after it needs joining for the same
+                // reason the first did — resetting it here left the second one
+                // stranded on its own line, which Koto reads as the end of the
+                // argument list (`"0 1"\n.chord(…)\n.s(…)` — the shape a tune
+                // writes when a chain gets long).
                 changed = true;
-                previous_depth = depth;
                 out.push(c);
                 indent = 0;
                 line_blank = false;

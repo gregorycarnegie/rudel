@@ -13,6 +13,26 @@ pub(super) struct CallInfo {
     pub args: Vec<(usize, usize)>,
 }
 
+/// `src`'s bytes with every non-code byte flattened to `_` (newlines kept), so
+/// a pass can scan one expression across the string literals inside it without
+/// seeing their contents. Indices line up with `src` byte for byte, and every
+/// structural character a pass branches on is ASCII, so a position found in the
+/// mask is always a character boundary in `src`.
+pub(super) fn code_mask(src: &str) -> Vec<u8> {
+    let mut mask = src.as_bytes().to_vec();
+    for (kind, start, end) in chunks(src) {
+        if kind == Chunk::Code {
+            continue;
+        }
+        for byte in &mut mask[start..end] {
+            if *byte != b'\n' {
+                *byte = b'_';
+            }
+        }
+    }
+    mask
+}
+
 pub(super) fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }

@@ -619,3 +619,109 @@ fn computed_widget_options_reach_the_widget_config() {
     let plain = crate::eval_result(r#"note("c")._pianoroll()"#).expect("eval");
     assert!(plain.meta.widgets[0].options.is_empty());
 }
+
+// --- JavaScript constructs the songs corpus leans on -------------------------
+//
+// Each of these is a whole cluster of real scripts that would not evaluate
+// without it, so the assertions pin the *shape* of the emitted Koto rather than
+// just "it parses" — a pass that quietly stops firing still produces valid Koto,
+// and only the shape says whether the construct survived.
+
+#[test]
+fn a_ternary_becomes_a_parenthesised_if_expression() {
+    assert_eq!(
+        preprocess_strudel("f(a ? b : c)"),
+        "f((if a then b else c))"
+    );
+    // Nested in both branches, and in the condition.
+    assert_eq!(
+        preprocess_strudel("f(a ? (b ? c : d) : e)"),
+        "f((if a then ((if b then c else d)) else e))"
+    );
+    assert_eq!(
+        preprocess_strudel("f(a ? b : c ? d : e)"),
+        "f((if a then b else (if c then d else e)))"
+    );
+    // `return` is a statement keyword, not part of the condition.
+    assert_eq!(
+        preprocess_strudel("f(x => { return a ? b : c })"),
+        "f(|x|
+  (if a then b else c)
+)"
+    );
+    // A `?` inside a string is pattern text; the string becomes `m(literal, n)`.
+    assert!(preprocess_strudel(r#"s("a?b")"#).contains(r#"m("a?b""#));
+}
+
+#[test]
+fn a_block_bodied_arrow_becomes_an_indented_koto_block() {
+    // The closing bracket has to end up on its own line: Koto will not let the
+    // enclosing call close on the body's last line.
+    assert_eq!(
+        preprocess_strudel("f(x => { const a = 1; return a })"),
+        "f(|x|\n  a = 1\n  a\n)"
+    );
+    // `if (c) stmt` takes Koto's `then`, and a non-tail `return` stays.
+    assert_eq!(
+        preprocess_strudel("f(x => { if(x) return 1; return 2 })"),
+        "f(|x|\n  if x then return 1\n  2\n)"
+    );
+    // A `function` declaration binds its name.
+    assert_eq!(
+        preprocess_strudel("function arr(p, l) { return [l, p] }"),
+        "arr = |p, l|\n  [l, p]"
+    );
+}
+
+#[test]
+fn line_continuations_that_koto_would_end_at_the_newline_are_joined() {
+    // A value on the line after `=`...
+    assert_eq!(preprocess_strudel("const x =\n  [1, 2]"), "x = [1, 2]");
+    // ...and an arrow body on the line after `=>`. Left on its own line the
+    // body becomes an indented block, which the enclosing `)` cannot close.
+    assert_eq!(preprocess_strudel("f((v) =>\n  v)"), "f(|v| v)");
+    // A comparison is not an assignment.
+    assert_eq!(preprocess_strudel("a ==\nb"), "a ==\nb");
+}
+
+#[test]
+fn js_operators_and_punctuation_take_their_koto_spelling() {
+    assert_eq!(preprocess_strudel("f(a && b || !c)"), "f(a and b or not c)");
+    assert_eq!(preprocess_strudel("f(a != b)"), "f(a != b)");
+    // A trailing `;` is dropped; `!` inside mini-notation is replication.
+    assert_eq!(preprocess_strudel("f(1);"), "f(1)");
+    assert!(preprocess_strudel(r#"s("bd!4")"#).contains("bd!4"));
+}
+
+#[test]
+fn js_object_and_declaration_forms_become_koto_ones() {
+    // Numeric keys have to be quoted; Koto's map declaration takes a name.
+    assert_eq!(
+        preprocess_strudel("x = {0: a, 1: b}"),
+        "x = {'0': a, '1': b}"
+    );
+    // Spread has no Koto syntax, so it becomes a merge call.
+    assert_eq!(
+        preprocess_strudel("x = {...v, n: 1}"),
+        "x = rudel_spread(v, {n: 1})"
+    );
+    // One declaration per name.
+    assert_eq!(preprocess_strudel("const a = 1, b = 2"), "a = 1\nb = 2");
+    // A comma inside the value is not a separator.
+    assert_eq!(preprocess_strudel("const a = [1, 2]"), "a = [1, 2]");
+}
+
+#[test]
+fn js_properties_become_the_calls_koto_needs() {
+    assert_eq!(preprocess_strudel("f(v.length)"), "f(v.length())");
+    // Already a call, or a longer name: left alone.
+    assert_eq!(preprocess_strudel("f(v.length(1))"), "f(v.length(1))");
+    assert_eq!(preprocess_strudel("f(v.lengthen)"), "f(v.lengthen)");
+    // `.value` reads as JS does — absent rather than an error — so a helper can
+    // test it to tell a control map from a bare value.
+    assert_eq!(
+        preprocess_strudel("f(v.value)"),
+        "f(rudel_prop(v, 'value'))"
+    );
+    assert_eq!(preprocess_strudel("f(v.value(1))"), "f(v.value(1))");
+}

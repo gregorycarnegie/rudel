@@ -1,18 +1,36 @@
 use super::scanner::{Chunk, chunks};
 
-/// How far `line` opens or closes brackets, counting only code — a bracket in a
-/// string or a comment is text.
-fn delimiter_delta(line: &str) -> i64 {
-    chunks(line)
-        .into_iter()
-        .filter(|(kind, _, _)| *kind == Chunk::Code)
-        .flat_map(|(_, start, end)| line[start..end].chars())
-        .map(|c| match c {
-            '(' | '[' | '{' => 1,
-            ')' | ']' | '}' => -1,
-            _ => 0,
-        })
-        .sum()
+/// Per line: how far it opens or closes brackets counting only code, and
+/// whether it *begins* inside a string or block comment.
+///
+/// Scanned over the whole source rather than line by line, because a template
+/// literal spans lines: scanning one of its lines alone sees the closing quote
+/// as an opening one, and every bracket after it disappears into a string that
+/// is not there. That miscount is what let a `$:` label swallow the rest of a
+/// file — the depth never came back to zero, so no later line could end it.
+fn line_shape(src: &str) -> Vec<(i64, bool)> {
+    let mut shape = vec![(0i64, false); src.split('\n').count()];
+    let mut line = 0usize;
+    for (kind, start, end) in chunks(src) {
+        let code = kind == Chunk::Code;
+        for c in src[start..end].chars() {
+            if c == '\n' {
+                line += 1;
+                // A chunk that has not ended by this newline continues onto the
+                // next line, which is therefore inside it.
+                shape[line].1 = !code;
+                continue;
+            }
+            if code {
+                shape[line].0 += match c {
+                    '(' | '[' | '{' => 1,
+                    ')' | ']' | '}' => -1,
+                    _ => 0,
+                };
+            }
+        }
+    }
+    shape
 }
 
 fn label_at_line(line: &str) -> Option<(String, String)> {
@@ -63,6 +81,11 @@ fn sanitize_label(name: &str) -> String {
 
 pub(super) fn rewrite_labels(src: &str) -> String {
     let lines: Vec<&str> = src.lines().collect();
+    let shape = line_shape(src);
+    let delta = |i: usize| shape.get(i).map_or(0, |s| s.0);
+    // A line that begins inside a template literal is that literal's text, not
+    // a statement: it can neither carry a label nor end one.
+    let in_string = |i: usize| shape.get(i).is_some_and(|s| s.1);
     let mut out = Vec::new();
     let mut labels = Vec::new();
     let mut i = 0;
@@ -71,24 +94,24 @@ pub(super) fn rewrite_labels(src: &str) -> String {
     // keys at column 0 exactly like a label.
     let mut open = 0i64;
     while i < lines.len() {
-        let label = if open == 0 {
+        let label = if open == 0 && !in_string(i) {
             label_at_line(lines[i])
         } else {
             None
         };
         let Some((name, rest)) = label else {
-            open += delimiter_delta(lines[i]);
+            open += delta(i);
             out.push(lines[i].to_string());
             i += 1;
             continue;
         };
 
         let mut expr_lines = vec![rest];
-        let mut depth = delimiter_delta(expr_lines[0].as_str());
+        let mut depth = delta(i);
         i += 1;
         while i < lines.len() {
             let line = lines[i];
-            if depth <= 0 {
+            if depth <= 0 && !in_string(i) {
                 if line.trim().is_empty() {
                     i += 1;
                     break;
@@ -98,7 +121,7 @@ pub(super) fn rewrite_labels(src: &str) -> String {
                 }
             }
             expr_lines.push(line.to_string());
-            depth += delimiter_delta(line);
+            depth += delta(i);
             i += 1;
         }
 
@@ -247,17 +270,39 @@ mod tests {
     }
 
     #[test]
-    fn delimiter_delta_counts_only_code_brackets() {
-        assert_eq!(delimiter_delta("f("), 1);
-        assert_eq!(delimiter_delta("f()"), 0);
-        assert_eq!(delimiter_delta(")"), -1);
-        assert_eq!(delimiter_delta("[{("), 3);
+    fn line_shape_counts_only_code_brackets() {
+        let delta = |src: &str| line_shape(src)[0].0;
+        assert_eq!(delta("f("), 1);
+        assert_eq!(delta("f()"), 0);
+        assert_eq!(delta(")"), -1);
+        assert_eq!(delta("[{("), 3);
         // Brackets quoted or commented are text.
-        assert_eq!(delimiter_delta(r#"s("([{")"#), 0);
-        assert_eq!(delimiter_delta("f() // ((("), 0);
-        assert_eq!(delimiter_delta("f() /* ((( */"), 0);
+        assert_eq!(delta(r#"s("([{")"#), 0);
+        assert_eq!(delta("f() // ((("), 0);
+        assert_eq!(delta("f() /* ((( */"), 0);
         // Nothing at all is a flat line.
-        assert_eq!(delimiter_delta("plain text"), 0);
+        assert_eq!(delta("plain text"), 0);
+    }
+
+    #[test]
+    fn a_multi_line_string_hides_its_brackets_from_every_line_it_covers() {
+        // Counting one line at a time reads the literal's *closing* quote as an
+        // opening one, so the `))` after it vanish into a string that is not
+        // there and the label runs away with the rest of the file.
+        let shape = line_shape("a: n(`<0 1\n  2)))>`)\nb: s(\"bd\")");
+        assert_eq!(shape[0].0, 1, "only `n(`; the rest of the line is literal");
+        assert_eq!(
+            shape[1].0, -1,
+            "only the real `)` counts, not the three inside"
+        );
+        assert!(shape[1].1, "the second line begins inside the literal");
+        assert!(!shape[2].1, "the third does not");
+
+        let out = rewrite_labels("a: n(`<0 1\n  2>`)\nb: s(\"bd\")");
+        assert!(
+            out.contains("rudel_label_1_b = "),
+            "the second label survives: {out}"
+        );
     }
 
     #[test]

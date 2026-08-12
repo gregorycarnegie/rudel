@@ -169,6 +169,9 @@ pub(crate) fn register(prelude: &KMap) {
     // Make every rudel-core control available as a KPattern method (a
     // process-wide one-time extension of the generated method map).
     super::pattern::extend_control_entries();
+    // The JS builtins helper functions call on plain values (`Array.isArray`,
+    // `arr.map`, `s.endsWith`).
+    super::js::register_js_builtins(prelude);
     let math = KMap::new();
     math.add_fn("pow", |ctx| {
         let base = super::pattern::arg_to_f64(&arg0(ctx));
@@ -431,6 +434,47 @@ pub(crate) fn register(prelude: &KMap) {
     // tune that upstream runs identically without it. Dinofunk pins that in
     // `tunes.rs`, matching Strudel's own haps with the call ignored.
     prelude.add_fn("setVoicingRange", |_| {
+        Ok(KPattern(rudel_core::silence()).into())
+    });
+    // `setDefaultVoicings(name)` (tonal/voicings.mjs) picks the dictionary a
+    // later bare `.voicing()` reads. Process-global upstream and here; songs
+    // call it once at the top.
+    // `rudel_spread(base, overrides)` backs the preprocessor's rewrite of JS
+    // object spread (`{...v, value: x}`), which Koto's map declaration has no
+    // syntax for. A non-map base has nothing to copy, so the overrides stand
+    // alone — the same as JS spreading a primitive.
+    prelude.add_fn("rudel_spread", |ctx| {
+        let args = ctx.args();
+        let merged = match args.first() {
+            Some(KValue::Map(base)) => KMap::with_data(base.data().clone()),
+            _ => KMap::new(),
+        };
+        if let Some(KValue::Map(overrides)) = args.get(1) {
+            for (key, value) in overrides.data().iter() {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+        Ok(KValue::Map(merged))
+    });
+    // `register(name, fn)` (core/pattern.mjs) defines a new pattern method,
+    // with the pattern as the callback's last argument. Returns the function,
+    // as upstream does, so `const f = register(...)` still binds something.
+    prelude.add_fn("register", |ctx| {
+        let args = ctx.args();
+        let (Some(name), Some(func)) = (args.first().map(arg_to_raw_str), args.get(1).cloned())
+        else {
+            return koto::runtime::runtime_error!("register(name, fn) needs a name and a function");
+        };
+        let Some(name) = name else {
+            return koto::runtime::runtime_error!("register(name, fn): name must be a string");
+        };
+        super::pattern::register_pattern_method(&name, func.clone());
+        Ok(func)
+    });
+    prelude.add_fn("setDefaultVoicings", |ctx| {
+        if let Some(dict) = arg_to_raw_str(&arg0(ctx)) {
+            rudel_core::voicing::set_default_voicings(dict);
+        }
         Ok(KPattern(rudel_core::silence()).into())
     });
     // `mini(x)` / `m(x)` parse mini-notation, which `arg_to_pattern` already

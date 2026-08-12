@@ -1,3 +1,4 @@
+mod js;
 mod pattern;
 mod prelude;
 mod routing;

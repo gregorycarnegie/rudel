@@ -364,6 +364,12 @@ kpattern_methods! {
         hush,
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil, log2,
         to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
+        // The joins: a pattern whose *values* are patterns is flattened by
+        // one of these. Reachable because a Koto callback returning a
+        // pattern already converts to `Value::Pat`, so `fmap(v => …).innerJoin()`
+        // — the shape a `register`ed helper is written in — works with no
+        // Koto in the query path.
+        inner_join, outer_join, squeeze_join, join,
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles,
@@ -393,7 +399,9 @@ kpattern_methods! {
         layer => kpattern_layer,
         #[koto_method]
         superimpose => kpattern_superimpose,
-        #[koto_method]
+        // `withValue` is Strudel's own name for `fmap` (core/pattern.mjs binds
+        // both to the same function); songs in the wild use it more than `fmap`.
+        #[koto_method(alias = "withValue")]
         fmap => kpattern_fmap,
         #[koto_method]
         tour => kpattern_tour,
@@ -423,6 +431,8 @@ kpattern_methods! {
         soundfont => kpattern_soundfont,
         #[koto_method]
         filter => kpattern_filter,
+        #[koto_method(alias = "filterValues")]
+        filter_values => kpattern_filter_values,
         #[koto_method(alias = "filterWhen")]
         filter_when => kpattern_filter_when,
         #[koto_method(alias = "keyDown")]
@@ -616,7 +626,10 @@ kpattern_methods! {
     ],
     camel_pattern_pattern: [moveXY => move_xy],
     camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
-    camel_no_arg: [toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert],
+    camel_no_arg: [
+        toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert,
+        innerJoin => inner_join, outerJoin => outer_join, squeezeJoin => squeeze_join,
+    ],
     camel_noarg_fn: [
         someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never,
         juxFlip => jux_flip, flux => jux_flip,

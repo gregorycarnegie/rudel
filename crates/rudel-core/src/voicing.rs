@@ -19,6 +19,7 @@ use crate::{
     value::{Value, ValueMap},
 };
 use dictionaries::dictionary;
+use std::sync::{LazyLock, RwLock};
 
 /// How a voicing is aligned to the anchor note.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -125,10 +126,25 @@ struct VoicingOpts {
     octaves: i32,
 }
 
+/// The dictionary `.voicing()` uses when the hap names none, as
+/// `setDefaultVoicings(name)` last left it (tonal/voicings.mjs `defaultDict`).
+/// Process-global because upstream's is too — a script sets it once at the top
+/// and every later `.voicing()` reads it.
+static DEFAULT_DICT: LazyLock<RwLock<String>> = LazyLock::new(|| RwLock::new("ireal".to_string()));
+
+/// `setDefaultVoicings(name)`.
+pub fn set_default_voicings(dict: impl Into<String>) {
+    *DEFAULT_DICT.write().unwrap() = dict.into();
+}
+
+fn default_dict() -> String {
+    DEFAULT_DICT.read().unwrap().clone()
+}
+
 impl Default for VoicingOpts {
     fn default() -> Self {
         VoicingOpts {
-            dict: "ireal".to_string(),
+            dict: default_dict(),
             offset: 0,
             n: None,
             mode: None,

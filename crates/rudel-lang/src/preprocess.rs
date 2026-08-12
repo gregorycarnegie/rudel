@@ -12,10 +12,13 @@ pub(crate) use mondo::looks_like_mondo;
 use mondo::rewrite_mondo_templates;
 use std::collections::BTreeMap;
 use syntax::{
-    hoist_leading_commas, indent_dot_continuations, rewrite_alignment_getters,
-    rewrite_arrow_functions, rewrite_const_declarations, rewrite_leading_dot_numbers,
-    rewrite_strict_equality, rewrite_string_method_chains, rewrite_tagged_templates, strip_await,
-    strip_line_comments,
+    hoist_leading_commas, indent_dot_continuations, join_dangling_operators,
+    quote_numeric_map_keys, rewrite_alignment_getters, rewrite_arrow_functions,
+    rewrite_block_bodies, rewrite_const_declarations, rewrite_leading_dot_numbers,
+    rewrite_length_property, rewrite_logical_operators, rewrite_object_spreads,
+    rewrite_strict_equality, rewrite_string_method_chains, rewrite_tagged_templates,
+    rewrite_ternaries, rewrite_value_property, strip_await, strip_line_comments,
+    strip_trailing_semicolons,
 };
 use widgets::rewrite_editor_widgets_with_context;
 
@@ -67,10 +70,19 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = rewrite_tagged_templates(&script);
     let script = rewrite_leading_dot_numbers(&script);
     let script = rewrite_strict_equality(&script);
+    let script = rewrite_logical_operators(&script);
+    let script = rewrite_length_property(&script);
+    let script = rewrite_value_property(&script);
+    let script = strip_trailing_semicolons(&script);
+    let script = join_dangling_operators(&script);
+    let script = rewrite_ternaries(&script);
+    let script = rewrite_block_bodies(&script);
+    let script = rewrite_const_declarations(&script);
+    let script = rewrite_object_spreads(&script);
+    let script = quote_numeric_map_keys(&script);
     let script = rewrite_alignment_getters(&script);
     let script = strip_await(&script);
     let script = rewrite_arrow_functions(&script);
-    let script = rewrite_const_declarations(&script);
     let script = rewrite_string_method_chains(&script);
     let script = hoist_leading_commas(&script);
     let script = indent_dot_continuations(&script);

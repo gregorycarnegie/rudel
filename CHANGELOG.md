@@ -22,6 +22,44 @@ This file starts at 0.7.0. Earlier history is in the git log.
   cannot act — cut and copy with no selection, paste with an empty clipboard —
   are greyed rather than silently doing nothing.
 
+### Fixed
+
+- **Songs written in real Strudel evaluate.** Measured against
+  [eefano/strudel-songs-collection](https://github.com/eefano/strudel-songs-collection),
+  88 complete songs rather than doc snippets: **16 of them evaluated, now 70**.
+  `crates/rudel-lang/examples/songs.rs` is the harness
+  (`cargo run --release -p rudel-lang --example songs -- <dir>`); a single file
+  argument prints the whole Koto error with its line and column.
+
+  Most of what it found was Rudel's, not JavaScript's:
+
+  - `register(name, fn)` — the way a script defines its own pattern method, and
+    the first line of about a quarter of the corpus — was not bound at all. It
+    now inserts into the same method map the controls use, so the pattern
+    arrives last exactly as upstream passes it.
+  - The `$:` label rewriter counted brackets a line at a time. A template
+    literal spans lines, so scanning one of its lines alone read the closing
+    backtick as an opening one and lost every bracket after it; the label then
+    ran to the end of the file. It scans the whole source now.
+  - A `.` continuation joined onto the line above stopped a *second* one from
+    joining, which left it stranded on its own line — where Koto ends the
+    argument list. This is the shape a tune writes whenever a chain gets long.
+  - `innerJoin` / `outerJoin` / `squeezeJoin` are reachable after all. A Koto
+    callback returning a pattern already converts to a pattern-valued hap, so
+    the joins need no Koto in the query path — only the binding was missing.
+  - `let x = …` parsed as Koto's *typed* binding, so the value that followed
+    was read as a type annotation. `let` and `var` are stripped like `const`.
+  - `setDefaultVoicings`, `withValue`, `filterValues`.
+
+  And the JavaScript the preprocessor did not read: the conditional operator,
+  brace-bodied arrow and `function` bodies, `&&`/`||`/`!`, object spread,
+  numeric object keys, `.length` and `.value`, comma-separated declarations, a
+  value or arrow body on the line after its `=` or `=>`, and trailing `;`.
+
+- Two allowlisted documentation examples (`seed`, `onTriggerTime`) run now —
+  both were only ever blocked by syntax the above adds — and are no longer
+  allowlisted.
+
 ## [0.10.1] — 2026-08-10
 
 A release about a test that was asking the wrong question. Every example on

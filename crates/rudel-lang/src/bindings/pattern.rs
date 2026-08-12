@@ -155,3 +155,35 @@ fn control_method_call(
         _ => runtime_error!(ErrorKind::UnexpectedError),
     }
 }
+
+/// Bind `name` as a pattern method that calls the Koto function `func` with the
+/// method's own arguments followed by the pattern — Strudel's
+/// `register(name, (...args, pat) => ...)` convention, where the pattern is
+/// always last.
+///
+/// Songs in the wild lean on this heavily to define helpers (`split`, `gString`,
+/// `ati`), so without it a script fails at its first line. The entry goes into
+/// the same shared method map the controls use, which means a registration
+/// outlives the evaluation that made it — as it does in Strudel, where the
+/// method is patched onto `Pattern.prototype`.
+///
+/// ponytail: no arity or type checking, and a registration is never removed —
+/// the Koto call reports its own errors. Track registrations per evaluation if
+/// stale names from a previous script ever cause confusion.
+pub(crate) fn register_pattern_method(name: &str, func: KValue) {
+    let Some(entries) = KPattern(rudel_core::silence()).entries() else {
+        return;
+    };
+    entries.insert(
+        name,
+        KValue::NativeFunction(KNativeFunction::new(move |ctx: &mut CallContext| {
+            let (instance, extra) =
+                ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())?;
+            let mut args: Vec<KValue> = extra.to_vec();
+            args.push(instance.clone());
+            ctx.vm
+                .spawn_shared_vm()
+                .call_function(func.clone(), CallArgs::Separate(&args))
+        })),
+    );
+}
