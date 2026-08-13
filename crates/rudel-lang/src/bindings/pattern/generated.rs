@@ -4,7 +4,10 @@ use super::{
     KPattern,
     args::*,
     callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64},
-    engine::{kpattern_query, kpattern_sort_haps_by_part, kpattern_split_queries},
+    engine::{
+        kpattern_compress_span, kpattern_focus_span, kpattern_query, kpattern_sort_haps_by_part,
+        kpattern_split_queries, kpattern_zoom_arc,
+    },
     methods::*,
 };
 use koto::{derive::*, prelude::*, runtime::Result as KotoResult};
@@ -408,6 +411,14 @@ kpattern_methods! {
         split_queries => kpattern_split_queries,
         #[koto_method(alias = "sortHapsByPart")]
         sort_haps_by_part => kpattern_sort_haps_by_part,
+        // The span-object forms of compress/focus/zoom, reachable now that a
+        // script can build a `TimeSpan`.
+        #[koto_method(alias = "compressSpan", alias = "compressspan")]
+        compress_span => kpattern_compress_span,
+        #[koto_method(alias = "focusSpan", alias = "focusspan")]
+        focus_span => kpattern_focus_span,
+        #[koto_method(alias = "zoomArc", alias = "zoomarc")]
+        zoom_arc => kpattern_zoom_arc,
         #[koto_method]
         layer => kpattern_layer,
         #[koto_method]

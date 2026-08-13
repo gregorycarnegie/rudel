@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 618 | 605 | 13 | 0 | 0 |
+| `core` | 618 | 611 | 7 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **644** | **65** | **0** | **0** |
+| **Total** | **709** | **650** | **59** | **0** | **0** |
 
 ## `codemirror`
 
@@ -136,13 +136,13 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `colour` | implemented |  |
 | `comb` | implemented |  |
 | `compress` | implemented |  |
-| `compressSpan` | intentional | span arg internal |
+| `compressSpan` | implemented |  |
 | `compressor` | implemented |  |
 | `compressorAttack` | implemented |  |
 | `compressorKnee` | implemented |  |
 | `compressorRatio` | implemented |  |
 | `compressorRelease` | implemented |  |
-| `compressspan` | intentional | span arg internal |
+| `compressspan` | implemented |  |
 | `control` | implemented |  |
 | `cpm` | implemented |  |
 | `cps` | implemented |  |
@@ -250,8 +250,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `fmsustain` | implemented |  |
 | `fmwave` | implemented |  |
 | `focus` | implemented |  |
-| `focusSpan` | intentional | span arg internal |
-| `focusspan` | intentional | span arg internal |
+| `focusSpan` | implemented |  |
+| `focusspan` | implemented |  |
 | `fold` | implemented |  |
 | `frameRate` | implemented |  |
 | `frames` | implemented |  |
@@ -653,8 +653,8 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `zmod` | implemented |  |
 | `znoise` | implemented |  |
 | `zoom` | implemented |  |
-| `zoomArc` | intentional | span arg internal |
-| `zoomarc` | intentional | span arg internal |
+| `zoomArc` | implemented |  |
+| `zoomarc` | implemented |  |
 | `zrand` | implemented |  |
 | `zzfx` | implemented |  |
 

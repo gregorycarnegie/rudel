@@ -68,18 +68,6 @@
         "addVoicings"
       ]
     },
-    "span_arg_internal": {
-      "status": "unsupported",
-      "reason": "TimeSpan-object variants that throw on a plain array upstream, i.e. internal helpers; the user-facing two-arg compress/focus/zoom are exposed (FULL_STRUDEL.md core/pattern.mjs item).",
-      "names": [
-        "compressSpan",
-        "compressspan",
-        "focusSpan",
-        "focusspan",
-        "zoomArc",
-        "zoomarc"
-      ]
-    },
     "doc_artifact": {
       "status": "unsupported",
       "reason": "Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).",

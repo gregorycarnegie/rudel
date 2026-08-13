@@ -94,6 +94,23 @@ Pattern.prototype.enumerate = function () {
 }
 
 #[test]
+fn the_span_forms_match_their_two_argument_versions() {
+    // `compressSpan`/`focusSpan`/`zoomArc` only differ from `compress`/`focus`/
+    // `zoom` in taking the span as one object, which a script can only build
+    // because `TimeSpan` is exposed.
+    for (span_form, two_arg) in [
+        ("compressSpan(TimeSpan(0.25, 0.75))", "compress(0.25, 0.75)"),
+        ("focusSpan(TimeSpan(0.25, 0.75))", "focus(0.25, 0.75)"),
+        ("zoomArc(TimeSpan(0.25, 0.75))", "zoom(0.25, 0.75)"),
+    ] {
+        let got = shape(&eval(&format!(r#""a b c d".{span_form}"#)).expect("eval"), 2);
+        let want = shape(&eval(&format!(r#""a b c d".{two_arg}"#)).expect("eval"), 2);
+        assert!(!got.is_empty(), "{span_form} produced nothing");
+        assert_eq!(got, want, "{span_form} vs {two_arg}");
+    }
+}
+
+#[test]
 fn a_prototype_method_gets_its_argument_whole() {
     // A combinator reads its argument pattern's haps, so — unlike `register` —
     // the argument must not be sampled per cycle on the way in.

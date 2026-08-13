@@ -267,6 +267,37 @@ pub(super) fn kpattern_sort_haps_by_part(ctx: MethodContext<KPattern>) -> KotoRe
     .into())
 }
 
+/// `pat.compressSpan(span)` / `focusSpan(span)` / `zoomArc(arc)`: the span-object
+/// forms of `compress`/`focus`/`zoom`.
+///
+/// Upstream these are the variants the two-argument versions delegate to, and
+/// they throw on anything but a `TimeSpan` — which is why they were unreachable
+/// until `TimeSpan` became something a script could hold.
+fn span_method(
+    ctx: MethodContext<KPattern>,
+    f: impl Fn(&Pattern, TimeSpan) -> Pattern,
+) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    // Upstream throws when the argument is not a span. Silence says the same
+    // thing without unwinding through whatever thread is querying.
+    let Some(span) = ctx.args.first().and_then(span_from_koto) else {
+        return Ok(KPattern(rudel_core::silence()).into());
+    };
+    Ok(KPattern(f(&pat, span)).into())
+}
+
+pub(super) fn kpattern_compress_span(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    span_method(ctx, |pat, span| pat.compress(span.begin, span.end))
+}
+
+pub(super) fn kpattern_focus_span(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    span_method(ctx, |pat, span| pat._focus_span(span))
+}
+
+pub(super) fn kpattern_zoom_arc(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    span_method(ctx, |pat, span| pat.zoom(span.begin, span.end))
+}
+
 /// The engine constructors a script reaches for: `Pattern`, `Hap`, `Fraction`.
 pub(crate) fn register_engine_fns(prelude: &KMap) {
     prelude.add_fn("Pattern", |ctx| {
