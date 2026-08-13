@@ -1,6 +1,44 @@
 use super::KPattern;
 use koto::prelude::*;
 use rudel_core::{Frac, Pattern, Value, ValueMap};
+use std::sync::{Arc, Mutex};
+
+/// Wrap a Koto callable as a rudel [`Value::Func`], so a script's own function
+/// can travel *inside* a pattern and be called when that pattern is queried.
+///
+/// This is the one place the Koto VM is reachable from the query path. It is
+/// possible at all because rudel builds Koto with its `arc` feature: values are
+/// `Arc`-backed and the VM is `Send`, so a VM behind a mutex satisfies the
+/// `Send + Sync` bound on a pattern's query closure (see
+/// `tests/send_sync.rs`). Everywhere else callbacks are still applied eagerly
+/// at construction, which is cheaper and keeps errors attached to the
+/// evaluation that caused them; this path exists for `apply(patternOfFunctions)`,
+/// where *which* function to call is not known until the pattern is queried.
+///
+/// A pattern argument arrives as `Value::Pat` and comes back the same way, so
+/// the wrapped function reads as a pattern transform; anything else is passed
+/// through as an ordinary value. A call that fails yields `Value::Null` rather
+/// than unwinding through the scheduler.
+pub(super) fn koto_fn_to_value(func: KValue, vm: &KotoVm) -> Value {
+    let vm = Mutex::new(vm.spawn_shared_vm());
+    let vm = Arc::new(vm);
+    Value::func(move |arg| {
+        let koto_arg = match arg {
+            Value::Pat(pat) => KPattern(*pat).into(),
+            other => value_to_koto(other),
+        };
+        let Ok(mut vm) = vm.lock() else {
+            return Value::Null;
+        };
+        match vm.call_function(func.clone(), CallArgs::Single(koto_arg)) {
+            Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
+                Value::Pat(Box::new(o.cast::<KPattern>().unwrap().0.clone()))
+            }
+            Ok(other) => koto_to_value(&other),
+            Err(_) => Value::Null,
+        }
+    })
+}
 
 /// Convert a Koto argument into a pattern: numbers and strings become `pure`
 /// values, and patterns pass through.

@@ -10,7 +10,12 @@ rust-version.workspace = true
 [dependencies]
 rudel-core = { path = "../rudel-core" }
 rudel-mini = { path = "../rudel-mini" }
-koto = "0.16.1"
+# `arc` rather than koto's default `rc`: a Koto value has to be able to cross
+# threads, because a script's own function can end up inside a pattern and
+# patterns are queried from the scheduler and the UI at the same time. The two
+# memory features are mutually exclusive, hence the explicit list. `serde` is
+# part of koto's default set and is kept.
+koto = { version = "0.16.1", default-features = false, features = ["arc", "serde"] }
 serde_json.workspace = true
 
 [dev-dependencies]

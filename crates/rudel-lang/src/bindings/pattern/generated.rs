@@ -387,7 +387,7 @@ kpattern_methods! {
     i64_f64_frac_arg: [stut],
     fn_arg: [
         jux, jux_flip, sometimes, often, rarely, almost_always, almost_never,
-        some_cycles, apply, always, never,
+        some_cycles, always, never,
     ],
     i64_fn_arg: [chunk, chunk_back, fast_chunk],
     frac_fn_arg: [inside, outside],
@@ -395,6 +395,10 @@ kpattern_methods! {
     pattern_fn_arg: [off, when],
     frac_frac_fn_arg: [within],
     forward: [
+        // `apply` takes a *pattern* of functions as well as a function, so
+        // it cannot use the plain callback group.
+        #[koto_method]
+        apply => kpattern_apply,
         #[koto_method]
         layer => kpattern_layer,
         #[koto_method]

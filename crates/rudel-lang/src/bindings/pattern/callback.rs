@@ -123,7 +123,7 @@ fn add_curried_cb_fn(
     prelude: &KMap,
     name: &str,
     arity: usize,
-    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + 'static,
+    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + Send + Sync + 'static,
 ) {
     prelude.add_fn(name, move |ctx| {
         let args = ctx.args().to_vec();
@@ -140,7 +140,7 @@ fn add_curried_cb_fn(
 fn cb_curried(
     held: Vec<KValue>,
     arity: usize,
-    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + 'static,
+    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + Send + Sync + 'static,
 ) -> KValue {
     KValue::NativeFunction(KNativeFunction::new(move |ctx| {
         let mut all = held.clone();

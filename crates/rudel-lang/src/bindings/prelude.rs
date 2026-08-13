@@ -30,7 +30,7 @@ macro_rules! register_pick_fns {
     ($p:expr; $($name:literal => ($modulo:expr, $join:expr)),* $(,)?) => {
         $(
             $p.add_fn($name, |ctx| {
-                Ok(KPattern(pick_args(ctx.args(), $modulo, $join)).into())
+                Ok(KPattern(pick_args(ctx.args(), $modulo, $join, ctx.vm)).into())
             });
         )*
     };
@@ -45,7 +45,7 @@ fn add_curried_fn(
     prelude: &KMap,
     name: &str,
     arity: usize,
-    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + 'static,
+    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + Send + Sync + 'static,
 ) {
     prelude.add_fn(name, move |ctx| {
         let args = ctx.args();
@@ -62,7 +62,7 @@ fn add_curried_fn(
 fn curried(
     held: Vec<KValue>,
     arity: usize,
-    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + 'static,
+    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + Send + Sync + 'static,
 ) -> KValue {
     KValue::NativeFunction(KNativeFunction::new(move |ctx| {
         let mut all = held.clone();

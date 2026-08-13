@@ -26,7 +26,7 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 - **Songs written in real Strudel evaluate.** Measured against
   [eefano/strudel-songs-collection](https://github.com/eefano/strudel-songs-collection),
-  88 complete songs rather than doc snippets: **16 of them evaluated, now 86**.
+  88 complete songs rather than doc snippets: **16 of them evaluated, now 87**.
   `crates/rudel-lang/examples/songs.rs` is the harness
   (`cargo run --release -p rudel-lang --example songs -- <dir> [cycles]`); a
   single file argument prints the whole Koto error with its line and column.
@@ -67,14 +67,25 @@ This file starts at 0.7.0. Earlier history is in the git log.
   line breaks JavaScript allows anywhere and Koto does not — after `=`, `=>` or
   `:`, before a call's `(`, and inside a nested argument list.
 
-  The two songs that still do not run need the Koto VM in the query path, which
-  is the one architectural line Rudel does not cross (`docs/UNSUPPORTED.md`):
-  one patches `Pattern.prototype` and builds `new Pattern(state => …)`, the
-  other passes a pattern whose *values* are transform functions.
-
 - Two allowlisted documentation examples (`seed`, `onTriggerTime`) run now —
   both were only ever blocked by syntax the above adds — and are no longer
   allowlisted.
+
+### Changed
+
+- **A script's own function can be called from the query path.** Koto is built
+  with its `arc` feature rather than the default `rc`, so its values are
+  `Arc`-backed and the VM is `Send`; a VM behind a mutex then satisfies the
+  `Send + Sync` bound on a pattern's query closure. `crates/rudel-lang/tests/send_sync.rs`
+  pins that, since the feature is otherwise invisible from the code.
+
+  This is what `apply` needed to take a **pattern of functions** as well as a
+  function — `apply(pick("<0 1>", [x => x.gain(1), x => x.fast(2)]))`, how a
+  script switches arrangement per section, and previously an error. Which
+  function to call is not known until the pattern is queried, so it is the one
+  place the VM is reached from a query; every other callback is still applied
+  eagerly at construction, which is cheaper and keeps errors attached to the
+  evaluation that caused them.
 
 ## [0.10.1] — 2026-08-10
 

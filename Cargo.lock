@@ -2035,6 +2035,9 @@ name = "koto_memory"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "798618a86b5ab362be8df2ef72ed122fcd386082383bba618d1866fd640bfad4"
+dependencies = [
+ "parking_lot",
+]
 
 [[package]]
 name = "koto_parser"

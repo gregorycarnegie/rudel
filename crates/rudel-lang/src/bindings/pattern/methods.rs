@@ -4,7 +4,7 @@ use super::{
         method_arg, method_f64_arg, method_pattern_arg, with_instance, with_literal_or_pattern_arg,
         with_pattern_arg,
     },
-    callback::{Callback, static_period_pattern},
+    callback::{Callback, static_period_pattern, with_callback},
     convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value},
     pick::{is_lookup, lookup_from_koto, pick_from_lookup},
 };
@@ -606,6 +606,36 @@ pub(super) fn kpattern_filter(ctx: MethodContext<KPattern>) -> KotoResult<KValue
     Ok(KPattern::wrap(out))
 }
 
+/// `pat.apply(f)`: run a transform over the whole pattern.
+///
+/// `f` may be a *pattern of functions* as well as a function
+/// (`apply(pick({a: x => x.fast(2), b: rev}))`), which is how a script switches
+/// arrangement per section. That is the one case where which function to call
+/// is not known until the pattern is queried, so the chosen function is called
+/// from the query itself — see `convert::koto_fn_to_value` for why that is
+/// possible and why nothing else does it.
+pub(super) fn kpattern_apply(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let arg = method_arg(&ctx, 0);
+    let KValue::Object(object) = &arg else {
+        return with_callback(&ctx, 0, |pat, cb| pat.apply(|p| cb.apply(p)));
+    };
+    if !object.is_a::<KPattern>() {
+        return with_callback(&ctx, 0, |pat, cb| pat.apply(|p| cb.apply(p)));
+    }
+    let functions = object.cast::<KPattern>()?.0.clone();
+    Ok(KPattern::wrap(
+        functions
+            .fmap(move |f| match f {
+                Value::Func(_) => f.apply(Value::Pat(Box::new(pat.clone()))),
+                // Not a function: leave the pattern as it was, which is what
+                // `apply` with an unusable argument means.
+                _ => Value::Pat(Box::new(pat.clone())),
+            })
+            .inner_join(),
+    ))
+}
+
 /// `pat.filterValues(|v| ...)`: like `filter`, but the predicate sees the hap's
 /// value rather than the whole hap (core/pattern.mjs `filterValues`).
 pub(super) fn kpattern_filter_values(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
@@ -852,7 +882,7 @@ pub(super) fn kpattern_pick_join(
     join: PickJoin,
 ) -> KotoResult<KValue> {
     let selector = ctx.instance()?.0.clone();
-    let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0)) else {
+    let Some(lookup) = lookup_from_koto(&method_arg(&ctx, 0), ctx.vm) else {
         return Ok(KPattern::wrap(rudel_core::silence()));
     };
     Ok(KPattern::wrap(pick_from_lookup(
