@@ -3,6 +3,7 @@ mod common;
 mod basics;
 mod callbacks;
 mod controls;
+mod engine;
 mod modulate;
 mod mondo;
 mod pick;

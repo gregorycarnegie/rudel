@@ -640,6 +640,154 @@ pub(super) fn rewrite_value_property(src: &str) -> String {
     out
 }
 
+/// The name `this` becomes inside a rewritten prototype method. Koto has `self`,
+/// but only for a map's own functions, so the receiver arrives as an ordinary
+/// trailing parameter instead — which is also how `register` passes it.
+const THIS_PARAM: &str = "rudel_this";
+
+/// Rewrite a `Pattern.prototype` method into a registration.
+///
+/// Defining a combinator by patching the prototype is how Strudel scripts write
+/// one before it lands upstream:
+///
+/// ```text
+/// Pattern.prototype.enumerate = function () { … this.sortHapsByPart() … }
+/// rudel_prototype('enumerate', function (rudel_this) { … rudel_this.sortHapsByPart() … })
+/// ```
+///
+/// The receiver becomes a trailing parameter, so the body's `this` is renamed
+/// to match. `rudel_prototype` registers without patternifying the arguments,
+/// which is what a prototype method gets upstream — `register` would sample a
+/// pattern argument per cycle, and a combinator wants the whole thing.
+pub(super) fn rewrite_prototype_methods(src: &str) -> String {
+    const PREFIX: &str = "Pattern.prototype.";
+    let mut current = src.to_string();
+    let mut patched = false;
+    for _ in 0..src.matches(PREFIX).count() {
+        let mask = code_mask(&current);
+        let Some(at) = current.find(PREFIX).filter(|&i| mask[i] == b'P') else {
+            break;
+        };
+        let after = &current[at + PREFIX.len()..];
+        let name_len = after
+            .find(|c: char| !is_ident_char(c))
+            .unwrap_or(after.len());
+        let name = &after[..name_len];
+        // Only an assignment to a `function` is a definition to rewrite.
+        let Some(value) = after[name_len..]
+            .trim_start()
+            .strip_prefix('=')
+            .filter(|v| !v.starts_with('='))
+            .map(str::trim_start)
+            .and_then(|v| v.strip_prefix("function"))
+        else {
+            break;
+        };
+        let params = value.trim_start();
+        let params_at = current.len() - params.len();
+        let Some(params_close) = matching_paren(&code_mask(params), 0) else {
+            break;
+        };
+        let body_at = params_at + params_close + 1;
+        let Some(open) = current[body_at..].find('{').map(|i| body_at + i) else {
+            break;
+        };
+        let Some(close) = matching_brace(&code_mask(&current), open) else {
+            break;
+        };
+        let inner = &params[1..params_close];
+        let params = if inner.trim().is_empty() {
+            THIS_PARAM.to_string()
+        } else {
+            format!("{inner}, {THIS_PARAM}")
+        };
+        current = format!(
+            "{}rudel_prototype('{name}', function ({params}){}){}",
+            &current[..at],
+            &current[open..=close],
+            &current[close + 1..],
+        );
+        patched = true;
+    }
+    if patched {
+        rename_this(&current)
+    } else {
+        current
+    }
+}
+
+/// Just past the `)` matching the `(` at `open`.
+fn matching_paren(mask: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    for (i, &byte) in mask.iter().enumerate().skip(open) {
+        match byte {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Rename `this` to the parameter the receiver arrives in.
+fn rename_this(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        let mut rest = text;
+        while let Some(at) = rest.find("this") {
+            let after = &rest[at + 4..];
+            let is_word = !rest[..at].ends_with(is_ident_char)
+                && !rest[..at].ends_with('.')
+                && !after.starts_with(is_ident_char);
+            out.push_str(&rest[..at]);
+            out.push_str(if is_word { THIS_PARAM } else { "this" });
+            rest = after;
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
+/// Drop JavaScript's `new`: Koto constructs with a plain call, and every
+/// constructor a script reaches for (`Pattern`, `Hap`, `Fraction`) is bound as
+/// an ordinary function.
+pub(super) fn strip_new(src: &str) -> String {
+    if !src.contains("new ") {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        let mut rest = text;
+        while let Some(at) = rest.find("new ") {
+            let before_is_word = rest[..at].ends_with(is_ident_char);
+            // `new Foo(` only; `renew x` and `new.target` are not it.
+            let constructs = !before_is_word && rest[at + 4..].starts_with(is_ident_char);
+            out.push_str(&rest[..at]);
+            if !constructs {
+                out.push_str("new ");
+            }
+            rest = &rest[at + 4..];
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
 /// Rewrite JavaScript's `typeof` operator into a call.
 ///
 /// `typeof v === 'string'` is how a helper asks what kind of thing a hap value

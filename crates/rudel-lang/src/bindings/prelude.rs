@@ -172,6 +172,8 @@ pub(crate) fn register(prelude: &KMap) {
     // The JS builtins helper functions call on plain values (`Array.isArray`,
     // `arr.map`, `s.endsWith`).
     super::js::register_js_builtins(prelude);
+    // `Pattern`, `Hap`, `Fraction`, `TimeSpan` — the engine's own vocabulary.
+    super::pattern::register_engine_fns(prelude);
     let math = KMap::new();
     math.add_fn("pow", |ctx| {
         let base = super::pattern::arg_to_f64(&arg0(ctx));
@@ -469,6 +471,19 @@ pub(crate) fn register(prelude: &KMap) {
             return koto::runtime::runtime_error!("register(name, fn): name must be a string");
         };
         super::pattern::register_pattern_method(&name, func.clone());
+        Ok(func)
+    });
+    // `Pattern.prototype.name = function …`, as the preprocessor rewrites it.
+    // Same binding as `register`, minus the argument patternification a
+    // prototype method does not get.
+    prelude.add_fn("rudel_prototype", |ctx| {
+        let args = ctx.args();
+        let (Some(Some(name)), Some(func)) =
+            (args.first().map(arg_to_raw_str), args.get(1).cloned())
+        else {
+            return koto::runtime::runtime_error!("rudel_prototype(name, fn) needs both");
+        };
+        super::pattern::register_prototype_method(&name, func.clone());
         Ok(func)
     });
     prelude.add_fn("setDefaultVoicings", |ctx| {

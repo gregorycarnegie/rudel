@@ -4,6 +4,7 @@ use super::{
     KPattern,
     args::*,
     callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64},
+    engine::{kpattern_query, kpattern_sort_haps_by_part, kpattern_split_queries},
     methods::*,
 };
 use koto::{derive::*, prelude::*, runtime::Result as KotoResult};
@@ -399,6 +400,14 @@ kpattern_methods! {
         // it cannot use the plain callback group.
         #[koto_method]
         apply => kpattern_apply,
+        // The engine's own vocabulary, for a script that defines a
+        // combinator rather than using one (see `engine.rs`).
+        #[koto_method]
+        query => kpattern_query,
+        #[koto_method(alias = "splitQueries")]
+        split_queries => kpattern_split_queries,
+        #[koto_method(alias = "sortHapsByPart")]
+        sort_haps_by_part => kpattern_sort_haps_by_part,
         #[koto_method]
         layer => kpattern_layer,
         #[koto_method]

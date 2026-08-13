@@ -145,6 +145,27 @@ fn register_list(list: &KMap) {
             (instance, args) => unexpected_args_after_instance(expected, instance, args),
         }
     });
+    // `arr.filter(f)`: a new list of the entries `f` accepts. Koto's `retain`
+    // edits in place and `keep` returns an iterator, so neither reads as JS.
+    list.add_fn("filter", |ctx| {
+        let expected = "|List, |Any| -> Bool|";
+        match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
+            (KValue::List(l), [f]) if f.is_callable() => {
+                let source = l.data().clone();
+                let f = f.clone();
+                let mut out = Vec::new();
+                for value in source.iter() {
+                    // JS keeps whatever is truthy; `null` and `false` are not.
+                    let keep = ctx.vm.call_function(f.clone(), value.clone())?;
+                    if !matches!(keep, KValue::Null | KValue::Bool(false)) {
+                        out.push(value.clone());
+                    }
+                }
+                Ok(KValue::List(KList::with_data(out.into())))
+            }
+            (instance, args) => unexpected_args_after_instance(expected, instance, args),
+        }
+    });
     // `arr.length` is a property in JS; the preprocessor turns it into a call.
     list.add_fn("length", |ctx| {
         let expected = "|List|";

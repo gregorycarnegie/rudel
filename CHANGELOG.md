@@ -22,11 +22,39 @@ This file starts at 0.7.0. Earlier history is in the git log.
   cannot act — cut and copy with no selection, paste with an empty clipboard —
   are greyed rather than silently doing nothing.
 
+- **A script can define a pattern combinator, not just use one.** The engine's
+  own vocabulary is bound — `Pattern(state => haps)`, `Hap`, `TimeSpan`,
+  `Fraction`, and a pattern's `query` / `splitQueries` / `sortHapsByPart` — and
+  `Pattern.prototype.name = function (…) { … }` binds the result as a method,
+  which is how a Strudel script writes a combinator before it lands upstream:
+
+  ```js
+  Pattern.prototype.enumerate = function () {
+    const pat = this.sortHapsByPart()
+    return new Pattern(state => {
+      const haps = pat.query(state.withSpan(span => span.begin.wholeCycle()))
+      return haps.map((hap, i) => new Hap(hap.whole, hap.part.intersection(state.span),
+                                          [hap.value, i, haps.length]))
+                 .filter(hap => hap.part != undefined)
+    }).splitQueries()
+  }
+  ```
+
+  Spans, haps and states are plain maps, so `hap.part.begin` is ordinary
+  access; fractions are an object because they carry exact rational
+  arithmetic that a float would quietly lose. A prototype method's arguments
+  are *not* patternified — a combinator reads its argument pattern's haps, and
+  sampling it per cycle would make that impossible.
+
+  This is the one place a script's code runs during a query, and it is what no
+  amount of eager probing can replace: "look at the haps of this cycle and
+  number them" is not knowable before the query asks.
+
 ### Fixed
 
 - **Songs written in real Strudel evaluate.** Measured against
   [eefano/strudel-songs-collection](https://github.com/eefano/strudel-songs-collection),
-  88 complete songs rather than doc snippets: **16 of them evaluated, now 87**.
+  88 complete songs rather than doc snippets: **16 of them evaluated, now all 88**.
   `crates/rudel-lang/examples/songs.rs` is the harness
   (`cargo run --release -p rudel-lang --example songs -- <dir> [cycles]`); a
   single file argument prints the whole Koto error with its line and column.
@@ -60,8 +88,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
     missing.
   - `setDefaultVoicings`, `withValue`, `filterValues`.
 
-  And the JavaScript the preprocessor did not read: the conditional operator,
-  `typeof`, brace-bodied arrow, `function` and `if`/`else` bodies, `&&`/`||`/`!`,
+  And the JavaScript the preprocessor did not read: `new`, `this`, `typeof`,
+  the conditional operator, brace-bodied arrow, `function` and `if`/`else`
+  bodies, `&&`/`||`/`!`,
   block comments, object spread, numeric object keys, `.length`/`.value`/`.n`,
   comma-separated declarations, a name Koto reserves used as a variable, and the
   line breaks JavaScript allows anywhere and Koto does not — after `=`, `=>` or

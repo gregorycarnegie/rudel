@@ -16,9 +16,10 @@ use syntax::{
     join_dangling_operators, order_declarations, quote_numeric_map_keys, rename_koto_keywords,
     rewrite_alignment_getters, rewrite_arrow_functions, rewrite_block_bodies,
     rewrite_const_declarations, rewrite_leading_dot_numbers, rewrite_length_property,
-    rewrite_logical_operators, rewrite_object_spreads, rewrite_strict_equality,
-    rewrite_string_method_chains, rewrite_tagged_templates, rewrite_ternaries, rewrite_typeof,
-    rewrite_value_property, strip_await, strip_comments, strip_trailing_semicolons,
+    rewrite_logical_operators, rewrite_object_spreads, rewrite_prototype_methods,
+    rewrite_strict_equality, rewrite_string_method_chains, rewrite_tagged_templates,
+    rewrite_ternaries, rewrite_typeof, rewrite_value_property, strip_await, strip_comments,
+    strip_new, strip_trailing_semicolons,
 };
 use widgets::rewrite_editor_widgets_with_context;
 
@@ -77,6 +78,8 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = rewrite_value_property(&script);
     let script = strip_trailing_semicolons(&script);
     let script = join_dangling_operators(&script);
+    let script = rewrite_prototype_methods(&script);
+    let script = strip_new(&script);
     let script = rewrite_ternaries(&script);
     let script = rewrite_block_bodies(&script);
     let script = rewrite_const_declarations(&script);

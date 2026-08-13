@@ -6,6 +6,7 @@
 mod args;
 mod callback;
 mod convert;
+mod engine;
 mod generated;
 mod methods;
 mod modulate;
@@ -25,6 +26,7 @@ pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0};
 pub(super) use convert::{
     arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, koto_to_value,
 };
+pub(crate) use engine::register_engine_fns;
 pub(crate) use methods::hap_to_koto;
 pub(in crate::bindings) use methods::{euclid_call, stepwise_call};
 pub(crate) use modulate::register_modulate_fns;
@@ -179,6 +181,20 @@ fn control_method_call(
 ///
 /// ponytail: no arity or type checking — the Koto call reports its own errors.
 pub(crate) fn register_pattern_method(name: &str, func: KValue) {
+    register_method(name, func, true)
+}
+
+/// Bind `name` the way `Pattern.prototype.name = function …` does: the receiver
+/// is still the trailing argument, but the arguments are *not* patternified.
+///
+/// A prototype method upstream gets none of `register`'s wrapping, and a
+/// combinator wants the argument pattern whole — `warp(tpat)` reads `tpat`'s
+/// haps to number them, which sampling it per cycle would make impossible.
+pub(crate) fn register_prototype_method(name: &str, func: KValue) {
+    register_method(name, func, false)
+}
+
+fn register_method(name: &str, func: KValue, patternify: bool) {
     use std::cell::RefCell;
     thread_local! {
         /// Names this thread bound through `register`, so a later registration
@@ -211,10 +227,14 @@ pub(crate) fn register_pattern_method(name: &str, func: KValue) {
             // A mini-notation literal carries its own source text and is a value
             // here, as it is everywhere else in the bindings, so only a real
             // pattern expression triggers this.
-            let patterned = args[..args.len() - 1].iter().position(|arg| {
-                matches!(arg, KValue::Object(o) if o.is_a::<KPattern>()
-                    && o.cast::<KPattern>().is_ok_and(|p| p.0.source.is_none()))
-            });
+            let patterned = patternify
+                .then(|| {
+                    args[..args.len() - 1].iter().position(|arg| {
+                        matches!(arg, KValue::Object(o) if o.is_a::<KPattern>()
+                            && o.cast::<KPattern>().is_ok_and(|p| p.0.source.is_none()))
+                    })
+                })
+                .flatten();
             let Some(at) = patterned else {
                 return call(&args);
             };
