@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1004 methods=1109 controls=668
+# functions=1008 methods=1109 controls=668
 
 [functions]
 Array
@@ -9,6 +9,9 @@ FXr
 FXrel
 FXrelease
 Math
+Number
+Object
+String
 accelerate
 activeLabel
 add
@@ -812,6 +815,7 @@ rsize
 rudel_label
 rudel_prop
 rudel_spread
+rudel_typeof
 run
 s
 s_alt

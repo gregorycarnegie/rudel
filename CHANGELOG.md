@@ -26,35 +26,51 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 - **Songs written in real Strudel evaluate.** Measured against
   [eefano/strudel-songs-collection](https://github.com/eefano/strudel-songs-collection),
-  88 complete songs rather than doc snippets: **16 of them evaluated, now 70**.
+  88 complete songs rather than doc snippets: **16 of them evaluated, now 86**.
   `crates/rudel-lang/examples/songs.rs` is the harness
-  (`cargo run --release -p rudel-lang --example songs -- <dir>`); a single file
-  argument prints the whole Koto error with its line and column.
+  (`cargo run --release -p rudel-lang --example songs -- <dir> [cycles]`); a
+  single file argument prints the whole Koto error with its line and column.
 
   Most of what it found was Rudel's, not JavaScript's:
 
   - `register(name, fn)` — the way a script defines its own pattern method, and
     the first line of about a quarter of the corpus — was not bound at all. It
-    now inserts into the same method map the controls use, so the pattern
-    arrives last exactly as upstream passes it.
+    now inserts into the same method map the controls use, with the pattern
+    last and the arguments patternified, as upstream registers them. A built-in
+    is never replaced: scripts carry polyfills for names Rudel already has, and
+    since the method map outlives an evaluation, one such script used to hand
+    its polyfill to every later script in the session.
   - The `$:` label rewriter counted brackets a line at a time. A template
     literal spans lines, so scanning one of its lines alone read the closing
     backtick as an opening one and lost every bracket after it; the label then
     ran to the end of the file. It scans the whole source now.
   - A `.` continuation joined onto the line above stopped a *second* one from
     joining, which left it stranded on its own line — where Koto ends the
-    argument list. This is the shape a tune writes whenever a chain gets long.
+    argument list. This is the shape a tune writes whenever a chain gets long,
+    and it holds whether the line above *ended* with the closing bracket or
+    *began* with it.
   - `innerJoin` / `outerJoin` / `squeezeJoin` are reachable after all. A Koto
     callback returning a pattern already converts to a pattern-valued hap, so
     the joins need no Koto in the query path — only the binding was missing.
   - `let x = …` parsed as Koto's *typed* binding, so the value that followed
     was read as a type annotation. `let` and `var` are stripped like `const`.
+  - A declaration is moved above the code that reads it. JavaScript resolves a
+    name inside a function when the function runs, so a helper is often written
+    above the data it uses; Koto captures at definition and reported the name as
+    missing.
   - `setDefaultVoicings`, `withValue`, `filterValues`.
 
   And the JavaScript the preprocessor did not read: the conditional operator,
-  brace-bodied arrow and `function` bodies, `&&`/`||`/`!`, object spread,
-  numeric object keys, `.length` and `.value`, comma-separated declarations, a
-  value or arrow body on the line after its `=` or `=>`, and trailing `;`.
+  `typeof`, brace-bodied arrow, `function` and `if`/`else` bodies, `&&`/`||`/`!`,
+  block comments, object spread, numeric object keys, `.length`/`.value`/`.n`,
+  comma-separated declarations, a name Koto reserves used as a variable, and the
+  line breaks JavaScript allows anywhere and Koto does not — after `=`, `=>` or
+  `:`, before a call's `(`, and inside a nested argument list.
+
+  The two songs that still do not run need the Koto VM in the query path, which
+  is the one architectural line Rudel does not cross (`docs/UNSUPPORTED.md`):
+  one patches `Pattern.prototype` and builds `new Pattern(state => …)`, the
+  other passes a pattern whose *values* are transform functions.
 
 - Two allowlisted documentation examples (`seed`, `onTriggerTime`) run now —
   both were only ever blocked by syntax the above adds — and are no longer

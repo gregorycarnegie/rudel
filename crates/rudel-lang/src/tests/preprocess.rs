@@ -373,7 +373,14 @@ drums: stack(
             .collect::<Vec<_>>(),
         vec!["_punchcard"]
     );
-    assert!(result.source.contains("\n  .rudel_widget_punchcard("));
+    // The continuation is written onto the line that closed the `stack(`, which
+    // is the only place Koto will take it — left on a line of its own it reads
+    // as a new statement however far it is indented.
+    assert!(
+        result.source.contains(").rudel_widget_punchcard("),
+        "{}",
+        result.source
+    );
     assert!(!result.source.contains("\n.rudel_widget_punchcard("));
 
     eval_result(script).expect("labelled stack with trailing widget should eval");
@@ -724,4 +731,76 @@ fn js_properties_become_the_calls_koto_needs() {
         "f(rudel_prop(v, 'value'))"
     );
     assert_eq!(preprocess_strudel("f(v.value(1))"), "f(v.value(1))");
+}
+
+#[test]
+fn control_blocks_and_js_globals_become_koto() {
+    // `if (c) { … } else …` is an indented block under the condition, not a
+    // `then`, and a `return` inside an arm returns from the function.
+    assert_eq!(
+        preprocess_strudel("f(x => { if (x) { return 1 } else { return 2 } })"),
+        "f(|x|\n  if x\n    return 1\n  else\n    return 2\n)"
+    );
+    // A brace on its own line is still the same arm.
+    assert_eq!(
+        preprocess_strudel("f(x => { if (x)\n{ return 1 }\n})"),
+        "f(|x|\n  if x\n    return 1\n)"
+    );
+    // `typeof` is an operator in JS and a call here, answering with JS's names
+    // so the comparison the script wrote still matches.
+    assert_eq!(
+        preprocess_strudel("f(typeof v == 'string')"),
+        "f(rudel_typeof(v) == 'string')"
+    );
+    assert_eq!(
+        preprocess_strudel("f(typeof (a) )"),
+        "f(rudel_typeof((a)) )"
+    );
+    // A name that only looks like the operator is left alone.
+    assert_eq!(preprocess_strudel("f(typeofx)"), "f(typeofx)");
+}
+
+#[test]
+fn a_name_koto_reserves_is_renamed_where_the_script_binds_it() {
+    // `as` is a Koto keyword and an ordinary JS identifier.
+    let out = preprocess_strudel("const as = register('as', f)\nx.as(1)");
+    assert!(out.starts_with("as_ = register('as', f)"), "{out}");
+    // The method call is a property, not a binding, so it keeps the name.
+    assert!(out.contains("x.as(1)"), "{out}");
+    // A keyword the script never binds is untouched, so `loop` still reaches
+    // the built-in of that name.
+    assert_eq!(preprocess_strudel("x.loop(1)"), "x.loop(1)");
+}
+
+#[test]
+fn a_declaration_moves_above_the_code_that_uses_it() {
+    // JavaScript resolves a name inside a function when it runs, so the helper
+    // may be written above the data it reads.
+    assert_eq!(
+        preprocess_strudel("f = |x| x + n\nn = 2"),
+        "n = 2\nf = |x| x + n"
+    );
+    // Anything with no dependency between it and its neighbours stays put.
+    assert_eq!(preprocess_strudel("a = 1\nb = 2"), "a = 1\nb = 2");
+    // Two names that need each other are a cycle, and keep source order rather
+    // than being reordered arbitrarily.
+    assert_eq!(
+        preprocess_strudel("f = |x| g(x)\ng = |x| f(x)"),
+        "f = |x| g(x)\ng = |x| f(x)"
+    );
+}
+
+#[test]
+fn line_breaks_koto_cannot_read_are_taken_out() {
+    // A nested call spanning lines is only allowed in final position, so one
+    // followed by another argument is folded onto a line...
+    assert_eq!(
+        preprocess_strudel("stack(a(\n1),\nb)"),
+        "stack(a( 1),\n  b)"
+    );
+    // ...and the last argument keeps its layout.
+    assert!(preprocess_strudel("stack(b,\na(\n1))").contains("a(\n"));
+    // A call whose `(` opens the next line is one expression; left split, the
+    // parentheses become a tuple.
+    assert_eq!(preprocess_strudel("stack\n(a, b)"), "stack(a, b)");
 }

@@ -30,6 +30,72 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
         Ok(matches!(ctx.args().first(), Some(KValue::List(_) | KValue::Tuple(_))).into())
     });
     prelude.insert("Array", array);
+    let object = KMap::new();
+    // `Object.fromEntries([[k, v], …])`: the pairs as a map. Helpers build a
+    // control map from a list of names and a list of values with it.
+    object.add_fn("fromEntries", |ctx| {
+        let map = KMap::new();
+        let pairs = match ctx.args().first() {
+            Some(KValue::List(l)) => l.data().to_vec(),
+            Some(KValue::Tuple(t)) => t.data().to_vec(),
+            _ => Vec::new(),
+        };
+        for pair in pairs {
+            let entry = match &pair {
+                KValue::List(l) => l.data().to_vec(),
+                KValue::Tuple(t) => t.data().to_vec(),
+                _ => continue,
+            };
+            // A non-string key is stringified, as JS object keys are.
+            if let Some(key) = entry.first() {
+                let key = match key {
+                    KValue::Str(s) => s.to_string(),
+                    KValue::Number(n) => n.to_string(),
+                    _ => continue,
+                };
+                map.insert(key.as_str(), entry.get(1).cloned().unwrap_or(KValue::Null));
+            }
+        }
+        Ok(KValue::Map(map))
+    });
+    prelude.insert("Object", object);
+    // Backs the preprocessor's `typeof` rewrite. Koto's own `type` answers with
+    // its names (`String`, `Map`), and a script compares against JavaScript's.
+    prelude.add_fn("rudel_typeof", |ctx| {
+        Ok(match ctx.args().first() {
+            Some(KValue::Str(_)) => "string",
+            Some(KValue::Number(_)) => "number",
+            Some(KValue::Bool(_)) => "boolean",
+            Some(KValue::Null) | None => "undefined",
+            Some(KValue::Function(_) | KValue::NativeFunction(_)) => "function",
+            // Everything else — maps, lists, patterns — is an object in JS.
+            Some(_) => "object",
+        }
+        .into())
+    });
+    // `String(x)` / `Number(x)`: JavaScript's conversions, used to do arithmetic
+    // on the numeric part of a note name and put it back together.
+    prelude.add_fn("String", |ctx| {
+        Ok(match ctx.args().first() {
+            Some(KValue::Str(s)) => s.to_string(),
+            Some(KValue::Number(n)) => n.to_string(),
+            Some(KValue::Bool(b)) => b.to_string(),
+            Some(KValue::Null) | None => "undefined".to_string(),
+            Some(_) => String::new(),
+        }
+        .into())
+    });
+    prelude.add_fn("Number", |ctx| {
+        Ok(match ctx.args().first() {
+            Some(KValue::Number(n)) => KValue::Number(*n),
+            // JS gives `NaN` for a string that will not parse; the nearest
+            // useful answer here is zero, which is what an empty prefix means.
+            Some(KValue::Str(s)) => KValue::Number(KNumber::from(
+                s.as_str().trim().parse::<f64>().unwrap_or(0.0),
+            )),
+            _ => KValue::Number(KNumber::from(0.0)),
+        })
+    });
     // JS's absent value. Helpers test hap values with `x.value !== undefined`.
     prelude.insert("undefined", KValue::Null);
     // Backs the preprocessor's rewrite of JS property access. Reading a field

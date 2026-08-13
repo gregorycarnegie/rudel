@@ -18,7 +18,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 /// cycle with `innerJoin` — matching Strudel's `register` patternification
 /// (`arg.fmap(v => combinator(v, f, pat)).innerJoin()`). Values first appearing
 /// after the probe window fall back to silence (same limit as `fmap`/`arpWith`).
-fn probe_patternify<F>(arg: Pattern, build: F) -> Pattern
+pub(super) fn probe_patternify<F>(arg: Pattern, build: F) -> Pattern
 where
     F: Fn(&Value) -> Pattern,
 {

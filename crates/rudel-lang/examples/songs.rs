@@ -1,13 +1,23 @@
 //! Evaluate a directory of Strudel songs and report which ones rudel can read.
 //!
-//!     cargo run -p rudel-lang --example songs -- path/to/songs
+//!     cargo run -p rudel-lang --example songs -- path/to/songs [cycles]
+//!
+//! A single file prints the whole error rather than its first line. `cycles`
+//! widens the window events are counted over, which some songs need: one that
+//! reverses itself over a long span puts silence at the start on purpose.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use rudel_core::Frac;
 
 fn main() {
-    let dir = std::env::args().nth(1).expect("usage: songs <dir>");
+    let dir = std::env::args()
+        .nth(1)
+        .expect("usage: songs <dir> [cycles]");
+    let cycles: i64 = std::env::args()
+        .nth(2)
+        .and_then(|arg| arg.parse().ok())
+        .unwrap_or(4);
     rudel_lang::install_mini();
 
     let path = std::path::PathBuf::from(&dir);
@@ -33,10 +43,10 @@ fn main() {
         match rudel_lang::eval_result(&source) {
             Ok(result) => {
                 // Eval alone proves it parses; querying proves it produces events.
-                let haps = result.pattern.query_arc(Frac::zero(), Frac::int(4));
+                let haps = result.pattern.query_arc(Frac::zero(), Frac::int(cycles));
                 if haps.is_empty() {
                     failed += 1;
-                    println!("EMPTY {name}: evaluated but no events in 4 cycles");
+                    println!("EMPTY {name}: evaluated but no events in {cycles} cycles");
                 } else {
                     ok += 1;
                     println!("OK    {name}: {} haps", haps.len());

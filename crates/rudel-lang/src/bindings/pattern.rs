@@ -18,6 +18,7 @@ use koto::{
     runtime::{KotoEntries, KotoObject},
 };
 use rudel_core::Pattern;
+use std::collections::HashSet;
 
 pub(crate) use callback::register_standalone_callbacks;
 pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0};
@@ -167,13 +168,31 @@ fn control_method_call(
 /// outlives the evaluation that made it — as it does in Strudel, where the
 /// method is patched onto `Pattern.prototype`.
 ///
-/// ponytail: no arity or type checking, and a registration is never removed —
-/// the Koto call reports its own errors. Track registrations per evaluation if
-/// stale names from a previous script ever cause confusion.
+/// A **built-in method is never replaced.** Scripts in the wild register
+/// polyfills for names Rudel already implements (`pickRestart` is the common
+/// one, written when Strudel had not shipped it yet), and because the method map
+/// outlives the evaluation, one such script would hand its polyfill to every
+/// later script in the session — which is exactly what happened when a corpus
+/// was run in one process: a song that passed alone failed after another had
+/// been evaluated. Registering over an *earlier registration* is still allowed,
+/// so re-evaluating a script that defines its own helper picks up the edit.
+///
+/// ponytail: no arity or type checking — the Koto call reports its own errors.
 pub(crate) fn register_pattern_method(name: &str, func: KValue) {
+    use std::cell::RefCell;
+    thread_local! {
+        /// Names this thread bound through `register`, so a later registration
+        /// can tell "mine" from a built-in it must not shadow.
+        static REGISTERED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    }
     let Some(entries) = KPattern(rudel_core::silence()).entries() else {
         return;
     };
+    let mine = REGISTERED.with(|names| names.borrow().contains(name));
+    if !mine && entries.get(name).is_some() {
+        return;
+    }
+    REGISTERED.with(|names| names.borrow_mut().insert(name.to_string()));
     entries.insert(
         name,
         KValue::NativeFunction(KNativeFunction::new(move |ctx: &mut CallContext| {
@@ -181,9 +200,40 @@ pub(crate) fn register_pattern_method(name: &str, func: KValue) {
                 ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())?;
             let mut args: Vec<KValue> = extra.to_vec();
             args.push(instance.clone());
-            ctx.vm
-                .spawn_shared_vm()
-                .call_function(func.clone(), CallArgs::Separate(&args))
+            let vm = std::cell::RefCell::new(ctx.vm.spawn_shared_vm());
+            let call = |args: &[KValue]| {
+                vm.borrow_mut()
+                    .call_function(func.clone(), CallArgs::Separate(args))
+            };
+            // Upstream's `register` patternifies its arguments: a pattern passed
+            // where a value is expected is sampled per cycle rather than handed
+            // to the callback whole (`arg.fmap(v => fn(v, pat)).innerJoin()`).
+            // A mini-notation literal carries its own source text and is a value
+            // here, as it is everywhere else in the bindings, so only a real
+            // pattern expression triggers this.
+            let patterned = args[..args.len() - 1].iter().position(|arg| {
+                matches!(arg, KValue::Object(o) if o.is_a::<KPattern>()
+                    && o.cast::<KPattern>().is_ok_and(|p| p.0.source.is_none()))
+            });
+            let Some(at) = patterned else {
+                return call(&args);
+            };
+            let arg = args[at].clone();
+            let KValue::Object(object) = &arg else {
+                return call(&args);
+            };
+            let sampled = object.cast::<KPattern>()?.0.clone();
+            Ok(KPattern(callback::probe_patternify(sampled, |value| {
+                let mut per_value = args.clone();
+                per_value[at] = convert::value_to_koto(value.clone());
+                match call(&per_value) {
+                    Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
+                        o.cast::<KPattern>().unwrap().0.clone()
+                    }
+                    _ => rudel_core::silence(),
+                }
+            }))
+            .into())
         })),
     );
 }
