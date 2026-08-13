@@ -51,10 +51,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
   number them" is not knowable before the query asks.
 
 - **`compressSpan`, `focusSpan` and `zoomArc`**, the span-object forms of
-  `compress`/`focus`/`zoom`. They were the last names in the API inventory
-  marked unsupported for a reason that had stopped being true: they take a
-  `TimeSpan`, which no script could hold until the engine vocabulary above
-  exposed one.
+  `compress`/`focus`/`zoom`, as methods and as top-level functions taking the
+  pattern last (`zoomArc(span, pat)` == `pat.zoomArc(span)`). They were the last
+  names in the API inventory marked unsupported for a reason that had stopped
+  being true: they take a `TimeSpan`, which no script could hold until the
+  engine vocabulary above exposed one.
 
 ### Fixed
 

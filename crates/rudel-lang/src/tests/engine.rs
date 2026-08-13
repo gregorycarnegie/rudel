@@ -98,15 +98,21 @@ fn the_span_forms_match_their_two_argument_versions() {
     // `compressSpan`/`focusSpan`/`zoomArc` only differ from `compress`/`focus`/
     // `zoom` in taking the span as one object, which a script can only build
     // because `TimeSpan` is exposed.
-    for (span_form, two_arg) in [
-        ("compressSpan(TimeSpan(0.25, 0.75))", "compress(0.25, 0.75)"),
-        ("focusSpan(TimeSpan(0.25, 0.75))", "focus(0.25, 0.75)"),
-        ("zoomArc(TimeSpan(0.25, 0.75))", "zoom(0.25, 0.75)"),
+    for (name, two_arg) in [
+        ("compressSpan", "compress(0.25, 0.75)"),
+        ("focusSpan", "focus(0.25, 0.75)"),
+        ("zoomArc", "zoom(0.25, 0.75)"),
     ] {
-        let got = shape(&eval(&format!(r#""a b c d".{span_form}"#)).expect("eval"), 2);
         let want = shape(&eval(&format!(r#""a b c d".{two_arg}"#)).expect("eval"), 2);
-        assert!(!got.is_empty(), "{span_form} produced nothing");
-        assert_eq!(got, want, "{span_form} vs {two_arg}");
+        assert!(!want.is_empty(), "{two_arg} produced nothing");
+        // The method and the standalone form, which takes the pattern last.
+        for form in [
+            format!(r#""a b c d".{name}(TimeSpan(0.25, 0.75))"#),
+            format!(r#"{name}(TimeSpan(0.25, 0.75), "a b c d")"#),
+        ] {
+            let got = shape(&eval(&form).expect("eval"), 2);
+            assert_eq!(got, want, "{form} vs {two_arg}");
+        }
     }
 }
 

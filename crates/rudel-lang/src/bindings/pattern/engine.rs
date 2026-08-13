@@ -273,29 +273,67 @@ pub(super) fn kpattern_sort_haps_by_part(ctx: MethodContext<KPattern>) -> KotoRe
 /// Upstream these are the variants the two-argument versions delegate to, and
 /// they throw on anything but a `TimeSpan` — which is why they were unreachable
 /// until `TimeSpan` became something a script could hold.
-fn span_method(
-    ctx: MethodContext<KPattern>,
-    f: impl Fn(&Pattern, TimeSpan) -> Pattern,
-) -> KotoResult<KValue> {
+/// What a span form does once it has its span.
+type SpanOp = fn(&Pattern, TimeSpan) -> Pattern;
+
+fn compress_span(pat: &Pattern, span: TimeSpan) -> Pattern {
+    pat.compress(span.begin, span.end)
+}
+
+fn focus_span(pat: &Pattern, span: TimeSpan) -> Pattern {
+    pat._focus_span(span)
+}
+
+fn zoom_arc(pat: &Pattern, span: TimeSpan) -> Pattern {
+    pat.zoom(span.begin, span.end)
+}
+
+/// Silence stands in for the throw upstream does on a non-span argument: the
+/// caller may be whichever thread is querying, which has nowhere to report it.
+fn span_method(ctx: MethodContext<KPattern>, f: SpanOp) -> KotoResult<KValue> {
     let pat = ctx.instance()?.0.clone();
-    // Upstream throws when the argument is not a span. Silence says the same
-    // thing without unwinding through whatever thread is querying.
-    let Some(span) = ctx.args.first().and_then(span_from_koto) else {
-        return Ok(KPattern(rudel_core::silence()).into());
-    };
-    Ok(KPattern(f(&pat, span)).into())
+    let span = ctx.args.first().and_then(span_from_koto);
+    Ok(KPattern(span.map_or_else(rudel_core::silence, |span| f(&pat, span))).into())
 }
 
 pub(super) fn kpattern_compress_span(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    span_method(ctx, |pat, span| pat.compress(span.begin, span.end))
+    span_method(ctx, compress_span)
 }
 
 pub(super) fn kpattern_focus_span(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    span_method(ctx, |pat, span| pat._focus_span(span))
+    span_method(ctx, focus_span)
 }
 
 pub(super) fn kpattern_zoom_arc(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    span_method(ctx, |pat, span| pat.zoom(span.begin, span.end))
+    span_method(ctx, zoom_arc)
+}
+
+/// Every spelling of the three, against what it does — the same functions the
+/// methods above are built from, so the two forms cannot drift apart.
+const SPAN_FNS: [(&[&str], SpanOp); 3] = [
+    (
+        &["compressSpan", "compress_span", "compressspan"],
+        compress_span,
+    ),
+    (&["focusSpan", "focus_span", "focusspan"], focus_span),
+    (&["zoomArc", "zoom_arc", "zoomarc"], zoom_arc),
+];
+
+/// The standalone forms: `compressSpan(span, pat)` reads the same as
+/// `pat.compressSpan(span)`, as it does for every transform Strudel `register`s
+/// — each one exports a top-level function taking the pattern last as well as a
+/// method. A call short of the pattern partially applies, like its neighbours.
+pub(crate) fn register_span_fns(prelude: &KMap) {
+    for (names, op) in SPAN_FNS {
+        for name in names {
+            crate::bindings::prelude::add_curried_fn(prelude, name, 2, move |a: &[KValue]| {
+                let last = a.len().saturating_sub(1);
+                let pat = super::arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+                let span = a.first().filter(|_| last >= 1).and_then(span_from_koto);
+                Ok(KPattern(span.map_or_else(rudel_core::silence, |span| op(&pat, span))).into())
+            });
+        }
+    }
 }
 
 /// The engine constructors a script reaches for: `Pattern`, `Hap`, `Fraction`.

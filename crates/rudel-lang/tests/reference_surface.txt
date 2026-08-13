@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1013 methods=1123 controls=668
+# functions=1022 methods=1123 controls=668
 
 [functions]
 Array
@@ -121,11 +121,14 @@ color
 colour
 comb
 compress
+compressSpan
+compress_span
 compressor
 compressorAttack
 compressorKnee
 compressorRatio
 compressorRelease
+compressspan
 contract
 cosine
 cosine2
@@ -522,6 +525,9 @@ fmwave6
 fmwave7
 fmwave8
 focus
+focusSpan
+focus_span
+focusspan
 fold
 frameRate
 frames
@@ -1015,6 +1021,9 @@ zip
 zmod
 znoise
 zoom
+zoomArc
+zoom_arc
+zoomarc
 zrand
 zzfx
 

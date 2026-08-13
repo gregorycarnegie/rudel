@@ -41,7 +41,7 @@ macro_rules! register_pick_fns {
 /// pattern), it returns a function holding those arguments and awaiting the
 /// rest, so `ply("0")` works as a transform argument (`x => x.ply("0")`)
 /// exactly like Strudel's curried `register` functions.
-fn add_curried_fn(
+pub(super) fn add_curried_fn(
     prelude: &KMap,
     name: &str,
     arity: usize,
@@ -172,8 +172,10 @@ pub(crate) fn register(prelude: &KMap) {
     // The JS builtins helper functions call on plain values (`Array.isArray`,
     // `arr.map`, `s.endsWith`).
     super::js::register_js_builtins(prelude);
-    // `Pattern`, `Hap`, `Fraction`, `TimeSpan` — the engine's own vocabulary.
+    // `Pattern`, `Hap`, `Fraction`, `TimeSpan` — the engine's own vocabulary,
+    // plus the standalone forms of the transforms that take a span.
     super::pattern::register_engine_fns(prelude);
+    super::pattern::register_span_fns(prelude);
     let math = KMap::new();
     math.add_fn("pow", |ctx| {
         let base = super::pattern::arg_to_f64(&arg0(ctx));
