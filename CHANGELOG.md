@@ -11,6 +11,32 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-13
+
+A release about the songs people actually write. The corpus this time is
+[eefano/strudel-songs-collection](https://github.com/eefano/strudel-songs-collection)
+— 88 complete Strudel songs, not documentation snippets — and **16 of them
+evaluated when it was first run; all 88 do now.**
+
+Very little of what it found was JavaScript being exotic. It was Rudel's:
+`register`, the way a script defines its own pattern method, was not bound at
+all, and it opens about a quarter of the corpus. Under that sat a preprocessor
+that had only ever been asked to read documentation, where nobody writes a
+`typeof`, a brace-bodied arrow, or a chain long enough to need three line
+breaks Koto does not allow.
+
+The last two songs wanted something the engine could not do at any price: they
+define a *combinator*, and a combinator has to look at the haps of the cycle it
+is given. Every Koto callback before this ran once at construction and baked its
+answer, which cannot express "number these, and say how many there were". So
+Koto is built with its `arc` feature now, a script's own function can run during
+a query, and the engine's own vocabulary — `Pattern`, `Hap`, `TimeSpan`,
+`Fraction` — is something a script can hold. That is a real widening of the
+compatibility surface, taken deliberately.
+
+The editor also got a right-click menu, which is the first way into any of its
+actions that is not a keyboard shortcut.
+
 ### Added
 
 - **A right-click menu in the editor.** Every action it offers already had a

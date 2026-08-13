@@ -2386,9 +2386,9 @@ dependencies = [
 
 [[package]]
 name = "num-integer"
-version = "0.1.46"
+version = "0.1.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
+checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
 dependencies = [
  "num-traits",
 ]
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-app"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "arboard",
  "eframe",
@@ -3414,7 +3414,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-audio"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "cpal",
  "libloading 0.9.0",
@@ -3430,7 +3430,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-core"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "indexmap",
  "num-integer",
@@ -3442,7 +3442,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-dsp"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "proptest",
  "rudel-core",
@@ -3452,7 +3452,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-lang"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "koto",
  "proptest",
@@ -3463,7 +3463,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-midi"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "midir",
  "rudel-core",
@@ -3471,7 +3471,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-mini"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "pest",
  "pest_derive",
@@ -3482,7 +3482,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-osc"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "proptest",
  "rudel-core",
