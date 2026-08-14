@@ -1110,4 +1110,126 @@ mod tests {
         assert_eq!(out.lines().count(), 1, "{out}");
         assert!(out.starts_with("throw 'mondo: "), "{out}");
     }
+    #[test]
+    fn an_operator_with_nothing_on_one_side_is_a_plain_function() {
+        // The comment on `desugar_ops` names both shapes: `# *2` is a lambda
+        // over the missing left side, and the trailing `-` of `[c -]` is a
+        // reference rather than a subtraction. Getting the guard wrong here
+        // indexes off the end of the child list rather than misreading it.
+        assert_eq!(compile("* 2").unwrap(), "fast(2)");
+        assert_eq!(
+            compile("[c -]").unwrap(),
+            "stepcat('c', silence()).setSteps(1)"
+        );
+        assert_eq!(compile("# *2").unwrap(), "(|mondoArg0| fast(2, mondoArg0))");
+        // An operator straight after a pipe has no left side either.
+        assert_eq!(
+            compile("s bd | * 2").unwrap(),
+            "chooseIn(pure('bd').s(), fast(2))"
+        );
+        // With both sides present it is an ordinary call, innermost first.
+        assert_eq!(compile("* 2 3").unwrap(), "fast(2, 3)");
+        assert_eq!(
+            compile("s bd # * 2 # fast 3").unwrap(),
+            "fast(3, fast(2, pure('bd').s()))"
+        );
+    }
+
+    #[test]
+    fn two_operators_in_a_row_say_so() {
+        assert_eq!(
+            compile("s bd * * 2").unwrap_err(),
+            "got 2 ops in a row: \"**\""
+        );
+        // Named in source order, which only two *different* operators can
+        // show — with a doubled one, either side reads the same.
+        assert_eq!(
+            compile("s bd * + 2").unwrap_err(),
+            "got 2 ops in a row: \"*+\""
+        );
+        assert_eq!(
+            compile("s bd + * 2").unwrap_err(),
+            "got 2 ops in a row: \"+*\""
+        );
+        // A doubled `-` is nearly always a rest written the JavaScript way.
+        assert_eq!(
+            compile("s bd - - 2").unwrap_err(),
+            "got 2 ops in a row: \"--\". you probably want a rest, which is \"_\" in mondo!"
+        );
+    }
+
+    #[test]
+    fn a_string_is_escaped_for_the_koto_it_lands_in() {
+        // The emitted source is Koto, so a literal newline, carriage return or
+        // `$` would end the string or start an interpolation.
+        // The input carries the real character; the output carries its escape.
+        assert_eq!(compile("s \"a\nb\"").unwrap(), "pure('a\\nb').s()");
+        assert_eq!(compile("s \"a\rb\"").unwrap(), "pure('a\\rb').s()");
+        assert_eq!(compile("s \"a$b\"").unwrap(), "pure('a\\$b').s()");
+    }
+
+    #[test]
+    fn a_lambda_parameter_keeps_its_name_only_when_koto_can_use_it() {
+        assert_eq!(compile("(fn (x) (s x))").unwrap(), "(|x| x.s())");
+        // `_` is what the `#` shorthand generates and is not an identifier,
+        // and a name starting with a digit is not one either.
+        assert_eq!(
+            compile("(fn (_) (s _))").unwrap(),
+            "(|mondoArg0| mondoArg0.s())"
+        );
+        assert_eq!(
+            compile("(fn (1x) (s 1x))").unwrap(),
+            "(|mondoArg0, x| x.s(1))"
+        );
+    }
+    #[test]
+    fn an_unclosed_bracket_is_reported_rather_than_guessed_at() {
+        for src in ["[c", "(c", "<c", "{c"] {
+            assert_eq!(
+                compile(src).unwrap_err(),
+                "unexpected end of file: missing closing bracket",
+                "{src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_colon_chain_needs_literal_operands() {
+        // `bd:3` is a sample index, so both sides have to be literals; a
+        // bracketed group or a call on the right is not one.
+        assert_eq!(compile("s bd:3").unwrap(), "\"bd:3\".s()");
+        assert_eq!(
+            compile("s bd:[a b]").unwrap_err(),
+            "\":\" needs literal operands"
+        );
+        assert_eq!(
+            compile("s bd:(fast 2)").unwrap_err(),
+            "\":\" needs literal operands"
+        );
+    }
+
+    #[test]
+    fn a_range_takes_its_ends_as_written() {
+        // Quoted or bare, the ends of a `..` are literals and the quotes are
+        // not part of them.
+        assert_eq!(compile("note c .. e").unwrap(), "\"c .. e\".note()");
+        assert_eq!(
+            compile("note \"c\" .. \"e\"").unwrap(),
+            "\"c .. e\".note()"
+        );
+    }
+
+    #[test]
+    fn an_unterminated_template_does_not_take_the_script_with_it() {
+        // A half-typed `mondo\`` is what the editor holds between keystrokes,
+        // so the rewriter has to hand back something compilable rather than
+        // index past the end of the source.
+        assert_eq!(rewrite_mondo_templates("x = mondo`"), "x = silence()");
+        assert_eq!(rewrite_mondo_templates("x = mondo``"), "x = silence()");
+        // A template next to a plain one keeps them apart.
+        assert_eq!(
+            rewrite_mondo_templates("x = f(mondo`s bd`, `plain`)"),
+            "x = f(pure('bd').s(), `plain`)"
+        );
+    }
 }
