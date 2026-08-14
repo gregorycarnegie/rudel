@@ -221,10 +221,10 @@ pub(crate) fn code_editor(
                 completion = None;
                 handled = true;
             } else if shortcuts.complete_next {
-                state.selected = (state.selected + 1) % state.items.len();
+                state.selected = stepped_selection(state.selected, state.items.len(), true);
                 handled = true;
             } else if shortcuts.complete_prev {
-                state.selected = (state.selected + state.items.len() - 1) % state.items.len();
+                state.selected = stepped_selection(state.selected, state.items.len(), false);
                 handled = true;
             }
         }
@@ -249,11 +249,7 @@ pub(crate) fn code_editor(
                 let cursor_byte = byte_index_at_char(code, cursor);
                 completion = completion_at(code, cursor_byte, &completion_catalog).map(
                     |(start, _, items)| {
-                        let selected = prev
-                            .as_ref()
-                            .filter(|c| c.start == start)
-                            .map(|c| c.selected.min(items.len() - 1))
-                            .unwrap_or(0);
+                        let selected = carried_selection(prev.as_ref(), start, items.len());
                         Completion {
                             start,
                             items,
@@ -444,6 +440,28 @@ pub(crate) fn code_editor(
         cursor_byte: cursor_byte.map(|byte: egui::text::ByteIndex| byte.0),
         action,
     }
+}
+
+/// The completion entry selected after a move, wrapping at both ends so
+/// holding the key cycles rather than sticking.
+fn stepped_selection(selected: usize, len: usize, forward: bool) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    match forward {
+        true => (selected + 1) % len,
+        false => (selected + len - 1) % len,
+    }
+}
+
+/// The entry to keep selected when the popup refreshes. The choice survives
+/// only while the word being completed is the same one — a new word starts at
+/// the top — and is clamped, since the shorter list of a longer prefix may not
+/// reach as far as the old index.
+fn carried_selection(prev: Option<&Completion>, start: egui::text::ByteIndex, len: usize) -> usize {
+    prev.filter(|c| c.start == start)
+        .map(|c| c.selected.min(len.saturating_sub(1)))
+        .unwrap_or(0)
 }
 
 fn draw_line_number_gutter(
@@ -713,5 +731,43 @@ c", None, &heights);
             inflated[1].1.y - flat[1].1.y > 40.0,
             "the numbers below it move down by the extra height"
         );
+    }
+    #[test]
+    fn the_completion_selection_wraps_at_both_ends() {
+        // Holding the key cycles the list rather than sticking at either end.
+        assert_eq!(stepped_selection(0, 3, true), 1);
+        assert_eq!(stepped_selection(2, 3, true), 0, "past the end wraps to 0");
+        assert_eq!(stepped_selection(1, 3, false), 0);
+        assert_eq!(
+            stepped_selection(0, 3, false),
+            2,
+            "back past the start wraps to the end"
+        );
+        // A one-entry list stays put either way, and an empty one has nothing
+        // to select — the `% len` would divide by zero.
+        assert_eq!(stepped_selection(0, 1, true), 0);
+        assert_eq!(stepped_selection(0, 1, false), 0);
+        assert_eq!(stepped_selection(0, 0, true), 0);
+    }
+
+    #[test]
+    fn a_refreshed_popup_keeps_the_choice_only_for_the_same_word() {
+        let completion = |start: usize, selected: usize| Completion {
+            start: egui::text::ByteIndex(start),
+            items: Vec::new(),
+            selected,
+        };
+        let at = egui::text::ByteIndex(4);
+
+        // Same word, so the highlighted entry survives another keystroke.
+        assert_eq!(carried_selection(Some(&completion(4, 2)), at, 5), 2);
+        // A different word starts at the top...
+        assert_eq!(carried_selection(Some(&completion(9, 2)), at, 5), 0);
+        // ...as does a first open.
+        assert_eq!(carried_selection(None, at, 5), 0);
+        // A longer prefix means a shorter list, which may not reach as far as
+        // the old index.
+        assert_eq!(carried_selection(Some(&completion(4, 4)), at, 2), 1);
+        assert_eq!(carried_selection(Some(&completion(4, 4)), at, 0), 0);
     }
 }
