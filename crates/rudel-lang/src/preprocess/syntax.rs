@@ -2493,4 +2493,695 @@ mod tests {
         assert!(out.contains("gain(0.5)"), "the leading dot is filled in");
         assert!(out.contains("|x| x.fast(2)"), "the arrow becomes a lambda");
     }
+
+    // The indenter is a state machine over columns, and the tune corpus in
+    // `tests/tunes.rs` does not pin it down: a tune whose layout is re-indented
+    // differently still parses and still produces the same haps, so only the
+    // layouts below say what the columns actually have to be.
+
+    #[test]
+    fn an_argument_is_pulled_back_to_the_column_of_the_first_one() {
+        // Koto takes a bracketed group's lines at one column or all within two
+        // of the opening line. A tune indents its arguments to taste, so a
+        // later argument is pulled back onto the first one's column.
+        assert_eq!(
+            indent_dot_continuations("stack(\n  a,\n      b\n)"),
+            "stack(\n  a,\n  b\n)"
+        );
+        // Only a line that follows a `,` is a new argument. A lambda's body
+        // continues the argument above and keeps its own indent — pulling those
+        // back runs the block into the call around it.
+        assert_eq!(
+            indent_dot_continuations("f(|v|\n  a,\n      b\n)"),
+            "f(|v|\n  a,\n      b\n)"
+        );
+    }
+
+    #[test]
+    fn indentation_at_the_top_level_is_dropped_once_the_block_is_over() {
+        // JavaScript's top-level indentation is formatting; Koto reads it as a
+        // block belonging to the line above, and the name assigned there is
+        // then unbound when the "block" runs.
+        assert_eq!(indent_dot_continuations("  x = 1\n  y = 2"), "x = 1\ny = 2");
+        // The lambda block ends with the call that opened it, so the line after
+        // the `)` is flattened even though the body's lines were not.
+        assert_eq!(
+            indent_dot_continuations("f(|v|\n  a,\n  b\n)\n  c"),
+            "f(|v|\n  a,\n  b\n)\nc"
+        );
+    }
+
+    #[test]
+    fn a_second_dot_line_aligns_with_the_first_instead_of_stepping_right() {
+        // Each `.` line at a depth records the column it landed on, and the
+        // next one reuses it — stepping further right each time is what Koto
+        // rejects.
+        assert_eq!(
+            indent_dot_continuations("x\n  .a()\n.b()"),
+            "x\n  .a()\n  .b()"
+        );
+        // A line opening with `,` closes off the chain it follows, so it keeps
+        // the argument column rather than the continuation's.
+        assert_eq!(
+            indent_dot_continuations("f(\n  a\n  .b()\n  ,\n  c\n)"),
+            "f(\n  a\n    .b()\n  ,\n  c\n)"
+        );
+    }
+
+    #[test]
+    fn a_declaration_moves_above_the_code_that_reads_it() {
+        // Koto captures at definition, so a helper written above the data it
+        // reads has to be moved below it. Runs after `const` is stripped.
+        assert_eq!(
+            order_declarations("g = (x) => x.pick(tuning)\ntuning = {a: 1}"),
+            "tuning = {a: 1}\ng = (x) => x.pick(tuning)"
+        );
+        // A chain of them ends up fully reversed.
+        assert_eq!(
+            order_declarations("a = (x) => b\nb = (x) => c\nc = 1"),
+            "c = 1\nb = (x) => c\na = (x) => b"
+        );
+        // Already in order, so nothing moves...
+        assert_eq!(order_declarations("a = 1\nb = a\nc = b"), "a = 1\nb = a\nc = b");
+        // ...and a cycle is left in source order rather than hanging.
+        assert_eq!(
+            order_declarations("a = (x) => b(x)\nb = (x) => a(x)"),
+            "a = (x) => b(x)\nb = (x) => a(x)"
+        );
+    }
+
+    #[test]
+    fn only_the_semicolon_that_ends_a_line_is_dropped() {
+        // Koto has no statement separator, but a `;` between two statements on
+        // one line is load-bearing — only the trailing one goes.
+        assert_eq!(strip_trailing_semicolons("a = 1; b = 2;"), "a = 1; b = 2");
+        // A comment after it still leaves the `;` line-final.
+        assert_eq!(
+            strip_trailing_semicolons("a = 1; // note ;\nb = 2;"),
+            "a = 1; // note ;\nb = 2"
+        );
+    }
+
+    #[test]
+    fn a_prototype_body_is_found_past_the_parameters_not_before_them() {
+        // The body is the `{` after the parameter list. A map earlier in the
+        // source, or a default value carrying its own braces, is not it.
+        assert_eq!(
+            rewrite_prototype_methods(
+                "mmmmmmmmmmmmmmmmmm = {a: 1}; Pattern.prototype.foo = function (b) { this }"
+            ),
+            "mmmmmmmmmmmmmmmmmm = {a: 1}; rudel_prototype('foo', function (b, rudel_this){ rudel_this })"
+        );
+        assert_eq!(
+            rewrite_prototype_methods("Pattern.prototype.foo = function (b = {c: 1}) { this }"),
+            "rudel_prototype('foo', function (b = {c: 1}, rudel_this){ rudel_this })"
+        );
+    }
+
+    #[test]
+    fn a_tagged_template_is_called_but_a_plain_one_is_not() {
+        // A backtick string with a tag in front is a call; on its own it is
+        // just a literal and wrapping it in brackets changes what it means.
+        assert_eq!(
+            rewrite_tagged_templates("x = tag`a ${b} c`\ny = `plain ${d}`"),
+            "x = tag(`a ${b} c`)\ny = `plain ${d}`"
+        );
+    }
+
+    #[test]
+    fn a_logical_operator_keeps_the_spacing_around_it() {
+        // The replacement is measured off the operator's own width, so `&&`
+        // becoming `and` must not eat or duplicate the blanks either side.
+        assert_eq!(
+            rewrite_logical_operators("a && b || c\nx&&y\nq ?? r"),
+            "a and b or c\nx and y\nq ?? r"
+        );
+    }
+
+    #[test]
+    fn a_block_body_is_indented_from_its_own_line() {
+        // The construct's indent is the line it starts on, not the file's
+        // margin — and tabs count as indentation the same as spaces.
+        assert_eq!(
+            rewrite_block_bodies("x\n  f((v) => { a })"),
+            "x\n  f((v) => \n    a\n  )"
+        );
+        assert_eq!(
+            rewrite_block_bodies("\tf((v) => { a })"),
+            "\tf((v) => \n   a\n )"
+        );
+    }
+
+    #[test]
+    fn a_line_edge_tells_a_string_from_a_comment() {
+        // The joining passes read these: a line ending in a quote is not a line
+        // ending in a comment, and `join_dangling_operators` treats them
+        // differently.
+        assert_eq!(
+            line_edges("x = \"a\"\n'b' + c\n// d"),
+            vec![
+                (Some('x'), Some('"')),
+                (Some('"'), Some('c')),
+                (Some('/'), Some('/')),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_multi_line_group_is_folded_only_when_something_follows_it() {
+        // Koto reads a nested call whose arguments span lines only in final
+        // position; anywhere else it ends the outer list.
+        assert_eq!(
+            flatten_non_final_groups("stack(pure(1).fast(\n  2),\n  pure(3).fast(\n    4))"),
+            "stack(pure(1).fast( 2),\n  pure(3).fast(\n    4))"
+        );
+        // Last in its list, so its layout is left alone.
+        assert_eq!(
+            flatten_non_final_groups("f(a(\n  1\n))"),
+            "f(a(\n  1\n))"
+        );
+        // The `,` that decides this has to be the *list's* — one belonging to a
+        // call further along the line says nothing about this group.
+        assert_eq!(
+            flatten_non_final_groups("f(a(\n  1\n) + g(1, 2))"),
+            "f(a(\n  1\n) + g(1, 2))"
+        );
+        // Every group in a list gets the same treatment, and `[` counts.
+        assert_eq!(
+            flatten_non_final_groups("f(g(\n  1\n), h(2,\n  3), 4)"),
+            "f(g( 1), h(2, 3), 4)"
+        );
+        assert_eq!(flatten_non_final_groups("[a(\n  1\n), b]"), "[a( 1), b]");
+    }
+
+    #[test]
+    fn the_bracket_that_ends_the_list_ends_the_search_for_a_comma() {
+        // The group is last in *its* list; the `,` further along belongs to a
+        // call outside it, and the bracket closing the list is what says so.
+        assert_eq!(
+            flatten_non_final_groups("f(g(\n  1\n)) + h(1, 2)"),
+            "f(g(\n  1\n)) + h(1, 2)"
+        );
+        // ...but a bracket closing something *inside* the list is not that
+        // bracket, so the `,` after it still counts.
+        assert_eq!(
+            flatten_non_final_groups("f(g(\n  1\n).h(a), 2)"),
+            "f(g( 1).h(a), 2)"
+        );
+    }
+
+    #[test]
+    fn a_group_holding_a_lambda_block_keeps_its_lines() {
+        // The block's lines are its body — folding them onto one line loses the
+        // block, and Koto has nowhere to put the statements.
+        assert_eq!(
+            flatten_non_final_groups("f(g(|v|\n  v\n), 2)"),
+            "f(g(|v|\n  v\n), 2)"
+        );
+    }
+
+    #[test]
+    fn a_lambda_block_ends_where_the_lines_stop_being_its_body() {
+        // The body ends at a line no further in than the `|…|` that opened it,
+        // so the argument after it is an argument again and gets pulled back.
+        assert_eq!(
+            indent_dot_continuations("g(\n  f(|v|\n    a,\n  b,\n      c\n  )\n)"),
+            "g(\n  f(|v|\n    a,\n    b,\n    c\n  )\n)"
+        );
+        // ...and at a line outside the brackets it was opened in, even when
+        // that line does not start with the closing bracket — otherwise the
+        // block is still thought to be open when the *next* call reaches the
+        // same depth, and that call's arguments are left alone as if they were
+        // a function body.
+        assert_eq!(
+            indent_dot_continuations("g(\n  f(|v|\n    a),\n  h(\n    x,\n        y\n  )\n)"),
+            "g(\n  f(|v|\n    a),\n  h(\n    x,\n    y\n  )\n)"
+        );
+    }
+
+    #[test]
+    fn a_continuation_column_survives_until_its_brackets_close() {
+        // The recorded column is reused as-is: a `.` line indented further than
+        // the minimum keeps its own column for the rest of the chain rather
+        // than being recomputed back to it.
+        assert_eq!(
+            indent_dot_continuations("x\n     .a()\n.b()"),
+            "x\n     .a()\n     .b()"
+        );
+        // Lines inside a continuation sit two columns past it — a floor that is
+        // added to the column, not scaled by it, which only an odd column can
+        // tell apart.
+        assert_eq!(
+            indent_dot_continuations("f(\n   a\n   .b(\n     c\n   )\n)"),
+            "f(\n   a\n     .b(\n       c\n       )\n)"
+        );
+        // A line opening with a closing bracket is not a new argument, so the
+        // pull-back that follows a `,` does not apply to it.
+        assert_eq!(
+            indent_dot_continuations("f(\n  a,\n      )"),
+            "f(\n  a,\n      )"
+        );
+    }
+
+    #[test]
+    fn a_line_ending_in_a_string_did_not_end_in_a_comma() {
+        // The `,` is not the last thing said on the line — the string is — so
+        // the line below continues the argument instead of starting one, and
+        // keeps its own indent.
+        assert_eq!(
+            indent_dot_continuations("f(\n  a, \"x\"\n      b\n)"),
+            "f(\n  a, \"x\"\n      b\n)"
+        );
+    }
+
+    #[test]
+    fn a_dot_after_a_closing_bracket_is_joined_onto_it() {
+        // Koto will not carry a chain past a line that closed a multi-line
+        // call, however far the `.` is pushed — but it accepts the chain
+        // written on the closing line itself.
+        assert_eq!(
+            indent_dot_continuations("f(a,\n  b)\n.c()"),
+            "f(a,\n  b).c()"
+        );
+        assert_eq!(
+            indent_dot_continuations("x = 1\nf(\n  a,\n  b\n)\n.c()"),
+            "x = 1\nf(\n  a,\n  b\n).c()"
+        );
+        // The same when the closing bracket *begins* the line.
+        assert_eq!(
+            indent_dot_continuations("f(\n  a\n  .b()\n  )\n.c()"),
+            "f(\n  a\n    .b()\n  ).c()"
+        );
+        // A blank line between the two means the `.` is not joined on — it is
+        // only indented, since there is more than one newline to swallow.
+        assert_eq!(indent_dot_continuations("f(a)\n\n.c()"), "f(a)\n\n  .c()");
+    }
+
+    #[test]
+    fn a_line_ending_in_an_operator_takes_the_next_line_with_it() {
+        // `=`, `=>` and a bare label each leave the line unfinished.
+        assert_eq!(join_dangling_operators("x =\n  1"), "x = 1");
+        assert_eq!(join_dangling_operators("f = x =>\n  x"), "f = x => x");
+        assert_eq!(join_dangling_operators("$:\n  s(\"bd\")"), "$: s(\"bd\")");
+        // Blank lines between the two go with the join.
+        assert_eq!(join_dangling_operators("x =\n\n  1"), "x = 1");
+        // A comparison is complete as it stands.
+        for op in ["==", "!=", "<=", ">="] {
+            let src = format!("a {op}\nb");
+            assert_eq!(join_dangling_operators(&src), src, "{op}");
+        }
+    }
+
+    #[test]
+    fn a_call_split_before_its_bracket_is_pulled_back_together() {
+        // The `(` has to land against what it calls, with no gap...
+        assert_eq!(join_dangling_operators("stack\n(a)"), "stack(a)");
+        assert_eq!(join_dangling_operators("f(x)\n(a)"), "f(x)(a)");
+        assert_eq!(join_dangling_operators("[x]\n(a)"), "[x](a)");
+        // ...but a `(` opening a line after something that is not a callee is
+        // an ordinary parenthesised expression on its own line.
+        assert_eq!(join_dangling_operators("a,\n(b)"), "a,\n(b)");
+    }
+
+    #[test]
+    fn a_top_level_statement_carries_its_continuations() {
+        // One range per statement, as line indices.
+        assert_eq!(top_level_statements("a\nb"), vec![0..1, 1..2]);
+        // An indented line, a `.` chain and a closing bracket all continue the
+        // statement above rather than starting one.
+        assert_eq!(top_level_statements("a\n  b"), vec![0..2]);
+        assert_eq!(top_level_statements("a\n.b"), vec![0..2]);
+        assert_eq!(top_level_statements("f(\n  1\n)"), vec![0..3]);
+        // A bracket left open holds the next line in even when that line is
+        // flush left and starts with an ordinary character.
+        assert_eq!(top_level_statements("f(a,\nb)\nc"), vec![0..2, 2..3]);
+        // A blank line belongs to the statement it follows.
+        assert_eq!(top_level_statements("a\n\nb"), vec![0..2, 2..3]);
+    }
+
+    #[test]
+    fn a_spread_becomes_a_copy_plus_overrides() {
+        assert_eq!(
+            rewrite_object_spreads("{...v, value: r}"),
+            "rudel_spread(v, {value: r})"
+        );
+        // The literal's own spacing, and a spread with nothing after it.
+        assert_eq!(
+            rewrite_object_spreads("{ ...v, n: 2 }"),
+            "rudel_spread(v, {n: 2})"
+        );
+        assert_eq!(rewrite_object_spreads("{...v}"), "rudel_spread(v, {})");
+        // The base runs to the first comma *outside* brackets, so a call's own
+        // arguments stay with it.
+        assert_eq!(
+            rewrite_object_spreads("{...f(a, b), n: 1}"),
+            "rudel_spread(f(a, b), {n: 1})"
+        );
+        // Not a spread, and left alone.
+        assert_eq!(rewrite_object_spreads("{a: 1}"), "{a: 1}");
+    }
+
+    #[test]
+    fn a_hap_field_is_read_as_a_property_only_when_it_is_one() {
+        assert_eq!(rewrite_value_property("h.value"), "rudel_prop(h, 'value')");
+        assert_eq!(rewrite_value_property("h.n + 1"), "rudel_prop(h, 'n') + 1");
+        // A call is a method, and a longer name is a different name.
+        assert_eq!(rewrite_value_property("h.value(2)"), "h.value(2)");
+        assert_eq!(rewrite_value_property("h.values"), "h.values");
+        // With no identifier to the left there is no receiver to pass.
+        assert_eq!(rewrite_value_property("f().value"), "f().value");
+    }
+
+    #[test]
+    fn a_prototype_method_becomes_a_registration_taking_the_receiver() {
+        assert_eq!(
+            rewrite_prototype_methods("Pattern.prototype.foo = function () { this.x }"),
+            "rudel_prototype('foo', function (rudel_this){ rudel_this.x })"
+        );
+        // Existing parameters keep their place; the receiver goes last.
+        assert_eq!(
+            rewrite_prototype_methods("Pattern.prototype.foo = function (a) { a }"),
+            "rudel_prototype('foo', function (a, rudel_this){ a })"
+        );
+        // The offsets are into the whole source, so text either side has to
+        // survive intact.
+        assert_eq!(
+            rewrite_prototype_methods("x = 1\nPattern.prototype.foo = function (a = (1)) { a }\ny"),
+            "x = 1\nrudel_prototype('foo', function (a = (1), rudel_this){ a })\ny"
+        );
+        // Only an assignment of a `function` is a definition.
+        assert_eq!(
+            rewrite_prototype_methods("Pattern.prototype.foo.bar"),
+            "Pattern.prototype.foo.bar"
+        );
+    }
+
+    #[test]
+    fn new_is_stripped_only_where_it_constructs() {
+        assert_eq!(strip_new("x = new Foo(1)"), "x = Foo(1)");
+        // A word ending in `new`, and a `new ` with no constructor after it.
+        assert_eq!(strip_new("renew x"), "renew x");
+        assert_eq!(strip_new("new (x)"), "new (x)");
+    }
+
+    #[test]
+    fn typeof_becomes_a_call_on_its_operand() {
+        assert_eq!(
+            rewrite_typeof("typeof x === 'string'"),
+            "rudel_typeof(x) === 'string'"
+        );
+        // A parenthesised operand is taken whole, brackets and all.
+        assert_eq!(
+            rewrite_typeof("typeof (a(b)) == 'number'"),
+            "rudel_typeof((a(b))) == 'number'"
+        );
+        // Two of them, so the scan has to resume past the first.
+        assert_eq!(
+            rewrite_typeof("typeof a + typeof b"),
+            "rudel_typeof(a) + rudel_typeof(b)"
+        );
+        // Part of a longer name, and with no operand to take.
+        assert_eq!(rewrite_typeof("mytypeof x"), "mytypeof x");
+        assert_eq!(rewrite_typeof("typeof"), "typeof");
+    }
+
+    #[test]
+    fn a_numeric_map_key_gets_quoted_wherever_the_map_is() {
+        assert_eq!(
+            quote_numeric_map_keys("x = {0: 'a', 1.5: 'b'}"),
+            "x = {'0': 'a', '1.5': 'b'}"
+        );
+        // Nested maps, and a key after an inner map has closed — which needs
+        // the depth to come back down by one.
+        assert_eq!(
+            quote_numeric_map_keys("{a: {2: 'x'}, 3: 'y'}"),
+            "{a: {'2': 'x'}, '3': 'y'}"
+        );
+        // A name key is not numeric, and a number that is not a key — the
+        // opening line of a block body — is not one either.
+        assert_eq!(quote_numeric_map_keys("{a: 1}"), "{a: 1}");
+        assert_eq!(quote_numeric_map_keys("f((v) => { 2 * v })"), "f((v) => { 2 * v })");
+    }
+
+    #[test]
+    fn a_braced_function_body_becomes_an_indented_block() {
+        // The arrow keeps its parameters for the next pass; the body's
+        // statements move in two columns and the call's `)` closes on a line of
+        // its own, which is the only shape Koto accepts here.
+        assert_eq!(
+            rewrite_block_bodies("p.fmap((v) => { const x = v.n; return x + 1 })"),
+            "p.fmap((v) => \n  const x = v.n\n  x + 1\n)"
+        );
+        // A named `function` binds, an anonymous one is a bare lambda.
+        assert_eq!(
+            rewrite_block_bodies("function f(a, b) { a + b }"),
+            "f = |a, b|\n  a + b\n"
+        );
+        assert_eq!(
+            rewrite_block_bodies("x = function (a) { a }"),
+            "x = |a|\n  a\n"
+        );
+        // A default value in the parameters carries its own brackets, so the
+        // scan back to the parameter list has to pair them.
+        assert_eq!(
+            rewrite_block_bodies("function f(a, b = (1 + 2)) { a }"),
+            "f = |a, b = (1 + 2)|\n  a\n"
+        );
+    }
+
+    #[test]
+    fn an_object_literal_is_not_a_function_body() {
+        // Nothing to the left says "function", so these braces are a map and
+        // must survive untouched — rewriting them silently corrupts a value.
+        for src in [
+            "x = {a: 1, b: 2}",
+            "f({gain: 1})",
+            "x = 1\ny = {a: 1}",
+            "x = {}",
+        ] {
+            assert_eq!(rewrite_block_bodies(src), src, "{src}");
+        }
+    }
+
+    #[test]
+    fn a_return_is_dropped_only_in_tail_position() {
+        // The last statement is the block's value, so its `return` is noise;
+        // an earlier one is a real early exit and keeps the keyword.
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { return v })"),
+            "f((v) => \n  v\n)"
+        );
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { return (v); w })"),
+            "f((v) => \n  return (v)\n  w\n)"
+        );
+        // `returning` merely starts with the keyword.
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { returning })"),
+            "f((v) => \n  returning\n)"
+        );
+    }
+
+    #[test]
+    fn statements_split_on_semicolons_and_newlines_outside_brackets() {
+        // A `;` or newline inside a call's brackets is part of one statement,
+        // and every line of that statement moves in together.
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { g(a,\nb); h() })"),
+            "f((v) => \n  g(a,\n  b)\n  h()\n)"
+        );
+        // Splitting that newline off would leave a *second* statement, and
+        // only the last one is the block's value — visible here because the
+        // `return` is then no longer in tail position and survives.
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { return g(a,\nb) })"),
+            "f((v) => \n  g(a,\n  b)\n)"
+        );
+        // ...but a newline before a control arm's `{`, or before its `else`,
+        // does not end the statement either.
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { if (v)\n{ a }\nelse\n{ b } })"),
+            "f((v) => \n  if v\n    a\n  else\n    b\n)"
+        );
+    }
+
+    #[test]
+    fn an_if_arm_becomes_then_or_a_block_and_keeps_its_else() {
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { if (v > 1) a; b })"),
+            "f((v) => \n  if v > 1 then a\n  b\n)"
+        );
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { if (v) { a } else { b } })"),
+            "f((v) => \n  if v\n    a\n  else\n    b\n)"
+        );
+        // A `return` inside an arm returns from the function, not the arm, so
+        // it survives even when the arm is the last statement.
+        assert_eq!(
+            rewrite_block_bodies("f((v) => { if (v) { return a } })"),
+            "f((v) => \n  if v\n    return a\n)"
+        );
+    }
+
+    #[test]
+    fn a_ternary_becomes_a_parenthesised_if_expression() {
+        assert_eq!(rewrite_ternaries("a ? b : c"), "(if a then b else c)");
+        // Source with no `?` is not touched, and a `?` with no `:` is not a
+        // ternary — better to hand it on than to invent an `else` for it.
+        assert_eq!(rewrite_ternaries("plain"), "plain");
+        assert_eq!(rewrite_ternaries("a ? b"), "a ? b");
+    }
+
+    #[test]
+    fn the_condition_starts_after_the_thing_that_cannot_be_part_of_it() {
+        // Assignment, separators and a newline each end the condition, and the
+        // `=` case has to keep the assignment's spacing readable.
+        assert_eq!(rewrite_ternaries("v = a ? b : c"), "v = (if a then b else c)");
+        // The space is put back after an `=` however the source spaced it.
+        assert_eq!(rewrite_ternaries("v =a ? b : c"), "v = (if a then b else c)");
+        // After a separator or an opening bracket no space is needed.
+        assert_eq!(rewrite_ternaries("f(x, a ? b : c)"), "f(x,(if a then b else c))");
+        assert_eq!(rewrite_ternaries("x;a ? b : c"), "x; (if a then b else c)");
+        assert_eq!(rewrite_ternaries("x\na ? b : c"), "x\n(if a then b else c)");
+        // An operator is not a boundary: `+` binds tighter than `?:`, so the
+        // whole sum is the condition.
+        assert_eq!(rewrite_ternaries("x + a ? b : c"), "(if x + a then b else c)");
+    }
+
+    #[test]
+    fn a_comparison_is_part_of_the_condition_but_an_arrow_is_not() {
+        // `>` `<` `>=` `<=` `==` `!=` all belong to the condition...
+        for op in [">", "<", ">=", "<=", "==", "!="] {
+            assert_eq!(
+                rewrite_ternaries(&format!("x {op} 1 ? a : b")),
+                format!("(if x {op} 1 then a else b)"),
+                "{op} was read as the end of the condition"
+            );
+        }
+        // ...but the `>` of an arrow is not, and neither is a plain `=`.
+        assert_eq!(
+            rewrite_ternaries("f = x => x ? a : b"),
+            "f = x => (if x then a else b)"
+        );
+    }
+
+    #[test]
+    fn brackets_are_skipped_whole_on_the_way_out_of_a_condition() {
+        // The `,` inside the call is the condition's, not a boundary: scanning
+        // left has to step over the bracketed group as one unit and then still
+        // stop at the `=` outside it.
+        assert_eq!(
+            rewrite_ternaries("z = f(a, b) ? x : y"),
+            "z = (if f(a, b) then x else y)"
+        );
+        assert_eq!(
+            rewrite_ternaries("[a, b].includes(c) ? x : y"),
+            "(if [a, b].includes(c) then x else y)"
+        );
+        // An *unclosed* bracket to the left is the enclosing one, so it ends
+        // the condition rather than being stepped over.
+        assert_eq!(rewrite_ternaries("f(a ? b : c)"), "f((if a then b else c))");
+    }
+
+    #[test]
+    fn the_else_branch_ends_where_the_expression_does() {
+        assert_eq!(
+            rewrite_ternaries("[a ? b : c, d]"),
+            "[(if a then b else c), d]"
+        );
+        assert_eq!(rewrite_ternaries("a ? b : c; d"), "(if a then b else c); d");
+        assert_eq!(rewrite_ternaries("a ? b : c\nd"), "(if a then b else c)\nd");
+        // A closing bracket that was never opened in the branch is the caller's.
+        assert_eq!(rewrite_ternaries("f(a ? b : c)"), "f((if a then b else c))");
+        // A call in the else branch keeps its own brackets, and what follows
+        // the call is still the branch — the `,` and `)` inside it belong to
+        // the call, not to the ternary.
+        assert_eq!(rewrite_ternaries("a ? b : f(c)"), "(if a then b else f(c))");
+        assert_eq!(
+            rewrite_ternaries("a ? b : f(c, d) + 1"),
+            "(if a then b else f(c, d) + 1)"
+        );
+    }
+
+    #[test]
+    fn a_nested_ternary_pairs_each_colon_with_its_own_question_mark() {
+        // Nested in the true branch: the first `:` closes the *inner* one.
+        assert_eq!(
+            rewrite_ternaries("a ? b ? c : d : e"),
+            "(if a then (if b then c else d) else e)"
+        );
+        // Nested in the else branch, and in the condition.
+        assert_eq!(
+            rewrite_ternaries("a ? b : c ? d : e"),
+            "(if a then b else (if c then d else e))"
+        );
+        // In the condition, where the source's own brackets stay around the
+        // rewrite's — harmless, and cheaper than working out that they are the
+        // same pair.
+        assert_eq!(
+            rewrite_ternaries("(a ? b : c) ? d : e"),
+            "(if ((if a then b else c)) then d else e)"
+        );
+    }
+
+    #[test]
+    fn return_keeps_its_keyword_when_the_condition_follows_it() {
+        assert_eq!(
+            rewrite_ternaries("return a ? b : c"),
+            "return (if a then b else c)"
+        );
+        // The `then`/`else` of an already-rewritten ternary do the same, which
+        // is what lets a second round run over the first round's output.
+        assert_eq!(
+            rewrite_ternaries("x ? y ? 1 : 2 : z ? 3 : 4"),
+            "(if x then (if y then 1 else 2) else (if z then 3 else 4))"
+        );
+        // A name merely *starting* with the keyword is part of the condition.
+        assert_eq!(
+            rewrite_ternaries("returns ? b : c"),
+            "(if returns then b else c)"
+        );
+    }
+
+    #[test]
+    fn a_ternary_inside_a_string_or_comment_is_text() {
+        leaves_quoted_and_commented_alone(rewrite_ternaries, "a ? b : c");
+    }
+
+    #[test]
+    fn a_colon_is_paired_with_its_own_question_mark() {
+        // Called directly for the same reason as `else_end` below: the
+        // rightmost `?` is always taken first, so these cases never arrive
+        // through `rewrite_ternaries`.
+        //
+        // A `:` inside brackets belongs to whatever the brackets are.
+        assert_eq!(matching_colon(&code_mask("a ? f(b:c) : d"), 2), Some(11));
+        // A nested ternary's `:` closes the nested one.
+        assert_eq!(matching_colon(&code_mask("a ? b ? c : d : e"), 2), Some(14));
+        // A `?` with no `:` before the enclosing bracket closes is not a
+        // ternary at all.
+        assert_eq!(matching_colon(&code_mask("f(a ? b)"), 4), None);
+    }
+
+    #[test]
+    fn the_else_branch_swallows_a_ternary_nested_in_it() {
+        // A `:` that belongs to a nested `?` does not end the branch — the
+        // whole `c ? d : e` is the else. Called directly because
+        // `rewrite_ternaries` takes the rightmost `?` first, so it never hands
+        // `else_end` an unprocessed nested one.
+        let src = "a ? b : c ? d : e";
+        assert_eq!(else_end(&code_mask(src), 6), src.len());
+        // The same branch inside a list still ends at the separator.
+        let listed = "[a ? b : c ? d : e, f]";
+        assert_eq!(else_end(&code_mask(listed), 7), listed.len() - 4);
+        // Each `:` pairs with one `?`, so a colon left over after the nested
+        // pair closes is the branch's end.
+        assert_eq!(else_end(&code_mask("a ? b : c ? d : e : f"), 6), 18);
+    }
 }
+
+
+
+
+
+
