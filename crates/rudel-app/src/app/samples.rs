@@ -2,6 +2,13 @@ use super::{RudelApp, SampleJob};
 use eframe::egui;
 use std::time::Duration;
 
+/// Which MIDI port `midin(device)` asked for: the named one, or `None` for the
+/// system default when the script passed an empty name.
+fn requested_port(device: &str) -> Option<&str> {
+    let name = device.trim();
+    (!name.is_empty()).then_some(name)
+}
+
 impl RudelApp {
     pub(super) fn poll_sample_jobs(&mut self, ctx: &egui::Context) {
         let mut finished = 0;
@@ -320,8 +327,7 @@ impl RudelApp {
         }
         let requested = device.clone();
         let handle = std::thread::spawn(move || {
-            let name = requested.trim();
-            rudel_midi::MidiIn::connect((!name.is_empty()).then_some(name))
+            rudel_midi::MidiIn::connect(requested_port(&requested))
         });
         self.script_midi_in_pending.push((device, handle));
     }
@@ -378,5 +384,274 @@ impl RudelApp {
         // `samples()` accepts a local folder, a local strudel.json, an http(s)
         // URL, or a `github:`/`bubo:` pseudo-URL.
         self.queue_sample_source(source);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A job whose thread has already finished, so `poll_sample_jobs` sees it
+    /// on the first pass.
+    fn done(key: &str, quiet: bool, result: Result<usize, String>) -> SampleJob {
+        let handle = std::thread::spawn(move || result);
+        while !handle.is_finished() {
+            std::thread::yield_now();
+        }
+        SampleJob {
+            key: key.to_string(),
+            label: format!("{key} label"),
+            handle,
+            quiet,
+        }
+    }
+
+    fn app() -> RudelApp {
+        RudelApp {
+            status: String::new(),
+            ..RudelApp::headless()
+        }
+    }
+
+    #[test]
+    fn a_loaded_job_reports_its_count_and_clears_the_error() {
+        let mut app = app();
+        app.io_error = Some("stale".to_string());
+        app.sample_jobs.push(done("a", false, Ok(3)));
+        app.sample_jobs.push(done("b", false, Ok(4)));
+        app.poll_sample_jobs(&egui::Context::default());
+        assert_eq!(app.status, "loaded 7 samples (0 sounds)");
+        assert_eq!(app.io_error, None);
+        assert!(app.sample_jobs.is_empty(), "finished jobs are taken off");
+    }
+
+    #[test]
+    fn a_failed_job_raises_the_error_and_forgets_the_source() {
+        let mut app = app();
+        app.loaded_sample_sources.insert("a".to_string());
+        app.sample_jobs
+            .push(done("a", false, Err("404".to_string())));
+        app.poll_sample_jobs(&egui::Context::default());
+        assert_eq!(app.io_error.as_deref(), Some("a label: 404"));
+        // Not "sample load failed": soundfonts, wavetables and Csound share
+        // this queue.
+        assert_eq!(app.status, "load failed");
+        assert!(
+            !app.loaded_sample_sources.contains("a"),
+            "a failed source must be forgotten so a retry re-runs it"
+        );
+    }
+
+    #[test]
+    fn a_panicking_loader_is_reported_like_any_other_failure() {
+        let mut app = app();
+        let handle = std::thread::spawn(|| panic!("boom"));
+        while !handle.is_finished() {
+            std::thread::yield_now();
+        }
+        app.sample_jobs.push(SampleJob {
+            key: "a".to_string(),
+            label: "a label".to_string(),
+            handle,
+            quiet: false,
+        });
+        app.poll_sample_jobs(&egui::Context::default());
+        assert_eq!(
+            app.io_error.as_deref(),
+            Some("a label: loader thread panicked")
+        );
+        assert_eq!(app.status, "load failed");
+    }
+
+    #[test]
+    fn a_quiet_failure_goes_to_the_console_and_is_not_an_error() {
+        // The startup banks: not something the user asked for, so a failure
+        // must not open the error bar or turn the status red.
+        let mut app = app();
+        app.sample_jobs.push(done("a", true, Err("offline".to_string())));
+        app.poll_sample_jobs(&egui::Context::default());
+        assert_eq!(app.io_error, None);
+        assert_eq!(app.log_lines, vec!["a label: offline".to_string()]);
+        assert_eq!(app.status, "loaded 0 samples (0 sounds)");
+    }
+
+    #[test]
+    fn a_failure_alongside_a_success_keeps_both() {
+        // Something loaded, so the count is worth reporting — but the error
+        // still stands and must not be cleared by the success.
+        let mut app = app();
+        app.sample_jobs.push(done("a", false, Ok(2)));
+        app.sample_jobs
+            .push(done("b", false, Err("404".to_string())));
+        app.poll_sample_jobs(&egui::Context::default());
+        assert_eq!(app.status, "loaded 2 samples (0 sounds)");
+        assert_eq!(app.io_error.as_deref(), Some("b label: 404"));
+    }
+
+    #[test]
+    fn an_unfinished_job_is_left_in_the_queue_and_shows_its_count() {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let mut app = app();
+        app.sample_jobs.push(SampleJob {
+            key: "slow".to_string(),
+            label: "slow label".to_string(),
+            handle: std::thread::spawn(move || {
+                let _ = rx.recv();
+                Ok(0)
+            }),
+            quiet: false,
+        });
+        app.sample_jobs.push(done("a", false, Ok(1)));
+        app.poll_sample_jobs(&egui::Context::default());
+        // The finished job is taken from the middle of the queue without
+        // disturbing the one still running.
+        assert_eq!(app.sample_jobs.len(), 1);
+        assert_eq!(app.sample_jobs[0].key, "slow");
+        assert_eq!(app.status, "loading samples (1 job(s))");
+        drop(tx);
+    }
+    #[test]
+    fn every_queue_says_what_is_missing_when_there_is_no_engine() {
+        // Headless is the state a user hits when audio failed to start. Each
+        // of these has to say which subsystem it wanted rather than dropping
+        // the request silently.
+        let cases: Vec<(&str, fn(&mut RudelApp))> = vec![
+            ("no audio engine to load samples into", |a| {
+                a.queue_sample_source("x".to_string())
+            }),
+            ("no audio engine to load samples into", |a| {
+                a.queue_sample_map("{}".to_string(), "b".to_string())
+            }),
+            ("no audio engine to run Csound in", |a| {
+                a.queue_csound(false, "instr 1
+endin".to_string())
+            }),
+            ("no audio engine to load wavetables into", |a| {
+                a.queue_tables("x".to_string(), 256)
+            }),
+            ("no audio engine to load a soundfont into", |a| {
+                a.queue_soundfont("x.sf2".to_string(), "x".to_string())
+            }),
+        ];
+        for (want, queue) in cases {
+            let mut app = app();
+            queue(&mut app);
+            assert_eq!(app.io_error.as_deref(), Some(want));
+            assert!(app.sample_jobs.is_empty(), "nothing to run the job on");
+        }
+    }
+
+    #[test]
+    fn a_quiet_sample_source_stays_quiet_without_an_engine() {
+        // The startup banks queue quietly, so a missing engine is a console
+        // matter at most — not seven red messages on first run.
+        let mut app = app();
+        app.queue_sample_source_quiet("x".to_string(), true);
+        assert_eq!(app.io_error, None);
+    }
+
+    #[test]
+    fn load_samples_asks_for_a_source_when_the_box_is_empty() {
+        let mut app = app();
+        app.sample_dir = "   ".to_string();
+        app.load_samples();
+        assert_eq!(
+            app.io_error.as_deref(),
+            Some("samples: enter a folder, strudel.json, URL, or github:user/repo")
+        );
+    }
+
+    #[test]
+    fn a_midimap_source_is_queued_once() {
+        // No engine needed: midimaps are read by the app, not the audio thread.
+        let mut app = app();
+        app.queue_midimaps("bank".to_string());
+        // Asserted after the *first* call: a guard that merely queues on some
+        // other call than this one still ends up with one job.
+        assert_eq!(app.sample_jobs.len(), 1, "the first call queues");
+        app.queue_midimaps("bank".to_string());
+        assert_eq!(app.sample_jobs.len(), 1, "the second call is a no-op");
+        assert_eq!(app.sample_jobs[0].key, "midimaps:bank");
+        assert_eq!(app.sample_jobs[0].label, "midimaps(\"bank\")");
+        assert!(!app.sample_jobs[0].quiet);
+    }
+
+    #[test]
+    fn a_midi_input_is_opened_once_per_device() {
+        let mut app = app();
+        app.queue_midi_input("port".to_string());
+        assert_eq!(app.script_midi_in_pending.len(), 1, "the first call opens");
+        app.queue_midi_input("port".to_string());
+        assert_eq!(app.script_midi_in_pending.len(), 1, "the second is a no-op");
+        assert_eq!(app.script_midi_in_pending[0].0, "port");
+        // Polling drains it once the open has resolved — here to an error,
+        // since there is no such port.
+        while !app.script_midi_in_pending[0].1.is_finished() {
+            std::thread::yield_now();
+        }
+        assert!(!app.poll_script_midi_inputs());
+        assert!(app.script_midi_in_pending.is_empty());
+    }
+
+    #[test]
+    fn a_failed_midi_open_is_reported_and_taken_off_the_queue() {
+        let mut app = app();
+        let handle = std::thread::spawn(|| Err("no such port".to_string()));
+        while !handle.is_finished() {
+            std::thread::yield_now();
+        }
+        app.script_midi_in_pending.push(("nope".to_string(), handle));
+        assert!(
+            !app.poll_script_midi_inputs(),
+            "nothing is still in flight once the only open has finished"
+        );
+        assert_eq!(
+            app.io_error.as_deref(),
+            Some("midin(\"nope\"): no such port")
+        );
+        assert!(app.script_midi_ins.is_empty());
+    }
+
+    #[test]
+    fn an_empty_device_name_means_the_default_port() {
+        // `midin('')` and `midikeys()` take whatever port is there; a named
+        // one has to be asked for by name, blanks and all trimmed off.
+        assert_eq!(requested_port(""), None);
+        assert_eq!(requested_port("   "), None);
+        assert_eq!(requested_port(" IAC 1 "), Some("IAC 1"));
+    }
+
+    #[test]
+    fn an_unfinished_midi_open_is_reported_as_still_in_flight() {
+        // The caller keeps repainting while this is true, so an open that has
+        // not resolved has to stay in the queue and keep saying so.
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let mut app = app();
+        app.script_midi_in_pending.push((
+            "slow".to_string(),
+            std::thread::spawn(move || {
+                let _ = rx.recv();
+                Err("cancelled".to_string())
+            }),
+        ));
+        assert!(app.poll_script_midi_inputs());
+        assert_eq!(app.script_midi_in_pending.len(), 1);
+        assert_eq!(app.io_error, None, "nothing has failed yet");
+        drop(tx);
+    }
+
+    #[test]
+    fn a_panicking_midi_open_is_reported_too() {
+        let mut app = app();
+        let handle = std::thread::spawn(|| panic!("boom"));
+        while !handle.is_finished() {
+            std::thread::yield_now();
+        }
+        app.script_midi_in_pending.push(("nope".to_string(), handle));
+        assert!(!app.poll_script_midi_inputs());
+        assert_eq!(
+            app.io_error.as_deref(),
+            Some("midin(\"nope\"): connect thread panicked")
+        );
     }
 }
