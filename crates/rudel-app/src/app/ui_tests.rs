@@ -363,3 +363,61 @@ fn connect_is_clickable_until_a_connection_is_in_flight() {
         "the Connect button has to be enabled when nothing is connecting"
     );
 }
+
+#[test]
+fn the_secondary_eval_button_evaluates_too() {
+    // Ctrl+Shift+Enter's button. With block-based eval off it evaluates the
+    // block under the cursor, which on the default buffer is the whole thing.
+    let mut harness = harness();
+    assert!(harness.state().current.is_none(), "nothing evaluated yet");
+    harness.get_by_label_contains("Block").click();
+    harness.run_steps(2);
+    assert!(
+        harness.state().current.is_some(),
+        "the secondary button has to reach an evaluation"
+    );
+}
+
+#[test]
+fn any_one_connection_in_flight_holds_the_frame_loop_open() {
+    // The three polls are joined with `|` — non-short-circuiting, so all three
+    // run every frame, and *any* one still working keeps the loop alive. Each
+    // combination below is a different way to get that wrong: `&` needs two,
+    // `^` cancels on the second.
+    // Blocked until the sender is dropped, so the poll sees it in flight.
+    // Never resolves, so the `Ok` type is free to be whatever the field wants.
+    fn blocked<T: Send + 'static>(
+        keep: &mut Vec<std::sync::mpsc::Sender<()>>,
+    ) -> std::thread::JoinHandle<Result<T, String>> {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        keep.push(tx);
+        std::thread::spawn(move || {
+            let _ = rx.recv();
+            Err("cancelled".to_string())
+        })
+    }
+
+    for (out, input, script) in [
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+        (true, true, false),
+        (false, true, true),
+    ] {
+        let mut keep = Vec::new();
+        let held = repaints_after(|app| {
+            if out {
+                app.midi_pending = Some(blocked(&mut keep));
+            }
+            if input {
+                app.midi_in_pending = Some(blocked(&mut keep));
+            }
+            if script {
+                app.script_midi_in_pending
+                    .push(("slow".to_string(), blocked(&mut keep)));
+            }
+        });
+        assert!(held, "out {out}, in {input}, script {script}");
+        drop(keep);
+    }
+}
