@@ -818,6 +818,58 @@ mod tests {
         app
     }
 
+    /// [`playing_app`] with `script`'s trigger hooks attached, the playhead at
+    /// `pos` cycles and everything up to `fired_upto` already fired.
+    fn triggering_app(fired_upto: f64, pos: f64) -> RudelApp {
+        // The callback throws for the *first* event of each cycle only, so the
+        // error afterwards says whether that particular onset fired — which
+        // presence of a log line could not, since every event logs alike.
+        let script = r#"n("0 1 2 3").onTriggerTime(|h| if h.value.n == 0 then throw 1)"#;
+        let result = rudel_lang::eval_result(script).expect("script");
+        let mut app = playing_app(Duration::from_secs_f64(pos), 1.0);
+        app.trigger_hooks = result.trigger_hooks;
+        app.current = Some(result.pattern);
+        app.trigger_fired_upto = Some(fired_upto);
+        app.eval_error = None;
+        app
+    }
+
+    #[test]
+    fn a_trigger_fires_for_an_onset_at_the_mark_but_not_behind_it() {
+        // The window is half-open from the mark, so an onset landing exactly
+        // on it still fires.
+        let mut app = triggering_app(1.0, 1.1);
+        app.fire_trigger_hooks();
+        assert!(app.eval_error.is_some(), "the onset at the mark fires");
+
+        // Starting mid-event, the event already under way has its onset behind
+        // the mark and must not fire again — that is what stops a seek, or one
+        // slow frame, replaying a cycle of callbacks at once.
+        let mut app = triggering_app(1.1, 1.3);
+        app.fire_trigger_hooks();
+        assert_eq!(app.eval_error, None, "the event under way already fired");
+    }
+
+    #[test]
+    fn the_first_frame_after_evaluating_only_sets_the_mark() {
+        let mut app = triggering_app(0.0, 1.1);
+        app.trigger_fired_upto = None;
+        app.fire_trigger_hooks();
+        assert_eq!(app.eval_error, None, "nothing fires on the first frame");
+        assert!(app.trigger_fired_upto.is_some(), "but the mark is set");
+
+        // A backwards seek is the same case: the mark follows the playhead
+        // back, and nothing between the two fires on the way.
+        let mut app = triggering_app(5.0, 1.1);
+        app.fire_trigger_hooks();
+        assert_eq!(app.eval_error, None, "nothing fires backwards");
+        assert_eq!(
+            app.trigger_fired_upto.map(|p| p < 2.0),
+            Some(true),
+            "the mark follows the playhead back"
+        );
+    }
+
     #[test]
     fn the_playhead_advances_with_the_tempo_only_while_playing() {
         // With no audio device the position comes off a wall clock started when
