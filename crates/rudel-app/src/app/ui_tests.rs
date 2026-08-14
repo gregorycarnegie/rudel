@@ -247,3 +247,119 @@ fn transport_buttons_stay_clickable_under_a_scrolled_widget_surface() {
         "play button should still take clicks with a widget surface scrolled behind it"
     );
 }
+
+/// Does one more frame ask for another, after `setup` changes the app state?
+///
+/// `step` rather than `run`: `run` keeps painting until nothing wants a
+/// repaint, which is exactly what is being asserted here.
+fn repaints_after(setup: impl FnOnce(&mut RudelApp)) -> bool {
+    let mut harness = harness();
+    setup(harness.state_mut());
+    harness.step();
+    harness.ctx.has_requested_repaint()
+}
+
+#[test]
+fn the_frame_loop_keeps_going_for_each_thing_that_moves() {
+    // The playhead, the sample queue, an incoming clock and a live MIDI input
+    // each keep the UI repainting on their own. Miss one and the display
+    // freezes until the user happens to move the mouse — which is how a
+    // "stuck" playhead gets reported.
+    assert!(repaints_after(|app| app.playing = true), "playing");
+    assert!(
+        repaints_after(|app| app.clock_sync = true),
+        "following a MIDI clock"
+    );
+    assert!(
+        repaints_after(|app| {
+            app.sample_jobs.push(crate::app::SampleJob {
+                key: "k".to_string(),
+                label: "l".to_string(),
+                handle: std::thread::spawn(|| Ok(0)),
+                quiet: true,
+            })
+        }),
+        "a sample still loading"
+    );
+    // ...and with none of them, the app is allowed to go idle.
+    assert!(!repaints_after(|_| {}), "nothing is moving");
+}
+
+#[test]
+fn a_pending_midi_open_keeps_the_frame_loop_going() {
+    // The three polls are joined with a non-short-circuiting `|` so all three
+    // run every frame; any one of them still in flight has to hold the loop
+    // open on its own.
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let held = repaints_after(move |app| {
+        app.script_midi_in_pending.push((
+            "slow".to_string(),
+            std::thread::spawn(move || {
+                let _ = rx.recv();
+                Err("cancelled".to_string())
+            }),
+        ));
+    });
+    assert!(held, "an open still in flight");
+    drop(tx);
+}
+
+#[test]
+fn play_evaluates_only_when_there_is_nothing_to_play() {
+    // Pressing Play with nothing evaluated evaluates first, so the button
+    // does what it says on a cold start...
+    // `step`, not `run`: once playing, every frame asks for another.
+    let mut cold = harness();
+    cold.get_by_label_contains("Play").click();
+    cold.run_steps(2);
+    assert!(
+        cold.state().current.is_some(),
+        "Play on a cold start evaluates the buffer"
+    );
+
+    // ...but pressing it to *stop* must not re-evaluate. Staged directly,
+    // since reaching this state through the button would evaluate on the way.
+    let mut stopping = harness();
+    stopping.state_mut().playing = true;
+    stopping.step();
+    stopping.get_by_label_contains("Stop").click();
+    stopping.run_steps(2);
+    assert!(
+        stopping.state().current.is_none(),
+        "stopping is not an evaluation"
+    );
+}
+
+#[test]
+fn disconnect_is_offered_only_once_something_is_connected() {
+    // The button is behind a `&&` that short-circuits, so a wrong operator
+    // here does not just mis-enable it — it draws a control for a device that
+    // is not there.
+    // The i/o section is collapsed by default, so open it — otherwise this
+    // asserts nothing at all.
+    let mut harness = harness();
+    harness.get_by_label_contains("i/o").click();
+    harness.run_steps(2);
+    // Proves the section really is open — `Connect` only exists inside it.
+    harness.get_by_label_contains("Connect");
+    assert!(
+        harness.query_by_label_contains("Disconnect").is_none(),
+        "nothing is connected yet"
+    );
+}
+
+#[test]
+fn connect_is_clickable_until_a_connection_is_in_flight() {
+    let mut harness = harness();
+    harness.get_by_label_contains("i/o").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Connect").click();
+    harness.run_steps(2);
+    // Either it is still in flight or it already failed (no MIDI ports on a
+    // test machine) — both prove the click reached `connect_input`.
+    let state = harness.state();
+    assert!(
+        state.midi_in_pending.is_some() || state.io_error.is_some(),
+        "the Connect button has to be enabled when nothing is connecting"
+    );
+}
