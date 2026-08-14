@@ -1165,8 +1165,48 @@ fn browser_key_name(key: egui::Key) -> String {
 
 #[cfg(test)]
 mod input_bus_tests {
-    use super::browser_key_name;
-    use eframe::egui::Key;
+    use super::{browser_key_name, pump_input_bus, spans_at};
+    use eframe::egui::{self, Key};
+    use rudel_core::Frac;
+
+    #[test]
+    fn the_pointer_is_normalised_against_the_window() {
+        // `mousex`/`mousey` are 0..1 across the window, as Strudel's are
+        // across the body — so the window's own origin has to come off the
+        // pointer position before the division, and the division has to be by
+        // the window's size.
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(200.0, 100.0));
+        // `run_ui` hands back texture deltas that panic on drop if nobody
+        // takes them; there is no painter here to apply them.
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(rect),
+                events: vec![egui::Event::PointerMoved(egui::pos2(150.0, 100.0))],
+                ..Default::default()
+            },
+            |_| {},
+        );
+        out.textures_delta.clear();
+        pump_input_bus(&ctx);
+        let (x, y) = rudel_core::get_pointer();
+        assert!((x - 0.25).abs() < 1e-6, "x was {x}");
+        assert!((y - 0.5).abs() < 1e-6, "y was {y}");
+    }
+
+    #[test]
+    fn a_span_sounds_from_its_onset_up_to_its_end() {
+        // Half-open, like every other span in the engine: the flash starts on
+        // the onset and is gone by the end, or two events back to back both
+        // light up on the frame they change over.
+        let flashes = vec![
+            (Frac::from_f64(0.0), Frac::from_f64(0.5), vec![(0, 3, None)]),
+            (Frac::from_f64(0.5), Frac::from_f64(1.0), vec![(4, 7, None)]),
+        ];
+        assert_eq!(spans_at(&flashes, 0.25), vec![(0, 3, None)]);
+        assert_eq!(spans_at(&flashes, 0.5), vec![(4, 7, None)]);
+        assert_eq!(spans_at(&flashes, 1.0), vec![]);
+    }
 
     #[test]
     fn keys_are_named_as_the_browser_does() {
