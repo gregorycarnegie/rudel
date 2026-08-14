@@ -549,4 +549,169 @@ mod tests {
             "an empty buffer"
         );
     }
+    /// Every text run the gutter painted, as `(text, top-left, colour)`.
+    fn gutter_shapes(
+        code: &str,
+        active_line: Option<(usize, usize)>,
+        heights: &std::collections::HashMap<usize, f32>,
+    ) -> Vec<(String, egui::Pos2, egui::Color32)> {
+        gutter_run(code, active_line, heights).0
+    }
+
+    /// As [`gutter_shapes`], plus the left edge the gutter was laid out from,
+    /// so absolute positions can be checked rather than only differences.
+    #[allow(clippy::type_complexity)]
+    fn gutter_run(
+        code: &str,
+        active_line: Option<(usize, usize)>,
+        heights: &std::collections::HashMap<usize, f32>,
+    ) -> (Vec<(String, egui::Pos2, egui::Color32)>, f32) {
+        let (shapes, left, _) = gutter_run_full(code, active_line, heights);
+        (shapes, left)
+    }
+
+    /// As [`gutter_run`], plus the right edge of the first number's box — the
+    /// text is RIGHT-anchored, so the shape's own `pos` is its *left* edge.
+    #[allow(clippy::type_complexity)]
+    fn gutter_run_full(
+        code: &str,
+        active_line: Option<(usize, usize)>,
+        heights: &std::collections::HashMap<usize, f32>,
+    ) -> (Vec<(String, egui::Pos2, egui::Color32)>, f32, f32) {
+        let ctx = egui::Context::default();
+        let settings = EditorSettings::default();
+        // Fonts do not exist until a pass has run.
+        // A real viewport: with the default zero-sized one, egui clamps the
+        // gutter's allocation and the positions mean nothing.
+        let input = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let mut warmup = ctx.run_ui(input(), |_| {});
+        warmup.textures_delta.clear();
+        let left = std::cell::Cell::new(0.0);
+        let mut out = ctx.run_ui(input(), |ui| {
+            left.set(ui.min_rect().left());
+            draw_line_number_gutter(ui, code, active_line, &settings, heights, 14.0);
+        });
+        out.textures_delta.clear();
+        let right = std::cell::Cell::new(0.0);
+        for clipped in &out.shapes {
+            if let egui::Shape::Text(text) = &clipped.shape {
+                right.set(text.pos.x + text.galley.size().x);
+                break;
+            }
+        }
+        let shapes = out
+            .shapes
+            .into_iter()
+            .filter_map(|clipped| match clipped.shape {
+                egui::Shape::Text(text) => Some((
+                    text.galley.text().to_string(),
+                    text.pos,
+                    text.galley
+                        .job
+                        .sections
+                        .first()
+                        .map(|s| s.format.color)
+                        .unwrap_or(egui::Color32::PLACEHOLDER),
+                )),
+                _ => None,
+            })
+            .collect();
+        (shapes, left.get(), right.get())
+    }
+
+    #[test]
+    fn the_gutter_numbers_every_line_from_one() {
+        let heights = std::collections::HashMap::new();
+        let drawn = gutter_shapes("a
+b
+c", None, &heights);
+        let labels: Vec<&str> = drawn.iter().map(|(t, _, _)| t.as_str()).collect();
+        assert_eq!(labels, ["1", "2", "3"], "one number per line, 1-based");
+
+        // A buffer with no newline is still one line, and a trailing newline
+        // opens the next one.
+        assert_eq!(gutter_shapes("a", None, &heights).len(), 1);
+        assert_eq!(gutter_shapes("a
+", None, &heights).len(), 2);
+    }
+
+    #[test]
+    fn the_active_line_number_is_the_one_the_cursor_is_on() {
+        let heights = std::collections::HashMap::new();
+        let palette = EditorSettings::default().theme.palette();
+        // Cursor in the second line: byte 2 is its first character.
+        // Lines longer than one character: with single-char lines, counting
+        // the newlines before the cursor and counting everything else give the
+        // same answer, and a wrong one passes.
+        let drawn = gutter_shapes("ab
+cd
+ef", Some((3, 3)), &heights);
+        let active: Vec<&str> = drawn
+            .iter()
+            .filter(|(_, _, color)| *color == palette.line_number_active)
+            .map(|(t, _, _)| t.as_str())
+            .collect();
+        assert_eq!(active, ["2"], "only the cursor's line is highlighted");
+
+        // With no cursor, nothing is.
+        let drawn = gutter_shapes("ab
+cd", None, &heights);
+        assert!(
+            drawn
+                .iter()
+                .all(|(_, _, color)| *color == palette.line_number),
+            "no line is active"
+        );
+    }
+
+    #[test]
+    fn the_gutter_widens_for_a_longer_line_count() {
+        // Numbers are right-aligned inside a gutter sized to the widest one,
+        // so a three-digit file has to push its column right.
+        let heights = std::collections::HashMap::new();
+        let short = gutter_shapes("a
+b", None, &heights)[0].1.x;
+        let long = gutter_shapes(&"x
+".repeat(120), None, &heights)[0].1.x;
+        let settings = EditorSettings::default();
+        assert!(
+            (long - short - settings.font_size * 0.62).abs() < 0.01,
+            "one more digit of room, got {short} then {long}"
+        );
+
+        // ...and the column sits an exact distance in from the left edge: the
+        // gutter's own width, less the right-hand padding the number keeps.
+        let (_, left, right) = gutter_run_full("a
+b", None, &heights);
+        let width = 2.0 * settings.font_size * 0.62 + 10.0;
+        assert!(
+            (right - (left + width - 4.0)).abs() < 0.01,
+            "right-aligned inside the gutter, got {right} from {left}"
+        );
+    }
+
+    #[test]
+    fn a_row_hosting_a_widget_pushes_the_numbers_below_it_down() {
+        // The layouter inflates rows carrying inline widgets; the gutter has to
+        // mirror that or every number after one drifts out of line.
+        let mut heights = std::collections::HashMap::new();
+        let flat = gutter_shapes("a
+b
+c", None, &heights);
+        heights.insert(0, 60.0);
+        let inflated = gutter_shapes("a
+b
+c", None, &heights);
+        assert_eq!(flat[0].1.y, inflated[0].1.y, "the inflated row itself");
+        assert!(
+            inflated[1].1.y - flat[1].1.y > 40.0,
+            "the numbers below it move down by the extra height"
+        );
+    }
 }
