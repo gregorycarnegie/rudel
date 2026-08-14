@@ -2549,6 +2549,18 @@ mod tests {
     }
 
     #[test]
+    fn a_source_opening_with_an_operator_is_left_alone_not_panicked_on() {
+        // Both passes look one byte *left* of a `>` to tell `=>` from a
+        // comparison. At the very start of the source there is no such byte,
+        // and a half-typed line beginning with `>` is something a live-coder
+        // has on screen between keystrokes — it has to come back untouched
+        // rather than take the evaluation down.
+        assert_eq!(rewrite_block_bodies("> {"), "> {");
+        assert_eq!(rewrite_ternaries("> {"), "> {");
+        assert_eq!(condition_start(&code_mask("> a ? b : c"), 4), 0);
+    }
+
+    #[test]
     fn a_declaration_moves_above_the_code_that_reads_it() {
         // Koto captures at definition, so a helper written above the data it
         // reads has to be moved below it. Runs after `const` is stripped.
@@ -3179,6 +3191,7 @@ mod tests {
         assert_eq!(else_end(&code_mask("a ? b : c ? d : e : f"), 6), 18);
     }
 }
+
 
 
 
