@@ -207,9 +207,18 @@ fn candidates() -> Vec<PathBuf> {
 }
 
 impl Api {
-    /// Open the library and resolve every entry point.
-    fn load() -> Result<Api, String> {
-        Api::load_from(&candidates())
+    /// Open the library and resolve every entry point, once per process.
+    ///
+    /// The library must never be unmapped: `CURRENT_GET_HOST_DATA` holds a
+    /// pointer into it for the lifetime of the program, and the C message
+    /// callback calls through that pointer. Giving each instance its own
+    /// `Library` meant the last one dropped unmapped the code the callback
+    /// jumps to, which crashed the next instance to start.
+    fn load() -> Result<&'static Api, String> {
+        static API: std::sync::OnceLock<Result<Api, String>> = std::sync::OnceLock::new();
+        API.get_or_init(|| Api::load_from(&candidates()))
+            .as_ref()
+            .map_err(String::clone)
     }
 
     fn load_from(paths: &[PathBuf]) -> Result<Api, String> {
@@ -297,7 +306,7 @@ impl Api {
 
 /// A started Csound instance rendering into Rudel's mixer.
 pub struct Csound {
-    api: Api,
+    api: &'static Api,
     cs: CsoundPtr,
     /// What Csound has said, as the instance's host data. Boxed so the address
     /// handed to `csoundCreate` stays valid however this struct is moved.
