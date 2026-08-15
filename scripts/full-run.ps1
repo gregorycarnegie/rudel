@@ -2,7 +2,8 @@
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force mutants-full | Out-Null
 $start = Get-Date
-"START $start" | Tee-Object -Append mutants-full/run.log
+# Fresh log per run: appending across runs makes two sets of numbers look like one.
+"START $start" | Tee-Object mutants-full/run.log
 
 foreach ($p in 'rudel-mini','rudel-lang','rudel-osc','rudel-midi','rudel-core','rudel-audio','rudel-app','rudel-dsp') {
     $scope = if ($p -eq 'rudel-core') { @('--test-package','rudel-core','--test-package','rudel-mini') } else { @() }
