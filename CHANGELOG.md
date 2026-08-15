@@ -11,6 +11,52 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-08-15
+
+A release about two crashes that a passing test suite could not see. Both were
+found by writing tests for surviving mutants rather than for behaviour, and both
+are the same shape: code that runs on every keystroke, handed input that is
+correct only halfway through being typed.
+
+Neither produced a wrong answer. They panicked, which is why nothing that
+compares outputs had ever noticed.
+
+### Fixed
+
+- **Csound no longer takes the process down when a second tune starts.** Every
+  `Csound::new` opened its own handle on libcsound, so the last instance dropped
+  unmapped the library — while a process-wide pointer into it was still being
+  called by the message callback. Stop one Csound tune, start another, and the
+  second one crashed. The library is loaded once now and never unmapped. It
+  surfaced as `rudel-audio`'s entire mutant run dying at "0 mutants tested" on a
+  test that passes on its own.
+
+- **The preprocessor no longer panics on a line that opens with an operator.**
+  `rewrite_block_bodies`, `rewrite_ternaries` and `condition_start` each read one
+  byte to the *left* of a `>` to tell `=>` from a comparison, and underflowed
+  when the `>` was the first byte of the source. `> {` is not JavaScript anyone
+  means to write, but it is what sits on screen midway through typing a lambda,
+  and the preprocessor runs on every keystroke.
+
+- **An unterminated `` mondo` `` template no longer indexes past the end of the
+  source.** The same case: a half-typed template is the normal state of the
+  buffer between keystrokes. It compiles to `silence()` now.
+
+### Internal
+
+Mutation coverage across five files, 293 surviving mutants to 63:
+`preprocess/syntax.rs` 128 → 24, `app/samples.rs` 55 → 11, `app/panels.rs`
+41 → 10, `editor.rs` 37 → 10, `preprocess/mondo.rs` 32 → 8. What is left is
+either equivalent (verified by applying each mutation and diffing output, not by
+argument) or needs hardware — a cpal device or a live MIDI clock.
+
+Two of those files had been written off as untestable and were not: `app/`
+already had `RudelApp::headless()` and an `egui_kittest` harness driving the real
+app, and a widget that paints rather than returns can be checked by reading the
+shapes out of egui's `FullOutput` — `Shape::Text` carries the galley, so the
+gutter's numbers, positions and colours are all assertable without extracting
+anything.
+
 ## [0.11.0] — 2026-08-13
 
 A release about the songs people actually write. The corpus this time is
