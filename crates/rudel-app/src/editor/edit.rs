@@ -675,4 +675,244 @@ mod tests {
         assert_eq!(text, "(");
         assert!(range.is_none());
     }
+    #[test]
+    fn commenting_and_uncommenting_round_trips() {
+        let mut text = "one
+two".to_string();
+        toggle_line_comments(&mut text, selection(0, 7));
+        assert_eq!(text, "// one
+// two");
+        toggle_line_comments(&mut text, selection(0, 13));
+        assert_eq!(text, "one
+two", "and back again");
+
+        // A comment written without the space loses only the slashes.
+        let mut text = "//one".to_string();
+        toggle_line_comments(&mut text, cursor(0));
+        assert_eq!(text, "one");
+
+        // A single slash is not a comment, so this comments rather than
+        // uncomments.
+        let mut text = "/ one".to_string();
+        toggle_line_comments(&mut text, cursor(0));
+        assert_eq!(text, "// / one");
+    }
+
+    #[test]
+    fn a_blank_line_does_not_decide_whether_to_uncomment() {
+        // Every *code* line is already commented, so this uncomments — a blank
+        // line in the selection must not count as "not yet commented" and flip
+        // it into commenting everything twice.
+        let mut text = "// one
+
+// two".to_string();
+        toggle_line_comments(&mut text, selection(0, 15));
+        assert_eq!(text, "one
+
+two");
+    }
+
+    #[test]
+    fn outdenting_a_line_with_no_indent_leaves_it_alone() {
+        let mut text = "one
+  two".to_string();
+        indent_lines(&mut text, selection(0, 9), false);
+        assert_eq!(text, "one
+two", "only the indented line moves");
+
+        // Tabs come off one character at a time.
+        let mut text = "	one".to_string();
+        indent_lines(&mut text, cursor(0), false);
+        assert_eq!(text, "one");
+    }
+
+    #[test]
+    fn an_empty_cursor_selects_only_its_own_line() {
+        // The newline-trimming only applies to a real selection; with an empty one
+        // sitting just after a newline there is no previous line to give back.
+        let text = "one
+two";
+        assert_eq!(selected_line_starts(text, cursor(4)), vec![CharIndex(4)]);
+        // A selection ending on a newline stops at the line before it.
+        assert_eq!(
+            selected_line_starts(text, selection(0, 4)),
+            vec![CharIndex(0)]
+        );
+        assert_eq!(
+            selected_line_starts(text, selection(0, 5)),
+            vec![CharIndex(0), CharIndex(4)]
+        );
+    }
+
+    #[test]
+    fn auto_indent_only_runs_just_after_a_newline() {
+        // At the very start there is no previous line to copy the indent from.
+        let mut text = "  one".to_string();
+        assert!(auto_indent_after_enter(&mut text, cursor(0)).is_none());
+        // Mid-line, the Enter has not happened yet.
+        assert!(auto_indent_after_enter(&mut text, cursor(3)).is_none());
+        // Straight after one, the new line takes the previous indent.
+        let mut text = "  one
+".to_string();
+        assert!(auto_indent_after_enter(&mut text, cursor(6)).is_some());
+        assert_eq!(text, "  one
+  ");
+    }
+    /// Run one frame with `events` queued and the editor focused, and return
+    /// what the shortcut capture made of them.
+    fn shortcuts_from(
+        events: Vec<egui::Event>,
+        completion_active: bool,
+        settings: &EditorSettings,
+    ) -> EditorShortcuts {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("editor");
+        let captured = std::cell::Cell::new(EditorShortcuts::default());
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                ui.memory_mut(|m| m.request_focus(id));
+                captured.set(capture_editor_shortcuts(ui, id, completion_active, settings));
+            },
+        );
+        out.textures_delta.clear();
+        captured.get()
+    }
+
+    fn key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn comment_toggle_answers_to_either_of_its_keys() {
+        let settings = settings();
+        let ctrl = egui::Modifiers::CTRL;
+        // Both bindings work on their own — one being live must not depend on
+        // the other being pressed too.
+        assert!(shortcuts_from(vec![key(egui::Key::Slash, ctrl)], false, &settings).comment_toggle);
+        assert!(
+            shortcuts_from(vec![key(egui::Key::Backslash, ctrl)], false, &settings).comment_toggle
+        );
+        // Both at once is still one toggle, not a cancellation.
+        assert!(
+            shortcuts_from(
+                vec![key(egui::Key::Slash, ctrl), key(egui::Key::Backslash, ctrl)],
+                false,
+                &settings
+            )
+            .comment_toggle
+        );
+        assert!(!shortcuts_from(vec![], false, &settings).comment_toggle);
+    }
+
+    #[test]
+    fn the_completion_popup_takes_tab_and_enter_before_the_editor_does() {
+        // Tab-to-indent is off by default, so turn it on: the point here is
+        // that the popup wins the key even when the editor wants it.
+        let settings = EditorSettings {
+            tab_indentation: true,
+            ..EditorSettings::default()
+        };
+        let none = egui::Modifiers::NONE;
+
+        // Popup open: Tab and Enter each accept, and Tab does not also indent.
+        let accepted = shortcuts_from(vec![key(egui::Key::Tab, none)], true, &settings);
+        assert!(accepted.complete_accept);
+        assert!(!accepted.indent, "the popup ate the Tab");
+        assert!(shortcuts_from(vec![key(egui::Key::Enter, none)], true, &settings).complete_accept);
+        // Both at once still accepts.
+        assert!(
+            shortcuts_from(
+                vec![key(egui::Key::Tab, none), key(egui::Key::Enter, none)],
+                true,
+                &settings
+            )
+            .complete_accept
+        );
+
+        // Popup closed: Tab indents instead.
+        let indented = shortcuts_from(vec![key(egui::Key::Tab, none)], false, &settings);
+        assert!(indented.indent);
+        assert!(!indented.complete_accept);
+    }
+
+    #[test]
+    fn tab_indentation_can_be_switched_off() {
+        let settings = settings();
+        assert!(!settings.tab_indentation, "off by default");
+        assert!(
+            !shortcuts_from(
+                vec![key(egui::Key::Tab, egui::Modifiers::NONE)],
+                false,
+                &settings
+            )
+            .indent
+        );
+        // Shift+Tab still outdents, which is a separate binding.
+        assert!(
+            shortcuts_from(
+                vec![key(egui::Key::Tab, egui::Modifiers::SHIFT)],
+                false,
+                &settings
+            )
+            .outdent
+        );
+    }
+
+    #[test]
+    fn an_unfocused_editor_claims_no_shortcuts() {
+        // Otherwise the editor would eat Ctrl+/ while the user is typing in
+        // the sample path box.
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("editor");
+        let captured = std::cell::Cell::new(EditorShortcuts::default());
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                events: vec![key(egui::Key::Slash, egui::Modifiers::CTRL)],
+                ..Default::default()
+            },
+            |ui| captured.set(capture_editor_shortcuts(ui, id, false, &settings())),
+        );
+        out.textures_delta.clear();
+        assert!(!captured.get().comment_toggle);
+    }
+
+    #[test]
+    fn only_a_single_typed_character_counts_as_typing() {
+        let typed = |events: Vec<egui::Event>| {
+            let ctx = egui::Context::default();
+            let got = std::cell::RefCell::new(None);
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| *got.borrow_mut() = editor_typed_text(ui),
+            );
+            out.textures_delta.clear();
+            got.into_inner()
+        };
+        assert_eq!(typed(vec![egui::Event::Text("a".into())]), Some("a".into()));
+        // A paste arrives as one multi-character event and is not "typing" —
+        // auto-pairing on it would rewrite the pasted text.
+        assert_eq!(typed(vec![egui::Event::Text("abc".into())]), None);
+        assert_eq!(typed(vec![]), None);
+        // The last one wins when several arrive in a frame.
+        assert_eq!(
+            typed(vec![
+                egui::Event::Text("a".into()),
+                egui::Event::Text("b".into())
+            ]),
+            Some("b".into())
+        );
+    }
 }
