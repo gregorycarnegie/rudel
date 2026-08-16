@@ -227,3 +227,115 @@ impl RudelApp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stopped_app() -> RudelApp {
+        RudelApp {
+            status: String::new(),
+            ..RudelApp::headless()
+        }
+    }
+
+    #[test]
+    fn the_playhead_clock_starts_once_and_stops_with_the_transport() {
+        let mut app = stopped_app();
+        app.set_playing(true);
+        let started = app.play_start.expect("playing sets the clock");
+
+        // Pressing play again while already playing must not restart it, or
+        // the pattern jumps back to cycle zero mid-performance.
+        app.set_playing(true);
+        assert_eq!(app.play_start, Some(started), "the clock keeps running");
+
+        app.set_playing(false);
+        assert_eq!(app.play_start, None, "stopping clears it");
+
+        // Stopping while already stopped leaves it cleared rather than
+        // starting a clock nothing is reading.
+        app.set_playing(false);
+        assert_eq!(app.play_start, None);
+    }
+
+    #[test]
+    fn midi_connects_only_while_playing_and_only_when_it_is_the_output() {
+        // Not playing: nothing is routed anywhere, whatever the output says.
+        let mut app = stopped_app();
+        app.output = Output::Midi;
+        app.route();
+        assert!(app.midi_pending.is_none(), "stopped, so no connection");
+
+        // Playing with MIDI selected opens the port.
+        let mut app = stopped_app();
+        app.output = Output::Midi;
+        app.playing = true;
+        app.route();
+        assert!(app.midi_pending.is_some(), "playing, so connect");
+
+        // Playing with audio selected does not.
+        let mut app = stopped_app();
+        app.playing = true;
+        app.route();
+        assert!(app.midi_pending.is_none(), "audio output stays audio");
+    }
+
+    #[test]
+    fn a_pattern_tagged_midi_connects_even_on_the_audio_output() {
+        // `.midi()` on the pattern routes to MIDI whatever the dropdown says,
+        // which is how a script sends one part to a synth and keeps the rest.
+        let mut app = stopped_app();
+        app.playing = true;
+        app.current = Some(rudel_lang::eval(r#"note("c3").midi()"#).expect("eval"));
+        app.route();
+        assert!(app.midi_pending.is_some(), "the tag routes it");
+    }
+
+    #[test]
+    fn osc_connects_on_the_same_terms_as_midi() {
+        // Connecting only resolves the target and binds a local UDP socket,
+        // so this needs no listener on the other end.
+        let mut app = stopped_app();
+        app.output = Output::Osc;
+        app.route();
+        assert!(app.osc.is_none(), "stopped, so no connection");
+
+        let mut app = stopped_app();
+        app.output = Output::Osc;
+        app.playing = true;
+        app.route();
+        assert!(app.osc.is_some(), "playing on the OSC output connects");
+
+        let mut app = stopped_app();
+        app.playing = true;
+        app.route();
+        assert!(app.osc.is_none(), "audio output stays audio");
+
+        // ...and a pattern tagged `.osc()` connects whatever the dropdown says.
+        let mut app = stopped_app();
+        app.playing = true;
+        app.current = Some(rudel_lang::eval(r#"note("c3").osc()"#).expect("eval"));
+        app.route();
+        assert!(app.osc.is_some(), "the tag routes it");
+    }
+
+    #[test]
+    fn a_midi_connection_already_in_flight_is_not_started_again() {
+        let mut app = stopped_app();
+        app.output = Output::Midi;
+        app.playing = true;
+        app.route();
+        let first = app
+            .midi_pending
+            .as_ref()
+            .map(|handle| handle.thread().id())
+            .expect("a connection started");
+        app.route();
+        assert_eq!(
+            app.midi_pending.as_ref().map(|handle| handle.thread().id()),
+            Some(first),
+            "the same thread, not a second one racing it"
+        );
+    }
+}
