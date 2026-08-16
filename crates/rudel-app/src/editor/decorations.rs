@@ -235,11 +235,10 @@ fn common_suffix_bytes(a: &str, b: &str) -> usize {
         if ac != bc {
             break;
         }
-        let len = ac.len_utf8();
-        if suffix + len > a.len() || suffix + len > b.len() {
-            break;
-        }
-        suffix += len;
+        // No bounds check: every character counted is one of `a`'s own, and
+        // `bc == ac` so it is one of `b`'s too, which is why the sum can never
+        // pass either length.
+        suffix += ac.len_utf8();
     }
     suffix
 }
@@ -434,6 +433,160 @@ mod tests {
                 .map(|widget| (widget.widget_type.as_str(), widget.id.as_str()))
                 .collect::<Vec<_>>(),
             vec![("_pitchwheel", "new"), ("_spiral", "outside")]
+        );
+    }
+    fn slider(id: &str, from: usize, to: usize) -> SliderDecoration {
+        SliderDecoration {
+            id: id.to_string(),
+            range: SourceRange::new(from, to),
+            index: 0,
+            value: None,
+            min: None,
+            max: None,
+            step: None,
+        }
+    }
+
+    #[test]
+    fn a_position_moves_with_the_text_edited_before_it() {
+        // Replacing bytes 2..5 with five bytes: everything after shifts by the
+        // difference, everything before stays put.
+        let change = TextChange {
+            from: 2,
+            to: 5,
+            insert_len: 5,
+        };
+        assert_eq!(change.map_pos(1, Assoc::Before), 1, "before the edit");
+        assert_eq!(change.map_pos(6, Assoc::Before), 8, "after it, shifted +2");
+        assert_eq!(change.map_pos(9, Assoc::After), 11);
+
+        // Inside the replaced span there is no corresponding position, so it
+        // collapses to one end or the other — which end is the caller's choice,
+        // and is what keeps a range from inverting.
+        assert_eq!(change.map_pos(3, Assoc::Before), 2);
+        assert_eq!(change.map_pos(3, Assoc::After), 7);
+        // The span's own ends count as inside it.
+        assert_eq!(change.map_pos(2, Assoc::After), 7, "at the start");
+        assert_eq!(change.map_pos(5, Assoc::Before), 2, "at the end");
+    }
+
+    #[test]
+    fn a_deletion_pulls_later_positions_back() {
+        // Three bytes replaced by none: the shift is negative.
+        let change = TextChange {
+            from: 2,
+            to: 5,
+            insert_len: 0,
+        };
+        assert_eq!(change.map_pos(8, Assoc::Before), 5);
+        assert_eq!(change.map_pos(3, Assoc::After), 2, "nothing left to sit in");
+    }
+
+    #[test]
+    fn the_common_suffix_is_counted_in_whole_characters() {
+        assert_eq!(common_suffix_bytes("ab", "ab"), 2, "identical");
+        assert_eq!(common_suffix_bytes("xab", "ab"), 2, "the shorter one ends it");
+        assert_eq!(common_suffix_bytes("ab", "cb"), 1);
+        assert_eq!(common_suffix_bytes("ab", "cd"), 0, "nothing in common");
+        assert_eq!(common_suffix_bytes("", "ab"), 0);
+        // Multi-byte: the count is bytes, but a character is never split.
+        assert_eq!(common_suffix_bytes("aé", "bé"), 2);
+        assert_eq!(common_suffix_bytes("é", "é"), 2);
+    }
+
+    #[test]
+    fn a_position_outside_the_replaced_range_is_the_one_past_either_end() {
+        let range = SourceRange::new(3, 7);
+        assert!(outside_replaced_range(2, range));
+        assert!(outside_replaced_range(8, range));
+        assert!(!outside_replaced_range(3, range), "the ends are inside");
+        assert!(!outside_replaced_range(7, range));
+        assert!(!outside_replaced_range(5, range));
+    }
+
+    #[test]
+    fn a_widget_is_placed_at_the_end_of_its_range_unless_it_has_none() {
+        let widget = |from, to| WidgetDecoration {
+            widget_type: "slider".to_string(),
+            id: "a".to_string(),
+            range: SourceRange::new(from, to),
+            index: 0,
+            options: BTreeMap::new(),
+        };
+        assert_eq!(widget(2, 7).placement(), 7);
+        // An empty range has no end to sit after, so it places at its start.
+        assert_eq!(widget(4, 4).placement(), 4);
+    }
+
+    #[test]
+    fn duplicate_decorations_are_dropped_by_the_key_each_update_uses() {
+        // A full update keys on the source span, since ids are reassigned...
+        let mut sliders = vec![slider("a", 0, 4), slider("b", 0, 4), slider("c", 5, 9)];
+        dedupe_sliders_for_full_update(&mut sliders);
+        assert_eq!(
+            sliders.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["a", "c"],
+            "first of each span wins"
+        );
+
+        // ...and a range update keys on the id, since the spans have moved.
+        let mut sliders = vec![slider("a", 0, 4), slider("a", 5, 9), slider("b", 5, 9)];
+        dedupe_sliders_for_range_update(&mut sliders);
+        assert_eq!(
+            sliders.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+
+        // Widgets key on type *and* id, so two kinds may share a name.
+        let mut widgets = vec![
+            WidgetDecoration {
+                widget_type: "slider".to_string(),
+                id: "a".to_string(),
+                range: SourceRange::new(0, 4),
+                index: 0,
+                options: BTreeMap::new(),
+            },
+            WidgetDecoration {
+                widget_type: "slider".to_string(),
+                id: "a".to_string(),
+                range: SourceRange::new(5, 9),
+                index: 1,
+                options: BTreeMap::new(),
+            },
+            WidgetDecoration {
+                widget_type: "spiral".to_string(),
+                id: "a".to_string(),
+                range: SourceRange::new(5, 9),
+                index: 2,
+                options: BTreeMap::new(),
+            },
+        ];
+        dedupe_widgets(&mut widgets);
+        assert_eq!(
+            widgets.iter().map(|w| w.index).collect::<Vec<_>>(),
+            [0, 2],
+            "the second slider goes, the spiral stays"
+        );
+
+        let mut ranges = vec![
+            (SourceRange::new(0, 4), None),
+            (SourceRange::new(0, 4), Some(1)),
+            (SourceRange::new(5, 9), None),
+        ];
+        dedupe_ranges(&mut ranges);
+        assert_eq!(ranges.len(), 2, "one per span, whatever the colour");
+    }
+    #[test]
+    fn an_empty_flash_range_is_dropped_rather_than_painted() {
+        // A zero-width span has nothing to highlight, and a text edit can
+        // collapse one to nothing — mapping both ends of a span that sat
+        // inside the replaced text lands them on the same position.
+        let mut state = EditorDecorationState::default();
+        state.set_flash_ranges_from_eval(&[(0, 4, None), (6, 6, None), (8, 12, Some(1))]);
+        assert_eq!(
+            state.flash_ranges(),
+            vec![(0, 4, None), (8, 12, Some(1))],
+            "the empty one in the middle is not kept"
         );
     }
 }
