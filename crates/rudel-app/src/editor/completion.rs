@@ -958,4 +958,176 @@ mod tests {
         assert_eq!(item.label, "stack");
         assert_eq!(item.kind, CompletionKind::Function);
     }
+    #[test]
+    fn each_kind_names_itself_in_the_popup() {
+        // The label sits beside every entry; a blank or wrong one is what the
+        // user reads to tell a control from a function.
+        for (kind, want) in [
+            (CompletionKind::Function, "function"),
+            (CompletionKind::Method, "method"),
+            (CompletionKind::Control, "control"),
+            (CompletionKind::Keyword, "keyword"),
+            (CompletionKind::Sound, "sound"),
+            (CompletionKind::Bank, "bank"),
+            (CompletionKind::ChordSymbol, "chord"),
+            (CompletionKind::Scale, "scale"),
+            (CompletionKind::Mode, "mode"),
+            (CompletionKind::Pitch, "pitch"),
+        ] {
+            assert_eq!(kind.label(), want);
+        }
+    }
+
+    #[test]
+    fn a_completion_replaces_from_the_start_of_the_fragment_it_matched() {
+        // The span is what gets replaced when the entry is accepted. Every
+        // one of these is `absolute_inside_start + start`, and the tests need
+        // a fragment that is *not* at the start of the quotes, or an offset
+        // added to nothing looks the same as one subtracted from it.
+        let reference = reference(&["note"]);
+        let idents = HashSet::new();
+        let sample_names = vec!["bd".to_string(), "sd".to_string()];
+        let catalog = catalog(&reference, &idents, &sample_names);
+
+        // s("bd sd  — the second word is the fragment, at inside offset 3.
+        let code = r#"s("bd sd"#;
+        let (start, end, items) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        assert_eq!((start, end), (6, code.len()), "replaces `sd`, not `bd sd`");
+        assert!(labels(items).contains(&"sd".to_string()));
+
+        // scale("C:maj — the fragment starts after the colon.
+        let code = r#"scale("C:maj"#;
+        let (start, end, _) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        assert_eq!((start, end), (9, code.len()), "replaces `maj`");
+
+        // chord("Cmaj — the root stays, the symbol is replaced.
+        let code = r#"chord("Cmaj"#;
+        let (start, end, _) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        assert_eq!((start, end), (8, code.len()), "replaces `maj`, keeps `C`");
+    }
+
+    #[test]
+    fn a_cursor_past_the_end_of_the_buffer_completes_nothing() {
+        let reference = reference(&["abs"]);
+        let idents: HashSet<String> = ["abs"].into_iter().map(str::to_string).collect();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+        assert_eq!(completion_at_bytes("ab", 99, &catalog), None);
+        assert_eq!(completion_at_bytes("ab", 3, &catalog), None, "one past");
+        assert!(completion_at_bytes("ab", 2, &catalog).is_some(), "at the end");
+    }
+
+    #[test]
+    fn identifier_completion_stays_out_of_strings_and_comments() {
+        let idents: HashSet<String> = ["stack", "slow"].into_iter().map(str::to_string).collect();
+        // Inside a mini-notation string the words are sounds, not identifiers.
+        assert!(in_string_or_comment(r#"n("st")"#, 4, &idents));
+        // And in a comment they are prose.
+        assert!(in_string_or_comment("// st", 4, &idents));
+        // Plain code is neither...
+        assert!(!in_string_or_comment("st", 1, &idents));
+        // ...and the position just past a string is outside it.
+        let code = r#""a" + st"#;
+        assert!(!in_string_or_comment(code, 7, &idents));
+        assert!(in_string_or_comment(code, 1, &idents));
+    }
+    #[test]
+    fn the_other_branch_of_each_quoted_completion_replaces_from_the_right_place() {
+        // Chord and scale each have two shapes, and only one of them was
+        // covered above: a chord *without* a root completes pitches, and a
+        // scale *without* a colon completes the tonic.
+        let reference = reference(&["note"]);
+        let idents = HashSet::new();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+
+        // chord("Am  — nothing typed for the second chord yet, so the whole
+        // pitch list, inserted at the cursor rather than over the first chord.
+        let code = r#"chord("Am "#;
+        let (start, end, items) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        assert_eq!((start, end), (10, code.len()), "inserts, replaces nothing");
+        assert!(!items.is_empty());
+
+        // scale("c d — a pattern of tonics; the fragment is the last one.
+        let code = r#"scale("c d"#;
+        let (start, end, _) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        assert_eq!((start, end), (9, code.len()), "replaces `d` only");
+
+        // ctrl("bank ga — again a fragment that is not the first thing in
+        // the quotes, so the offset is added to something.
+        let code = r#"ctrl("bank ga"#;
+        let (start, end, items) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        assert_eq!((start, end), (11, code.len()), "replaces `ga` only");
+        assert_eq!(labels(items), vec!["gain".to_string()]);
+    }
+
+    #[test]
+    fn completion_at_reports_the_span_in_char_indices() {
+        // The byte-domain worker is wrapped for callers that speak char
+        // indices; the wrapper is what the editor actually calls.
+        let reference = reference(&["stack"]);
+        let idents: HashSet<String> = ["stack"].into_iter().map(str::to_string).collect();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+        let (start, end, items) = completion_at("st", ByteIndex(2), &catalog).unwrap();
+        assert_eq!((start, end), (ByteIndex(0), ByteIndex(2)));
+        assert_eq!(labels(items), vec!["stack".to_string()]);
+        assert!(completion_at("", ByteIndex(0), &catalog).is_none());
+    }
+
+    #[test]
+    fn a_cursor_at_the_very_start_still_completes() {
+        // The out-of-range guard is one-sided: 0 is a position, not an
+        // overrun.
+        let reference = reference(&["abs"]);
+        let idents: HashSet<String> = ["abs"].into_iter().map(str::to_string).collect();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+        assert!(completion_at_bytes("ab", 0, &catalog).is_some());
+    }
+
+    #[test]
+    fn a_position_at_the_end_of_a_string_is_outside_it() {
+        // Tokens are half-open: the closing quote's own position belongs to
+        // the string, the one after it does not.
+        let idents: HashSet<String> = ["st"].into_iter().map(str::to_string).collect();
+        let code = r#""a" + st"#;
+        assert!(in_string_or_comment(code, 1, &idents), "inside");
+        assert!(!in_string_or_comment(code, 3, &idents), "just past it");
+    }
+    #[test]
+    fn a_tooltip_is_offered_for_a_known_word_only() {
+        let reference = reference(&["note"]);
+        let idents = HashSet::new();
+        let sample_names = vec!["bd".to_string()];
+        let catalog = catalog(&reference, &idents, &sample_names);
+        let word = |code: &str, at: usize| {
+            reference_tooltip_at(code, ByteIndex(at), &catalog).map(|item| item.label)
+        };
+        assert_eq!(word("note", 2), Some("note".to_string()), "a function");
+        assert_eq!(word("gain", 2), Some("gain".to_string()), "a control");
+        assert_eq!(word("bd", 1), Some("bd".to_string()), "a loaded sound");
+        // A word that is nothing in particular gets no tooltip, rather than
+        // the first entry in the list.
+        assert_eq!(word("wobble", 3), None);
+    }
+
+    #[test]
+    fn a_quoted_argument_belongs_to_the_call_that_opens_it() {
+        let reference = reference(&["note"]);
+        let idents = HashSet::new();
+        let sample_names = vec!["bd".to_string()];
+        let catalog = catalog(&reference, &idents, &sample_names);
+        // The name before the `(` decides; `$` and `_` are part of it, so a
+        // call named `my_s` is not `s`.
+        assert!(completion_at_bytes(r#"s("b"#, 4, &catalog).is_some());
+        assert!(
+            completion_at_bytes(r#"my_s("b"#, 7, &catalog).is_none(),
+            "a different function's argument is not a sound list"
+        );
+        assert!(
+            completion_at_bytes(r#"x$s("b"#, 6, &catalog).is_none(),
+            "nor is `x$s`"
+        );
+    }
 }
