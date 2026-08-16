@@ -733,6 +733,8 @@ two", "only the indented line moves");
         let text = "one
 two";
         assert_eq!(selected_line_starts(text, cursor(4)), vec![CharIndex(4)]);
+        // At the very start there is no character before the cursor to look at.
+        assert_eq!(selected_line_starts(text, cursor(0)), vec![CharIndex(0)]);
         // A selection ending on a newline stops at the line before it.
         assert_eq!(
             selected_line_starts(text, selection(0, 4)),
@@ -914,5 +916,86 @@ two";
             ]),
             Some("b".into())
         );
+    }
+    #[test]
+    fn typing_the_closing_quote_steps_over_the_one_already_there() {
+        // Auto-pairing inserted the closer; typing it yourself should move
+        // past it rather than leave `""""`. Quotes need this as much as
+        // brackets do, since the same character opens and closes them.
+        for quote in ['"', '\'', '`'] {
+            let mut text = format!("{quote}{quote}");
+            let moved = apply_auto_pair(&mut text, cursor(1), &quote.to_string());
+            assert_eq!(
+                text,
+                quote.to_string(),
+                "the typed {quote} replaced nothing and one remains"
+            );
+            assert_eq!(moved.map(|r| r.primary.index), Some(CharIndex(1)));
+        }
+    }
+
+    #[test]
+    fn enter_is_seen_only_when_it_is_pressed_alone() {
+        let pressed = |events: Vec<egui::Event>| {
+            let ctx = egui::Context::default();
+            let got = std::cell::Cell::new(false);
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| got.set(editor_enter_pressed(ui)),
+            );
+            out.textures_delta.clear();
+            got.get()
+        };
+        assert!(pressed(vec![key(egui::Key::Enter, egui::Modifiers::NONE)]));
+        assert!(!pressed(vec![]));
+        // Ctrl+Enter is "evaluate", not a newline.
+        assert!(!pressed(vec![key(egui::Key::Enter, egui::Modifiers::COMMAND)]));
+    }
+
+    #[test]
+    fn either_jump_key_moves_to_a_marker() {
+        // Each direction works on its own; requiring both would mean neither
+        // ever fires.
+        let mut text = "$: a
+$: b".to_string();
+        let jump = |text: &mut String, at: usize, next: bool, prev: bool| {
+            apply_editor_text_edits(
+                text,
+                cursor(at),
+                EditorShortcuts {
+                    jump_next: next,
+                    jump_prev: prev,
+                    ..EditorShortcuts::default()
+                },
+                None,
+                false,
+                &settings(),
+            )
+            .map(|range| range.primary.index)
+        };
+        assert_eq!(jump(&mut text, 0, true, false), Some(CharIndex(5)));
+        assert_eq!(jump(&mut text, 6, false, true), Some(CharIndex(5)));
+    }
+
+    #[test]
+    fn an_empty_cursor_stays_a_cursor_through_a_line_edit() {
+        // The line-selection branch returns a *selection* spanning the lines it
+        // touched, which is right when the user had one — and wrong when they
+        // did not, since it would select text they never asked for.
+        let mut text = "one".to_string();
+        let after = toggle_line_comments(&mut text, cursor(1));
+        assert_eq!(text, "// one");
+        assert!(after.is_empty(), "still a cursor, got {after:?}");
+    }
+
+    #[test]
+    fn outdenting_an_unindented_line_leaves_the_cursor_where_it_was() {
+        let mut text = "one".to_string();
+        let after = indent_lines(&mut text, cursor(2), false);
+        assert_eq!(text, "one");
+        assert_eq!(after.primary.index, CharIndex(2));
     }
 }
