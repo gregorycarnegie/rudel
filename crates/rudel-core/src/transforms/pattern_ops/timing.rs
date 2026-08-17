@@ -262,3 +262,102 @@ impl Pattern {
         self.ribbon(offset, cycles)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spans(p: &Pattern, b: i64, e: i64) -> Vec<(Frac, Frac, i64)> {
+        let mut haps: Vec<(Frac, Frac, i64)> = p
+            .query_arc(Frac::int(b), Frac::int(e))
+            .into_iter()
+            .map(|h| (h.part.begin, h.part.end, h.value.as_f64().unwrap() as i64))
+            .collect();
+        haps.sort_by_key(|h| h.0);
+        haps
+    }
+
+    fn two() -> Pattern {
+        fastcat(&[pure(Value::Int(0)), pure(Value::Int(1))])
+    }
+
+    #[test]
+    fn revv_mirrors_the_timeline_through_zero() {
+        // Both ends of the span are negated, so cycle 0's first half becomes
+        // the *last* half of cycle -1. Negating only one end would leave a
+        // span running backwards.
+        let r = two().revv();
+        assert_eq!(
+            spans(&r, -1, 0),
+            vec![
+                (Frac::new(-1, 1), Frac::new(-1, 2), 1),
+                (Frac::new(-1, 2), Frac::zero(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn linger_repeats_the_front_of_the_cycle() {
+        // A quarter-cycle linger plays the first quarter four times.
+        let front = two().linger(Frac::new(1, 4));
+        assert_eq!(
+            spans(&front, 0, 1),
+            vec![
+                (Frac::zero(), Frac::new(1, 4), 0),
+                (Frac::new(1, 4), Frac::new(1, 2), 0),
+                (Frac::new(1, 2), Frac::new(3, 4), 0),
+                (Frac::new(3, 4), Frac::one(), 0),
+            ]
+        );
+        // Half a cycle plays the first half twice — the whole pattern, since
+        // `two()`'s first step *is* its first half.
+        assert_eq!(spans(&two().linger(Frac::new(1, 2)), 0, 1).len(), 2);
+        // Nothing to repeat.
+        assert!(
+            two()
+                .linger(Frac::zero())
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
+        // A negative `t` is silence here. Upstream means it to hold the *end*
+        // of the cycle, but its own branch throws (`t.add is not a function` —
+        // it is handed a plain number where it expects a Fraction), so there
+        // is no behaviour to match: slowing by a negative factor yields no
+        // haps rather than an exception.
+        assert!(
+            two()
+                .linger(Frac::new(-1, 4))
+                .query_arc(Frac::int(-2), Frac::int(2))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn swing_by_delays_the_second_half_of_each_slice() {
+        // Values from real Strudel: `sequence(0,1,2,3).swingBy(0.5, 2)`. Two
+        // slices a cycle, and within each the second half is late by half of
+        // its own length — an eighth of a cycle here.
+        let four = fastcat(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+            pure(Value::Int(3)),
+        ]);
+        assert_eq!(
+            spans(&four.swing_by(Frac::new(1, 2), 2), 0, 1),
+            vec![
+                (Frac::zero(), Frac::new(1, 4), 0),
+                (Frac::new(1, 4), Frac::new(3, 8), 0),
+                (Frac::new(3, 8), Frac::new(1, 2), 1),
+                (Frac::new(1, 2), Frac::new(3, 4), 2),
+                (Frac::new(3, 4), Frac::new(7, 8), 2),
+                (Frac::new(7, 8), Frac::one(), 3),
+            ]
+        );
+        // No swing leaves every onset where it was.
+        assert_eq!(
+            spans(&four.swing_by(Frac::zero(), 2), 0, 1),
+            spans(&four, 0, 1)
+        );
+    }
+}

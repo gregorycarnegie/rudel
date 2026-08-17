@@ -4,6 +4,7 @@
 //! every factor in it can be moved on its own.
 
 use super::common::*;
+use crate::fm::FM_OPS;
 
 const SR: f32 = 44100.0;
 
@@ -11,14 +12,19 @@ const SR: f32 = 44100.0;
 /// square operator wave so its output is ±1 rather than something that starts
 /// at zero and hides every multiplication behind it.
 fn voice(amt: f32, ratio: f32) -> Voice {
-    let mut fm = FmSpec::default();
-    fm.max_op = 1;
-    fm.ops[1] = FmOp {
+    let mut ops = [FmOp::default(); FM_OPS + 1];
+    ops[1] = FmOp {
         ratio,
         wave: Waveform::Square,
         env: None,
     };
-    fm.amt[1][0] = amt;
+    let mut amts = [[0.0f32; FM_OPS + 1]; FM_OPS + 1];
+    amts[1][0] = amt;
+    let fm = FmSpec {
+        ops,
+        amt: amts,
+        max_op: 1,
+    };
     Voice::new(
         VoiceParams {
             freq: 100.0,
@@ -66,20 +72,22 @@ fn a_modulated_operator_uses_the_previous_samples_value() {
     // any phase advances, so operator 1's frequency picks up operator 2's
     // contribution rather than running at its ratio alone — and the two chain
     // through the same `amt * freq * out` product.
-    let mut fm = FmSpec::default();
-    fm.max_op = 2;
-    fm.ops[1] = FmOp {
+    let square = FmOp {
         ratio: 1.0,
         wave: Waveform::Square,
         env: None,
     };
-    fm.ops[2] = FmOp {
-        ratio: 1.0,
-        wave: Waveform::Square,
-        env: None,
+    let mut ops = [FmOp::default(); FM_OPS + 1];
+    ops[1] = square;
+    ops[2] = square;
+    let mut amts = [[0.0f32; FM_OPS + 1]; FM_OPS + 1];
+    amts[1][0] = 1.0;
+    amts[2][1] = 4.0;
+    let fm = FmSpec {
+        ops,
+        amt: amts,
+        max_op: 2,
     };
-    fm.amt[1][0] = 1.0;
-    fm.amt[2][1] = 4.0;
     fn chained(fm: FmSpec) -> Voice {
         Voice::new(
             VoiceParams {

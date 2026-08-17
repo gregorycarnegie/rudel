@@ -641,4 +641,77 @@ mod tests {
         approx_eq(JI_12[5], 4.0 / 3.0); // fourth
         approx_eq(JI_12[7], 3.0 / 2.0); // fifth
     }
+
+    #[test]
+    fn only_a_well_formed_edo_name_names_an_edo() {
+        assert_eq!(edo_divisions("31edo"), Some(31));
+        assert_eq!(edo_divisions("12edo"), Some(12));
+        assert_eq!(edo_divisions("1edo"), Some(1));
+        // Each of the three rejections on its own: nothing before `edo`, a
+        // leading zero, and a non-digit in the count.
+        assert_eq!(edo_divisions("edo"), None);
+        assert_eq!(edo_divisions("012edo"), None);
+        assert_eq!(edo_divisions("0edo"), None);
+        assert_eq!(edo_divisions("1x2edo"), None);
+        assert_eq!(edo_divisions("12ed"), None);
+        assert_eq!(edo_divisions("edo12"), None);
+    }
+
+    #[test]
+    fn twelve_tone_just_intonation_is_named_as_well_as_tabulated() {
+        // `12ji` is the one scale not in the generated tune table, so its arm
+        // is the only thing that finds it.
+        let scale = tune_scale_from_value(&Value::Str("12ji".into())).expect("12ji");
+        assert_eq!(scale.ratios.len(), JI_12.len());
+        assert!((scale.ratios[7] - 1.5).abs() < 1e-12, "a just fifth");
+        // A tabulated name still resolves, and an unknown one does not.
+        assert!(tune_scale_from_value(&Value::Str("young".into())).is_some());
+        assert!(tune_scale_from_value(&Value::Str("nope".into())).is_none());
+    }
+
+    #[test]
+    fn trimming_keeps_ten_significant_digits_and_passes_the_rest_through() {
+        // The rounding that keeps rudel's ratios lining up with tune.js's
+        // printed ones. 10 significant digits, not 10 decimal places.
+        assert_eq!(trim_precision_10(1.0 / 3.0), 0.3333333333);
+        assert_eq!(trim_precision_10(1234.5678912345), 1234.567891);
+        // Exact values are unchanged...
+        assert_eq!(trim_precision_10(1.5), 1.5);
+        assert_eq!(trim_precision_10(-2.0), -2.0);
+        // ...and the two values with nothing to round are returned as they are,
+        // rather than through the formatter.
+        assert_eq!(trim_precision_10(0.0), 0.0);
+        assert!(trim_precision_10(f64::NAN).is_nan());
+        assert_eq!(trim_precision_10(f64::INFINITY), f64::INFINITY);
+    }
+
+    #[test]
+    fn a_base_pair_needs_something_in_the_list() {
+        // `[base, original]` sets both; an empty list has no first element to
+        // read and falls back to the defaults.
+        let (base, original) = base_pair(&Value::List(vec![Value::F64(432.0), Value::F64(440.0)]));
+        assert_eq!((base, original), (432.0, 440.0));
+        let empty = base_pair(&Value::List(vec![]));
+        assert_eq!(empty.0, DEFAULT_BASE);
+    }
+
+    #[test]
+    fn rescaling_multiplies_the_frequency_it_finds() {
+        // A bare number and a control map both scale by the factor; anything
+        // else that is not a number reads as zero.
+        let scaled = rescale_freq_value(Value::F64(440.0), 880.0, 440.0);
+        assert_eq!(scaled.as_f64(), Some(880.0));
+        let halved = rescale_freq_value(Value::F64(440.0), 220.0, 440.0);
+        assert_eq!(halved.as_f64(), Some(220.0));
+        let mut m = ValueMap::new();
+        m.insert("freq".to_string(), Value::F64(440.0));
+        m.insert("s".to_string(), Value::Str("bd".into()));
+        match rescale_freq_value(Value::Map(m), 880.0, 440.0) {
+            Value::Map(out) => {
+                assert_eq!(out.get("freq").and_then(Value::as_f64), Some(880.0));
+                assert_eq!(out.get("s").and_then(Value::as_str), Some("bd"));
+            }
+            other => panic!("expected a map, got {other:?}"),
+        }
+    }
 }

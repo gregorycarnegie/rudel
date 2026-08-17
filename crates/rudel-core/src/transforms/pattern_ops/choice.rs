@@ -116,3 +116,70 @@ where
         .collect();
     randcat(&pats)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::pure;
+
+    fn pat(n: i64) -> Pattern {
+        pure(Value::Int(n))
+    }
+
+    /// The first value one cycle of `pat` yields, as an integer.
+    fn picked(p: &Pattern, cycle: i64) -> i64 {
+        p.query_arc(Frac::int(cycle), Frac::int(cycle + 1))[0]
+            .value
+            .as_f64()
+            .expect("a number") as i64
+    }
+
+    #[test]
+    fn a_weighted_chooser_maps_its_draw_onto_the_cumulative_weights() {
+        // Weights 1 and 3 over two patterns: the running totals are [1, 4], so
+        // a draw of `v` selects the first total strictly above `v * 4`.
+        let pairs = [(pat(0), 1.0), (pat(1), 3.0)];
+        let at = |v: f64| picked(&wchoose_with(pure(Value::F64(v)), &pairs).outer_join(), 0);
+
+        assert_eq!(at(0.0), 0);
+        assert_eq!(at(0.2), 0, "0.8 is still inside the first weight");
+        // Exactly on a boundary belongs to the *next* pattern, and the draw is
+        // scaled by the total rather than divided by it.
+        assert_eq!(at(0.25), 1, "a target of exactly 1.0 has left the first");
+        assert_eq!(at(0.9), 1);
+        // A full draw exceeds every total, so the last pattern is the fallback
+        // rather than an index past the end.
+        assert_eq!(at(1.0), 1);
+    }
+
+    #[test]
+    fn a_zero_total_weight_is_silence() {
+        let pairs = [(pat(0), 0.0), (pat(1), -1.0)];
+        let p = wchoose_with(pure(Value::F64(0.5)), &pairs);
+        assert!(p.query_arc(Frac::zero(), Frac::one()).is_empty());
+    }
+
+    #[test]
+    fn randcat_reaches_every_pattern_it_was_given() {
+        // The draw is scaled *into* the index range: added or divided instead,
+        // it collapses onto one end and the other patterns never play.
+        let pats: Vec<Pattern> = (0..4).map(pat).collect();
+        let p = randcat(&pats);
+        let seen: std::collections::HashSet<i64> = (0..64).map(|c| picked(&p, c)).collect();
+        assert_eq!(
+            seen,
+            (0..4).collect::<std::collections::HashSet<i64>>(),
+            "every pattern should come up over 64 cycles, saw {seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_chooser_at_the_top_of_its_range_picks_the_last_pattern() {
+        // `range(0, len)` reaches `len` exactly for a chooser of 1.0, which is
+        // one past the end — the clamp is what keeps it in bounds.
+        let pats: Vec<Pattern> = (0..3).map(pat).collect();
+        assert_eq!(picked(&choose_with(pure(Value::F64(1.0)), &pats), 0), 2);
+        assert_eq!(picked(&choose_with(pure(Value::F64(0.0)), &pats), 0), 0);
+        assert_eq!(picked(&choose_with(pure(Value::F64(0.5)), &pats), 0), 1);
+    }
+}

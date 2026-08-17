@@ -1665,7 +1665,7 @@ fn a_block_render_matches_ticking_the_same_voice() {
             };
             PostFxVoice::with_mods(
                 Box::new(Voice::new(params, 44100.0)),
-                fx.clone(),
+                fx,
                 44100.0,
                 &[],
             )
@@ -1747,7 +1747,7 @@ fn a_coarse_or_crush_modulator_pushes_its_amount_up() {
         coarse: Some(1.0),
         ..Default::default()
     };
-    let plain = render(base.clone(), &ModSpecs::default());
+    let plain = render(base, &ModSpecs::default());
     let modulated = render(base, &positive_lfo("coarse", 6.0, 200.0));
     assert_ne!(modulated, plain, "a coarse modulation should be audible");
 }

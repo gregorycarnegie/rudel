@@ -1190,7 +1190,7 @@ mod tests {
             ],
         );
         let (lo, hi) = span(&offsets(&relative, &ctx(), 100.0, ModTarget::Gain, 200));
-        assert!(lo >= -0.01 && lo < 5.0, "low end was {lo}");
+        assert!((-0.01..5.0).contains(&lo), "low end was {lo}");
         assert!(
             (hi - 50.0).abs() < 2.0,
             "a depth of 0.5 * 100 should reach 50, got {hi}"

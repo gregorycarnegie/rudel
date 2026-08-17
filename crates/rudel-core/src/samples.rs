@@ -447,4 +447,99 @@ mod tests {
         // A non-positive cps leaves the pattern alone instead of dividing by it.
         assert_eq!(query_cps(&pat.cpm(120.0), 0.0).len(), 1);
     }
+
+    fn speed_of(m: &ValueMap) -> f64 {
+        m.get("speed").and_then(Value::as_f64).expect("a speed")
+    }
+
+    #[test]
+    fn chop_multiplies_the_step_count_it_started_with() {
+        // `chop` cuts each *step* into n, so the count multiplies; a pattern
+        // with no step count still has none afterwards.
+        let two = s(sequence(&[
+            crate::pure(Value::Str("bd".into())),
+            crate::pure(Value::Str("sd".into())),
+        ]));
+        assert_eq!(two.steps, Some(Frac::int(2)));
+        assert_eq!(two.chop(4).steps, Some(Frac::int(8)));
+        assert_eq!(two.chop(1).steps, Some(Frac::int(2)));
+        // A bare `pure` counts as one step, so chopping it gives n.
+        assert_eq!(
+            s(crate::pure(Value::Str("bd".into()))).chop(4).steps,
+            Some(Frac::int(4))
+        );
+    }
+
+    #[test]
+    fn loop_at_stretches_the_sample_over_whole_cycles() {
+        // superdough reads `speed` in cycles when `unit` is "c": a sample
+        // stretched over `factor` cycles plays at `cps / factor`.
+        let at = |factor: i64, cps: f64| {
+            let ms = query_cps(
+                &s(crate::pure(Value::Str("bd".into()))).loop_at(factor),
+                cps,
+            );
+            (
+                speed_of(&ms[0]),
+                ms[0].get("unit").and_then(Value::as_str).map(String::from),
+            )
+        };
+        assert_eq!(at(2, 0.5), (0.25, Some("c".to_string())));
+        assert_eq!(at(4, 0.5), (0.125, Some("c".to_string())));
+        assert_eq!(at(2, 1.0), (0.5, Some("c".to_string())));
+        // Stretching over `factor` cycles divides the step count by it, the
+        // same way it divides the speed.
+        let two = s(sequence(&[
+            crate::pure(Value::Str("bd".into())),
+            crate::pure(Value::Str("sd".into())),
+        ]));
+        assert_eq!(two.steps, Some(Frac::int(2)));
+        assert_eq!(two.loop_at(2).steps, Some(Frac::one()));
+        assert_eq!(two.loop_at(4).steps, Some(Frac::new(1, 2)));
+
+        // `loopAtCps` is the same arithmetic with the tempo passed in.
+        let ms = maps(
+            &s(crate::pure(Value::Str("bd".into()))).loop_at_cps(2, 0.5),
+            0,
+            1,
+        );
+        assert_eq!(speed_of(&ms[0]), 0.25);
+    }
+
+    #[test]
+    fn fit_stretches_each_sample_over_its_own_event() {
+        // `speed = (cps / eventDuration) * sliceDuration`. Two events a cycle
+        // at cps 0.5 is an event every second, so a whole sample plays at 1.0.
+        let two = || {
+            s(sequence(&[
+                crate::pure(Value::Str("bd".into())),
+                crate::pure(Value::Str("sd".into())),
+            ]))
+        };
+        let ms = query_cps(&two().fit(), 0.5);
+        assert_eq!(speed_of(&ms[0]), 1.0);
+        assert_eq!(ms[0].get("unit").and_then(Value::as_str), Some("c"));
+        // Half the tempo is half the speed.
+        assert_eq!(speed_of(&query_cps(&two().fit(), 0.25)[0]), 0.5);
+        // A sub-range plays only that slice, so it needs proportionally less
+        // speed to fill the same event.
+        let sliced = two().begin(Value::F64(0.25)).end(Value::F64(0.75)).fit();
+        assert_eq!(speed_of(&query_cps(&sliced, 0.5)[0]), 0.5);
+    }
+
+    #[test]
+    fn splice_folds_the_slice_count_and_any_previous_speed_together() {
+        // `speed = (cps / slices / eventDuration) * previousSpeed`, so an
+        // explicit `.speed()` scales it rather than being replaced.
+        let two = sequence(&[crate::pure(Value::Int(0)), crate::pure(Value::Int(1))]);
+        let plain = s(crate::pure(Value::Str("bd".into()))).splice(4, two.clone());
+        let ms = query_cps(&plain, 0.5);
+        assert_eq!(speed_of(&ms[0]), 0.25);
+        assert_eq!(ms[0].get("unit").and_then(Value::as_str), Some("c"));
+
+        let faster = s(crate::pure(Value::Str("bd".into())))
+            .speed(Value::F64(2.0))
+            .splice(4, two);
+        assert_eq!(speed_of(&query_cps(&faster, 0.5)[0]), 0.5);
+    }
 }

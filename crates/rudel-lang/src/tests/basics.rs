@@ -351,6 +351,49 @@ fn parray_packs_one_value_per_pattern_into_a_list() {
 }
 
 #[test]
+fn a_hap_level_callback_repeats_its_probe_window_forever() {
+    // `filter`/`fmap` run the callback over a fixed 16-cycle probe and then
+    // repeat that window, so anything past cycle 16 is the window's own cycle
+    // `n mod 16`. Nothing had ever queried past the first window, which left
+    // the whole repeat calculation unexercised.
+    let pat = eval(r#"note("<0 1 2 3 4>").filter |hap| true"#).expect("eval");
+    let at = |cycle: i64| {
+        values(&pat, cycle, cycle + 1)
+            .iter()
+            .filter_map(|v| match v {
+                Value::Map(m) => m.get("note").and_then(Value::as_f64),
+                other => other.as_f64(),
+            })
+            .collect::<Vec<f64>>()
+    };
+    // Inside the window the pattern is itself: `<0 1 2 3 4>` at cycle 4 is 4.
+    assert_eq!(at(4), vec![4.0]);
+    // Cycle 20 is the window's cycle 4 repeated, not silence and not cycle 0.
+    assert_eq!(at(20), at(4), "the probe window should repeat");
+    assert_eq!(at(17), at(1));
+    assert_eq!(at(33), at(1));
+}
+
+#[test]
+fn a_callback_that_returns_something_else_leaves_the_pattern_alone() {
+    // The callback's result is only taken when it *is* a pattern; anything
+    // else (here a `Fraction`, the one other object rudel hands scripts) means
+    // "no change" rather than being cast into one.
+    let haps = |script: &str| values(&eval(script).expect("eval"), 0, 2);
+    // `every` goes through `Callback::apply`: returning a non-pattern is the
+    // same as returning the pattern it was handed.
+    assert_eq!(
+        haps(r#"s("bd sd").every(1, |x| Fraction(1))"#),
+        haps(r#"s("bd sd").every(1, |x| x)"#)
+    );
+    // ...and `echoWith` through the indexed `apply2`.
+    assert_eq!(
+        haps(r#"s("bd").echoWith(2, 0.25, |x, i| Fraction(i))"#),
+        haps(r#"s("bd").echoWith(2, 0.25, |x, i| x)"#)
+    );
+}
+
+#[test]
 fn filter_keeps_only_matching_haps() {
     // Strudel's own example: `s("hh!7 oh").filter(hap => hap.value.s === 'hh')`.
     // Single-quoted strings are plain strings (double quotes are

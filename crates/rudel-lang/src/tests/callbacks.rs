@@ -300,6 +300,12 @@ fn into_and_chunk_into() {
         names(r#"s("bd sd ht lt").chunkInto(4, |x| x.hurry(2))"#),
         vec!["bd", "bd", "sd", "ht", "lt"]
     );
+    // Two windows in the same cycle are ribboned separately: each gets its own
+    // slice of the pattern, so they cannot share one cached transform.
+    assert_eq!(
+        names(r#"s("bd sd ht lt").into("1 1", |x| x.hurry(2))"#),
+        vec!["bd", "sd", "bd", "sd", "ht", "lt", "ht", "lt"]
+    );
     // standalone form takes the pattern last.
     assert_eq!(
         names(r#"into("1 0", |x| x.hurry(2), s("bd sd ht lt"))"#),
@@ -315,3 +321,36 @@ fn callback_error_is_surfaced() {
 }
 
 // --- Transpilation / preprocessing parity -------------------------------------
+
+#[test]
+fn a_tuple_of_callables_layers_like_a_list_of_them() {
+    // `layer`/`tour` take varargs, a list, *or* a tuple — Koto's own adaptors
+    // hand back tuples, and every list form has to work as one.
+    let both = |script: &str| {
+        let mut v: Vec<f64> = values(&eval(script).expect("eval"), 0, 1)
+            .iter()
+            .map(|x| x.as_f64().unwrap())
+            .collect();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    let want = vec![0.0, 7.0];
+    assert_eq!(both(r#"seq(0).layer([|x| x.add(0), |x| x.add(7)])"#), want);
+    assert_eq!(
+        both(r#"seq(0).layer([|x| x.add(0), |x| x.add(7)].to_tuple())"#),
+        want
+    );
+    // Varargs are the third spelling.
+    assert_eq!(both(r#"seq(0).layer(|x| x.add(0), |x| x.add(7))"#), want);
+}
+
+#[test]
+fn ply_needs_a_positive_repeat_count() {
+    // `ply(n)` repeats each event n times; zero or fewer has nothing to build
+    // and must not try to speed a pattern up by zero.
+    let count = |script: &str| values(&eval(script).expect("eval"), 0, 1).len();
+    assert_eq!(count(r#"s("bd sd").ply(2)"#), 4);
+    assert_eq!(count(r#"s("bd sd").ply(1)"#), 2);
+    assert_eq!(count(r#"s("bd sd").ply(0)"#), 0);
+    assert_eq!(count(r#"s("bd sd").ply(-1)"#), 0);
+}

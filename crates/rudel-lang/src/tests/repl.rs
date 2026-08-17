@@ -41,6 +41,18 @@ fn p_and_p_slot_use_the_given_id() {
 }
 
 #[test]
+fn a_numeric_slot_id_renders_without_a_decimal_point() {
+    // The id becomes a control value and a registry key, so `p(1)` has to read
+    // as "1" rather than "1.0" — Koto hands numbers over as floats.
+    let id = |script: &str| id_of(&values(&eval(script).expect("eval"), 0, 1)[0]).expect("an id");
+    assert_eq!(id(r#"note("c").p(1)"#), "1");
+    assert_eq!(id(r#"note("c").p(12)"#), "12");
+    assert_eq!(id(r#"note("c").p("1")"#), "1");
+    // A genuinely fractional id keeps its point rather than being truncated.
+    assert_eq!(id(r#"note("c").p(1.5)"#), "1.5");
+}
+
+#[test]
 fn q_slot_is_silent() {
     // q/q1 mute their pattern (a queued slot): no events, nothing registered.
     let pat = eval(r#"note("c").q1()"#).expect("eval");

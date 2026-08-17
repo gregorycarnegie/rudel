@@ -418,4 +418,118 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn an_even_split_still_picks_one_side_of_the_recursion() {
+        // 4 onsets in 8 steps leaves the bucket counts equal, which is the one
+        // case where the "more onsets than gaps?" test does not decide itself.
+        assert_eq!(
+            bjorklund(4, 8),
+            vec![true, false, true, false, true, false, true, false]
+        );
+        assert_eq!(bjorklund(2, 4), vec![true, false, true, false]);
+        assert_eq!(bjorklund(1, 2), vec![true, false]);
+    }
+
+    #[test]
+    fn legato_needs_at_least_one_pulse_and_one_step() {
+        let p = pure(Value::Int(0));
+        // The smallest rhythm there is still plays.
+        assert_eq!(
+            p.euclid_legato(1, 1)
+                .query_arc(Frac::zero(), Frac::one())
+                .len(),
+            1
+        );
+        assert_eq!(
+            p.euclid_legato(3, 8)
+                .query_arc(Frac::zero(), Frac::one())
+                .len(),
+            3
+        );
+        // Anything below that is silence rather than an attempt to build a
+        // rhythm out of it — `bjorklund` has no answer for a negative count.
+        for (pulses, steps) in [(0, 8), (3, 0), (-1, 8), (3, -1), (0, 0)] {
+            assert!(
+                p.euclid_legato_rot(pulses, steps, 0)
+                    .query_arc(Frac::zero(), Frac::one())
+                    .is_empty(),
+                "euclid_legato({pulses}, {steps}) should be silence"
+            );
+        }
+    }
+
+    #[test]
+    fn legato_spans_run_from_each_onset_to_the_next() {
+        // euclid(3,8) is x..x..x. — gapless spans of 3, 3 and 2 eighths.
+        let haps = pure(Value::Int(0))
+            .euclid_legato(3, 8)
+            .query_arc(Frac::zero(), Frac::one());
+        let mut spans: Vec<(Frac, Frac)> = haps
+            .iter()
+            .map(|h| {
+                let w = h.whole.expect("legato events are discrete");
+                (w.begin, w.end)
+            })
+            .collect();
+        spans.sort();
+        assert_eq!(
+            spans,
+            vec![
+                (Frac::zero(), Frac::new(3, 8)),
+                (Frac::new(3, 8), Frac::new(3, 4)),
+                (Frac::new(3, 4), Frac::one()),
+            ]
+        );
+    }
+
+    #[test]
+    fn euclidish_morphs_onsets_and_repeats_them_every_cycle() {
+        // `by = 0` is the straight euclidean rhythm: x..x..x. at eighths.
+        let bools = bjorklund(3, 8);
+        let straight = morph_pattern(&bools, 0.0);
+        let wholes = |p: &Pattern, cycle: i64| {
+            let mut v: Vec<(Frac, Frac)> = p
+                .query_arc(Frac::int(cycle), Frac::int(cycle + 1))
+                .into_iter()
+                .map(|h| {
+                    let w = h.whole.expect("morph events are discrete");
+                    (w.begin, w.end)
+                })
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            wholes(&straight, 0),
+            vec![
+                (Frac::zero(), Frac::new(1, 8)),
+                (Frac::new(3, 8), Frac::new(1, 2)),
+                (Frac::new(3, 4), Frac::new(7, 8)),
+            ]
+        );
+        // `by = 1` pulls each onset onto its evenly-spaced position (k/3).
+        assert_eq!(
+            wholes(&morph_pattern(&bools, 1.0), 0),
+            vec![
+                (Frac::zero(), Frac::new(1, 8)),
+                (Frac::new(1, 3), Frac::new(11, 24)),
+                (Frac::new(2, 3), Frac::new(19, 24)),
+            ]
+        );
+        // Every cycle repeats the same shape, shifted by the cycle it is in.
+        assert_eq!(
+            wholes(&straight, 3),
+            vec![
+                (Frac::int(3), Frac::new(25, 8)),
+                (Frac::new(27, 8), Frac::new(7, 2)),
+                (Frac::new(15, 4), Frac::new(31, 8)),
+            ]
+        );
+        // ...including the clipped part of an event a query cuts into.
+        let clipped = straight.query_arc(Frac::new(97, 32), Frac::new(25, 8));
+        assert_eq!(clipped.len(), 1);
+        assert_eq!(clipped[0].part.begin, Frac::new(97, 32));
+        assert_eq!(clipped[0].whole.unwrap().begin, Frac::int(3));
+    }
 }

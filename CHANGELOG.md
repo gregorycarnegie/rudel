@@ -11,6 +11,37 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.11.3] — 2026-08-17
+
+A second test-only release, continuing the 2026-08-17 mutation sweep into
+core's pure transforms.
+
+### Internal
+
+69 more surviving mutants killed, over core's pure transforms (`samples`,
+`stepwise`, `choice`, `timing`, `xen`, `euclid`, `morph`) and three `rudel-lang`
+binding files — 386 of the 2026-08-17 baseline's 926 now, leaving ~540.
+
+Two of those needed a test that had never been written rather than a better
+assertion: `wchoose`'s index arithmetic is only pinnable by driving its private
+core with a constant chooser instead of the `rand()` it ships with, and
+`fmap`/`filter` repeat a fixed 16-cycle probe window, so nothing below cycle 16
+could see the repeat calculation at all.
+
+`stepwise::slices` no longer computes a per-slice duration. `retime`, its only
+consumer, discarded it. Upstream *appears* to weigh a stepless slice by
+`dur * (occupied_steps / occupied_perc)`, but derives `occupied_perc` from
+`.filter((t, pat) => pat.hasSteps)` — `Array.filter` passes `(element, index)`,
+so `pat` is a number, the filter keeps nothing, and the weight is always
+`undefined`. Real Strudel lays slices of 3/4 + 1/4 out exactly as it lays out
+1/2 + 1/2, which is what rudel already did.
+
+Two other survivors that looked like bugs are faithful ports, now recorded in
+the tests that cover them: `linger` with a negative amount is silence (upstream
+throws there — its own branch is handed a number where it expects a Fraction),
+and `swingBy` genuinely does nothing to a 2-step pattern at `n = 2`, upstream
+included.
+
 ## [0.11.2] — 2026-08-17
 
 A test-only release, from a full mutation run over all eight crates. 11 539

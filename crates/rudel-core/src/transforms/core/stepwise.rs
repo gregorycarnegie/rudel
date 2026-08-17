@@ -26,9 +26,19 @@ fn stepcat_maybe(timed: &[(Option<Frac>, Pattern)]) -> Pattern {
 }
 
 /// Cut one cycle of pattern-of-pattern haps into the spans where the set of
-/// inner patterns is constant, pairing each span with those patterns stacked
+/// inner patterns is constant, and stack the patterns covering each span
 /// (upstream's `_slices`/`_fitslice`).
-fn slices(haps: &[Hap]) -> Vec<(Frac, Pattern)> {
+///
+/// No span *duration* comes back with them. Upstream's `_retime` looks as
+/// though it weighs a stepless slice by `dur * (occupied_steps /
+/// occupied_perc)`, but the filter it derives `occupied_perc` from is written
+/// `.filter((t, pat) => pat.hasSteps)` — `Array.filter` passes `(element,
+/// index)`, so `pat` is a number, `pat.hasSteps` is undefined, and the filter
+/// keeps nothing. `occupied_perc` is therefore always 0, `total_steps` always
+/// `undefined`, and `dur.mulmaybe(undefined)` gives back `undefined`: the
+/// duration never reaches the output. Checked against real Strudel, whose
+/// layout for slices of 3/4 + 1/4 is identical to its layout for 1/2 + 1/2.
+fn slices(haps: &[Hap]) -> Vec<Pattern> {
     let mut points = vec![Frac::zero(), Frac::one()];
     for hap in haps {
         points.push(hap.part.begin);
@@ -48,20 +58,17 @@ fn slices(haps: &[Hap]) -> Vec<(Frac, Pattern)> {
                     other => crate::pattern::pure(other.clone()),
                 })
                 .collect();
-            (edges[1] - edges[0], crate::pattern::stack(&inner))
+            crate::pattern::stack(&inner)
         })
         .collect()
 }
 
-/// Re-weight the slices by the step counts of the patterns in them, so a slice
+/// Weigh the slices by the step counts of the patterns in them, so a slice
 /// occupying a quarter of the cycle but holding six steps is laid out as six
 /// (upstream's `_retime`). A slice whose pattern has no step count has no
 /// weight, and [`stepcat_maybe`] decides what to do with it.
-fn retime(timed: Vec<(Frac, Pattern)>) -> Vec<(Option<Frac>, Pattern)> {
-    timed
-        .into_iter()
-        .map(|(_dur, pat)| (pat.steps, pat))
-        .collect()
+fn retime(pats: Vec<Pattern>) -> Vec<(Option<Frac>, Pattern)> {
+    pats.into_iter().map(|pat| (pat.steps, pat)).collect()
 }
 
 impl Pattern {
@@ -243,5 +250,209 @@ impl Pattern {
         } else {
             self._take(-(steps - i))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::{fastcat, pure, silence};
+
+    fn four() -> Pattern {
+        fastcat(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+            pure(Value::Int(3)),
+        ])
+    }
+
+    /// `(begin, value)` per hap, which is enough to tell these apart and reads
+    /// like the upstream output they were checked against.
+    fn shape(p: &Pattern) -> Vec<(Frac, i64)> {
+        let mut v: Vec<(Frac, i64)> = p
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| (h.part.begin, h.value.as_f64().unwrap() as i64))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn take_keeps_steps_from_whichever_end_the_sign_names() {
+        // Values from real Strudel: `sequence(0,1,2,3).take(2)` / `.take(-2)`.
+        assert_eq!(
+            shape(&four().take(2)),
+            vec![(Frac::zero(), 0), (Frac::new(1, 2), 1)]
+        );
+        assert_eq!(
+            shape(&four().take(-2)),
+            vec![(Frac::zero(), 2), (Frac::new(1, 2), 3)]
+        );
+        // Taking everything (or more) is the pattern itself; taking none is
+        // silence, and so is a pattern with no step count to take from.
+        assert_eq!(shape(&four().take(4)), shape(&four()));
+        assert_eq!(shape(&four().take(8)), shape(&four()));
+        assert!(
+            four()
+                .take(0)
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
+        assert!(
+            silence()
+                .take(2)
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn drop_is_take_from_the_other_side() {
+        // `drop(1)` discards the first step, `drop(-1)` the last.
+        assert_eq!(
+            shape(&four().drop(1)),
+            vec![
+                (Frac::zero(), 1),
+                (Frac::new(1, 3), 2),
+                (Frac::new(2, 3), 3),
+            ]
+        );
+        assert_eq!(
+            shape(&four().drop(-1)),
+            vec![
+                (Frac::zero(), 0),
+                (Frac::new(1, 3), 1),
+                (Frac::new(2, 3), 2),
+            ]
+        );
+        // Dropping nothing keeps everything.
+        assert_eq!(shape(&four().drop(0)), shape(&four()));
+    }
+
+    #[test]
+    fn shrink_and_grow_walk_the_pattern_in_from_each_end() {
+        // Upstream's `sequence(0,1,2,3).shrink(1)`: 4 steps, then 3, 2, 1 —
+        // ten steps in all, each 1/10 of the cycle.
+        assert_eq!(
+            shape(&four().shrink(1))
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect::<Vec<i64>>(),
+            vec![0, 1, 2, 3, 1, 2, 3, 2, 3, 3]
+        );
+        // `grow` is the same list reversed: 1 step, then 2, 3, 4.
+        assert_eq!(
+            shape(&four().grow(1))
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect::<Vec<i64>>(),
+            vec![0, 0, 1, 0, 1, 2, 0, 1, 2, 3]
+        );
+        // No step count, nothing to walk.
+        assert!(
+            silence()
+                .shrink(1)
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn shrinking_by_nothing_leaves_the_pattern_alone() {
+        // Zero is the "do nothing" amount: each repetition would drop no steps,
+        // so the list is the pattern itself rather than `steps` copies of it.
+        assert_eq!(shape(&four().shrink(0)), shape(&four()));
+        assert_eq!(shape(&four().grow(0)), shape(&four()));
+    }
+
+    #[test]
+    fn a_zero_step_pattern_is_silence_rather_than_a_division_by_zero() {
+        // `take`/`drop` divide by the step count. Zero steps is reachable —
+        // `setSteps(0)` is a public API — and there is nothing to take from it.
+        let none = four().set_steps(Some(Frac::zero()));
+        assert!(none.take(2).query_arc(Frac::zero(), Frac::one()).is_empty());
+        assert!(none.drop(1).query_arc(Frac::zero(), Frac::one()).is_empty());
+        // A negative count is no more takeable than a zero one.
+        let negative = four().set_steps(Some(Frac::int(-2)));
+        assert!(
+            negative
+                .take(2)
+                .query_arc(Frac::zero(), Frac::one())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn step_join_lays_inner_patterns_out_by_their_own_step_counts() {
+        // The point of `stepJoin` over `innerJoin`: a 3-step pattern and a
+        // 2-step one share the cycle 3:2, not 1:1. Upstream's `expand("3 2")`
+        // shows the same split (0-0.6, 0.6-1 with 5 steps in all).
+        let three = fastcat(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+        ]);
+        let two = fastcat(&[pure(Value::Int(3)), pure(Value::Int(4))]);
+        let outer = fastcat(&[
+            pure(Value::Pat(Box::new(three))),
+            pure(Value::Pat(Box::new(two))),
+        ]);
+        let joined = outer.step_join();
+        assert_eq!(
+            shape(&joined),
+            vec![
+                (Frac::zero(), 0),
+                (Frac::new(1, 5), 1),
+                (Frac::new(2, 5), 2),
+                (Frac::new(3, 5), 3),
+                (Frac::new(4, 5), 4),
+            ]
+        );
+        // ...and the joined pattern carries the total.
+        assert_eq!(joined.steps, Some(Frac::int(5)));
+    }
+
+    #[test]
+    fn a_slice_with_no_step_count_is_weighed_at_the_average_of_those_that_have_one() {
+        // Weights 3 and 1 are known, so the stepless slice is laid out as 2 —
+        // six steps in all, split 3 : 1 : 2.
+        let three = fastcat(&[
+            pure(Value::Int(0)),
+            pure(Value::Int(1)),
+            pure(Value::Int(2)),
+        ]);
+        let one = pure(Value::Int(7));
+        let stepless = pure(Value::Int(9)).set_steps(None);
+        let outer = fastcat(&[
+            pure(Value::Pat(Box::new(three))),
+            pure(Value::Pat(Box::new(one))),
+            pure(Value::Pat(Box::new(stepless))),
+        ]);
+        assert_eq!(
+            shape(&outer.step_join()),
+            vec![
+                (Frac::zero(), 0),
+                (Frac::new(1, 6), 1),
+                (Frac::new(1, 3), 2),
+                (Frac::new(1, 2), 7),
+                (Frac::new(2, 3), 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn step_join_falls_back_to_equal_slices_when_no_step_count_is_known() {
+        // With nothing to weigh them by, the inner patterns divide the cycle
+        // evenly — `stepcat_maybe`'s "no known weights" branch.
+        let a = pure(Value::Int(0));
+        let b = pure(Value::Int(1));
+        let outer = fastcat(&[pure(Value::Pat(Box::new(a))), pure(Value::Pat(Box::new(b)))]);
+        let joined = outer.step_join();
+        assert_eq!(
+            shape(&joined),
+            vec![(Frac::zero(), 0), (Frac::new(1, 2), 1)]
+        );
     }
 }
