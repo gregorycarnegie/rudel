@@ -184,4 +184,35 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn a_zero_width_span_still_intersects_the_span_around_it() {
+        let point = TimeSpan::new(Frac::one(), Frac::one());
+        let around = TimeSpan::new(Frac::zero(), Frac::int(2));
+        // A point is not "the end of a non-zero-width span", so it survives
+        // from either side.
+        assert_eq!(point.intersection(&around), Some(point));
+        assert_eq!(around.intersection(&point), Some(point));
+        // Two spans that only touch at a point do not intersect.
+        let a = TimeSpan::new(Frac::zero(), Frac::one());
+        let b = TimeSpan::new(Frac::one(), Frac::int(2));
+        assert_eq!(a.intersection(&b), None);
+        assert_eq!(b.intersection(&a), None);
+        // ...and disjoint spans do not either.
+        assert_eq!(
+            a.intersection(&TimeSpan::new(Frac::int(2), Frac::int(3))),
+            None
+        );
+    }
+
+    #[test]
+    fn midpoint_halves_the_span_and_display_shows_both_ends() {
+        let span = TimeSpan::new(Frac::zero(), Frac::one());
+        assert_eq!(span.midpoint(), Frac::new(1, 2));
+        assert_eq!(
+            TimeSpan::new(Frac::one(), Frac::int(2)).midpoint(),
+            Frac::new(3, 2)
+        );
+        assert_eq!(format!("{span}"), "0/1 → 1/1");
+    }
 }

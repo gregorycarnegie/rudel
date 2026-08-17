@@ -150,3 +150,131 @@ fn unknown_chord_is_silent() {
     let pat = pure(Value::Str("Zwurble".into())).voicing();
     assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
 }
+
+#[test]
+fn pitch_classes_read_their_accidentals() {
+    assert_eq!(pc_to_chroma("C"), Some(0));
+    assert_eq!(pc_to_chroma("C#"), Some(1));
+    assert_eq!(pc_to_chroma("Cs"), Some(1));
+    assert_eq!(pc_to_chroma("Cb"), Some(11));
+    assert_eq!(pc_to_chroma("Cf"), Some(11));
+    assert_eq!(pc_to_chroma("C##"), Some(2));
+    // Anything that is not an accidental is not a pitch class.
+    assert_eq!(pc_to_chroma("Cx"), None);
+    assert_eq!(pc_to_chroma("H"), None);
+    assert_eq!(pc_to_chroma(""), None);
+}
+
+#[test]
+fn chord_symbols_split_into_root_and_quality() {
+    assert_eq!(
+        tokenize_chord("C^7"),
+        Some(("C".to_string(), "^7".to_string()))
+    );
+    // The root absorbs its accidentals, and a slash bass is dropped.
+    assert_eq!(
+        tokenize_chord("C#m7"),
+        Some(("C#".to_string(), "m7".to_string()))
+    );
+    assert_eq!(
+        tokenize_chord("G7/B"),
+        Some(("G".to_string(), "7".to_string()))
+    );
+    // A symbol that does not start on a note letter is not a chord at all.
+    assert_eq!(tokenize_chord("Zwurble"), None);
+    assert_eq!(tokenize_chord("7"), None);
+}
+
+#[test]
+fn scale_steps_octave_their_overshoot() {
+    let notes = [0, 4, 7];
+    assert_eq!(scale_step_in(&notes, 1, 1), 4);
+    // Past the end wraps and adds an octave per lap, scaled by `octaves`.
+    assert_eq!(scale_step_in(&notes, 3, 1), 12);
+    assert_eq!(scale_step_in(&notes, 4, 2), 28);
+    assert_eq!(scale_step_in(&notes, -1, 1), -5);
+}
+
+#[test]
+fn the_default_dictionary_is_settable_and_read_back() {
+    let restore = default_dict();
+    assert_eq!(restore, "ireal");
+    set_default_voicings("lefthand");
+    assert_eq!(default_dict(), "lefthand");
+    // A hap that names no dictionary picks up the new default.
+    let opts = VoicingOpts::default();
+    assert_eq!(opts.dict, "lefthand");
+    set_default_voicings(restore);
+}
+
+#[test]
+fn root_mode_takes_the_first_voicing_whatever_the_anchor() {
+    let with_mode = |mode| {
+        render_voicing(
+            "C^7",
+            &VoicingOpts {
+                dict: "ireal".to_string(),
+                mode,
+                anchor: Some(72),
+                ..Default::default()
+            },
+        )
+    };
+    // "root" is its own mode: it always picks voicing 0, where "below" picks
+    // whichever voicing sits nearest under the anchor.
+    assert_ne!(with_mode(Some(Mode::Root)), with_mode(Some(Mode::Below)));
+    assert_eq!(
+        with_mode(Some(Mode::Root)),
+        with_mode(Some(Mode::from_str("root")))
+    );
+    assert_eq!(
+        with_mode(Some(Mode::Below)),
+        with_mode(Some(Mode::from_str("wat")))
+    );
+}
+
+#[test]
+fn an_offset_rotates_the_voicing_list_and_octaves_the_overshoot() {
+    let at = |offset| {
+        render_voicing(
+            "C^7",
+            &VoicingOpts {
+                dict: "ireal".to_string(),
+                offset,
+                anchor: Some(60),
+                ..Default::default()
+            },
+        )
+    };
+    // Each offset is a distinct voicing, and one full lap of the list is that
+    // same voicing an octave up — which is the only thing that pins how the
+    // offset is split into a rotation and an octave shift.
+    let base = at(0).expect("a voicing");
+    assert_ne!(at(1).expect("a voicing"), base);
+    assert_ne!(at(-1).expect("a voicing"), base);
+    let laps = dictionary("ireal")
+        .table
+        .get("^7")
+        .expect("^7 voicings")
+        .len() as i32;
+    let up: Vec<i32> = base.iter().map(|n| n + 12).collect();
+    assert_eq!(at(laps).expect("a voicing"), up);
+}
+
+#[test]
+fn root_notes_writes_into_a_control_map() {
+    let chord = Value::Map(crate::value::ValueMap::from([(
+        "chord".to_string(),
+        Value::Str("C^7".into()),
+    )]));
+    let pat = pure(chord).root_notes(4);
+    let haps = pat.query_arc(Frac::zero(), Frac::one());
+    let Value::Map(m) = &haps[0].value else {
+        panic!(
+            "expected the control map to survive, got {:?}",
+            haps[0].value
+        );
+    };
+    assert_eq!(m.get("note"), Some(&Value::Str("C4".into())));
+    assert_eq!(m.get("chord"), Some(&Value::Str("C^7".into())));
+}

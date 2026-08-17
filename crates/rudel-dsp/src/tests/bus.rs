@@ -483,3 +483,56 @@ fn retuning_the_djf_keeps_its_filter_state() {
         "retuning should be continuous: {last:.4} -> {next:.4}"
     );
 }
+
+#[test]
+fn the_onset_ramp_reaches_the_floor_in_exactly_its_own_length() {
+    // The dip is geometric: `(floor/gain)^(1/dip)` per sample, so after `dip`
+    // samples it has multiplied out to exactly `floor/gain` and no further.
+    // Any other exponent lands somewhere else entirely at that sample.
+    let onset = 0.01; // 441 samples at 44.1kHz
+    let dip = (SR * onset) as usize;
+    let depth = 0.75f32;
+    let floor = 1.0 - depth.sqrt();
+
+    let mut env = DuckEnv::default();
+    env.trigger(SR, &duck(onset, 30.0, depth));
+    let mut gain = 1.0;
+    for _ in 0..dip {
+        gain = env.next_gain();
+    }
+    assert!(
+        (gain - floor).abs() < 1e-3,
+        "after {dip} samples the dip should be at its floor {floor:.4}, got {gain:.4}"
+    );
+    // Halfway there it is at the geometric midpoint, not the linear one.
+    let mut env = DuckEnv::default();
+    env.trigger(SR, &duck(onset, 30.0, depth));
+    let mut half = 1.0;
+    for _ in 0..dip / 2 {
+        half = env.next_gain();
+    }
+    assert!(
+        (half - floor.sqrt()).abs() < 1e-3,
+        "halfway should be sqrt(floor) = {:.4}, got {half:.4}",
+        floor.sqrt()
+    );
+}
+
+#[test]
+fn a_reverb_config_prints_its_impulse_length_not_its_samples() {
+    // `Sample` is deliberately not `Debug` (it holds whole buffers), so this
+    // impl is what any diagnostic of a bus prints.
+    let cfg = ReverbConfig {
+        size: 2.0,
+        fade: 0.5,
+        lp: 8000.0,
+        dim: 0.7,
+        ir: None,
+        irbegin: 0.0,
+        irspeed: 1.0,
+    };
+    let text = format!("{cfg:?}");
+    assert!(text.contains("ReverbConfig"), "{text}");
+    assert!(text.contains("size: 2.0"), "{text}");
+    assert!(text.contains("ir: None"), "{text}");
+}

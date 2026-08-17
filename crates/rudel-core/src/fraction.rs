@@ -323,4 +323,35 @@ mod tests {
             prop_assert_eq!(a.lcm(b), b.lcm(a));
         }
     }
+
+    #[test]
+    fn whole_numbers_skip_the_continued_fraction() {
+        // The convergent loop bails out on any term above the denominator
+        // limit, so an integer larger than that only survives by taking the
+        // exact-integer path first.
+        assert_eq!(Frac::from_f64(2_000_000.0), Frac::int(2_000_000));
+        assert_eq!(Frac::from_f64(-2_000_000.0), Frac::int(-2_000_000));
+        assert_eq!(Frac::from_f64(3.0), Frac::int(3));
+        // Past what an i64 can hold there is no answer to give, and the
+        // saturating cast would invent one.
+        assert_eq!(Frac::from_f64(1e19), Frac::zero());
+        assert_eq!(Frac::from_f64(f64::INFINITY), Frac::zero());
+        // Simple fractions stay simple.
+        assert_eq!(Frac::from_f64(1.0 / 6.0), Frac::new(1, 6));
+        assert_eq!(Frac::from_f64(-0.75), Frac::new(-3, 4));
+    }
+
+    #[test]
+    fn gcd_over_an_iterator_skips_the_absent_ones() {
+        assert_eq!(
+            gcd_opt([Some(Frac::new(1, 2)), None, Some(Frac::new(1, 3))]),
+            Some(Frac::new(1, 6))
+        );
+        assert_eq!(
+            gcd_opt([Some(Frac::int(4)), Some(Frac::int(6))]),
+            Some(Frac::int(2))
+        );
+        assert_eq!(gcd_opt([None, None]), None);
+        assert_eq!(gcd_opt([]), None);
+    }
 }

@@ -281,4 +281,57 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn span_equals_compares_two_discrete_wholes() {
+        let a = Hap::new(Some(span(0, 1)), span(0, 1), Value::Int(0));
+        let same = Hap::new(Some(span(0, 1)), span(0, 1), Value::Int(9));
+        let other = Hap::new(Some(span(1, 2)), span(1, 2), Value::Int(0));
+        assert!(a.span_equals(&same));
+        assert!(!a.span_equals(&other));
+    }
+
+    #[test]
+    fn haps_are_equal_on_whole_part_and_value_together() {
+        let hap = |w: (i64, i64), p: (i64, i64), v: i64| {
+            Hap::new(Some(span(w.0, w.1)), span(p.0, p.1), Value::Int(v))
+        };
+        let base = hap((0, 2), (0, 1), 3);
+        assert_eq!(base, hap((0, 2), (0, 1), 3));
+        // One field differs at a time, so no pair of conjuncts can stand in
+        // for another.
+        assert_ne!(base, hap((0, 3), (0, 1), 3));
+        assert_ne!(base, hap((0, 2), (1, 2), 3));
+        assert_ne!(base, hap((0, 2), (0, 1), 4));
+    }
+
+    #[test]
+    fn duration_measures_the_whole_away_from_the_origin() {
+        // A whole starting at 0 cannot tell `end - begin` from `end + begin`.
+        let hap = Hap::new(Some(span(1, 3)), span(1, 3), Value::Int(0));
+        assert_eq!(hap.duration(), Frac::int(2));
+        // Continuous haps fall back to the part.
+        let continuous = Hap::new(None, span(1, 3), Value::Int(0));
+        assert_eq!(continuous.duration(), Frac::int(2));
+    }
+
+    #[test]
+    fn tags_are_read_back_and_merged_without_duplicates() {
+        let tagged = |tag: &str| Context {
+            tags: vec![tag.to_string()],
+            ..Context::default()
+        };
+        let hap = Hap::new(Some(span(0, 1)), span(0, 1), Value::Int(0));
+        let a = hap.clone().with_context(tagged("pianoroll"));
+        assert!(a.has_tag("pianoroll"));
+        assert!(!a.has_tag("spiral"));
+        // Combining keeps one copy of a shared tag and appends new ones.
+        let b = hap.with_context(tagged("pianoroll"));
+        assert_eq!(a.combine_context(&b).tags, vec!["pianoroll".to_string()]);
+        let c = a.set_context(tagged("spiral"));
+        assert_eq!(
+            a.combine_context(&c).tags,
+            vec!["pianoroll".to_string(), "spiral".to_string()]
+        );
+    }
 }

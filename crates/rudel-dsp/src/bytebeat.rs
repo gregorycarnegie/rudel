@@ -990,4 +990,41 @@ mod tests {
         assert!((at(0.4) - 0.2).abs() < 0.02, "holds at full: {}", at(0.4));
         assert!(at(0.6) > at(0.7), "the release falls");
     }
+
+    #[test]
+    fn what_the_javascript_oracle_cannot_be_asked() {
+        // Unknown identifiers throw a ReferenceError in JS, so the golden
+        // cannot carry them: upstream reaches a bare `Math` member, which is a
+        // function object — NaN in arithmetic, 0 once the beat's `|0` lands.
+        assert!(ev("nope", 0.0).is_nan());
+        assert!(ev("$x", 0.0).is_nan());
+        assert!(ev("_y", 0.0).is_nan());
+        assert!(ev("a_$0", 0.0).is_nan());
+        assert_eq!(ev("nope|0", 0.0), 0.0);
+        // An identifier stops at the first character that cannot be in one, so
+        // `t` is still `t` when something follows it.
+        assert_eq!(ev("t+1", 5.0), 6.0);
+
+        // Anything that does not parse is silence rather than half an
+        // expression: trailing junk, an unterminated call, a bad literal.
+        for bad in [
+            "1+", "1 2", "(1+2", "sin(", "sin(1,", "1e", "1e+", "0x", ".", "+", "t)",
+        ] {
+            assert_eq!(ev(bad, 7.0), 0.0, "`{bad}` should not parse");
+        }
+        // ...while the same forms with what they were missing do parse.
+        assert_eq!(ev("1e+2", 0.0), 100.0);
+        assert_eq!(ev("0x10", 0.0), 16.0);
+        // A hex literal that does not start at offset 0: `pos + 2` and
+        // `pos * 2` agree at 0 and at 2, so only a third position separates
+        // reading the digit after the `0x` from reading somewhere else.
+        assert_eq!(ev("1+2+0x10", 0.0), 19.0);
+        assert_eq!(ev("1+2+3+0xff", 0.0), 261.0);
+        // An identifier whose *second* character is a digit is still an
+        // identifier, not a number.
+        assert!(ev("n1", 0.0).is_nan());
+        assert!(ev("t1", 0.0).is_nan());
+        assert_eq!(ev(".5", 0.0), 0.5);
+        assert_eq!(ev("sin(0)", 0.0), 0.0);
+    }
 }

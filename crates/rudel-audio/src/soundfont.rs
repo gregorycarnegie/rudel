@@ -759,4 +759,38 @@ mod tests {
         set_soundfont_url(&base);
         assert_eq!(preset_url("x"), original, "the base is restored");
     }
+
+    #[test]
+    fn zone_scanning_survives_odd_input() {
+        // A `]` *inside* a zone is a value, not the end of the array.
+        let bodies = zone_bodies("x={zones:[{a:[1,2]},{b:2}]}");
+        assert_eq!(bodies, vec!["a:[1,2]", "b:2"]);
+        // A backslash only escapes inside a string, so this `}` still closes.
+        let bodies = zone_bodies(r"x={zones:[{a:1\},{b:2}]}");
+        assert_eq!(bodies.len(), 2);
+        // An unterminated zones array ends at the end of the source rather
+        // than reading past it.
+        assert_eq!(zone_bodies("x={zones:[{a:1}"), vec!["a:1"]);
+    }
+
+    #[test]
+    fn base64_rejects_bytes_outside_the_alphabet() {
+        assert_eq!(base64_decode("TWFu"), Ok(b"Man".to_vec()));
+        // Padding is optional and whitespace is skipped.
+        assert_eq!(base64_decode("TWE=").unwrap(), b"Ma".to_vec());
+        assert_eq!(
+            base64_decode(
+                "TW Fu
+"
+            )
+            .unwrap(),
+            b"Man".to_vec()
+        );
+        // `A` decodes to 0, so a sentinel of 0 would make every invalid byte
+        // decode as an `A` instead of erroring.
+        assert!(base64_decode("TW$u").is_err());
+        // ...and a sentinel of 1 would reject `B`, which legitimately decodes
+        // to 1, while still rejecting everything it should.
+        assert_eq!(base64_decode("ABCD").unwrap(), vec![0x00, 0x10, 0x83]);
+    }
 }

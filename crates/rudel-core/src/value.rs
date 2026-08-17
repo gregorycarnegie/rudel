@@ -212,3 +212,81 @@ impl From<Frac> for Value {
         Value::Frac(x)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(pairs: &[(&str, Value)]) -> Value {
+        Value::Map(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn truthiness_follows_mini_notation_rules() {
+        // Both polarities per arm: a deleted arm falls through to `_ => true`,
+        // so only the *false* cases pin the arm and only the true ones pin the
+        // comparison inside it.
+        assert!(Value::Bool(true).truthy());
+        assert!(!Value::Bool(false).truthy());
+        assert!(Value::Int(1).truthy());
+        assert!(!Value::Int(0).truthy());
+        assert!(Value::F64(0.5).truthy());
+        assert!(!Value::F64(0.0).truthy());
+        assert!(Value::Frac(Frac::one()).truthy());
+        assert!(!Value::Frac(Frac::zero()).truthy());
+        assert!(!Value::Null.truthy());
+        for falsy in ["f", "~", "false", "0", ""] {
+            assert!(!Value::Str(falsy.into()).truthy(), "{falsy} is falsy");
+        }
+        for truthy in ["t", "x", "true", "1", "bd"] {
+            assert!(Value::Str(truthy.into()).truthy(), "{truthy} is truthy");
+        }
+        assert!(Value::List(vec![]).truthy());
+    }
+
+    #[test]
+    fn equality_crosses_the_numeric_types_only() {
+        assert_eq!(Value::Int(1), Value::F64(1.0));
+        assert_eq!(Value::F64(1.0), Value::Int(1));
+        assert_eq!(Value::Frac(Frac::new(1, 2)), Value::F64(0.5));
+        assert_ne!(Value::Int(1), Value::F64(2.0));
+        // Same-type arms.
+        assert_eq!(Value::Frac(Frac::new(1, 3)), Value::Frac(Frac::new(1, 3)));
+        assert_ne!(Value::Frac(Frac::new(1, 3)), Value::Frac(Frac::new(2, 3)));
+        assert_eq!(map(&[("s", "bd".into())]), map(&[("s", "bd".into())]));
+        assert_ne!(map(&[("s", "bd".into())]), map(&[("s", "sd".into())]));
+        // A string is never equal to the number it spells.
+        assert_ne!(Value::Str("1".into()), Value::Int(1));
+    }
+
+    #[test]
+    fn debug_prints_the_value_not_the_variant() {
+        assert_eq!(format!("{:?}", Value::Int(3)), "3");
+        assert_eq!(format!("{:?}", Value::Null), "null");
+    }
+
+    #[test]
+    fn union_with_refuses_arithmetic_against_a_wrapped_scalar() {
+        let add = |a: &Value, b: &Value| {
+            Value::F64(a.as_f64().unwrap_or(0.0) + b.as_f64().unwrap_or(0.0))
+        };
+        // A single-key `{value: x}` right operand is the compose path's wrapped
+        // scalar: the left map comes back untouched.
+        let left = map(&[("n", Value::Int(1))]);
+        assert_eq!(
+            left.union_with(&map(&[("value", Value::Int(9))]), add),
+            left
+        );
+        // Two keys is a real control map, so shared keys combine and new ones
+        // are inserted.
+        assert_eq!(
+            left.union_with(&map(&[("n", Value::Int(2)), ("s", "bd".into())]), add),
+            map(&[("n", Value::F64(3.0)), ("s", "bd".into())]),
+        );
+    }
+}

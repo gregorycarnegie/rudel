@@ -425,4 +425,11 @@ fn nesting_that_anyone_would_actually_play_still_parses() {
         parse("bd:3*2!2?0.5@2").is_ok(),
         "operator stacks on one step are fine"
     );
+    assert!(
+        parse(&"[bd] ".repeat(200)).is_ok(),
+        "sequential groups close again, so they do not accumulate depth"
+    );
+    // Exactly at the limit still parses; one deeper does not.
+    assert!(parse(&format!("{}bd{}", "[".repeat(64), "]".repeat(64))).is_ok());
+    assert!(parse(&format!("{}bd{}", "[".repeat(65), "]".repeat(65))).is_err());
 }

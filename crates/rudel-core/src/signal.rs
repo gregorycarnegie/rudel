@@ -624,4 +624,55 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn perlin_interpolates_between_the_two_random_values_it_sits_between() {
+        // At an integer time the noise *is* the random value there, so the
+        // seed has to be added to the time and the smoothstep must vanish.
+        for (t, seed) in [(0.0, 0.0), (3.0, 0.0), (3.0, 0.25), (2.0, 7.0)] {
+            assert_eq!(
+                perlin_at(t, seed),
+                time_to_rand(t + seed),
+                "t={t} seed={seed}"
+            );
+        }
+        // Halfway between them smootherstep is exactly 1/2, so the value is
+        // the midpoint of its two neighbours.
+        for t in [0.5f64, 1.5, 4.5] {
+            let mid = (perlin_at(t.floor(), 0.0) + perlin_at(t.floor() + 1.0, 0.0)) / 2.0;
+            assert!((perlin_at(t, 0.0) - mid).abs() < 1e-12, "at {t}");
+        }
+        // ...and it is continuous across the integer, which it is not if the
+        // far end of the interval is anywhere but `floor(t) + 1`.
+        assert!((perlin_at(0.999_999, 0.0) - perlin_at(1.0, 0.0)).abs() < 1e-4);
+        // The *far* end takes the seed too, which a zero seed cannot show.
+        let seed = 0.25;
+        let mid = (time_to_rand(2.0 + seed) + time_to_rand(3.0 + seed)) / 2.0;
+        assert!((perlin_at(2.5, seed) - mid).abs() < 1e-12);
+    }
+
+    #[test]
+    fn berlin_ramps_from_its_bottom_by_the_next_random_height() {
+        for (t, seed) in [(2.0, 0.0), (2.0, 0.5)] {
+            assert_eq!(berlin_at(t, seed), time_to_rand(t + seed) / 2.0);
+        }
+        let seed = 0.5;
+        let bottom = time_to_rand(2.0 + seed);
+        let height = time_to_rand(3.0 + seed);
+        assert!((berlin_at(2.5, seed) - (bottom + 0.5 * height) / 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn brand_by_saturates_at_both_ends() {
+        let all = |p: f64| {
+            brand_by(p)
+                .segment(Frac::int(16))
+                .query_arc(Frac::zero(), Frac::int(4))
+                .into_iter()
+                .map(|h| h.value.truthy())
+                .collect::<Vec<bool>>()
+        };
+        assert!(all(1.0).iter().all(|b| *b), "brandBy(1) is always true");
+        assert!(!all(0.0).iter().any(|b| *b), "brandBy(0) is never true");
+    }
 }

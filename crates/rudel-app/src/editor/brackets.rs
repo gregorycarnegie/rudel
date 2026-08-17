@@ -89,5 +89,31 @@ mod tests {
         );
         // not next to a bracket -> nothing
         assert_eq!(bracket_match_spans(text, CharIndex(7)), None);
+        // ...including at the very start of the buffer, where looking at the
+        // char to the left would underflow.
+        assert_eq!(bracket_match_spans(text, CharIndex(0)), None);
+        // The char *under* the cursor is only preferred when it is a bracket:
+        // on `a`, the `(` to its left is what matches.
+        assert_eq!(
+            bracket_match_spans(text, CharIndex(6)),
+            Some([(5, 6), (12, 13)])
+        );
+        // Closing `]` scans backwards to its own opener.
+        assert_eq!(
+            bracket_match_spans(text, CharIndex(11)),
+            Some([(11, 12), (9, 10)])
+        );
+    }
+
+    #[test]
+    fn braces_match_in_both_directions() {
+        assert_eq!(
+            bracket_match_spans("{a}", CharIndex(0)),
+            Some([(0, 1), (2, 3)])
+        );
+        assert_eq!(
+            bracket_match_spans("{a}", CharIndex(3)),
+            Some([(2, 3), (0, 1)])
+        );
     }
 }

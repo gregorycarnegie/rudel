@@ -1582,3 +1582,172 @@ fn distort_algo_names_all_resolve() {
         DistortAlgo::Scurve
     );
 }
+
+#[test]
+fn the_soft_knee_bends_the_curve_either_side_of_the_threshold() {
+    // The knee is a quadratic joining the 1:1 line to the compressed slope
+    // over `knee` dB centred on the threshold. Without one, the curve is two
+    // straight lines meeting at the threshold; the three regions are what the
+    // boundary comparisons pick between.
+    let settled = |amp: f32, knee: f32| {
+        let fx = PostFx {
+            compressor: Some(-20.0),
+            comp_ratio: 4.0,
+            comp_knee: knee,
+            comp_attack: 0.001,
+            comp_release: 0.001,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::new(Box::new(ConstVoice(amp)), fx, 44100.0);
+        let mut last = 0.0f32;
+        for _ in 0..8820 {
+            last = v.tick().0.abs();
+        }
+        20.0 * (last.max(1e-9)).log10()
+    };
+
+    // -20 dB is the threshold itself. With a 12 dB knee it is already being
+    // compressed there; with a hard knee it is not.
+    let at_threshold_soft = settled(0.1, 12.0);
+    let at_threshold_hard = settled(0.1, 0.0);
+    assert!(
+        at_threshold_soft < at_threshold_hard - 0.3,
+        "the knee should already be reducing at the threshold: {at_threshold_soft} vs {at_threshold_hard}"
+    );
+
+    // Just below the knee's lower edge (-26 dB, knee 12) nothing is reduced.
+    let below = settled(0.05, 12.0);
+    assert!(
+        (below - (-26.02)).abs() < 0.2,
+        "below the knee should pass intact, got {below}"
+    );
+
+    // Well above it the two curves converge on the same compressed slope.
+    let above_soft = settled(1.0, 12.0);
+    let above_hard = settled(1.0, 0.0);
+    assert!(
+        (above_soft - above_hard).abs() < 0.6,
+        "far above the knee both should compress alike: {above_soft} vs {above_hard}"
+    );
+}
+
+#[test]
+fn a_block_render_matches_ticking_the_same_voice() {
+    // `process_block` is a vectorized fast path for the memoryless chain, and
+    // its contract is that it is indistinguishable from calling `tick`. A
+    // length that is not a multiple of the 8-wide block is what exercises the
+    // scalar tail.
+    for (label, fx) in [
+        ("bare", PostFx::default()),
+        (
+            "memoryless",
+            PostFx {
+                crush: Some(4.0),
+                postgain: 0.5,
+                shape: Some(0.4),
+                ..Default::default()
+            },
+        ),
+        (
+            "stateful",
+            PostFx {
+                coarse: Some(3.0),
+                compressor: Some(-20.0),
+                ..Default::default()
+            },
+        ),
+    ] {
+        let make = || {
+            let params = VoiceParams {
+                freq: 220.0,
+                duration: 1.0,
+                ..Default::default()
+            };
+            PostFxVoice::with_mods(
+                Box::new(Voice::new(params, 44100.0)),
+                fx.clone(),
+                44100.0,
+                &[],
+            )
+        };
+        const N: usize = 101;
+        let mut ticked = make();
+        let want: Vec<(f32, f32)> = (0..N).map(|_| ticked.tick()).collect();
+
+        let mut blocked = make();
+        let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
+        blocked.process_block(&mut l, &mut r);
+        for (i, (wl, wr)) in want.iter().enumerate() {
+            assert!(
+                (l[i] - wl).abs() < 1e-6 && (r[i] - wr).abs() < 1e-6,
+                "{label}: block[{i}] = ({}, {}) but tick gave ({wl}, {wr})",
+                l[i],
+                r[i]
+            );
+        }
+    }
+}
+
+#[test]
+fn every_distortion_algorithm_answers_to_its_own_name() {
+    // `distortalg` picks the curve, and an unrecognised name is the default —
+    // so a dropped arm quietly reshapes the sound rather than erroring.
+    let alg = |name: &str| {
+        PostFx::from_controls(&ValueMap::from([(
+            "distorttype".to_string(),
+            Value::from(name),
+        )]))
+        .distort_alg
+    };
+    for (name, want) in [
+        ("scurve", DistortAlgo::Scurve),
+        ("soft", DistortAlgo::Soft),
+        ("hard", DistortAlgo::Hard),
+        ("cubic", DistortAlgo::Cubic),
+        ("diode", DistortAlgo::Diode),
+        ("asym", DistortAlgo::Asym),
+        ("fold", DistortAlgo::Fold),
+        ("sinefold", DistortAlgo::Sinefold),
+        ("chebyshev", DistortAlgo::Chebyshev),
+    ] {
+        assert_eq!(alg(name), want, "distortalg {name}");
+    }
+    // Unnamed and unknown both fall back to the default curve.
+    assert_eq!(alg("wat"), DistortAlgo::Scurve);
+    assert_eq!(
+        PostFx::from_controls(&ValueMap::new()).distort_alg,
+        DistortAlgo::Scurve
+    );
+}
+
+#[test]
+fn a_coarse_or_crush_modulator_pushes_its_amount_up() {
+    // Both read `amount + mods.get(target)`, and both clamp at their minimum,
+    // so a modulator applied the other way lands on the clamp and does
+    // nothing at all — indistinguishable from no effect unless the base sits
+    // *at* the floor.
+    let render = |fx: PostFx, mods: &ModSpecs| -> Vec<f32> {
+        let params = VoiceParams {
+            freq: 220.0,
+            duration: 1.0,
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::with_mods(
+            Box::new(Voice::new(params, 44100.0)),
+            fx,
+            44100.0,
+            mods.for_owner(ModOwner::PostFx),
+        );
+        (0..4096).map(|_| v.tick().0).collect()
+    };
+
+    // `coarse: 1` holds every sample — a no-op. Modulated upward it starts
+    // holding pairs and more; downward it clamps back to 1 and changes nothing.
+    let base = PostFx {
+        coarse: Some(1.0),
+        ..Default::default()
+    };
+    let plain = render(base.clone(), &ModSpecs::default());
+    let modulated = render(base, &positive_lfo("coarse", 6.0, 200.0));
+    assert_ne!(modulated, plain, "a coarse modulation should be audible");
+}

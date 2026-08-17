@@ -25,3 +25,25 @@ pub(super) fn surface_size(widget: &WidgetDecoration) -> egui::Vec2 {
         .max(20.0);
     egui::vec2(width, height)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_widget_type_has_its_own_default_surface() {
+        assert_eq!(default_surface_size("_spiral"), egui::vec2(275.0, 275.0));
+        assert_eq!(
+            default_surface_size("_pitchwheel"),
+            egui::vec2(200.0, 200.0)
+        );
+        assert_eq!(default_surface_size("_spectrum"), egui::vec2(200.0, 200.0));
+        // The two wide ones differ only in height, and only from the fallback.
+        assert_eq!(default_surface_size("_wordfall"), egui::vec2(500.0, 120.0));
+        assert_eq!(
+            default_surface_size("_claviature"),
+            egui::vec2(500.0, 100.0)
+        );
+        assert_eq!(default_surface_size("_pianoroll"), egui::vec2(500.0, 60.0));
+    }
+}

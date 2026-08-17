@@ -58,6 +58,52 @@ new Pattern(state => [new Hap(state.span, state.span, Fraction(1).div(3).mul(3).
 }
 
 #[test]
+fn a_query_function_may_return_a_tuple_of_haps() {
+    // Koto's own iterator adaptors hand back tuples, so a combinator written
+    // as `[...].to_tuple()` has to work like the list form.
+    let pat = eval(
+        r#"
+new Pattern(state => [new Hap(state.span, state.span, 7)].to_tuple())
+"#,
+    )
+    .expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(7)]);
+}
+
+#[test]
+fn query_reads_the_span_out_of_the_state_it_is_given() {
+    // Not the enclosing query's span: the state map decides, which is what
+    // lets a combinator look at a different cycle than the one being asked
+    // about.
+    let pat = eval(
+        r#"
+let inner = "<10 20 30>"
+new Pattern(state => inner.query({ span: Fraction(1).wholeCycle() }))
+"#,
+    )
+    .expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(20)]);
+}
+
+#[test]
+fn fraction_arithmetic_goes_the_right_way() {
+    // div and mul are covered by `fractions_stay_exact`; add and sub agree
+    // with it only on operands the other direction would also fit.
+    let n = |script: &str| {
+        values(&eval(&format!("pure({script})")).expect("eval"), 0, 1)[0]
+            .as_f64()
+            .expect("a number")
+    };
+    assert_eq!(n("Fraction(1).add(2).toNumber()"), 3.0);
+    assert_eq!(n("Fraction(3).sub(2).toNumber()"), 1.0);
+    assert_eq!(n("Fraction(1).add(Fraction(2)).toNumber()"), 3.0);
+    // A fraction added to nothing is itself, and dividing by zero is zero
+    // rather than an error.
+    assert_eq!(n("Fraction(2).add(0).toNumber()"), 2.0);
+    assert_eq!(n("Fraction(2).div(0).toNumber()"), 0.0);
+}
+
+#[test]
 fn a_prototype_patch_binds_a_method_that_can_read_its_own_haps() {
     // `enumerate` is the combinator scripts in the wild write this way: number
     // each hap of the cycle, and say how many there were. It cannot be done by

@@ -833,4 +833,52 @@ mod tests {
         let events = collect_events(&pure(Value::Str("bd".into())), 1.0, 0.0, 1.0, &bank);
         assert!(matches!(events[0].spec, VoiceSpec::Sampler(_)));
     }
+
+    #[test]
+    fn a_frequency_becomes_the_midi_note_it_sounds() {
+        // freqToMidi: 12*log2(freq/440) + 69, exactly — every rearrangement of
+        // it agrees at 440 alone, so check an octave either side too.
+        let midi =
+            |freq: f64| requested_midi(&ValueMap::from([("freq".to_string(), Value::F64(freq))]));
+        assert_eq!(midi(440.0), Some(69.0));
+        assert_eq!(midi(880.0), Some(81.0));
+        assert_eq!(midi(220.0), Some(57.0));
+        // A note name or number is used as-is; nothing playable is `None`.
+        let by_note = |v: Value| requested_midi(&ValueMap::from([("note".to_string(), v)]));
+        assert_eq!(by_note(Value::Int(60)), Some(60.0));
+        assert_eq!(by_note(Value::Str("a4".into())), Some(69.0));
+        assert_eq!(by_note(Value::Str("wat".into())), None);
+        assert_eq!(requested_midi(&ValueMap::new()), None);
+    }
+
+    #[test]
+    fn csound_pfields_carry_the_pitch_exactly() {
+        let fields = |map: ValueMap| {
+            csound_statement(&map, 1.0)
+                .expect("statement")
+                .split(' ')
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        // p4 is the sounding frequency: a5 is 880Hz, an octave above the 440
+        // that every rearrangement of `440 * 2^((midi - 69) / 12)` agrees on.
+        let f = fields(ValueMap::from([
+            ("csound".to_string(), Value::Str("X".into())),
+            ("note".to_string(), Value::Int(81)),
+        ]));
+        assert_eq!(f[4].parse::<f64>().expect("p4"), 880.0);
+
+        // In MIDI semantics p5 is `127 * gain * velocity`, which needs a gain
+        // that is not 1 to tell the multiplication from a division.
+        let f = fields(ValueMap::from([
+            ("csoundm".to_string(), Value::Str("X".into())),
+            ("note".to_string(), Value::Int(69)),
+            ("gain".to_string(), Value::F64(0.5)),
+            ("velocity".to_string(), Value::F64(1.0)),
+        ]));
+        assert!(
+            (f[5].parse::<f64>().expect("p5") - 63.5).abs() < 1e-6,
+            "p5 should be 127 * 0.5 * 1.0: {f:?}"
+        );
+    }
 }

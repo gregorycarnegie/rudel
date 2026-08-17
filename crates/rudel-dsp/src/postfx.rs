@@ -545,12 +545,13 @@ impl PostFxVoice {
         let vowel = fx
             .vowel
             .map(|v| (Formant::new(v, sample_rate), Formant::new(v, sample_rate)));
+        // Only the filter *state* is carried over from here: `tick` recomputes
+        // the swept centre and Q into these before the first `process`, so
+        // repeating that computation at construction would be dead arithmetic.
         let phaser = fx.phaser.map(|_| {
-            let center = fx.phasercenter + 282.0;
-            let q = 2.0 - (fx.phaserdepth * 2.0).clamp(0.0, 1.9);
             (
-                Biquad::notch(sample_rate, center, q),
-                Biquad::notch(sample_rate, center, q),
+                Biquad::notch(sample_rate, 1.0, 1.0),
+                Biquad::notch(sample_rate, 1.0, 1.0),
             )
         });
         let transient = fx.transient.map(|a| {

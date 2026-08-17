@@ -358,4 +358,50 @@ mod tests {
         assert_eq!(haps.len(), 8);
         assert!(haps.iter().all(|h| h.value.as_f64() == Some(1.0)));
     }
+
+    #[test]
+    fn get_cc_reads_the_any_device_bus() {
+        // `cc_in` goes through `get_cc_from`; this is the direct reader the
+        // host uses. CC 31 is not touched by any other test.
+        assert_eq!(get_cc(1, 31), 0.0);
+        set_cc(1, 31, 0.6);
+        assert_eq!(get_cc(1, 31), 0.6);
+    }
+
+    #[test]
+    fn midi_notes_are_delivered_once_through_either_view() {
+        // One test, because the queue is process-global and the `""` entry is
+        // shared between every device.
+        push_midi_note("dev-a", 60, 0.5);
+        push_midi_note("dev-a", 62, 0.25);
+        assert_eq!(take_midi_notes("dev-a"), vec![(60, 0.5), (62, 0.25)]);
+        assert!(take_midi_notes("dev-a").is_empty());
+        // Draining the device view drops the same notes from the "any device"
+        // view, or a `midikeys()` with no device would play them twice.
+        assert!(take_midi_notes("").is_empty());
+        // ...and the same in reverse.
+        push_midi_note("dev-a", 64, 1.0);
+        assert_eq!(take_midi_notes(""), vec![(64, 1.0)]);
+        assert!(take_midi_notes("dev-a").is_empty());
+    }
+
+    #[test]
+    fn midi_keys_haps_run_the_requested_length_from_the_query_point() {
+        use crate::state::State;
+        use crate::timespan::TimeSpan;
+        use crate::value::ValueMap;
+
+        push_midi_note("dev-len", 60, 1.0);
+        let pat = midi_keys("dev-len", crate::pure(Value::F64(0.25)));
+        // Only the scheduler's own query drains the queue.
+        let scheduler = State::with_controls(
+            TimeSpan::new(Frac::new(1, 2), Frac::one()),
+            ValueMap::from([("cyclist".to_string(), Value::Str("cyclist".into()))]),
+        );
+        let haps = pat.query(&scheduler);
+        assert_eq!(haps.len(), 1);
+        // begin + length, measured from a begin that is neither 0 nor 1.
+        assert_eq!(haps[0].whole.unwrap().begin, Frac::new(1, 2));
+        assert_eq!(haps[0].whole.unwrap().end, Frac::new(3, 4));
+    }
 }

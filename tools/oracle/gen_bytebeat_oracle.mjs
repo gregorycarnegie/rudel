@@ -89,6 +89,27 @@ const extra = [
   '1.5e-2*t',
   '0.0+t',
   '255',
+  // The parser corners the cases above still leave: unary `!` (and telling it
+  // from the `!=` operator), `<`/`<=` at equality, the named Math constants,
+  // and the exponent/leading-dot literal forms with a sign. (An unknown
+  // identifier cannot come through here — JS throws a ReferenceError where
+  // rudel yields NaN — so the identifier scanner is checked in `bytebeat.rs`.)
+  '!t',
+  '!(t&7)',
+  '!0*255',
+  '!t!=0',
+  't%7<3',
+  't%7<=3',
+  '(t%7<3)+(t%7<=3)',
+  'PI*t',
+  'E*t',
+  'LN2*t',
+  'LN10*t',
+  'SQRT2*t',
+  '1e+2+t',
+  '2.5e-4*t',
+  '1.*t',
+  '.25e1*t',
 ];
 
 // getByteBeatFunc, verbatim from worklets.mjs (minus the `chyx` helpers, which

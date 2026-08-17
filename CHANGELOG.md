@@ -11,6 +11,66 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.11.2] — 2026-08-17
+
+A test-only release, from a full mutation run over all eight crates. 11 539
+mutants: **89.5% caught before, ~92.6% after** — 317 surviving mutants killed
+across 43 files.
+
+Nothing here changes what Rudel does. Four pieces of code were *removed*,
+because mutation testing is how you find code that cannot affect the output:
+each was a guard or a computation that something downstream already did.
+
+### Fixed
+
+Nothing user-visible. The three deletions are behaviour-preserving, and each is
+verified by the tests that already covered the paths through them:
+
+- `control_to_midi` filtered a non-positive `bendRange` before storing it — the
+  third copy of that guard. `bend_value` and `bend_range_key` both fall back to
+  `DEFAULT_BEND_RANGE` themselves, so the middle one could never be observed.
+- `MpeState::free_expired` swept expired channel slots for its only caller,
+  which independently tests the same `*slot <= on` predicate one line later.
+- `process_input` had an arm returning `None` for note-offs, which the `match`
+  below it already answered `None` for.
+- `PostFxVoice::with_mods` computed the phaser's notch centre and Q at
+  construction; `tick` recomputes both from scratch every sample before the
+  first `process` ever runs.
+
+The `Fixed` heading is a formality — none of these were reachable as a bug.
+
+### Internal
+
+Per crate, surviving mutants before → after: core 268 → 159, lang 169 → 104,
+dsp 230 → 133, audio 124 → 108, app 79 → 65, midi 44 → 33, osc 6 → 3,
+mini 6 → 4.
+
+Two things did most of the work. In `rudel-lang`, **no test anywhere had ever
+passed a Koto tuple** — `delete match arm KValue::Tuple(t)` survived in six
+files, because every API that takes a list takes a tuple too and scripts only
+write lists. And `match guard o.is_a::<KPattern>()` needs a second object type
+to reject: `KFrac` (`Fraction(1)` in a script) is the only other one in the
+workspace, and mutating the guard to `true` makes the `cast().unwrap()` behind
+it panic.
+
+In `rudel-dsp`, the lever was the JS oracles rather than Rust tests: extending
+`gen_bytebeat_oracle.mjs` with 15 expressions took `bytebeat.rs` from 20
+survivors to 2, and both goldens (`zzfx_golden.json`, `bytebeat_golden.json`)
+are regenerated from the vendored superdough and still match sample for sample.
+The `rudel-osc` and `rudel-midi` scheduler threads turn out to need no hardware
+at all — a `UdpSocket` on `127.0.0.1:0` and a `MidiSink` that records to a
+`Vec` respectively.
+
+Files taken to zero or near it: `core/hap.rs` 13 → 0, `core/voicing.rs` 16 → 0,
+`core/value.rs` 14 → 1, `dsp/spec.rs` 19 → 0, `dsp/filter.rs` 12 → 1,
+`lang/lib.rs` 16 → 0, and the five `app/editor` files 15 → 1.
+
+Much of what survives is genuinely equivalent, and the shapes repeat: every
+comparison mutant in a continuous piecewise envelope agrees at its boundaries by
+construction (23 of them across `envelope.rs`, `pitch.rs` and `zzfx.rs`),
+fast-path predicates produce identical samples down either path, and `sign(s)`
+returning ±1 makes `*` and `/` the same operation.
+
 ## [0.11.1] — 2026-08-15
 
 A release about two crashes that a passing test suite could not see. Both were

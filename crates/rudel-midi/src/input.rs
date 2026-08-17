@@ -1,4 +1,4 @@
-use crate::{CLOCK, CONTINUE, CONTROL_CHANGE, NOTE_OFF, NOTE_ON, START, STOP};
+use crate::{CLOCK, CONTINUE, CONTROL_CHANGE, NOTE_ON, START, STOP};
 use midir::{Ignore, MidiInput, MidiInputConnection};
 use std::{
     sync::{Arc, Mutex},
@@ -95,9 +95,8 @@ pub fn process_input(bytes: &[u8], clock: &mut ClockDetector, now: f64) -> Input
         }
         return InputAction::None;
     }
-    if status & 0xF0 == NOTE_OFF {
-        return InputAction::None;
-    }
+    // Note-offs need no arm of their own: they are not a system message, so
+    // the match below answers `None` for them anyway.
     match status {
         CLOCK => match clock.pulse(now) {
             Some(bpm) => InputAction::Bpm(bpm),

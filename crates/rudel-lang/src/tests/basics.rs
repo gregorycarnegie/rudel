@@ -456,3 +456,11 @@ fn the_stepwise_counts_patternify_in_both_spellings() {
         shape(&eval(r#"s("bd sd cp").expand("2")"#).expect("patterned"), 2)
     );
 }
+
+#[test]
+fn a_script_that_evaluates_to_something_else_is_not_a_pattern() {
+    // Only a `KPattern` result is taken as the pattern; any other object is
+    // reported rather than cast.
+    assert!(eval("Fraction(1)").is_err());
+    assert!(eval("42").is_err());
+}

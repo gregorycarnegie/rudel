@@ -106,6 +106,34 @@ mod tests {
     }
 
     #[test]
+    fn a_complex_signal_round_trips_in_both_parts() {
+        // The roundtrip above starts from a real signal and only checks the
+        // real part, so the inverse's conjugation and its `1/n` scaling of the
+        // *imaginary* half were free to be anything at all.
+        let n = 64;
+        let fft = Fft::new(n);
+        let re0: Vec<f32> = (0..n).map(|i| (i as f32 * 0.7).sin() + 0.3).collect();
+        let im0: Vec<f32> = (0..n).map(|i| (i as f32 * 0.31).cos() - 0.2).collect();
+        let (mut re, mut im) = (re0.clone(), im0.clone());
+        fft.forward(&mut re, &mut im);
+        fft.inverse(&mut re, &mut im);
+        for i in 0..n {
+            assert!(
+                (re[i] - re0[i]).abs() < 1e-4,
+                "re[{i}]: {} != {}",
+                re[i],
+                re0[i]
+            );
+            assert!(
+                (im[i] - im0[i]).abs() < 1e-4,
+                "im[{i}]: {} != {}",
+                im[i],
+                im0[i]
+            );
+        }
+    }
+
+    #[test]
     fn a_sine_peaks_at_its_bin() {
         let n = 256;
         let fft = Fft::new(n);

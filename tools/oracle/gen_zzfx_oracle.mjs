@@ -152,6 +152,21 @@ const CASES = {
   noise_heavy: [0.25, 0, 220, 0.001, 0.004, 0.003, 0, 1, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 1, 0, 0],
   zero_attack: [0.25, 0, 330, 0, 0.004, 0.003, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
   zero_release: [0.25, 0, 330, 0.001, 0.004, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+  // Every envelope boundary in the cases above lands between two samples,
+  // because `attack*44100 + 9` and friends are not whole numbers — so the four
+  // `i < …` comparisons that pick the segment are never evaluated *at* their
+  // boundary, and `<` and `<=` agree. These put each boundary on an exact
+  // sample index (times as k/44100, attack 0 so `attack` is exactly 9) and
+  // give each segment a different level, so crossing one is visible.
+  int_segments: [0.25, 0, 330, 0, 200 / 44100, 300 / 44100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.3, 100 / 44100, 0],
+  int_delay: [0.25, 0, 330, 0, 200 / 44100, 300 / 44100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 50 / 44100, 0.3, 100 / 44100, 0],
+  int_repeat: [0.25, 0, 330, 0, 400 / 44100, 300 / 44100, 0, 1, 0, 0, 0, 0, 150 / 44100, 0, 0, 0, 0, 0.3, 100 / 44100, 0.5],
+  int_pitchjump: [0.25, 0, 330, 0, 400 / 44100, 300 / 44100, 0, 1, 0, 0, 300, 100 / 44100, 0, 0, 0, 0, 0, 0.3, 100 / 44100, 0],
+  int_bitcrush: [0.25, 0, 330, 0, 400 / 44100, 300 / 44100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0.3, 100 / 44100, 0],
+  int_everything: [
+    0.4, 0, 330, 0, 400 / 44100, 300 / 44100, 2, 1.5, 0.3, 0.1, 120, 100 / 44100, 150 / 44100, 0, 12,
+    0.5, 50 / 44100, 0.6, 100 / 44100, 0.4,
+  ],
   everything: [
     0.4, 0, 330, 0.002, 0.008, 0.004, 2, 1.5, 0.3, 0.1, 120, 0.003, 0.003, 0.2, 12, 0.3, 0.001,
     0.6, 0.002, 0.4,

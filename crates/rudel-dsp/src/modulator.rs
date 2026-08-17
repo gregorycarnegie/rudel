@@ -1119,4 +1119,186 @@ mod tests {
         assert!(vals[10] > vals[1], "rising within a cycle");
         assert!(vals[17] < vals[15], "resets after the period");
     }
+
+    /// Run a resolved voice modulator for `n` samples and report the offsets it
+    /// produced for `target`.
+    fn offsets(
+        map: &ValueMap,
+        ctx: &ModContext,
+        base: f32,
+        target: ModTarget,
+        n: usize,
+    ) -> Vec<f32> {
+        let specs = ModSpecs::from_controls(map, ctx, |_| base);
+        let mut bank = ModBank::new(specs.for_owner(ModOwner::Voice), 1000.0);
+        (0..n)
+            .map(|_| {
+                bank.tick();
+                bank.get(target)
+            })
+            .collect()
+    }
+
+    fn span(values: &[f32]) -> (f32, f32) {
+        values
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)))
+    }
+
+    #[test]
+    fn every_target_has_its_own_slot() {
+        // `index` is the offset table's key: two targets sharing a slot would
+        // have one modulator overwrite the other's value every sample.
+        for (i, &target) in ModTarget::ALL.iter().enumerate() {
+            assert_eq!(target.index(), i, "{target:?}");
+        }
+    }
+
+    #[test]
+    fn specs_are_split_by_who_consumes_them() {
+        let empty = ModSpecs::default();
+        assert!(empty.is_empty());
+        assert!(empty.for_owner(ModOwner::Voice).is_empty());
+        assert!(empty.for_owner(ModOwner::PostFx).is_empty());
+        assert!(ModBank::new(&[], 1000.0).is_empty());
+
+        // `cutoff` is the voice's, `crush` the post-fx chain's.
+        let voice = descriptor("lfo", &[("control", Value::from("cutoff"))]);
+        let post = descriptor("lfo", &[("control", Value::from("crush"))]);
+        let voice = ModSpecs::from_controls(&voice, &ctx(), |_| 1000.0);
+        let post = ModSpecs::from_controls(&post, &ctx(), |_| 1000.0);
+        assert!(!voice.is_empty() && !post.is_empty());
+        assert_eq!(voice.for_owner(ModOwner::Voice).len(), 1);
+        assert!(voice.for_owner(ModOwner::PostFx).is_empty());
+        assert_eq!(post.for_owner(ModOwner::PostFx).len(), 1);
+        assert!(post.for_owner(ModOwner::Voice).is_empty());
+        assert!(!ModBank::new(voice.for_owner(ModOwner::Voice), 1000.0).is_empty());
+    }
+
+    #[test]
+    fn a_relative_depth_scales_against_the_control_it_targets() {
+        // `depth * currentValue`, with `depthabs` overriding it outright. The
+        // base is 100 and the depth 0.5, so the two are 50 and 0.5 apart —
+        // adding or dividing them lands nowhere near either.
+        let relative = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from("gain")),
+                ("depth", Value::F64(0.5)),
+                ("dcoffset", Value::F64(0.0)),
+                ("rate", Value::F64(50.0)),
+            ],
+        );
+        let (lo, hi) = span(&offsets(&relative, &ctx(), 100.0, ModTarget::Gain, 200));
+        assert!(lo >= -0.01 && lo < 5.0, "low end was {lo}");
+        assert!(
+            (hi - 50.0).abs() < 2.0,
+            "a depth of 0.5 * 100 should reach 50, got {hi}"
+        );
+
+        // An absolute depth ignores the base entirely.
+        let absolute = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from("gain")),
+                ("depthabs", Value::F64(4.0)),
+                ("dcoffset", Value::F64(0.0)),
+                ("rate", Value::F64(50.0)),
+            ],
+        );
+        let (_, hi) = span(&offsets(&absolute, &ctx(), 100.0, ModTarget::Gain, 200));
+        assert!((hi - 4.0).abs() < 0.2, "depthabs should win, got {hi}");
+    }
+
+    #[test]
+    fn dcoffset_shifts_the_band_by_whole_depths() {
+        // superdough: the band is `(dcoffset * depth, dcoffset * depth + depth)`,
+        // so a dcoffset of 1 lifts a 0..4 swing to 4..8.
+        let at = |dcoffset: f64| {
+            let map = descriptor(
+                "lfo",
+                &[
+                    ("control", Value::from("gain")),
+                    ("depthabs", Value::F64(4.0)),
+                    ("dcoffset", Value::F64(dcoffset)),
+                    ("rate", Value::F64(50.0)),
+                ],
+            );
+            span(&offsets(&map, &ctx(), 100.0, ModTarget::Gain, 200))
+        };
+        let (lo, hi) = at(0.0);
+        assert!(
+            lo.abs() < 0.2 && (hi - 4.0).abs() < 0.2,
+            "0..4, got {lo}..{hi}"
+        );
+        let (lo, hi) = at(1.0);
+        assert!(
+            (lo - 4.0).abs() < 0.2 && (hi - 8.0).abs() < 0.2,
+            "4..8, got {lo}..{hi}"
+        );
+    }
+
+    #[test]
+    fn sync_is_in_cycles_where_rate_is_in_hertz() {
+        // `sync` multiplies by cps, so at cps 0.5 a sync of 2 is exactly the
+        // same modulator as a rate of 1Hz.
+        let ctx = ModContext {
+            cps: 0.5,
+            cycle: 0.0,
+            note_seconds: 1.0,
+        };
+        let by = |key: &str, v: f64| {
+            let map = descriptor(
+                "lfo",
+                &[
+                    ("control", Value::from("gain")),
+                    ("depthabs", Value::F64(1.0)),
+                    (key, Value::F64(v)),
+                ],
+            );
+            offsets(&map, &ctx, 1.0, ModTarget::Gain, 1000)
+        };
+        assert_eq!(by("sync", 2.0), by("rate", 1.0));
+        assert_ne!(by("sync", 2.0), by("rate", 2.0));
+    }
+
+    #[test]
+    fn an_lfo_locks_to_cycle_time_unless_it_retriggers() {
+        // Phase comes from `cycle / cps` (seconds since the clock started), so
+        // a 1Hz LFO half a cycle in at cps 0.5 is exactly one second in — back
+        // at the phase it starts from.
+        let map = |retrig: f64| {
+            descriptor(
+                "lfo",
+                &[
+                    ("control", Value::from("gain")),
+                    ("depthabs", Value::F64(1.0)),
+                    ("rate", Value::F64(1.0)),
+                    ("retrig", Value::F64(retrig)),
+                ],
+            )
+        };
+        let at_cycle = |cycle: f64, retrig: f64| {
+            let ctx = ModContext {
+                cps: 0.5,
+                cycle,
+                note_seconds: 1.0,
+            };
+            offsets(&map(retrig), &ctx, 1.0, ModTarget::Gain, 8)
+        };
+        let restarted = at_cycle(0.5, 1.0);
+        assert_eq!(
+            at_cycle(0.0, 0.0),
+            restarted,
+            "cycle 0 is phase 0 either way"
+        );
+        assert_eq!(
+            at_cycle(0.5, 0.0),
+            restarted,
+            "one second in is a whole period"
+        );
+        assert_ne!(at_cycle(0.25, 0.0), restarted, "a quarter cycle is not");
+        // Retriggering ignores the clock entirely.
+        assert_eq!(at_cycle(0.25, 1.0), restarted);
+    }
 }

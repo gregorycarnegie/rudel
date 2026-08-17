@@ -312,6 +312,19 @@ fn bend_range_changes_mpe_scaling() {
 }
 
 #[test]
+fn a_zero_bend_range_falls_back_to_the_default() {
+    // Taking it at face value would divide the semitone offset by zero and
+    // peg the bend at its maximum.
+    let pat = note(pure(Value::F64(60.25))).bend_range(0.0);
+    let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
+    let data: Vec<Vec<u8>> = msgs.into_iter().map(|m| m.data).collect();
+    assert!(
+        data.contains(&pitch_bend_bytes(1, bend_value(60.25, 60, DEFAULT_BEND_RANGE)).to_vec()),
+        "expected the default bend range, got {data:?}"
+    );
+}
+
+#[test]
 fn exhausted_mpe_channels_fall_back_to_master_unbent() {
     let pats: Vec<Pattern> = (0..16)
         .map(|n| note(pure(Value::F64(60.25 + n as f64))))
@@ -799,4 +812,89 @@ mod concurrent_port_use {
     fn d() {
         open_and_close();
     }
+}
+
+#[test]
+fn duplicate_clock_timestamps_do_not_become_an_infinite_tempo() {
+    // Two pulses stamped the same instant carry no interval; taking one would
+    // divide by zero.
+    let mut clock = ClockDetector::new();
+    process_input(&[CLOCK], &mut clock, 1.0);
+    assert_eq!(process_input(&[CLOCK], &mut clock, 1.0), InputAction::None);
+    assert!(clock.bpm().is_none());
+}
+
+/// A [`MidiSink`] that records what the scheduler sent, so the engine can be
+/// driven without a port.
+#[derive(Clone, Default)]
+struct Recorder(Arc<Mutex<Vec<Vec<u8>>>>);
+
+impl MidiSink for Recorder {
+    fn send(&mut self, bytes: &[u8]) {
+        self.0.lock().unwrap().push(bytes.to_vec());
+    }
+}
+
+impl Recorder {
+    fn note_ons(&self) -> usize {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m[0] & 0xF0 == NOTE_ON)
+            .count()
+    }
+}
+
+#[test]
+fn the_engine_thread_plays_the_pattern_it_is_given() {
+    // cps 2, four steps: eight note-ons a second. Two cycles of slack keeps
+    // the assertion away from the scheduler's 5ms tick and 0.1s lookahead.
+    let rec = Recorder::default();
+    let engine = MidiEngine::start(
+        rec.clone(),
+        note(sequence(
+            &["c3", "e3", "g3", "a3"].map(|n| pure(Value::Str(n.into()))),
+        )),
+        2.0,
+    );
+    std::thread::sleep(Duration::from_millis(600));
+    let played = rec.note_ons();
+    assert!(
+        played >= 4,
+        "expected the first cycle to play, got {played}"
+    );
+
+    // A new pattern reaches the running thread...
+    engine.set_pattern(silence());
+    std::thread::sleep(Duration::from_millis(300));
+    let after_silence = rec.note_ons();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(rec.note_ons(), after_silence, "silence should stop notes");
+
+    // ...and stopping ends the loop, which sends the all-notes-off reset.
+    engine.stop();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        rec.0
+            .lock()
+            .unwrap()
+            .contains(&vec![CONTROL_CHANGE, 123, 0]),
+        "stopping should flush the reset messages"
+    );
+}
+
+#[test]
+fn dropping_the_engine_stops_its_thread() {
+    let rec = Recorder::default();
+    let engine = MidiEngine::start(rec.clone(), note(pure(Value::Str("c3".into()))), 4.0);
+    std::thread::sleep(Duration::from_millis(300));
+    drop(engine);
+    let sent = rec.0.lock().unwrap().len();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        rec.0.lock().unwrap().len(),
+        sent,
+        "the thread outlived drop"
+    );
 }

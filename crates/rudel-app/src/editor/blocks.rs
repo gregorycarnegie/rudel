@@ -83,4 +83,17 @@ mod tests {
 
         assert_eq!(block_regions(code), vec![BlockRange::new(0, 1)]);
     }
+
+    #[test]
+    fn a_block_is_empty_only_when_its_text_is_blank() {
+        let code = "a
+
+  
+";
+        assert!(!BlockRange::new(0, 1).is_empty_in(code));
+        assert!(BlockRange::new(1, 5).is_empty_in(code));
+        // A range that is not a char boundary (or is out of range) counts as
+        // empty rather than panicking.
+        assert!(BlockRange::new(0, 99).is_empty_in(code));
+    }
 }

@@ -804,3 +804,31 @@ fn line_breaks_koto_cannot_read_are_taken_out() {
     // parentheses become a tuple.
     assert_eq!(preprocess_strudel("stack\n(a, b)"), "stack(a, b)");
 }
+
+#[test]
+fn widget_options_coerce_between_their_three_shapes() {
+    use crate::WidgetOption::{Bool, Number, String as Str};
+
+    // The host reads every option through these, whatever the script wrote.
+    // Each arm needs both polarities: a deleted arm falls through to the
+    // catch-all, which agrees with the arm for one of the two answers.
+    assert_eq!(Bool(true).as_bool(), Some(true));
+    assert_eq!(Bool(false).as_bool(), Some(false));
+    assert_eq!(Number(2.0).as_bool(), Some(true));
+    assert_eq!(Number(0.0).as_bool(), Some(false));
+    assert_eq!(Str("true".into()).as_bool(), Some(true));
+    assert_eq!(Str("1".into()).as_bool(), Some(true));
+    assert_eq!(Str("false".into()).as_bool(), Some(false));
+    assert_eq!(Str("0".into()).as_bool(), Some(false));
+    assert_eq!(Str("polygon".into()).as_bool(), None);
+
+    assert_eq!(Bool(true).as_f64(), Some(1.0));
+    assert_eq!(Bool(false).as_f64(), Some(0.0));
+    assert_eq!(Number(2.5).as_f64(), Some(2.5));
+    assert_eq!(Str("2.5".into()).as_f64(), Some(2.5));
+    assert_eq!(Str("polygon".into()).as_f64(), None);
+
+    assert_eq!(Str("polygon".into()).as_str(), Some("polygon"));
+    assert_eq!(Number(2.0).as_str(), None);
+    assert_eq!(Bool(true).as_str(), None);
+}

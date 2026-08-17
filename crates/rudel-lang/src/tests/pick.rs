@@ -72,3 +72,15 @@ fn pick_f_picks_functions_from_lists_and_maps() {
     // callback errors surface instead of being swallowed
     assert!(eval(r#""a".pickF("0", [|x| nope()])"#).is_err());
 }
+
+#[test]
+fn a_picked_function_is_applied_as_a_transform() {
+    // `apply(pick([...]))` is upstream's pattern-of-functions: the callback is
+    // called from the *query*, and what it returns has to come back as a
+    // pattern rather than as a value.
+    let pat = eval(r#"seq(0).apply(pick([|x| x.add(5)], 0))"#).expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(5)]);
+    // A callback that returns some *other* object is not cast into a pattern.
+    let pat = eval(r#"seq(0).apply(pick([|x| Fraction(1)], 0))"#).expect("eval");
+    assert!(values(&pat, 0, 1).iter().all(|v| *v != Value::Int(5)));
+}

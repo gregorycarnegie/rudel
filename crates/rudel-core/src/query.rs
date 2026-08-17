@@ -238,4 +238,55 @@ mod tests {
         let b = query_controls(&pat, 1.0, 0.5, 1.0);
         assert_eq!(a.len() + b.len(), 2);
     }
+
+    #[test]
+    fn hap_values_normalise_into_control_maps() {
+        let s = |m: &ValueMap, k: &str| m.get(k).cloned();
+        assert_eq!(
+            to_control_map(&Value::Str("bd".into())),
+            ValueMap::from([("s".to_string(), Value::Str("bd".into()))])
+        );
+        // `[name, index]` is `s`/`n`, and a one-element list is just `s`.
+        let m = to_control_map(&Value::List(vec![Value::Str("bd".into()), Value::Int(3)]));
+        assert_eq!(s(&m, "s"), Some(Value::Str("bd".into())));
+        assert_eq!(s(&m, "n"), Some(Value::Int(3)));
+        let m = to_control_map(&Value::List(vec![Value::Str("bd".into())]));
+        assert_eq!(s(&m, "s"), Some(Value::Str("bd".into())));
+        assert_eq!(s(&m, "n"), None);
+        // An empty list has no name to read, so it falls through to `note`
+        // rather than indexing into nothing.
+        assert_eq!(
+            s(&to_control_map(&Value::List(vec![])), "note"),
+            Some(Value::List(vec![]))
+        );
+        assert_eq!(
+            s(&to_control_map(&Value::Int(60)), "note"),
+            Some(Value::Int(60))
+        );
+    }
+
+    #[test]
+    fn log_lines_name_their_format() {
+        let controls = ValueMap::from([("s".to_string(), Value::Str("bd".into()))]);
+        let whole = TimeSpan::new(Frac::zero(), Frac::one());
+        let line = |mode: Value| log_message(&mode, &whole, &controls);
+        assert_eq!(line(Value::Str("hap".into())), "[hap] 0/1 → 1/1: s:bd");
+        assert_eq!(line(Value::Str("values".into())), "[hap] s:bd");
+        // A user callback's message is logged as it was written.
+        assert_eq!(line(Value::Str("mine".into())), "mine");
+        assert_eq!(line(Value::Null), "[hap] s:bd");
+    }
+
+    #[test]
+    fn onsets_convert_to_seconds_by_cps_and_a_stopped_clock_says_nothing() {
+        let pat = note(sequence(&[pure(Value::Int(60)), pure(Value::Int(62))]));
+        // cps 2: the second of two steps is at cycle 0.5, i.e. a quarter second.
+        let evs = query_controls(&pat, 2.0, 0.0, 1.0);
+        assert_eq!(evs[1].onset_cycle, 0.5);
+        assert_eq!(evs[1].onset_seconds, 0.25);
+        assert_eq!(evs[0].duration_seconds, 0.25);
+        // A stopped or reversed clock has no events, and no division by zero.
+        assert!(query_controls(&pat, 0.0, 0.0, 1.0).is_empty());
+        assert!(query_controls(&pat, 1.0, 1.0, 1.0).is_empty());
+    }
 }

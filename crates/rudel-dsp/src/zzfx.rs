@@ -577,4 +577,130 @@ mod tests {
         assert!(peak > 0.0, "voice should produce sound");
         assert!(v.is_done(), "short voice should finish within the window");
     }
+
+    // --- the voice wrapped around the buffer -------------------------------
+
+    fn zzfx_params(pairs: &[(&str, Value)], name: &str) -> ZzfxParams {
+        let map: ValueMap = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        ZzfxParams::from_controls(name, &map, 0.2)
+    }
+
+    #[test]
+    fn an_explicit_zzfx_array_replaces_the_derived_parameters() {
+        // `s('z_sine').zzfx([...])` hands the 20 raw buildSamples arguments
+        // over; anything shorter is not a parameter list and is ignored, which
+        // is the difference between playing the array and playing the note.
+        let twenty: Vec<Value> = (0..20)
+            .map(|i| Value::F64(if i == 2 { 880.0 } else { 0.0 }))
+            .collect();
+        let full = zzfx_params(
+            &[
+                ("note", Value::F64(60.0)),
+                ("zzfx", Value::List(twenty.clone())),
+            ],
+            "z_sine",
+        );
+        assert_eq!(full.synth.frequency, 880.0, "the array should win");
+
+        // One short: the array is not a parameter list, so the note stands.
+        let short = zzfx_params(
+            &[
+                ("note", Value::F64(60.0)),
+                ("zzfx", Value::List(twenty[..19].to_vec())),
+            ],
+            "z_sine",
+        );
+        assert!(
+            (short.synth.frequency - crate::pitch::mtof(60.0) as f64).abs() < 1e-6,
+            "a short array should be ignored, got {}",
+            short.synth.frequency
+        );
+        // ...and so does no array at all.
+        let none = zzfx_params(&[("note", Value::F64(60.0))], "z_sine");
+        assert_eq!(none.synth.frequency, short.synth.frequency);
+    }
+
+    #[test]
+    fn the_sustain_span_is_what_is_left_of_the_note() {
+        // `duration - attack - decay`, floored at zero: the envelope segments
+        // are carved out of the note, not added to it.
+        let p = zzfx_params(
+            &[
+                ("duration", Value::F64(1.0)),
+                ("attack", Value::F64(0.25)),
+                ("decay", Value::F64(0.25)),
+            ],
+            "z_sine",
+        );
+        assert!(
+            (p.synth.sustain - 0.5).abs() < 1e-9,
+            "sustain should be what is left, got {}",
+            p.synth.sustain
+        );
+        // Segments longer than the note leave no sustain rather than a
+        // negative one.
+        let p = zzfx_params(
+            &[
+                ("duration", Value::F64(0.2)),
+                ("attack", Value::F64(0.5)),
+                ("decay", Value::F64(0.5)),
+            ],
+            "z_sine",
+        );
+        assert_eq!(p.synth.sustain, 0.0);
+    }
+
+    #[test]
+    fn the_voice_plays_its_buffer_once_and_is_then_done() {
+        let params = zzfx_params(&[("duration", Value::F64(0.01))], "z_sine");
+        let len = build_samples(&params.synth, 44100.0, 0.0).len();
+        assert!(len > 0, "the test needs a non-empty buffer");
+
+        let mut v = ZzfxVoice::new(params, 44100.0);
+        assert!(!v.is_done(), "a fresh voice has samples to play");
+        let played: Vec<f32> = (0..len).map(|_| v.tick().0).collect();
+        assert_eq!(played.len(), len);
+        assert!(
+            played.iter().any(|s| s.abs() > 1e-6),
+            "the voice should have played something"
+        );
+        // Exactly one pass: done at the end, and silent afterwards.
+        assert!(v.is_done(), "the voice should be done at the end of its buffer");
+        assert_eq!(v.tick(), (0.0, 0.0));
+    }
+
+    #[test]
+    fn gain_and_pan_scale_the_two_channels() {
+        // `gain` scales both channels and the pan splits them equal-power, so
+        // a centred voice is equal either side and a hard-panned one is silent
+        // on the other.
+        let voice = |gain: f64, pan: f64| {
+            let params = zzfx_params(
+                &[
+                    ("duration", Value::F64(0.01)),
+                    ("gain", Value::F64(gain)),
+                    ("pan", Value::F64(pan)),
+                ],
+                "z_sine",
+            );
+            let mut v = ZzfxVoice::new(params, 44100.0);
+            (0..64).map(|_| v.tick()).collect::<Vec<_>>()
+        };
+        let centred = voice(1.0, 0.5);
+        for (l, r) in &centred {
+            assert!((l - r).abs() < 1e-6, "a centred voice is equal, {l} vs {r}");
+        }
+        // Half the gain is half the sample, everywhere.
+        let quiet = voice(0.5, 0.5);
+        for ((l, _), (ql, _)) in centred.iter().zip(&quiet) {
+            assert!((ql * 2.0 - l).abs() < 1e-5, "{ql} should be half of {l}");
+        }
+        // Hard left leaves nothing on the right.
+        let left = voice(1.0, 0.0);
+        assert!(left.iter().all(|(_, r)| r.abs() < 1e-6));
+        assert!(left.iter().any(|(l, _)| l.abs() > 1e-6));
+    }
 }

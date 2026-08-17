@@ -81,3 +81,45 @@ pub fn ratio_value(v: &Value) -> Value {
         other => other.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn values(pat: &Pattern) -> Vec<f64> {
+        pat.query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .filter_map(|h| h.value.as_f64())
+            .collect()
+    }
+
+    #[test]
+    fn bipolar_conversions_are_inverses_at_both_ends_and_the_middle() {
+        let unipolar = crate::pattern::fastcat(&[
+            pure(Value::F64(0.0)),
+            pure(Value::F64(0.5)),
+            pure(Value::F64(1.0)),
+        ]);
+        assert_eq!(values(&unipolar.to_bipolar()), vec![-1.0, 0.0, 1.0]);
+        assert_eq!(
+            values(&unipolar.to_bipolar().from_bipolar()),
+            vec![0.0, 0.5, 1.0]
+        );
+    }
+
+    #[test]
+    fn a_ratio_list_divides_left_to_right() {
+        // `"3:2"` is 1.5, and a third element keeps dividing.
+        let ratio = |items: Vec<Value>| ratio_value(&Value::List(items));
+        assert_eq!(ratio(vec![Value::Int(3), Value::Int(2)]), Value::F64(1.5));
+        assert_eq!(
+            ratio(vec![Value::Int(8), Value::Int(2), Value::Int(2)]),
+            Value::F64(2.0)
+        );
+        // Nothing to reduce: the value passes through untouched, and an empty
+        // list has no first element to read.
+        assert_eq!(ratio_value(&Value::Int(3)), Value::Int(3));
+        assert_eq!(ratio(vec![]), Value::List(vec![]));
+        assert_eq!(ratio(vec![Value::Int(3)]), Value::F64(3.0));
+    }
+}

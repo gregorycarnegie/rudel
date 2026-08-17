@@ -455,4 +455,29 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn percent_encoding_keeps_existing_escapes_and_survives_a_truncated_one() {
+        // A `%HH` already in the path is copied through, not re-encoded.
+        assert_eq!(percent_encode_path("a%20b"), "a%20b");
+        assert_eq!(percent_encode_path("a b"), "a%20b");
+        // A `%` with nothing usable after it is just a character: reading the
+        // two bytes that are not there would run off the end.
+        assert_eq!(percent_encode_path("%2"), "%252");
+        assert_eq!(percent_encode_path("%"), "%25");
+        assert_eq!(percent_encode_path("a%zzb"), "a%25zzb");
+    }
+
+    #[test]
+    fn only_the_path_of_a_url_is_encoded() {
+        assert_eq!(
+            encode_http_url_path("https://x.example/a b/c.wav?q=1 2"),
+            "https://x.example/a%20b/c.wav?q=1 2"
+        );
+        // No path at all, nothing to encode.
+        assert_eq!(
+            encode_http_url_path("https://x.example"),
+            "https://x.example"
+        );
+    }
 }

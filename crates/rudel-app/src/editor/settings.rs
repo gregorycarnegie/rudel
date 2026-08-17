@@ -286,4 +286,27 @@ mod tests {
         assert_eq!(EditorTheme::Light.label(), "whitescreen");
         assert!(light.light);
     }
+
+    #[test]
+    fn font_family_labels_and_families_stay_paired() {
+        assert_eq!(EditorFontFamily::Monospace.label(), "monospace");
+        assert_eq!(EditorFontFamily::Proportional.label(), "proportional");
+        let settings = EditorSettings {
+            font_size: 17.0,
+            font_family: EditorFontFamily::Proportional,
+            ..Default::default()
+        };
+        assert_eq!(
+            settings.font_id(),
+            egui::FontId::new(17.0, egui::FontFamily::Proportional)
+        );
+        assert_eq!(
+            EditorSettings {
+                font_family: EditorFontFamily::Monospace,
+                ..settings
+            }
+            .font_id(),
+            egui::FontId::new(17.0, egui::FontFamily::Monospace)
+        );
+    }
 }

@@ -884,4 +884,72 @@ mod tests {
             "dropping the engine should stop the scheduler"
         );
     }
+
+    /// A local UDP socket to send at, with a read timeout short enough that a
+    /// counting window always ends.
+    fn receiver() -> (std::net::UdpSocket, String) {
+        let sock = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        sock.set_read_timeout(Some(Duration::from_millis(20)))
+            .expect("set timeout");
+        let addr = sock.local_addr().expect("addr").to_string();
+        (sock, addr)
+    }
+
+    /// How many datagrams arrive over `ms`. Counting *for a fixed window* is
+    /// what makes this terminate: a running engine sends faster than any
+    /// "read until the socket is quiet" loop would ever see a gap.
+    fn count_for(sock: &std::net::UdpSocket, ms: u64) -> usize {
+        let deadline = Instant::now() + Duration::from_millis(ms);
+        let mut buf = [0u8; 2048];
+        let mut n = 0;
+        while Instant::now() < deadline {
+            if sock.recv_from(&mut buf).is_ok() {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn the_scheduler_thread_sends_the_pattern_it_is_given() {
+        // The scheduler is otherwise only exercised through a real SuperDirt.
+        // A local socket is enough: it is the timing arithmetic that matters,
+        // and `cps` has to be 2 rather than 1 or `* cps` and `/ cps` agree.
+        let (sock, addr) = receiver();
+        let out = OscOut::connect(&addr).expect("connect");
+        let pat = s(sequence(&[
+            pure(Value::Str("bd".into())),
+            pure(Value::Str("sd".into())),
+        ]));
+        let engine = OscEngine::start(out, pat, 2.0);
+
+        // Four events a second at cps 2, over a window well past the 0.1s
+        // lookahead and the 5ms tick.
+        let sent = count_for(&sock, 700);
+        assert!(sent >= 2, "expected the pattern to be sent, got {sent}");
+
+        // A new pattern reaches the running thread.
+        engine.set_pattern(silence());
+        count_for(&sock, 200);
+        assert_eq!(count_for(&sock, 500), 0, "silence should stop the messages");
+
+        // ...and so does a new tempo: four times the rate, four times the
+        // events in the same window.
+        engine.set_pattern(s(pure(Value::Str("bd".into()))));
+        let slow = count_for(&sock, 600);
+        engine.set_cps(8.0);
+        let fast = count_for(&sock, 600);
+        assert!(fast > slow, "cps 8 sent {fast}, cps 2 sent {slow}");
+    }
+
+    #[test]
+    fn stopping_the_scheduler_ends_its_thread() {
+        let (sock, addr) = receiver();
+        let out = OscOut::connect(&addr).expect("connect");
+        let engine = OscEngine::start(out, s(pure(Value::Str("bd".into()))), 4.0);
+        assert!(count_for(&sock, 500) > 0, "the engine should be sending");
+        engine.stop();
+        count_for(&sock, 200);
+        assert_eq!(count_for(&sock, 400), 0, "a stopped engine sends nothing");
+    }
 }

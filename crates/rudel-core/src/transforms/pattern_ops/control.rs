@@ -187,3 +187,125 @@ impl Pattern {
         self._undegrade_by(0.5)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::{fastcat, pure};
+
+    fn notes(pat: &Pattern, cycles: i64) -> Vec<f64> {
+        pat.query_arc(Frac::zero(), Frac::int(cycles))
+            .into_iter()
+            .filter_map(|h| h.value.as_f64())
+            .collect()
+    }
+
+    fn two() -> Pattern {
+        fastcat(&[pure(Value::Int(0)), pure(Value::Int(1))])
+    }
+
+    #[test]
+    fn keepif_keeps_the_values_the_mask_lets_through() {
+        let mask = fastcat(&[pure(Value::Bool(true)), pure(Value::Bool(false))]);
+        assert_eq!(notes(&two().keepif(mask), 1), vec![0.0]);
+    }
+
+    #[test]
+    fn invert_swaps_both_ways() {
+        let flipped = two().invert();
+        let truthy: Vec<bool> = flipped
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .map(|h| h.value.truthy())
+            .collect();
+        assert_eq!(truthy, vec![true, false]);
+    }
+
+    #[test]
+    fn bypass_silences_only_while_it_is_on() {
+        assert!(notes(&two().bypass(1), 1).is_empty());
+        assert_eq!(notes(&two().bypass(0), 1), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn sometimes_by_at_the_extremes_is_all_or_nothing() {
+        let plus = |p: &Pattern| p.add(100);
+        // Cycle 1, not 0: `rand` is exactly 0 at time 0, which `degradeBy`'s
+        // strict `>` drops whatever the probability is.
+        let cycle1 = |pat: Pattern| -> Vec<f64> {
+            pat.query_arc(Frac::one(), Frac::int(2))
+                .into_iter()
+                .filter_map(|h| h.value.as_f64())
+                .collect()
+        };
+        // Never, and always: `1 - prob` decides how much of the pattern the
+        // transformed copy keeps.
+        assert_eq!(cycle1(two().sometimes_by(0.0, plus)), vec![0.0, 1.0]);
+        assert_eq!(cycle1(two().sometimes_by(1.0, plus)), vec![100.0, 101.0]);
+    }
+
+    #[test]
+    fn some_cycles_by_transforms_whole_cycles_and_never_both_copies() {
+        let plus = |p: &Pattern| p.add(100);
+        let pat = pure(Value::Int(0)).some_cycles_by(0.5, plus);
+        let per_cycle: Vec<f64> = (0..12)
+            .map(|c| {
+                let haps = pat.query_arc(Frac::int(c), Frac::int(c + 1));
+                assert_eq!(haps.len(), 1, "cycle {c} played both copies or neither");
+                haps[0].value.as_f64().unwrap()
+            })
+            .collect();
+        // Both branches happen over twelve cycles, and each is one or the
+        // other — which only holds while the two masks are complements.
+        assert!(per_cycle.contains(&0.0), "{per_cycle:?}");
+        assert!(per_cycle.contains(&100.0), "{per_cycle:?}");
+    }
+
+    #[test]
+    fn jux_flip_swaps_the_ears_on_alternate_cycles() {
+        let pan = |pat: &Pattern, cycle: i64| -> Vec<f64> {
+            pat.query_arc(Frac::int(cycle), Frac::int(cycle + 1))
+                .into_iter()
+                .filter_map(|h| match &h.value {
+                    Value::Map(m) => m.get("pan").and_then(Value::as_f64),
+                    _ => None,
+                })
+                .collect()
+        };
+        let pat = crate::controls::s(pure(Value::Str("bd".into()))).jux_flip_by(1.0, |p| p.clone());
+        let first = pan(&pat, 0);
+        let second = pan(&pat, 1);
+        assert_eq!(first.len(), 2);
+        // The second cycle is the first with its ears exchanged.
+        assert_eq!(second, vec![first[1], first[0]]);
+    }
+
+    #[test]
+    fn echo_delays_each_copy_by_a_multiple_of_the_time() {
+        let pat = pure(Value::Int(0)).echo(3, Frac::new(1, 4), 0.5);
+        let mut haps: Vec<(Frac, f64)> = pat
+            .query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            // Onsets only: the late copies also leave the tail of the previous
+            // cycle's events inside this one.
+            .filter(|h| h.has_onset())
+            .map(|h| {
+                let gain = match &h.value {
+                    Value::Map(m) => m.get("gain").and_then(Value::as_f64).unwrap(),
+                    other => panic!("expected a control map, got {other:?}"),
+                };
+                (h.part.begin, gain)
+            })
+            .collect();
+        haps.sort_by_key(|(t, _)| *t);
+        // Copy `i` is `i` quarter-cycles late with gain `0.5^i`.
+        assert_eq!(
+            haps,
+            vec![
+                (Frac::zero(), 1.0),
+                (Frac::new(1, 4), 0.5),
+                (Frac::new(1, 2), 0.25),
+            ]
+        );
+    }
+}

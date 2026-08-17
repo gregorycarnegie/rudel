@@ -246,3 +246,110 @@ pub(in crate::bindings) fn arg_to_value(value: &KValue) -> Value {
         _ => Value::Null,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bindings::pattern::engine::KFrac;
+
+    fn num(n: i64) -> KValue {
+        KValue::Number(KNumber::from(n))
+    }
+
+    fn list(items: Vec<KValue>) -> KValue {
+        KValue::List(KList::with_data(items.into()))
+    }
+
+    fn tuple(items: Vec<KValue>) -> KValue {
+        KValue::Tuple(KTuple::from(items))
+    }
+
+    /// A Koto object that is *not* a `KPattern` — `Fraction(1)`, as a script
+    /// would write it. Every `is_a::<KPattern>()` guard has to reject it, or
+    /// the `cast(...).unwrap()` behind the guard panics.
+    fn not_a_pattern() -> KValue {
+        KFrac(Frac::one()).into()
+    }
+
+    fn first_value(pat: &Pattern) -> Option<Value> {
+        pat.query_arc(Frac::zero(), Frac::one())
+            .into_iter()
+            .next()
+            .map(|h| h.value)
+    }
+
+    fn pat_arg(n: i64) -> KValue {
+        KPattern(rudel_core::pure(Value::Int(n))).into()
+    }
+
+    #[test]
+    fn a_foreign_object_is_never_cast_to_a_pattern() {
+        assert!(first_value(&arg_to_pattern(&not_a_pattern())).is_none());
+        assert_eq!(arg_to_raw_str(&not_a_pattern()), None);
+        assert_eq!(koto_to_value(&not_a_pattern()), Value::Null);
+        assert_eq!(arg_to_value(&not_a_pattern()), Value::Null);
+    }
+
+    #[test]
+    fn ratio_strings_divide() {
+        assert_eq!(arg_to_f64(&num(3)), 3.0);
+        assert_eq!(arg_to_f64(&KValue::Str("1/2".into())), 0.5);
+        assert_eq!(arg_to_f64(&KValue::Str("1.5".into())), 1.5);
+        // A zero denominator is refused rather than yielding an infinity.
+        assert_eq!(arg_to_f64(&KValue::Str("1/0".into())), 0.0);
+        assert_eq!(arg_to_f64(&KValue::Null), 0.0);
+    }
+
+    #[test]
+    fn literals_convert_without_becoming_patterns() {
+        assert_eq!(arg_to_value(&KValue::Bool(true)), Value::Bool(true));
+        assert_eq!(arg_to_value(&num(2)), Value::Int(2));
+        assert_eq!(koto_to_value(&KValue::Bool(false)), Value::Bool(false));
+        // Lists and tuples both recurse; a map keeps its keys.
+        let want = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(koto_to_value(&list(vec![num(1), num(2)])), want);
+        assert_eq!(koto_to_value(&tuple(vec![num(1), num(2)])), want);
+        let m = KMap::new();
+        m.insert("n", num(4));
+        let Value::Map(got) = koto_to_value(&KValue::Map(m)) else {
+            panic!("expected a map");
+        };
+        assert_eq!(got.get("n"), Some(&Value::Int(4)));
+    }
+
+    #[test]
+    fn pairs_are_accepted_as_lists_or_tuples() {
+        // `stepcat([3, pat])`: an explicit weight, either spelling.
+        for pair in [
+            list(vec![num(3), pat_arg(7)]),
+            tuple(vec![num(3), pat_arg(7)]),
+        ] {
+            let (weight, pat) = arg_to_weighted_pair(&pair);
+            assert_eq!(weight, Frac::int(3));
+            assert_eq!(first_value(&pat), Some(Value::Int(7)));
+        }
+        // `wchoose([pat, 2])`: the weight is second here.
+        for pair in [
+            list(vec![pat_arg(7), num(2)]),
+            tuple(vec![pat_arg(7), num(2)]),
+        ] {
+            let (pat, weight) = arg_to_pattern_weight(&pair);
+            assert_eq!(weight, 2.0);
+            assert_eq!(first_value(&pat), Some(Value::Int(7)));
+        }
+        // Anything that is not a two-element pair keeps the default weight
+        // instead of indexing past the end.
+        for other in [
+            list(vec![num(1)]),
+            tuple(vec![num(1)]),
+            list(vec![num(1), num(2), num(3)]),
+            pat_arg(7),
+        ] {
+            assert_eq!(arg_to_pattern_weight(&other).1, 1.0);
+        }
+        // `stepalt` groups: a list or tuple is many patterns, anything else one.
+        assert_eq!(arg_to_group(&list(vec![num(1), num(2)])).len(), 2);
+        assert_eq!(arg_to_group(&tuple(vec![num(1), num(2)])).len(), 2);
+        assert_eq!(arg_to_group(&num(1)).len(), 1);
+    }
+}

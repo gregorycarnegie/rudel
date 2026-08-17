@@ -268,6 +268,67 @@ fn on_trigger_time_fires_its_callback_per_event() {
 }
 
 #[test]
+fn a_failing_trigger_callback_reports_its_error() {
+    // Proof the hook was actually *found and run*: a callback that raises
+    // comes back as an error. Firing a hap whose id matches nothing is
+    // indistinguishable from a callback that simply did nothing.
+    let result = crate::eval_result(r#"s("bd").onTriggerTime(|hap| throw 'boom')"#).expect("eval");
+    let mut hooks = result.trigger_hooks;
+    let haps = result.pattern.query_arc(Frac::zero(), Frac::one());
+    let err = hooks.fire(&haps[0]).expect("the callback should raise");
+    assert!(err.contains("boom"), "{err}");
+    // An untagged hap fires nothing at all.
+    let plain = crate::eval(r#"s("bd")"#).expect("eval");
+    let haps = plain.query_arc(Frac::zero(), Frac::one());
+    assert_eq!(hooks.fire(&haps[0]), None);
+}
+
+#[test]
+fn a_new_evaluation_forgets_the_previous_callbacks() {
+    // The pending list is thread-local and drained at the end of an
+    // evaluation, so a script that registers nothing must come back empty even
+    // when the evaluation before it registered something.
+    let first = crate::eval_result(r#"s("bd").onTriggerTime(|hap| hap)"#).expect("eval");
+    assert!(!first.trigger_hooks.is_empty());
+    // A *failed* evaluation is what makes the reset load-bearing: it registers
+    // its callback and then never reaches the drain at the end.
+    // It has to fail at *run* time, after the registration has happened; a
+    // script that will not parse never registers anything.
+    assert!(
+        crate::eval_result(
+            "s(\"bd\").onTriggerTime(|hap| hap)
+nope()"
+        )
+        .is_err()
+    );
+    let second = crate::eval_result(r#"s("bd")"#).expect("eval");
+    assert!(
+        second.trigger_hooks.is_empty(),
+        "the previous evaluation's callback leaked into this one"
+    );
+}
+
+#[test]
+fn only_a_tagged_control_map_carries_a_trigger_id() {
+    use crate::triggers::trigger_id;
+    use rudel_core::{TRIGGER_KEY, Value, ValueMap};
+
+    let tagged = |v: Value| trigger_id(&Value::Map(ValueMap::from([(TRIGGER_KEY.to_string(), v)])));
+    assert_eq!(tagged(Value::Int(2)), Some(2));
+    assert_eq!(tagged(Value::Int(0)), Some(0));
+    // Anything that is not a tagged map has no hook.
+    assert_eq!(trigger_id(&Value::Int(2)), None);
+    assert_eq!(trigger_id(&Value::Str("2".into())), None);
+    assert_eq!(
+        trigger_id(&Value::Map(ValueMap::from([(
+            "s".to_string(),
+            Value::Str("bd".into())
+        )]))),
+        None
+    );
+}
+
+#[test]
 fn midimaps_register_control_to_cc_tables() {
     use rudel_core::{ValueMap, midimap_ccs};
 

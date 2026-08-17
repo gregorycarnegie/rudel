@@ -26,17 +26,9 @@ impl MpeState {
         }
     }
 
-    fn free_expired(&mut self, now: f64) {
-        for ch in MPE_FIRST_MEMBER..=MPE_LAST_MEMBER {
-            let slot = &mut self.active_until[ch as usize];
-            if *slot <= now {
-                *slot = 0.0;
-            }
-        }
-    }
-
     fn allocate(&mut self, on: f64, off: f64) -> Option<u8> {
-        self.free_expired(on);
+        // Expired slots need no sweep: the scan below already takes the first
+        // channel whose note has ended by `on`.
         for ch in MPE_FIRST_MEMBER..=MPE_LAST_MEMBER {
             let slot = &mut self.active_until[ch as usize];
             if *slot <= on {

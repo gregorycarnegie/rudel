@@ -135,9 +135,9 @@ pub fn control_to_midi(controls: &ValueMap) -> Option<MidiNote> {
         ccs.push((clamp7(n), clamp7(v * 127.0)));
     }
     let program = get_f64(controls, "progNum").map(clamp7);
-    let bend_range = get_f64(controls, "bendRange")
-        .filter(|r| *r > 0.0)
-        .unwrap_or(DEFAULT_BEND_RANGE);
+    // No guard on a non-positive range here: `bend_value` and
+    // `bend_range_key` both fall back to `DEFAULT_BEND_RANGE` themselves.
+    let bend_range = get_f64(controls, "bendRange").unwrap_or(DEFAULT_BEND_RANGE);
     let fractional = (pitch - pitch.round()).abs() > 1e-9;
     let mpe = get_bool(controls, "mpe").unwrap_or(freq_pitch.is_some() || fractional);
     let note = clamp7(pitch);
