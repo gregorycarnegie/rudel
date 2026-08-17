@@ -92,3 +92,70 @@ pub(super) fn hap_is_active(hap: &Hap, time: f64) -> bool {
     hap.whole
         .is_some_and(|whole| whole.begin <= t && hap.end_clipped() > t)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editor::decorations::SourceRange;
+
+    fn span(begin: (i64, i64), end: (i64, i64)) -> rudel_core::TimeSpan {
+        rudel_core::TimeSpan::new(Frac::new(begin.0, begin.1), Frac::new(end.0, end.1))
+    }
+
+    #[test]
+    fn ranges_touching_end_to_end_do_not_overlap() {
+        // Source spans are half-open, so two adjacent calls each keep their own
+        // widget rather than both claiming the boundary character.
+        assert!(!ranges_overlap((0, 2), (2, 4)), "a ends where b begins");
+        assert!(!ranges_overlap((2, 4), (0, 2)), "and the other way round");
+        assert!(ranges_overlap((0, 3), (2, 4)), "sharing a character");
+        assert!(ranges_overlap((0, 5), (1, 2)), "one inside the other");
+        assert!(!ranges_overlap((0, 0), (0, 1)), "an empty range overlaps nothing");
+    }
+
+    #[test]
+    fn a_hap_is_active_from_its_onset_until_its_end() {
+        let hap = Hap::new(
+            Some(span((0, 1), (1, 2))),
+            span((0, 1), (1, 2)),
+            rudel_core::Value::F64(1.0),
+        );
+        assert!(hap_is_active(&hap, 0.0), "at the onset");
+        assert!(hap_is_active(&hap, 0.25), "part way through");
+        assert!(!hap_is_active(&hap, 0.5), "the end is exclusive");
+        assert!(!hap_is_active(&hap, -0.1), "before it starts");
+
+        // A continuous hap has no onset to be active from — the widgets draw
+        // discrete events only.
+        let signal = Hap::new(None, span((0, 1), (1, 2)), rudel_core::Value::F64(1.0));
+        assert!(!hap_is_active(&signal, 0.25));
+    }
+
+    #[test]
+    fn only_the_haps_touching_the_window_are_handed_back() {
+        // The cache holds whole cycles; the visible window is sliced out of it,
+        // again half-open, so a note ending exactly as the window opens is
+        // already gone.
+        let ctx = egui::Context::default();
+        let pattern = rudel_lang::eval(r#"note("c3 e3 g3 a3")"#).expect("eval");
+        let widget = WidgetDecoration {
+            widget_type: "_pianoroll".to_string(),
+            id: "w".to_string(),
+            // Wide enough to claim every hap the source produced.
+            range: SourceRange::new(0, 100),
+            index: 0,
+            options: Default::default(),
+        };
+        let haps = |begin, end| {
+            widget_haps(&ctx, 0, &pattern, &widget, DrawWindow { begin, end })
+                .into_iter()
+                .map(|hap| hap.part.begin)
+                .collect::<Vec<_>>()
+        };
+        // The second quarter only: [0.25, 0.5) touches the note starting at
+        // 0.25 and neither neighbour.
+        assert_eq!(haps(0.25, 0.5), vec![Frac::new(1, 4)]);
+        // Widening to the whole cycle takes all four.
+        assert_eq!(haps(0.0, 1.0).len(), 4);
+    }
+}

@@ -22,12 +22,14 @@ pub trait MidiSink: Send {
 
 /// A connection to a MIDI output port.
 pub struct MidiOut {
-    conn: MidiOutputConnection,
+    /// `None` only while dropping; see [`crate::port_api_lock`].
+    conn: Option<MidiOutputConnection>,
 }
 
 impl MidiOut {
     /// List the names of the available MIDI output ports.
     pub fn list_ports() -> Result<Vec<String>, String> {
+        let _guard = crate::port_api_lock();
         let out = MidiOutput::new("rudel").map_err(|e| e.to_string())?;
         Ok(out
             .ports()
@@ -39,6 +41,7 @@ impl MidiOut {
     /// Connect to an output port whose name contains `name_substr` (case
     /// insensitive), or the first available port when `None`.
     pub fn connect(name_substr: Option<&str>) -> Result<MidiOut, String> {
+        let _guard = crate::port_api_lock();
         let out = MidiOutput::new("rudel").map_err(|e| e.to_string())?;
         let ports = out.ports();
         if ports.is_empty() {
@@ -61,28 +64,33 @@ impl MidiOut {
         let conn = out
             .connect(port, "rudel-out")
             .map_err(|e| format!("MIDI connect failed: {e}"))?;
-        Ok(MidiOut { conn })
+        Ok(MidiOut { conn: Some(conn) })
+    }
+
+    /// Present for the whole life of the value; taken only by `Drop`.
+    fn conn(&mut self) -> &mut MidiOutputConnection {
+        self.conn.as_mut().expect("connection open")
     }
 
     pub fn send(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.conn.send(bytes).map_err(|e| e.to_string())
+        self.conn().send(bytes).map_err(|e| e.to_string())
     }
 
     /// Send a MIDI clock tick (`0xF8`); 24 per quarter note by convention.
     pub fn clock(&mut self) {
-        let _ = self.conn.send(&[CLOCK]);
+        let _ = self.conn().send(&[CLOCK]);
     }
 
     pub fn transport_start(&mut self) {
-        let _ = self.conn.send(&[START]);
+        let _ = self.conn().send(&[START]);
     }
 
     pub fn transport_continue(&mut self) {
-        let _ = self.conn.send(&[CONTINUE]);
+        let _ = self.conn().send(&[CONTINUE]);
     }
 
     pub fn transport_stop(&mut self) {
-        let _ = self.conn.send(&[STOP]);
+        let _ = self.conn().send(&[STOP]);
     }
 }
 
@@ -180,5 +188,14 @@ fn run_scheduler<S: MidiSink>(
     }
     for message in reset_messages() {
         sink.send(&message);
+    }
+}
+
+impl Drop for MidiOut {
+    fn drop(&mut self) {
+        // Closing has to hold the lock too — dropping the field after this
+        // function returns would close it outside the lock.
+        let _guard = crate::port_api_lock();
+        drop(self.conn.take());
     }
 }

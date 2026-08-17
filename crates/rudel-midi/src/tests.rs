@@ -767,3 +767,36 @@ fn cc_and_program_controls_reach_the_note() {
         None
     );
 }
+
+/// Opening and closing ports from several threads at once used to corrupt the
+/// heap about one run in ten — winmm is not thread-safe across `midiOutClose`
+/// and midir does not serialise it. Four tests rather than four spawned
+/// threads, so the harness itself provides the concurrency.
+///
+/// A regression shows up as the *binary* dying, not as a failed assertion.
+mod concurrent_port_use {
+    fn open_and_close() {
+        for _ in 0..8 {
+            if let Ok(out) = crate::MidiOut::connect(None) {
+                drop(out);
+            }
+        }
+    }
+
+    #[test]
+    fn a() {
+        open_and_close();
+    }
+    #[test]
+    fn b() {
+        open_and_close();
+    }
+    #[test]
+    fn c() {
+        open_and_close();
+    }
+    #[test]
+    fn d() {
+        open_and_close();
+    }
+}

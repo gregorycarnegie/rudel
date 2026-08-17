@@ -115,7 +115,8 @@ pub fn process_input(bytes: &[u8], clock: &mut ClockDetector, now: f64) -> Input
 /// `rudel-core` input bus (readable via `cc_in`/`ccin`); MIDI clock updates a
 /// shared BPM estimate (`bpm`/`cps`) for clock-in tempo sync.
 pub struct MidiIn {
-    _conn: MidiInputConnection<()>,
+    /// `None` only while dropping; see [`crate::port_api_lock`].
+    _conn: Option<MidiInputConnection<()>>,
     bpm: Arc<Mutex<Option<f64>>>,
     port_name: String,
 }
@@ -123,6 +124,7 @@ pub struct MidiIn {
 impl MidiIn {
     /// List the names of the available MIDI input ports.
     pub fn list_ports() -> Result<Vec<String>, String> {
+        let _guard = crate::port_api_lock();
         let input = MidiInput::new("rudel-in-list").map_err(|e| e.to_string())?;
         Ok(input
             .ports()
@@ -135,6 +137,7 @@ impl MidiIn {
     /// insensitive), or the first available port when `None`. Incoming CCs flow
     /// to the global input bus; clock pulses update the BPM estimate.
     pub fn connect(name_substr: Option<&str>) -> Result<MidiIn, String> {
+        let _guard = crate::port_api_lock();
         let mut input = MidiInput::new("rudel-in").map_err(|e| e.to_string())?;
         // Receive timing (clock) messages too, which midir ignores by default.
         input.ignore(Ignore::None);
@@ -190,7 +193,7 @@ impl MidiIn {
             )
             .map_err(|e| format!("MIDI input connect failed: {e}"))?;
         Ok(MidiIn {
-            _conn: conn,
+            _conn: Some(conn),
             bpm,
             port_name,
         })
@@ -211,5 +214,12 @@ impl MidiIn {
     /// to a cycle), if a clock has been detected.
     pub fn cps(&self, beats_per_cycle: f64) -> Option<f64> {
         self.bpm().map(|b| bpm_to_cps(b, beats_per_cycle))
+    }
+}
+
+impl Drop for MidiIn {
+    fn drop(&mut self) {
+        let _guard = crate::port_api_lock();
+        drop(self._conn.take());
     }
 }

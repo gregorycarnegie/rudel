@@ -232,21 +232,6 @@ impl RudelApp {
 mod tests {
     use super::*;
 
-    /// These tests open real MIDI ports and OSC sockets through the OS. Run
-    /// several at once and the binary intermittently dies on the way out
-    /// (heap corruption, roughly one run in six); one at a time it is clean
-    /// over hundreds of runs. The fault is somewhere under `midir`/winmm
-    /// rather than in this file — nothing here is shared — so they take a
-    /// lock rather than pretending to be independent.
-    ///
-    /// ponytail: serialised whole-module; narrow it to the connecting tests
-    /// if this file grows something slow.
-    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn serialised() -> std::sync::MutexGuard<'static, ()> {
-        ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
     /// Wait for any connect thread this test started. Dropping the handle
     /// instead leaves the thread inside the OS MIDI subsystem while the test
     /// binary exits, which corrupts the heap on the way out.
@@ -265,7 +250,6 @@ mod tests {
 
     #[test]
     fn the_playhead_clock_starts_once_and_stops_with_the_transport() {
-        let _guard = serialised();
         let mut app = stopped_app();
         app.set_playing(true);
         let started = app.play_start.expect("playing sets the clock");
@@ -286,7 +270,6 @@ mod tests {
 
     #[test]
     fn midi_connects_only_while_playing_and_only_when_it_is_the_output() {
-        let _guard = serialised();
         // Not playing: nothing is routed anywhere, whatever the output says.
         let mut app = stopped_app();
         app.output = Output::Midi;
@@ -310,7 +293,6 @@ mod tests {
 
     #[test]
     fn a_pattern_tagged_midi_connects_even_on_the_audio_output() {
-        let _guard = serialised();
         // `.midi()` on the pattern routes to MIDI whatever the dropdown says,
         // which is how a script sends one part to a synth and keeps the rest.
         let mut app = stopped_app();
@@ -323,7 +305,6 @@ mod tests {
 
     #[test]
     fn osc_connects_on_the_same_terms_as_midi() {
-        let _guard = serialised();
         // Connecting only resolves the target and binds a local UDP socket,
         // so this needs no listener on the other end.
         let mut app = stopped_app();
@@ -352,7 +333,6 @@ mod tests {
 
     #[test]
     fn a_midi_connection_already_in_flight_is_not_started_again() {
-        let _guard = serialised();
         let mut app = stopped_app();
         app.output = Output::Midi;
         app.playing = true;

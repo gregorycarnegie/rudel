@@ -219,3 +219,73 @@ fn option_midi(options: &BTreeMap<String, rudel_lang::WidgetOption>, key: &str) 
             .map(|m| m as f64)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editor::decorations::SourceRange;
+
+    fn widget(widget_type: &str, options: &[(&str, rudel_lang::WidgetOption)]) -> WidgetDecoration {
+        WidgetDecoration {
+            widget_type: widget_type.to_string(),
+            id: "w".to_string(),
+            range: SourceRange::new(0, 1),
+            index: 0,
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_draw_window_reaches_the_same_distance_either_side_of_now() {
+        // Notes that began before the window are still sounding, and ones just
+        // ahead are about to be drawn scrolling in.
+        let window = DrawWindow::around(3.0);
+        assert_eq!((window.begin, window.end), (1.0, 5.0));
+        // At time zero the lookbehind goes negative rather than clamping — the
+        // previous cycle is real.
+        let window = DrawWindow::around(0.0);
+        assert_eq!((window.begin, window.end), (-2.0, 2.0));
+    }
+
+    #[test]
+    fn a_spiral_reads_its_size_on_a_different_scale() {
+        // `_spiral` takes Strudel's radius, a fifth of the pixel size every
+        // other widget uses, so the same number must not mean the same thing.
+        let size = |kind: &str| {
+            VisualWidgetOptions::from_widget(&widget(
+                kind,
+                &[("size", rudel_lang::WidgetOption::Number(100.0))],
+            ))
+            .spiral_size
+        };
+        assert_eq!(size("_spiral"), 20.0);
+        assert_eq!(size("_pianoroll"), 100.0);
+    }
+
+    #[test]
+    fn wordfall_defaults_only_fill_in_what_the_script_left_out() {
+        let plain = widget("_wordfall", &[]);
+        let defaulted = VisualWidgetOptions::from_widget(&plain).with_wordfall_defaults(&plain);
+        assert!(defaulted.vertical, "wordfall scrolls vertically");
+        assert!(defaulted.labels, "and is all labels");
+        assert_eq!(defaulted.stroke, Some(false));
+        assert!(defaulted.fill_active);
+
+        // Each of those is only a default: naming it in the script wins, even
+        // when the value asked for is the opposite.
+        for (key, check) in [
+            ("vertical", (|o: &VisualWidgetOptions| !o.vertical) as fn(&VisualWidgetOptions) -> bool),
+            ("labels", |o| !o.labels),
+            ("stroke", |o| o.stroke == Some(true)),
+            ("fillActive", |o| !o.fill_active),
+        ] {
+            let value = rudel_lang::WidgetOption::Bool(key == "stroke");
+            let named = widget("_wordfall", &[(key, value)]);
+            let options = VisualWidgetOptions::from_widget(&named).with_wordfall_defaults(&named);
+            assert!(check(&options), "{key} was overridden by the default");
+        }
+    }
+}

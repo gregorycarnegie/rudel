@@ -3,6 +3,21 @@
 // messages, and drives them in real time over a `midir` connection.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+/// Opening and closing MIDI ports is serialised process-wide.
+///
+/// Windows' winmm is not thread-safe across `midiOutClose`, and midir does not
+/// serialise it: four threads doing nothing but connect-and-drop corrupt the
+/// heap about one run in ten. Enumerating ports and opening them concurrently
+/// are fine on their own — it is the *close* racing another call that does it.
+///
+/// The app can reach that: a script's `midin` connect runs on a background
+/// thread while the UI drops the MIDI output (switching output away, or
+/// Disconnect).
+pub(crate) fn port_api_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 mod input;
 mod note;
 mod output;
