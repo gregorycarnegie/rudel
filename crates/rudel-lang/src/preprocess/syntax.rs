@@ -1,4 +1,6 @@
-use super::scanner::{Chunk, chunks, code_mask, is_ident_char, is_tagged_template};
+use super::scanner::{
+    Chunk, chunks, classify, code_mask, is_ident_char, is_tagged_template, top_level_ranges,
+};
 
 /// Drop JavaScript's comments, keeping the newlines they covered so line
 /// numbers hold. Strings are chunks of their own, so a `//` inside one is
@@ -254,6 +256,217 @@ pub(super) fn rewrite_logical_operators(src: &str) -> String {
         }
     }
     String::from_utf8(out).unwrap_or_else(|_| src.to_string())
+}
+
+/// Rewrite JavaScript's overloaded `+` around a string literal into a call:
+///
+/// ```text
+/// register('mask' + n, …)
+/// register(rudel_concat('mask', n), …)
+/// ```
+///
+/// Koto's `+` concatenates two strings and errors on a string and a number,
+/// which is what a script building a name, a URL or a sample path out of parts
+/// asks it to do. The whole additive chain the literal sits in is replaced at
+/// once, because JavaScript folds it left to right — `1 + 2 + 'a'` is `'3a'` —
+/// and only `rudel_concat` seeing every operand can reproduce that.
+///
+/// Only chains containing a literal are touched: a `+` between two values is
+/// ordinary arithmetic, or pattern arithmetic, and stays that way.
+pub(super) fn rewrite_string_concatenation(src: &str) -> String {
+    let mask = code_mask(src);
+    let literals = chunks(src);
+    let mut out = String::with_capacity(src.len());
+    let mut copied = 0usize;
+    for &(kind, start, end) in &literals {
+        if kind != Chunk::Str || start < copied {
+            continue;
+        }
+        let (from, to) = additive_chain(src, &mask, &literals, start, end);
+        if (from, to) == (start, end) {
+            continue;
+        }
+        let chain = &src[from..to];
+        let operands: Vec<&str> = top_level_ranges(chain, '+')
+            .iter()
+            .map(|&(a, b)| chain[a..b].trim())
+            .collect();
+        if operands.len() < 2 {
+            continue;
+        }
+        out.push_str(&src[copied..from]);
+        out.push_str("rudel_concat(");
+        out.push_str(&operands.join(", "));
+        out.push(')');
+        copied = to;
+    }
+    out.push_str(&src[copied..]);
+    out
+}
+
+/// Grow the literal at `start..end` outwards over the `+`s either side of it,
+/// giving the bounds of the whole additive chain.
+fn additive_chain(
+    src: &str,
+    mask: &[u8],
+    literals: &[(Chunk, usize, usize)],
+    start: usize,
+    end: usize,
+) -> (usize, usize) {
+    let (mut from, mut to) = (start, end);
+    loop {
+        let plus = skip_blanks(mask, to);
+        // `++` is an increment and `+=` an assignment, neither of them a chain.
+        if mask.get(plus) != Some(&b'+') || matches!(mask.get(plus + 1), Some(b'+' | b'=')) {
+            break;
+        }
+        let next = operand_end(src, mask, plus + 1);
+        if next <= plus + 1 {
+            break;
+        }
+        to = next;
+    }
+    loop {
+        let after = rskip_blanks(mask, from);
+        let Some(plus) = after.checked_sub(1) else {
+            break;
+        };
+        // A `+` that is the tail of `+=`, `>=`, `!=` … is not a chain, and one
+        // with no operand of its own to the left is a unary sign.
+        let left_of_plus = rskip_blanks(mask, plus);
+        if mask[plus] != b'+'
+            || !left_of_plus
+                .checked_sub(1)
+                .is_some_and(|end| is_operand_byte(mask[end]) || matches!(mask[end], b')' | b']'))
+        {
+            break;
+        }
+        let previous = operand_start(mask, literals, plus);
+        if previous >= plus {
+            break;
+        }
+        from = previous;
+    }
+    (from, to)
+}
+
+/// Whether `byte` can be part of a name, a number or a member access.
+fn is_operand_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'.') || byte >= 0x80
+}
+
+fn skip_blanks(mask: &[u8], mut at: usize) -> usize {
+    while mask.get(at).is_some_and(u8::is_ascii_whitespace) {
+        at += 1;
+    }
+    at
+}
+
+fn rskip_blanks(mask: &[u8], mut at: usize) -> usize {
+    while at > 0 && mask[at - 1].is_ascii_whitespace() {
+        at -= 1;
+    }
+    at
+}
+
+/// Just past the operand starting at `at`: a name, literal or bracketed group
+/// with its member accesses and calls, plus any `*`, `/` or `%` continuation,
+/// which binds tighter than the `+` that brought us here.
+fn operand_end(src: &str, mask: &[u8], at: usize) -> usize {
+    let mut i = skip_blanks(mask, at);
+    while matches!(mask.get(i), Some(b'-' | b'!')) {
+        i = skip_blanks(mask, i + 1);
+    }
+    loop {
+        // A string is a run of `_` in the mask, so step over it in the source
+        // instead — a template literal spanning lines would otherwise be cut.
+        if let Some((Chunk::Str, end)) = classify(src, i) {
+            i = end;
+            continue;
+        }
+        let bracket = match mask.get(i) {
+            Some(b'(') => Some((b'(', b')')),
+            Some(b'[') => Some((b'[', b']')),
+            _ => None,
+        };
+        if let Some((open, close)) = bracket {
+            let Some(end) = matching_delimiter(mask, i, open, close) else {
+                break;
+            };
+            i = end + 1;
+            continue;
+        }
+        match mask.get(i) {
+            Some(&byte) if is_operand_byte(byte) => i += 1,
+            _ => break,
+        }
+    }
+    let next = skip_blanks(mask, i);
+    if matches!(mask.get(next), Some(b'*' | b'/' | b'%')) && mask.get(next + 1) != Some(&b'=') {
+        return operand_end(src, mask, next + 1);
+    }
+    i
+}
+
+/// The start of the operand ending just before the `+` at `at` — `operand_end`
+/// walked backwards.
+fn operand_start(mask: &[u8], literals: &[(Chunk, usize, usize)], at: usize) -> usize {
+    let mut i = rskip_blanks(mask, at);
+    loop {
+        if let Some(&(_, start, _)) = literals
+            .iter()
+            .find(|&&(kind, _, end)| kind == Chunk::Str && end == i)
+        {
+            i = start;
+            continue;
+        }
+        let Some(before) = i.checked_sub(1) else {
+            break;
+        };
+        let bracket = match mask[before] {
+            b')' => Some((b'(', b')')),
+            b']' => Some((b'[', b']')),
+            _ => None,
+        };
+        if let Some((open, close)) = bracket {
+            let Some(start) = opening_delimiter(mask, before, open, close) else {
+                break;
+            };
+            i = start;
+            continue;
+        }
+        if !is_operand_byte(mask[before]) {
+            break;
+        }
+        i = before;
+    }
+    let previous = rskip_blanks(mask, i);
+    match previous.checked_sub(1) {
+        Some(op)
+            if matches!(mask[op], b'*' | b'/' | b'%')
+                && op.checked_sub(1).is_some_and(|b| is_operand_byte(mask[b])) =>
+        {
+            operand_start(mask, literals, op)
+        }
+        _ => i,
+    }
+}
+
+/// The index of the opener matching the closer at `close`, skipping nested
+/// pairs — `matching_delimiter` run the other way.
+fn opening_delimiter(mask: &[u8], close: usize, opener: u8, closer: u8) -> Option<usize> {
+    let mut depth = 0i32;
+    for i in (0..=close).rev() {
+        if mask[i] == closer {
+            depth += 1;
+        } else if mask[i] == opener {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+    }
+    None
 }
 
 /// The index of the closer matching the `open`th delimiter, skipping nested
@@ -1608,6 +1821,11 @@ fn else_end(mask: &[u8], at: usize) -> usize {
             continue;
         }
         match byte {
+            // A newline only ends the branch when the next line is not a
+            // continuation of it: `… : dec.toString(2)\n  .padStart(len, '0')`
+            // is one expression, and cutting it at the newline hangs the rest
+            // of the chain off the whole conditional instead of the branch.
+            b'\n' if mask[skip_blanks(mask, i)..].starts_with(b".") => continue,
             b',' | b';' | b'\n' => return i,
             b'?' => nested += 1,
             b':' if nested == 0 => return i,
@@ -1664,11 +1882,20 @@ pub(super) fn rewrite_ternaries(src: &str) -> String {
         let glues =
             head.ends_with(|c: char| !c.is_whitespace() && !matches!(c, '(' | '[' | '{' | ','));
         let space = if glues { " " } else { "" };
-        current = format!(
-            "{head}{space}(if {} then {} else {}){}",
-            current[start..at].trim(),
+        // Koto's inline `if … then … else …` has to be one line, and a branch
+        // may be a member chain written down several. Flatten it and hand the
+        // newlines back just inside the closing bracket, so the line count —
+        // and every error position past here — is left alone.
+        let (yes, no) = (
             current[at + 1..colon].trim(),
             current[colon + 1..end].trim(),
+        );
+        let breaks = "\n".repeat(yes.matches('\n').count() + no.matches('\n').count());
+        current = format!(
+            "{head}{space}(if {} then {} else {}{breaks}){}",
+            current[start..at].trim(),
+            yes.replace('\n', " "),
+            no.replace('\n', " "),
             &current[end..],
         );
     }
@@ -3631,5 +3858,45 @@ mod tests {
         // Each `:` pairs with one `?`, so a colon left over after the nested
         // pair closes is the branch's end.
         assert_eq!(else_end(&code_mask("a ? b : c ? d : e : f"), 6), 18);
+    }
+
+    #[test]
+    fn the_else_branch_carries_on_over_a_member_chain() {
+        // `dec.toString(2)\n  .padStart(…)` is one expression, and stopping at
+        // the newline hung the rest of the chain off the whole conditional —
+        // so the *true* branch got `.padStart` called on it too.
+        // `join_dangling_operators` has already pulled the branch up onto the
+        // `:`, which is why the chain below it is what is left to gather.
+        assert_eq!(
+            rewrite_ternaries("f(s ? [1] : dec.toString(2)\n  .padStart(4)\n)"),
+            "f((if s then [1] else dec.toString(2)   .padStart(4)\n)\n)"
+        );
+        // A newline followed by anything else still ends the branch.
+        assert_eq!(rewrite_ternaries("a ? b : c\nd"), "(if a then b else c)\nd");
+    }
+
+    #[test]
+    fn a_string_literal_beside_a_plus_becomes_a_concatenation() {
+        assert_eq!(
+            rewrite_string_concatenation("register('mask'+n, f)"),
+            "register(rudel_concat('mask', n), f)"
+        );
+        // Every operand of the chain goes into the one call, because JavaScript
+        // folds left to right and only then does `1 + 2 + 'a'` come out `'3a'`.
+        assert_eq!(
+            rewrite_string_concatenation("x = 1 + 2 + 'a' + b.c(1) + [d] + (e + f)"),
+            "x = rudel_concat(1, 2, 'a', b.c(1), [d], (e + f))"
+        );
+        // `*` binds tighter than `+`, so its operand travels with it.
+        assert_eq!(
+            rewrite_string_concatenation("'a' + n * 2 + m / 4 + 'b'"),
+            "rudel_concat('a', n * 2, m / 4, 'b')"
+        );
+        // A `+` with no literal anywhere in the chain is arithmetic, or pattern
+        // arithmetic, and is left alone — as is `+=`, which is neither.
+        assert_eq!(rewrite_string_concatenation("a + b"), "a + b");
+        assert_eq!(rewrite_string_concatenation("s += 'x'"), "s += 'x'");
+        assert_eq!(rewrite_string_concatenation("f('a', 'b')"), "f('a', 'b')");
+        leaves_quoted_and_commented_alone(rewrite_string_concatenation, "a + 1");
     }
 }

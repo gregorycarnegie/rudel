@@ -180,10 +180,16 @@ pub(in crate::bindings) fn koto_to_value(value: &KValue) -> Value {
         KValue::Bool(b) => Value::Bool(*b),
         KValue::Str(s) => Value::Str(s.to_string()),
         KValue::Object(o) if o.is_a::<KPattern>() => {
-            // A wrapped string literal contributes its raw text as a literal.
-            match o.cast::<KPattern>().unwrap().0.source.as_deref() {
+            let pattern = o.cast::<KPattern>().unwrap().0.clone();
+            // A wrapped string literal contributes its raw text as a literal —
+            // the mini pass put the wrapper there, and a callback returning
+            // `"c3"` means the note name. A pattern built any other way is a
+            // pattern *value*, which one of the joins then flattens; that is
+            // how a `register`ed helper written as `fmap(v => …).squeezeJoin()`
+            // gets its inner pattern back out.
+            match pattern.source.as_deref() {
                 Some(s) => Value::Str(s.to_string()),
-                None => Value::Null,
+                None => Value::Pat(Box::new(pattern)),
             }
         }
         KValue::List(l) => Value::List(l.data().iter().map(koto_to_value).collect()),

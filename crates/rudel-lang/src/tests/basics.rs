@@ -485,11 +485,11 @@ fn math_matches_javascript() {
         ("Math.imul(3, 4)", 12.0),
         ("Math.fround(5.5)", 5.5),
         ("Math.expm1(1)", 1.718_281_828_459_045),
-        ("Math.log1p(1)", 0.693_147_180_559_945_3),
+        ("Math.log1p(1)", std::f64::consts::LN_2),
         ("Math.cbrt(27)", 3.0),
         ("Math.PI", std::f64::consts::PI),
-        ("Math.SQRT2", 1.414_213_562_373_095_1),
-        ("Math.LOG10E", 0.434_294_481_903_251_8),
+        ("Math.SQRT2", std::f64::consts::SQRT_2),
+        ("Math.LOG10E", std::f64::consts::LOG10_E),
         ("Math.abs(-2)", 2.0),
         ("Math.pow(2, 10)", 1024.0),
         ("Math.atan2(1, 1)", std::f64::consts::FRAC_PI_4),
@@ -545,4 +545,49 @@ fn set_gain_curve_installs_the_curve_it_was_given() {
     assert!(rudel_core::apply_gain_curve(12.0) > rudel_core::apply_gain_curve(9.0));
     assert!(rudel_core::apply_gain_curve(f64::NAN).is_nan());
     rudel_core::clear_gain_curve();
+}
+
+#[test]
+fn javascript_string_arithmetic_and_the_methods_that_go_with_it() {
+    // `register('mask' + n, …)` is how the binary-mask helper going round
+    // strudel.cc names its methods, and Koto's `+` refuses a string and a
+    // number outright. The rest of that helper —
+    // `dec.toString(2).padStart(len, '0').split('').map(Number)` — is the same
+    // family of JS builtins, and each was missing too.
+    for (expr, want) in [
+        ("'mask' + 4", "mask4"),
+        ("1 + 2 + 'a'", "3a"), // folded left to right, as JS does
+        ("'x' + 1 + 2", "x12"),
+        ("(9).toString(2)", "1001"),
+        ("(9).toString(2).padStart(6, '0')", "001001"),
+        // A literal followed by `.method` is mini-notation here, so the string
+        // methods are reached the way a script reaches them: through a name.
+        ("text.padEnd(4, '-')", "ab--"),
+        ("text.padStart(1, '-')", "ab"), // already long enough
+        ("text.split('').join('.')", "a.b"),
+        ("text.split('b').join('-')", "a-"),
+    ] {
+        let script = format!(
+            "let text = 'ab'
+pure({expr})"
+        );
+        let pat = eval(&script).unwrap_or_else(|e| panic!("{expr}: {e}"));
+        let got = values(&pat, 0, 1);
+        assert_eq!(got, vec![Value::Str(want.to_string())], "{expr}");
+    }
+}
+
+#[test]
+fn a_callback_may_hand_back_a_pattern_for_a_join_to_flatten() {
+    // The shape every `register`ed helper is written in upstream:
+    // `pat.fmap(v => <a pattern>).squeezeJoin()`. The callback's pattern used
+    // to come back as null unless it had come from a mini-notation literal, so
+    // the helper silenced whatever it was applied to.
+    let pat = eval(r#"s("hh*4").mask("<x>".fmap(|v| seq(1)).squeezeJoin())"#)
+        .expect("mask by a joined callback pattern");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::int(2)).len(), 8);
+    // A literal still arrives as its own text, which is what a callback
+    // returning a note name means.
+    let named = eval(r#"pure(1).fmap(|v| "c3")"#).expect("literal from a callback");
+    assert_eq!(values(&named, 0, 1), vec![Value::Str("c3".to_string())]);
 }

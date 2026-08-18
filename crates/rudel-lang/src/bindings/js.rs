@@ -25,6 +25,9 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
     if let Some(KValue::Map(string)) = prelude.get("string") {
         register_string(&string);
     }
+    if let Some(KValue::Map(number)) = prelude.get("number") {
+        register_number(&number);
+    }
     // Koto's `split` and friends hand back an iterator, and JS code goes on to
     // `.slice(...)` it as if it were an array.
     if let Some(KValue::Map(iterator)) = prelude.get("iterator") {
@@ -94,15 +97,23 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
     });
     // `String(x)` / `Number(x)`: JavaScript's conversions, used to do arithmetic
     // on the numeric part of a note name and put it back together.
-    prelude.add_fn("String", |ctx| {
-        Ok(match ctx.args().first() {
-            Some(KValue::Str(s)) => s.to_string(),
-            Some(KValue::Number(n)) => n.to_string(),
-            Some(KValue::Bool(b)) => b.to_string(),
-            Some(KValue::Null) | None => "undefined".to_string(),
-            Some(_) => String::new(),
+    prelude.add_fn("String", |ctx| Ok(js_string(ctx.args().first()).into()));
+    // Backs the preprocessor's rewrite of `+` around a string literal. JS folds
+    // an additive chain left to right, adding while both sides are numbers and
+    // concatenating from the first string on.
+    prelude.add_fn("rudel_concat", |ctx| {
+        let mut args = ctx.args().iter();
+        let Some(first) = args.next() else {
+            return Ok(KValue::Null);
+        };
+        let mut folded = first.clone();
+        for next in args {
+            folded = match (&folded, next) {
+                (KValue::Number(a), KValue::Number(b)) => KValue::Number(*a + *b),
+                _ => format!("{}{}", js_string(Some(&folded)), js_string(Some(next))).into(),
+            };
         }
-        .into())
+        Ok(folded)
     });
     prelude.add_fn("Number", |ctx| {
         Ok(match ctx.args().first() {
@@ -161,6 +172,22 @@ fn register_list(list: &KMap) {
                     }
                 }
                 Ok(KValue::List(KList::from_slice(&out)))
+            }
+            (instance, args) => unexpected_args_after_instance(expected, instance, args),
+        }
+    });
+    // `arr.join(sep)`: the entries stringified and glued, JS's default being a
+    // comma. Koto's `to_string` on a list writes its brackets too.
+    list.add_fn("join", |ctx| {
+        let expected = "|List, String?|";
+        match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
+            (KValue::List(l), args) => {
+                let separator = match args.first() {
+                    Some(KValue::Str(s)) => s.to_string(),
+                    _ => ",".to_string(),
+                };
+                let parts: Vec<String> = l.data().iter().map(|v| js_string(Some(v))).collect();
+                Ok(parts.join(&separator).into())
             }
             (instance, args) => unexpected_args_after_instance(expected, instance, args),
         }
@@ -256,6 +283,49 @@ fn js_slice_bounds(args: &[KValue], len: usize) -> (usize, usize) {
     (from, to.max(from))
 }
 
+/// JavaScript's `String(x)`.
+fn js_string(value: Option<&KValue>) -> String {
+    match value {
+        Some(KValue::Str(s)) => s.to_string(),
+        Some(KValue::Number(n)) => n.to_string(),
+        Some(KValue::Bool(b)) => b.to_string(),
+        Some(KValue::Null) | None => "undefined".to_string(),
+        Some(_) => String::new(),
+    }
+}
+
+fn register_number(number: &KMap) {
+    // `n.toString(radix)`. The radix form is how a script turns a number into a
+    // bit pattern, which is the only reason this is here.
+    number.add_fn("toString", |ctx| {
+        let expected = "|Number, Number?|";
+        let (instance, args) =
+            ctx.instance_and_args(|v| matches!(v, KValue::Number(_)), expected)?;
+        let KValue::Number(n) = instance else {
+            return unexpected_args_after_instance(expected, instance, args);
+        };
+        let radix = match args.first() {
+            Some(KValue::Number(r)) => f64::from(*r) as u32,
+            _ => 10,
+        };
+        if !(2..=36).contains(&radix) || radix == 10 {
+            return Ok(js_string(Some(instance)).into());
+        }
+        // JS truncates towards zero before converting, and keeps the sign.
+        let mut left = (f64::from(*n).trunc()).abs() as u64;
+        let mut digits = Vec::new();
+        while {
+            digits.push(char::from_digit((left % u64::from(radix)) as u32, radix).unwrap_or('0'));
+            left /= u64::from(radix);
+            left > 0
+        } {}
+        if f64::from(*n) < 0.0 {
+            digits.push('-');
+        }
+        Ok(digits.iter().rev().collect::<String>().into())
+    });
+}
+
 fn register_string(string: &KMap) {
     // Koto already ships these two under snake_case names, so the JS spelling
     // is the same function under a second key rather than a reimplementation.
@@ -302,6 +372,46 @@ fn register_string(string: &KMap) {
             .unwrap_or(-1);
         Ok(KValue::Number(KNumber::from(found)))
     });
+    // `s.split(sep)`. Koto hands back a lazy iterator where JS gives an array,
+    // and the script goes straight on to `.map(...)`; an empty separator is
+    // JS's "split into characters", which Koto has no answer for at all.
+    string.add_fn("split", move |ctx| {
+        let (s, args) = instance_str(ctx, "|String, String?|")?;
+        let parts: Vec<KValue> = match args.first() {
+            Some(KValue::Str(sep)) if sep.is_empty() => {
+                s.as_str().chars().map(|c| c.to_string().into()).collect()
+            }
+            Some(KValue::Str(sep)) => s
+                .as_str()
+                .split(sep.as_str())
+                .map(|part| part.into())
+                .collect(),
+            _ => vec![s.as_str().into()],
+        };
+        Ok(KValue::List(KList::with_data(parts.into())))
+    });
+    // `s.padStart(len, pad)` / `padEnd`: a short string is filled out to `len`
+    // characters with `pad` repeated and clipped, a long one comes back as is.
+    for (name, at_start) in [("padStart", true), ("padEnd", false)] {
+        string.add_fn(name, move |ctx| {
+            let (s, args) = instance_str(ctx, "|String, Number, String?|")?;
+            let chars: Vec<char> = s.as_str().chars().collect();
+            let width = match args.first() {
+                Some(KValue::Number(n)) => f64::from(*n).max(0.0) as usize,
+                _ => 0,
+            };
+            let pad: Vec<char> = match args.get(1) {
+                Some(KValue::Str(p)) => p.as_str().chars().collect(),
+                _ => vec![' '],
+            };
+            if chars.len() >= width || pad.is_empty() {
+                return Ok(s.into());
+            }
+            let fill: String = pad.iter().cycle().take(width - chars.len()).collect();
+            let body: String = chars.iter().collect();
+            Ok(if at_start { fill + &body } else { body + &fill }.into())
+        });
+    }
     string.add_fn("length", move |ctx| {
         let (s, _) = instance_str(ctx, "|String|")?;
         Ok(KValue::Number(KNumber::from(
