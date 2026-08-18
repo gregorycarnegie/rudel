@@ -11,6 +11,60 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.12.3] — 2026-08-18
+
+Working down the differential list from 0.12.2. Of the 8004 public strudel.cc
+patterns, **6284 now play, up from 6198**, and the rudel-only failures are down
+from 388 to 346 — 265 distinct sources, since the corpus holds many near-copies.
+
+### Fixed
+
+- **`_name` variables.** Koto reads a leading underscore as a value to
+  *discard*, so a script that merely follows the JavaScript convention
+  (`let _drums = ...`, then `stack(_drums)`) failed with `attempting to access
+  an ignored value`, pointing at the use and never at the name. Bare
+  identifiers are renamed; a member access, a map key and Koto's real `_`
+  discard are left alone, which is what keeps rudel's own `._spiral` inline
+  widgets working.
+- **JavaScript spread into call arguments**, the largest single cause on the
+  list — 109 of the 133 spreads in the corpus, every one of them a plain call
+  to a pattern factory. `stack(...xs)` cannot be lowered to `stack(xs)`,
+  because a list argument is one *sequenced* pattern rather than several
+  stacked ones, so the spread survives to runtime: each argument becomes a
+  group, and `rudel_apply` flattens the groups back into an argument list at
+  the call. A regression test pins that `stack(...xs)` matches
+  `stack(a, b)` while `stack(xs)` still differs from both.
+- **Names that existed in only one of the two forms.** `fastgap`, `euclidrot`
+  and `fastchunk` are spellings Strudel registers explicitly and rudel had only
+  in camelCase; `struct`, `scale` and `voicing` existed as methods but not as
+  the standalone functions Strudel also exposes.
+- **`reify`, `chooseWith`, `chooseInWith`** — all three were already
+  implemented in `rudel-core` and simply not reachable from a script.
+- **JS builtins**: `toUpperCase`/`toLowerCase` (aliases onto Koto's own),
+  `slice` on strings, lists and iterators, and `concat` on lists — JS
+  semantics, negative indices included.
+
+### Added
+
+`initHydra`, `hydra`, `H`, `P5`, `p5` and `dough` are accepted and ignored, and
+`console.log`/`warn`/`error` write to the pattern log the console panel shows.
+A pattern that also draws visuals now plays its *audio* instead of failing
+outright, and says in the log why there are no visuals. Only names Strudel does
+not document are stubbed: a documented one would be counted as implemented by
+`docs/API_INVENTORY.md`, which a no-op is not.
+
+### Internal
+
+The regression corpora are unchanged: 31/31 strudel.cc tunes, 89/89 of
+eefano's collection, 491/491 of the vendored drum patterns, and no panics.
+
+Progress on the list understates itself, because a pattern usually has more
+than one thing wrong with it: the spread fix moved 94 patterns past their first
+error and 61 of them stopped at the next one, JavaScript's `"mask" + n` string
+concatenation, which Koto rejects. That is now the largest remaining bucket at
+61 patterns — but only 17 distinct sources, one of them duplicated 53 times, so
+it is not worth rewriting every `+` in the language to reach.
+
 ## [0.12.2] — 2026-08-18
 
 The other half of the 8004-pattern run: every pattern was also evaluated in a

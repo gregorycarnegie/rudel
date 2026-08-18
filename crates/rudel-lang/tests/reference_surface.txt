@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1022 methods=1123 controls=668
+# functions=1036 methods=1126 controls=668
 
 [functions]
 Array
@@ -9,10 +9,12 @@ FXr
 FXrel
 FXrelease
 Fraction
+H
 Hap
 Math
 Number
 Object
+P5
 Pattern
 String
 TimeSpan
@@ -100,7 +102,9 @@ chebyshev
 choose
 chooseCycles
 chooseIn
+chooseInWith
 chooseOut
+chooseWith
 chop
 chord
 chorus
@@ -129,6 +133,7 @@ compressorKnee
 compressorRatio
 compressorRelease
 compressspan
+console
 contract
 cosine
 cosine2
@@ -180,6 +185,7 @@ disttype
 distvol
 div
 djf
+dough
 drive
 drop
 dry
@@ -581,10 +587,12 @@ hsl
 hsla
 hurry
 hush
+hydra
 i
 imag
 inhabit
 inhabitmod
+initHydra
 inside
 into
 inv
@@ -717,6 +725,7 @@ oscport
 outside
 overgain
 overshape
+p5
 pace
 palindrome
 pan
@@ -800,6 +809,7 @@ rdim
 real
 register
 registerSoundfonts
+reify
 rel
 release
 repeatCycles
@@ -822,6 +832,7 @@ roomsize
 rootNotes
 root_notes
 rsize
+rudel_apply
 rudel_label
 rudel_prop
 rudel_prototype
@@ -836,6 +847,7 @@ s_zip
 samples
 saw
 saw2
+scale
 scaleTrans
 scaleTranspose
 scale_transpose
@@ -909,6 +921,7 @@ stepsPerOctave
 strans
 stretch
 striate
+struct
 stut
 stutWith
 stutwith
@@ -967,6 +980,7 @@ vibmod
 vibrato
 vmod
 voice
+voicing
 vowel
 warp
 warpatt
@@ -1261,6 +1275,7 @@ euclid_legato
 euclid_legato_rot
 euclid_rot
 euclidish
+euclidrot
 every
 expand
 expression
@@ -1277,6 +1292,8 @@ fastGap
 fast_chunk
 fast_gap
 fastcat
+fastchunk
+fastgap
 fft
 filter
 filterValues

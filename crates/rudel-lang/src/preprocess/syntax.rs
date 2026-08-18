@@ -928,6 +928,148 @@ pub(super) fn quote_numeric_map_keys(src: &str) -> String {
     out
 }
 
+/// Rewrite a call whose arguments contain a JavaScript spread.
+///
+/// `stack(...xs)` cannot become `stack(xs)`: a list argument is a single
+/// sequenced pattern, not several stacked ones, so the spread has to reach
+/// runtime. Each argument becomes a *group* — a spread passes through as the
+/// list it already is, anything else is wrapped in a one-element list — and
+/// `rudel_apply` flattens the groups back into an argument list before calling.
+///
+/// Only a plain function call is rewritten. Every spread call in the strudel.cc
+/// corpus is one (`seq`, `stack`, `timeCat`, `cat`, `arrange`); a method call
+/// would need its receiver bound, which is a different job.
+pub(super) fn rewrite_spread_calls(src: &str) -> String {
+    if !src.contains("...") {
+        return src.to_string();
+    }
+    let mask = code_mask(src);
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    let mut out = String::with_capacity(src.len());
+    let mut copied = 0usize;
+    let mut i = 0usize;
+    while i < mask.len() {
+        if mask[i] != b'(' || i == 0 || !ident(mask[i - 1]) {
+            i += 1;
+            continue;
+        }
+        let name_len = mask[..i].iter().rev().take_while(|b| ident(**b)).count();
+        let name = &src[i - name_len..i];
+        if NOT_A_CALL.contains(&name) {
+            i += 1;
+            continue;
+        }
+        let Some(close) = matching_delimiter(&mask, i, b'(', b')') else {
+            i += 1;
+            continue;
+        };
+        let args = split_top_level_args(&mask[i + 1..close], i + 1);
+        if !args
+            .iter()
+            .any(|&(from, _)| src[from..].trim_start().starts_with("..."))
+        {
+            i += 1;
+            continue;
+        }
+        out.push_str(&src[copied..i - name_len]);
+        out.push_str("rudel_apply(");
+        out.push_str(name);
+        out.push_str(", [");
+        for (n, &(from, to)) in args.iter().enumerate() {
+            if n > 0 {
+                out.push_str(", ");
+            }
+            let arg = src[from..to].trim();
+            match arg.strip_prefix("...") {
+                Some(spread) => out.push_str(spread.trim()),
+                None => {
+                    out.push('[');
+                    out.push_str(arg);
+                    out.push(']');
+                }
+            }
+        }
+        out.push_str("])");
+        copied = close + 1;
+        i = close + 1;
+    }
+    out.push_str(&src[copied..]);
+    out
+}
+
+/// Byte ranges of the top-level, comma-separated arguments inside a call, given
+/// the masked bytes between its parentheses and where they start in the source.
+fn split_top_level_args(inner: &[u8], offset: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let (mut depth, mut start) = (0i32, 0usize);
+    for (i, &b) in inner.iter().enumerate() {
+        match b {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                out.push((offset + start, offset + i));
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if inner[start..].iter().any(|b| !b.is_ascii_whitespace()) {
+        out.push((offset + start, offset + inner.len()));
+    }
+    out
+}
+
+/// Rename `_name` bindings, which Koto reads as *ignored* values.
+///
+/// A leading underscore marks a value Koto is told to discard, so a script that
+/// merely names a variable that way (`let _drums = ...`, then `stack(_drums)`)
+/// fails with `attempting to access an ignored value` — pointing at the use,
+/// never at the name. JavaScript has no such rule and the convention is common.
+///
+/// Only bare identifiers are renamed. A member access (`x._foo`) and a map key
+/// are not ignored values, and rudel's own inline-widget spellings (`._spiral`)
+/// are reached that way, so leaving those alone keeps them working. A lone `_`
+/// (or `__`) is Koto's real discard and stays.
+pub(super) fn rename_ignored_identifiers(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    let mut out = String::with_capacity(src.len());
+    let mut copied = 0usize;
+    // Only code chunks: `code_mask` blanks a string to underscores, which would
+    // read as one enormous ignored identifier.
+    for (kind, start, end) in chunks(src) {
+        if kind != Chunk::Code {
+            continue;
+        }
+        let mut i = start;
+        while i < end {
+            if bytes[i] != b'_' {
+                i += 1;
+                continue;
+            }
+            // Mid-identifier (`foo_bar`) or a member access: step over the name.
+            if i > start && (ident(bytes[i - 1]) || bytes[i - 1] == b'.') {
+                while i < end && ident(bytes[i]) {
+                    i += 1;
+                }
+                continue;
+            }
+            let name_start = i;
+            while i < end && ident(bytes[i]) {
+                i += 1;
+            }
+            if bytes[name_start..i].iter().all(|b| *b == b'_') {
+                continue;
+            }
+            out.push_str(&src[copied..name_start]);
+            out.push_str("rudel_u");
+            copied = name_start;
+        }
+    }
+    out.push_str(&src[copied..]);
+    out
+}
+
 /// Close the gaps around a member-access dot: `x . gain(1)` and `x. gain(1)`.
 ///
 /// JavaScript ignores whitespace either side of the dot; Koto wants the name

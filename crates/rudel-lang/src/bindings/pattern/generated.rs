@@ -445,7 +445,7 @@ kpattern_methods! {
         // plain-integer argument group.
         #[koto_method]
         euclid => kpattern_euclid,
-        #[koto_method(alias = "euclidRot")]
+        #[koto_method(alias = "euclidRot", alias = "euclidrot")]
         euclid_rot => kpattern_euclid_rot,
         #[koto_method(alias = "euclidLegato")]
         euclid_legato => kpattern_euclid_legato,
@@ -627,7 +627,8 @@ kpattern_methods! {
         // camelCase control names (wavetablePosition, compressorKnee, ...)
         // come from the dynamic registry; only non-control transforms and the
         // keyword-safe `bendRange` spelling are listed here.
-        bendRange => bend_range, fastGap => fast_gap, scaleTranspose => scale_transpose,
+        bendRange => bend_range, fastGap => fast_gap, fastgap => fast_gap,
+        scaleTranspose => scale_transpose,
         scaleTrans => strans, sparsity => slow,
         // Bare alignment methods default to the `set` op (Strudel's
         // `pat.out(x) == pat.set.out(x)`); `squeezein` aliases `squeeze`.
@@ -667,7 +668,10 @@ kpattern_methods! {
     camel_f64: [],
     camel_frac: [pressBy => press_by, loopAt => loop_at, steps => pace],
     camel_frac_frac: [swingBy => swing_by],
-    camel_i64_fn: [chunkBack => chunk_back, fastChunk => fast_chunk, slowChunk => chunk],
+    camel_i64_fn: [
+        chunkBack => chunk_back, fastChunk => fast_chunk, fastchunk => fast_chunk,
+        slowChunk => chunk,
+    ],
     camel_f64_fn: [
         juxBy => jux_by, juxFlipBy => jux_flip_by, fluxBy => jux_flip_by,
         sometimesBy => sometimes_by, someCyclesBy => some_cycles_by,

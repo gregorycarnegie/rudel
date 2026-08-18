@@ -437,3 +437,31 @@ fn a_list_argument_is_a_sequence() {
         );
     }
 }
+
+#[test]
+fn a_spread_argument_expands_into_separate_arguments() {
+    // `stack(...xs)` layers the patterns; `stack(xs)` is one *sequenced*
+    // pattern. Passing the list through unchanged would quietly turn the first
+    // into the second, so the spread has to survive to the call itself.
+    let xs = r#"let xs = [s("bd"), s("hh")]"#;
+    for (spread, expanded) in [
+        ("stack(...xs)", r#"stack(s("bd"), s("hh"))"#),
+        ("seq(...xs)", r#"seq(s("bd"), s("hh"))"#),
+        (
+            r#"stack(s("cp"), ...xs)"#,
+            r#"stack(s("cp"), s("bd"), s("hh"))"#,
+        ),
+    ] {
+        let a = eval(&format!("{xs}\n{spread}")).unwrap_or_else(|e| panic!("{spread}: {e}"));
+        let b = eval(expanded).unwrap_or_else(|e| panic!("{expanded}: {e}"));
+        assert_eq!(shape(&a, 1), shape(&b, 1), "{spread}");
+    }
+    // ...and a list that was *not* spread still means one sequenced pattern.
+    let listed = eval(&format!("{xs}\nstack(xs)")).expect("stack(xs)");
+    let stacked = eval(&format!("{xs}\nstack(...xs)")).expect("stack(...xs)");
+    assert_ne!(
+        shape(&listed, 1),
+        shape(&stacked, 1),
+        "a list is not a spread"
+    );
+}

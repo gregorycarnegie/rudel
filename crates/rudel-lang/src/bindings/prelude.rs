@@ -539,6 +539,80 @@ pub(crate) fn register(prelude: &KMap) {
         }
     });
     // scan: step through growing runs (run(1), run(2), ... run(n)).
+    // Calls the browser REPL answers and a native build cannot. Only names
+    // Strudel does not document are stubbed: a documented one (`setGainCurve`)
+    // would be counted as implemented by the API inventory, which a no-op is
+    // not. Accepting them
+    // is what lets the *audio* of a pattern that also draws visuals still play;
+    // saying so in the log is what keeps that from looking like a silent
+    // success. `console.log` goes to the same place the pattern's own `log`
+    // does, which is the console panel.
+    for name in ["initHydra", "H", "hydra", "P5", "p5", "dough"] {
+        prelude.add_fn(name, move |_| {
+            rudel_core::log_line(format!("{name}: not supported here, ignored"));
+            Ok(KValue::Null)
+        });
+    }
+    let console = KMap::new();
+    for level in ["log", "info", "warn", "error", "debug"] {
+        console.add_fn(level, |ctx| {
+            let args = ctx.args().to_vec();
+            let mut parts = Vec::with_capacity(args.len());
+            for arg in &args {
+                parts.push(ctx.vm.value_to_string(arg)?);
+            }
+            rudel_core::log_line(parts.join(" "));
+            Ok(KValue::Null)
+        });
+    }
+    prelude.insert("console", console);
+
+    // `rudel_apply(f, [group, ...])`: call `f` with the groups flattened one
+    // level into its argument list. The preprocessor emits this for a
+    // JavaScript spread call — `stack(...xs)` cannot become `stack(xs)`,
+    // because a list argument is one sequenced pattern rather than several
+    // stacked ones, so the spread has to survive to runtime.
+    prelude.add_fn("rudel_apply", |ctx| {
+        let (f, groups) = (arg0(ctx), ctx.args().get(1).cloned());
+        let mut args = Vec::new();
+        let mut push_group = |g: &KValue| match g {
+            KValue::List(l) => args.extend(l.data().iter().cloned()),
+            KValue::Tuple(t) => args.extend(t.iter().cloned()),
+            other => args.push(other.clone()),
+        };
+        match &groups {
+            Some(KValue::List(l)) => l.data().iter().for_each(&mut push_group),
+            Some(KValue::Tuple(t)) => t.iter().for_each(&mut push_group),
+            Some(other) => push_group(other),
+            None => {}
+        }
+        ctx.vm.call_function(f, args.as_slice())
+    });
+    // `reify(x)`: anything as a pattern. Strudel's own coercion, exposed
+    // because scripts call it directly when building patterns by hand.
+    prelude.add_fn("reify", |ctx| {
+        Ok(KPattern(arg_to_pattern(&arg0(ctx))).into())
+    });
+    // `chooseWith(signal, [a, b, ...])` / `chooseInWith`: index the list with an
+    // arbitrary 0..1 signal, taking structure from the signal or from the
+    // chosen patterns respectively.
+    for (name, in_form) in [("chooseWith", false), ("chooseInWith", true)] {
+        prelude.add_fn(name, move |ctx| {
+            let chooser = arg_to_pattern(&arg0(ctx));
+            let pats: Vec<Pattern> = match ctx.args().get(1) {
+                Some(KValue::List(l)) => l.data().iter().map(arg_to_pattern).collect(),
+                Some(KValue::Tuple(t)) => t.iter().map(arg_to_pattern).collect(),
+                Some(other) => vec![arg_to_pattern(other)],
+                None => Vec::new(),
+            };
+            let pat = if in_form {
+                rudel_core::choose_in_with(chooser, &pats)
+            } else {
+                rudel_core::choose_with(chooser, &pats)
+            };
+            Ok(KPattern(pat).into())
+        });
+    }
     prelude.add_fn("scan", |ctx| {
         Ok(KPattern(rudel_core::scan(
             super::pattern::arg_to_f64(&arg0(ctx)) as i64
@@ -825,6 +899,7 @@ pub(crate) fn register(prelude: &KMap) {
             "segment" => segment, "seg" => seg,
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask, "bypass" => bypass,
+            "struct" => struct_pat, "scale" => scale,
             "timeline" => timeline,
             // waveshaping-distortion shortcuts (pattern-last standalone form)
             "soft" => soft, "hard" => hard, "cubic" => cubic, "diode" => diode,
@@ -844,6 +919,7 @@ pub(crate) fn register(prelude: &KMap) {
             "press" => press, "brak" => brak, "ratio" => ratio, "fit" => fit,
             "invert" => invert, "inv" => invert, "collect" => collect,
             "rev" => rev,
+            "voicing" => voicing,
         ];
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back, "iterback" => iter_back,

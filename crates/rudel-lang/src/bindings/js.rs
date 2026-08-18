@@ -25,6 +25,25 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
     if let Some(KValue::Map(string)) = prelude.get("string") {
         register_string(&string);
     }
+    // Koto's `split` and friends hand back an iterator, and JS code goes on to
+    // `.slice(...)` it as if it were an array.
+    if let Some(KValue::Map(iterator)) = prelude.get("iterator") {
+        iterator.add_fn("slice", |ctx| {
+            let expected = "|Iterable, Number?, Number?|";
+            let (instance, args) = ctx.instance_and_args(KValue::is_iterable, expected)?;
+            let (instance, args) = (instance.clone(), args.to_vec());
+            let items: Vec<KValue> = ctx
+                .vm
+                .make_iterator(instance)?
+                .filter_map(|out| match out {
+                    KIteratorOutput::Value(v) => Some(v),
+                    _ => None,
+                })
+                .collect();
+            let (from, to) = js_slice_bounds(&args, items.len());
+            Ok(KValue::List(KList::from_slice(&items[from..to])))
+        });
+    }
     let array = KMap::new();
     array.add_fn("isArray", |ctx| {
         Ok(matches!(ctx.args().first(), Some(KValue::List(_) | KValue::Tuple(_))).into())
@@ -115,6 +134,37 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
 }
 
 fn register_list(list: &KMap) {
+    // `arr.slice(from, to)` and `arr.concat(other, ...)`: both return a new
+    // list, as JS does, and neither has a Koto equivalent that takes the same
+    // shape of arguments.
+    list.add_fn("slice", |ctx| {
+        let expected = "|List, Number?, Number?|";
+        match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
+            (KValue::List(l), args) => {
+                let data = l.data();
+                let (from, to) = js_slice_bounds(args, data.len());
+                Ok(KValue::List(KList::from_slice(&data[from..to])))
+            }
+            (instance, args) => unexpected_args_after_instance(expected, instance, args),
+        }
+    });
+    list.add_fn("concat", |ctx| {
+        let expected = "|List, Any...|";
+        match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
+            (KValue::List(l), args) => {
+                let mut out = l.data().to_vec();
+                for arg in args {
+                    match arg {
+                        KValue::List(other) => out.extend(other.data().iter().cloned()),
+                        KValue::Tuple(other) => out.extend(other.iter().cloned()),
+                        other => out.push(other.clone()),
+                    }
+                }
+                Ok(KValue::List(KList::from_slice(&out)))
+            }
+            (instance, args) => unexpected_args_after_instance(expected, instance, args),
+        }
+    });
     // `arr.map((value, index) => ...)`: a new list, with the index passed as
     // JS does. Koto's `each` yields values only and returns an iterator.
     list.add_fn("map", |ctx| {
@@ -187,10 +237,34 @@ fn instance_str(
     }
 }
 
+/// JS `slice(from, to)` bounds against `len`: negative counts back from the
+/// end, both ends clamp, and a crossed pair is empty rather than an error.
+fn js_slice_bounds(args: &[KValue], len: usize) -> (usize, usize) {
+    let index = |slot: usize, fallback: i64| match args.get(slot) {
+        Some(KValue::Number(n)) => f64::from(*n) as i64,
+        _ => fallback,
+    };
+    let resolve = |i: i64| {
+        if i < 0 {
+            (len as i64 + i).max(0) as usize
+        } else {
+            (i as usize).min(len)
+        }
+    };
+    let from = resolve(index(0, 0));
+    let to = resolve(index(1, len as i64));
+    (from, to.max(from))
+}
+
 fn register_string(string: &KMap) {
     // Koto already ships these two under snake_case names, so the JS spelling
     // is the same function under a second key rather than a reimplementation.
-    for (js, koto) in [("startsWith", "starts_with"), ("endsWith", "ends_with")] {
+    for (js, koto) in [
+        ("startsWith", "starts_with"),
+        ("endsWith", "ends_with"),
+        ("toUpperCase", "to_uppercase"),
+        ("toLowerCase", "to_lowercase"),
+    ] {
         if let Some(f) = string.get(koto) {
             string.insert(js, f);
         }
@@ -206,6 +280,13 @@ fn register_string(string: &KMap) {
         };
         let (a, b) = (index(0, 0), index(1, chars.len()));
         let (from, to) = if a <= b { (a, b) } else { (b, a) };
+        Ok(chars[from..to].iter().collect::<String>().into())
+    });
+    // `s.slice(from, to)` counts characters, not bytes, and accepts negatives.
+    string.add_fn("slice", move |ctx| {
+        let (s, args) = instance_str(ctx, "|String, Number?, Number?|")?;
+        let chars: Vec<char> = s.as_str().chars().collect();
+        let (from, to) = js_slice_bounds(&args, chars.len());
         Ok(chars[from..to].iter().collect::<String>().into())
     });
     string.add_fn("indexOf", move |ctx| {
