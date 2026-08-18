@@ -168,7 +168,11 @@ impl Pattern {
     pub fn loop_at(&self, factor: impl Into<Frac>) -> Pattern {
         let factor = factor.into();
         let pat = self.clone();
-        let steps = self.steps.map(|s| s / factor);
+        // A zero factor makes this silence (`slow(0)` is), and dividing the step
+        // count by it panics — `contract` guards the same way.
+        let steps = (factor != Frac::zero())
+            .then(|| self.steps.map(|s| s / factor))
+            .flatten();
         Pattern::new(move |state| {
             let cps = cps_of(state);
             let f = factor.to_f64();

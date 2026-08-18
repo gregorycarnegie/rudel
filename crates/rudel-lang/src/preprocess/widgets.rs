@@ -208,6 +208,13 @@ pub(super) fn rewrite_editor_widgets_with_context(
     let mut last = 0;
     let mut i = 0;
     while i < src.len() {
+        // The cursor steps a byte at a time when nothing matches, so it can land
+        // inside a multi-byte character; every `src[i..]` below would panic
+        // there. No method name starts mid-character, so skip to the next one.
+        if !src.is_char_boundary(i) {
+            i += 1;
+            continue;
+        }
         // Strings and comments are text, not calls: a widget named in one is not
         // a widget.
         if let Some((_, end)) = classify(src, i) {

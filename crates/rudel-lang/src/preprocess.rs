@@ -17,7 +17,7 @@ use syntax::{
     rewrite_logical_operators, rewrite_object_spreads, rewrite_prototype_methods,
     rewrite_strict_equality, rewrite_string_method_chains, rewrite_tagged_templates,
     rewrite_ternaries, rewrite_typeof, rewrite_value_property, strip_await, strip_comments,
-    strip_new, strip_trailing_semicolons,
+    strip_new, strip_trailing_semicolons, tighten_call_parens,
 };
 use widgets::rewrite_editor_widgets_with_context;
 
@@ -70,6 +70,7 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = strip_await(&script);
     let script = rewrite_arrow_functions(&script);
     let script = rewrite_string_method_chains(&script);
+    let script = tighten_call_parens(&script);
     let script = flatten_non_final_groups(&script);
     let script = hoist_leading_commas(&script);
     let script = indent_dot_continuations(&script);

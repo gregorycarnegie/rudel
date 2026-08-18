@@ -884,6 +884,11 @@ pub(super) fn quote_numeric_map_keys(src: &str) -> String {
     let mask = code_mask(src);
     let mut out = String::with_capacity(src.len());
     let mut depth = 0i32;
+    // Everything before `copied` is already in `out`. Untouched text is copied
+    // in runs rather than a byte at a time, so every slice lands on a char
+    // boundary: copying byte-by-byte panicked on any multi-byte character in a
+    // source containing a brace.
+    let mut copied = 0usize;
     let mut i = 0usize;
     while i < mask.len() {
         let byte = mask[i];
@@ -892,7 +897,6 @@ pub(super) fn quote_numeric_map_keys(src: &str) -> String {
             b'}' => depth -= 1,
             _ => {}
         }
-        out.push_str(&src[i..i + 1]);
         i += 1;
         if depth <= 0 || !matches!(byte, b'{' | b',') {
             continue;
@@ -911,12 +915,109 @@ pub(super) fn quote_numeric_map_keys(src: &str) -> String {
         if key_len == 0 || mask.get(key_start + key_len) != Some(&b':') {
             continue;
         }
-        out.push_str(&src[i..key_start]);
+        // The key is ASCII digits/`.`/`-` after ASCII whitespace, so both ends
+        // of the quoted run are char boundaries.
+        out.push_str(&src[copied..key_start]);
         out.push('\'');
         out.push_str(&src[key_start..key_start + key_len]);
         out.push('\'');
         i = key_start + key_len;
+        copied = i;
     }
+    out.push_str(&src[copied..]);
+    out
+}
+
+/// Words whose parenthesised head is not an argument list, so the space before
+/// it is real. JavaScript's control flow plus the Koto keywords that can stand
+/// in front of a parenthesised expression.
+const NOT_A_CALL: &[&str] = &[
+    "if",
+    "else",
+    "for",
+    "while",
+    "do",
+    "switch",
+    "case",
+    "catch",
+    "try",
+    "finally",
+    "return",
+    "typeof",
+    "instanceof",
+    "new",
+    "delete",
+    "void",
+    "in",
+    "of",
+    "await",
+    "async",
+    "function",
+    "yield",
+    "throw",
+    "let",
+    "const",
+    "var",
+    "export",
+    "import",
+    "default",
+    "match",
+    "loop",
+    "until",
+    "then",
+    "and",
+    "or",
+    "not",
+    "from",
+];
+
+/// Close the gap in `f (x)`.
+///
+/// JavaScript ignores the space, so `stack (a, b)` is an ordinary call. Koto
+/// reads the parentheses as an expression of their own, making that
+/// `stack((a, b))` — one tuple argument — so the stacked patterns never reach
+/// `stack` and the script ends up with a bare tuple, whose later `.pianoroll()`
+/// or `.gain()` then "is not found in 'tuple'". 361 of the strudel.cc patterns
+/// space a call this way.
+pub(super) fn tighten_call_parens(src: &str) -> String {
+    let mask = code_mask(src);
+    let bytes = src.as_bytes();
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    let mut out = String::with_capacity(src.len());
+    let mut copied = 0usize;
+    for i in 0..mask.len() {
+        if mask[i] != b'(' {
+            continue;
+        }
+        // Only spaces and tabs: a call split across lines is left alone rather
+        // than joined, which is a bigger change than this pass is making.
+        let blanks = mask[..i]
+            .iter()
+            .rev()
+            .take_while(|b| matches!(b, b' ' | b'\t'))
+            .count();
+        if blanks == 0 || blanks > i {
+            continue;
+        }
+        let name_end = i - blanks;
+        // Read the name from `src`, not the mask: the mask blanks strings to
+        // `_`, which would otherwise read as an identifier and tighten
+        // `"bd" (x)` into a call on a string.
+        if name_end == 0 || !ident(bytes[name_end - 1]) {
+            continue;
+        }
+        let name_len = bytes[..name_end]
+            .iter()
+            .rev()
+            .take_while(|b| ident(**b))
+            .count();
+        if NOT_A_CALL.contains(&&src[name_end - name_len..name_end]) {
+            continue;
+        }
+        out.push_str(&src[copied..name_end]);
+        copied = i;
+    }
+    out.push_str(&src[copied..]);
     out
 }
 
@@ -1931,10 +2032,19 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
                     }
                 };
                 if column < indent {
-                    // Pull the line back. The characters being dropped are the
-                    // blanks just emitted for this line's own indent, which are
-                    // ASCII, so the byte count is the column count.
-                    out.truncate(out.len() - (indent - column));
+                    // Pull the line back over the blanks just emitted for this
+                    // line's own indent. `indent` counts *characters*, and a
+                    // blank need not be one byte — `char::is_whitespace` is
+                    // Unicode-aware, so a line indented with U+00A0 counts one
+                    // per two bytes — hence counting back by characters rather
+                    // than subtracting the column difference from the length.
+                    let drop = indent - column;
+                    let cut = out
+                        .char_indices()
+                        .rev()
+                        .nth(drop - 1)
+                        .map_or(0, |(at, _)| at);
+                    out.truncate(cut);
                     changed = true;
                 }
                 for _ in indent..column {
@@ -2928,6 +3038,72 @@ mod tests {
             quote_numeric_map_keys("f((v) => { 2 * v })"),
             "f((v) => { 2 * v })"
         );
+    }
+
+    #[test]
+    fn a_multi_byte_character_beside_a_brace_is_copied_whole() {
+        // Byte-at-a-time copying split these mid-character and panicked. Each
+        // shape below reached rudel from a real strudel.cc pattern.
+        let nbsp = "s(\"bd\").room(2)\u{a0}// nbsp";
+        assert_eq!(quote_numeric_map_keys(nbsp), nbsp);
+        assert_eq!(
+            quote_numeric_map_keys("{ x: 1 }\u{3108}"),
+            "{ x: 1 }\u{3108}"
+        );
+        assert_eq!(
+            quote_numeric_map_keys("// \u{2728}\nn(\"0\")"),
+            "// \u{2728}\nn(\"0\")"
+        );
+        // ...and the rewrite itself still happens around them.
+        assert_eq!(
+            quote_numeric_map_keys("pick({ 0: a, 1: b })\u{e9}"),
+            "pick({ '0': a, '1': b })\u{e9}"
+        );
+        assert_eq!(
+            quote_numeric_map_keys("\u{e9}.pick({ 2: a })"),
+            "\u{e9}.pick({ '2': a })"
+        );
+    }
+
+    #[test]
+    fn an_indent_of_multi_byte_blanks_is_pulled_back_whole() {
+        // `char::is_whitespace` is Unicode-aware, so U+2006 counts as one
+        // column but occupies three bytes; pulling the line back by the column
+        // difference used to cut mid-character and panic. Three strudel.cc
+        // patterns indent with it.
+        let src = "stack(\n\u{2006}\u{2006}s(\"bd\")\n\u{2006}\u{2006}.lpf(700)\n)";
+        let out = indent_dot_continuations(src);
+        assert!(out.contains("s(\"bd\")"), "{out:?}");
+        assert!(out.contains(".lpf(700)"), "{out:?}");
+        // A tab and a non-breaking space are the other two shapes that reach it.
+        for blank in ["\u{a0}", "\u{3000}", "\u{2028}"] {
+            let src = format!("stack(\n{blank}{blank}s(\"bd\")\n{blank}{blank}.lpf(700)\n)");
+            assert!(indent_dot_continuations(&src).contains(".lpf(700)"));
+        }
+    }
+
+    #[test]
+    fn a_space_between_a_name_and_its_arguments_is_closed() {
+        // Koto reads `stack (a, b)` as `stack((a, b))`, so the arguments arrive
+        // as one tuple and the call quietly does nothing.
+        assert_eq!(tighten_call_parens("stack (a, b)"), "stack(a, b)");
+        assert_eq!(
+            tighten_call_parens("s(\"bd\").pianoroll ({})"),
+            "s(\"bd\").pianoroll({})"
+        );
+        assert_eq!(tighten_call_parens("f\t(x)"), "f(x)");
+        // Already tight, or nothing before it: unchanged.
+        assert_eq!(tighten_call_parens("stack(a, b)"), "stack(a, b)");
+        assert_eq!(tighten_call_parens("x = (a + b)"), "x = (a + b)");
+        assert_eq!(tighten_call_parens("(a, b)"), "(a, b)");
+        // Control flow keeps its space: the parentheses are not arguments.
+        assert_eq!(tighten_call_parens("if (x) 1"), "if (x) 1");
+        assert_eq!(tighten_call_parens("return (x)"), "return (x)");
+        // A call split over lines is left alone rather than joined.
+        assert_eq!(tighten_call_parens("stack\n  (a)"), "stack\n  (a)");
+        // Strings are not names, and a paren inside one is not a call.
+        assert_eq!(tighten_call_parens("\"bd\" (x)"), "\"bd\" (x)");
+        assert_eq!(tighten_call_parens("s(\"a (b\")"), "s(\"a (b\")");
     }
 
     #[test]

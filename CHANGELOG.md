@@ -11,6 +11,55 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-08-18
+
+Four crashes and one silent mis-parse, all found by running the 8004 public
+patterns from the strudel.cc pattern database. All predate 0.12.0.
+
+### Fixed
+
+- **Multi-byte characters no longer panic the preprocessor.** Three separate
+  passes indexed a `&str` by byte and sliced without checking char boundaries:
+  `quote_numeric_map_keys` copied its input a byte at a time, the widget scan
+  in `rewrite_editor_widgets_with_context` stepped its cursor a byte at a time
+  and then sliced from it, and `indent_dot_continuations` pulled a line back by
+  subtracting a *column* count from a *byte* length. Any of the three brought
+  the whole evaluation down on a non-breaking space, a CJK character, or — the
+  case that found the third — a line indented with U+2006. `char::is_whitespace`
+  is Unicode-aware, so those indents counted one column per three bytes.
+- **`loopAt(0)` no longer panics.** `loop_at` divided the step count by its
+  factor before checking it, so a zero factor reached `Ratio` and asserted
+  `denominator == 0`. A zero factor makes the pattern silence, as `slow(0)`
+  already did; `contract` next door had the guard already. Reachable from a
+  literal `.loopAt(0)` and from `.loopAt("1 1")`, where a mini-notation string
+  coerces to zero.
+- **`f (x)` is a call again.** JavaScript ignores the space, so `stack (a, b)`
+  is an ordinary call; Koto reads the parentheses as an expression of their own,
+  making it `stack((a, b))` — one tuple argument, with the stacked patterns
+  never reaching `stack`. The failure surfaced far from its cause, as
+  `'rudel_widget_pianoroll' not found in 'tuple'` on whatever was chained
+  afterwards. A new `tighten_call_parens` pass closes the gap, leaving
+  control-flow keywords (`if (x)`), calls split across lines, and anything
+  preceded by a string rather than a name alone. 361 of the strudel.cc patterns
+  space a call this way.
+- **A flaky UI test.** `the_frame_loop_keeps_going_for_each_thing_that_moves`
+  pushed a sample job whose thread returned immediately, so whether the job was
+  still in flight when the frame was stepped came down to scheduling — it failed
+  about one run in ten, on this revision and before it. The job now blocks until
+  the test is done with it.
+
+### Internal
+
+Measured over all 8004 public patterns in the strudel.cc database: **0 panics,
+down from 3, and 5173 patterns play, up from 5069** (with 151 evaluating to
+silence, down from 198). The regression corpora are unchanged — 31/31
+strudel.cc tunes, 89/89 of eefano's song collection, 491/491 of the drum
+patterns vendored in `website/src/repl/drum_patterns.mjs`.
+
+The largest remaining failure is `initHydra` (252 patterns), which is visuals
+and unsupported by design; the rest need a differential run against Strudel to
+tell a rudel gap from a pattern that is broken anyway.
+
 ## [0.12.0] — 2026-08-18
 
 An over-engineering audit of the whole tree, applied. Net −1651 lines across

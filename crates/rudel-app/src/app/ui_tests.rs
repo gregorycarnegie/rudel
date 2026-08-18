@@ -272,10 +272,19 @@ fn the_frame_loop_keeps_going_for_each_thing_that_moves() {
     );
     assert!(
         repaints_after(|app| {
+            // The job has to still be running when the frame is stepped: a
+            // finished one is reaped before the repaint check, so a thread that
+            // returns immediately makes this pass or fail on scheduling. Block
+            // it on a channel whose sender is never dropped.
+            let (tx, rx) = std::sync::mpsc::channel::<()>();
+            std::mem::forget(tx);
             app.sample_jobs.push(crate::app::SampleJob {
                 key: "k".to_string(),
                 label: "l".to_string(),
-                handle: std::thread::spawn(|| Ok(0)),
+                handle: std::thread::spawn(move || {
+                    let _ = rx.recv();
+                    Ok(0)
+                }),
                 quiet: true,
             })
         }),
