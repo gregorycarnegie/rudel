@@ -440,21 +440,23 @@ impl PostFx {
         PostFx {
             crush: get("crush"),
             shape: get("shape"),
-            shapevol: get("shapevol").unwrap_or(1.0),
+            shapevol: rudel_core::apply_gain_curve(get("shapevol").unwrap_or(1.0) as f64) as f32,
             distort: get("distort"),
-            distortvol: get("distortvol").unwrap_or(1.0),
+            distortvol: rudel_core::apply_gain_curve(get("distortvol").unwrap_or(1.0) as f64)
+                as f32,
             distort_alg: map
                 .get("distorttype")
                 .map(DistortAlgo::from_value)
                 .unwrap_or_default(),
             coarse: get("coarse"),
-            postgain: get("postgain").unwrap_or(1.0),
+            postgain: rudel_core::apply_gain_curve(get("postgain").unwrap_or(1.0) as f64) as f32,
             vowel: map
                 .get("vowel")
                 .and_then(|v| v.as_str())
                 .and_then(Vowel::from_name),
             tremolo: get("tremolo"),
-            tremolodepth: get("tremolodepth").unwrap_or(0.5),
+            tremolodepth: rudel_core::apply_gain_curve(get("tremolodepth").unwrap_or(0.5) as f64)
+                as f32,
             stretch: get("stretch"),
             // `phaser` and `phaserrate` are aliases for the LFO rate.
             phaser: get("phaser").or_else(|| get("phaserrate")),

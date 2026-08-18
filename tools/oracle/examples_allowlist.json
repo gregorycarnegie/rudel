@@ -25,7 +25,6 @@
   "rotationGamma#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
   "seqPLoop#0": "unsupported: not defined in the pinned Strudel checkout.",
   "setDefaultJoin#0": "unsupported: a global switch over the bind/join family, which Rudel does not expose standalone (the Koto VM cannot run in the query path).",
-  "setGainCurve#0": "unsupported: a global gain-curve hook; Rudel uses the linear curve that is superdough's current default.",
   "setMaxPolyphony#0": "unsupported: a Web Audio voice-pool cap with no analogue in Rudel's mixer.",
   "silence#0": "js-syntax: bare `silence` as a value; in Rudel it is a function, so write `silence()`.",
   "withBase#1": "js-syntax: builds the pattern with JS array methods (`[...].join(' ')`)."

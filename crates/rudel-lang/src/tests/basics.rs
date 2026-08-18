@@ -465,3 +465,84 @@ fn a_spread_argument_expands_into_separate_arguments() {
         "a list is not a spread"
     );
 }
+
+#[test]
+fn math_matches_javascript() {
+    // Every value below was read out of a real JS engine, because several of
+    // these disagree with the obvious Rust spelling: `Math.round` breaks ties
+    // towards +infinity (Rust breaks them away from zero), `Math.sign` keeps a
+    // signed zero, and `max`/`min` with no arguments are the infinities.
+    for (expr, want) in [
+        ("Math.floor(-1.5)", -2.0),
+        ("Math.round(-0.5)", 0.0),
+        ("Math.round(2.5)", 3.0),
+        ("Math.sign(-0)", 0.0),
+        ("Math.trunc(-4.7)", -4.0),
+        ("Math.max()", f64::NEG_INFINITY),
+        ("Math.min()", f64::INFINITY),
+        ("Math.hypot(3, 4)", 5.0),
+        ("Math.clz32(1)", 31.0),
+        ("Math.imul(3, 4)", 12.0),
+        ("Math.fround(5.5)", 5.5),
+        ("Math.expm1(1)", 1.718_281_828_459_045),
+        ("Math.log1p(1)", 0.693_147_180_559_945_3),
+        ("Math.cbrt(27)", 3.0),
+        ("Math.PI", std::f64::consts::PI),
+        ("Math.SQRT2", 1.414_213_562_373_095_1),
+        ("Math.LOG10E", 0.434_294_481_903_251_8),
+        ("Math.abs(-2)", 2.0),
+        ("Math.pow(2, 10)", 1024.0),
+        ("Math.atan2(1, 1)", std::f64::consts::FRAC_PI_4),
+    ] {
+        let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+        let haps = pat.query_arc(Frac::zero(), Frac::one());
+        let got = haps[0].value.as_f64().unwrap_or(f64::NAN);
+        assert!(
+            (got - want).abs() < 1e-12 || (got == want),
+            "{expr}: got {got}, want {want}"
+        );
+    }
+    // NaN propagates through max/min, as it does in JS.
+    let nan = eval("pure(Math.max(1, 0/0))").expect("max with NaN");
+    let v = nan.query_arc(Frac::zero(), Frac::one())[0].value.as_f64();
+    assert!(v.is_none_or(f64::is_nan), "max(1, NaN) is NaN, got {v:?}");
+    // `Math.random` is in range and does move.
+    let draws: Vec<f64> = (0..8)
+        .map(|_| {
+            let p = eval("pure(Math.random())").expect("random");
+            p.query_arc(Frac::zero(), Frac::one())[0]
+                .value
+                .as_f64()
+                .unwrap_or(-1.0)
+        })
+        .collect();
+    assert!(draws.iter().all(|d| (0.0..1.0).contains(d)), "{draws:?}");
+    assert!(draws.windows(2).any(|w| w[0] != w[1]), "random never moved");
+}
+
+#[test]
+fn set_gain_curve_installs_the_curve_it_was_given() {
+    // superdough's own example: `setGainCurve((x) => x * x)` makes `.gain(0.5)`
+    // sound like 0.25. The curve is global and persists across evaluations, as
+    // the module-level one upstream does, so put it back afterwards.
+    rudel_core::clear_gain_curve();
+    assert_eq!(
+        rudel_core::apply_gain_curve(0.5),
+        0.5,
+        "identity by default"
+    );
+
+    eval("setGainCurve(|x| x * x)\ns(\"bd\")").expect("install a curve");
+    let squared = rudel_core::apply_gain_curve(0.5);
+    assert!((squared - 0.25).abs() < 1e-6, "0.5 -> {squared}, want 0.25");
+    // Sampled, so check across the range rather than at one point.
+    for x in [0.0, 0.1, 0.75, 1.0, 2.0, 7.5] {
+        let got = rudel_core::apply_gain_curve(x);
+        assert!((got - x * x).abs() < 1e-3, "{x} -> {got}, want {}", x * x);
+    }
+    // Past the sampled range it carries on along the slope rather than
+    // flattening, and a non-finite value is left alone.
+    assert!(rudel_core::apply_gain_curve(12.0) > rudel_core::apply_gain_curve(9.0));
+    assert!(rudel_core::apply_gain_curve(f64::NAN).is_nan());
+    rudel_core::clear_gain_curve();
+}

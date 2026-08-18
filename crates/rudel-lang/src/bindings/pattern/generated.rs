@@ -365,6 +365,7 @@ kpattern_methods! {
         rescale, zoom_in,
     ],
     no_arg: [
+        dough,
         hush,
         rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil, log2,
         to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,

@@ -64,3 +64,27 @@ fn pcurve_is_a_flag_not_a_value() {
     assert!(params(&[("pcurve", Value::F64(1.0))], 1.0).pcurve_exp);
     assert!(params(&[("pcurve", Value::F64(3.0))], 1.0).pcurve_exp);
 }
+
+#[test]
+fn a_gain_curve_rescales_the_voice_gain() {
+    // `setGainCurve` is global state the language layer installs; the voice
+    // reads it the way superdough's `applyGainCurve` does at every gain-like
+    // control. Cleared either side so the rest of the suite is unaffected.
+    let params = |g: f64| {
+        let mut map = ValueMap::new();
+        map.insert("gain".to_string(), Value::F64(g));
+        VoiceParams::from_controls(&map, 1.0).gain
+    };
+    rudel_core::clear_gain_curve();
+    let plain = params(0.5);
+    assert!(
+        (plain - 0.5).abs() < 1e-6,
+        "no curve leaves gain alone: {plain}"
+    );
+
+    rudel_core::set_gain_curve(|x| x * x);
+    let curved = params(0.5);
+    rudel_core::clear_gain_curve();
+    assert!((curved - 0.25).abs() < 1e-3, "quadratic gain: {curved}");
+    assert!((params(0.5) - 0.5).abs() < 1e-6, "cleared again");
+}

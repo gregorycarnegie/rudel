@@ -73,7 +73,11 @@ pub use input::{
 // MIDI output CC maps (written by the language layer, read by `rudel-midi`).
 pub use midimap::{CcMapping, has_midimap, midimap_ccs, set_midimap};
 // Host-published tables read back by scripts (sample durations, the log ring).
-pub use host::{clear_sample_durations, drain_log, log_line, sample_duration, set_sample_duration};
+pub use host::{
+    GAIN_CURVE_MAX, GAIN_CURVE_POINTS, apply_gain_curve, clear_gain_curve, clear_sample_durations,
+    drain_log, log_line, sample_duration, set_gain_curve, set_gain_curve_samples,
+    set_sample_duration,
+};
 // Tonal: note names, scales, chords.
 pub use tonal::{
     chord_notes, chord_symbols, note_to_midi, note_to_midi_with_octave, scale_names, scale_offset,

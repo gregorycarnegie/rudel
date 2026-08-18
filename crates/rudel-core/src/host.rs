@@ -17,7 +17,7 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{LazyLock, RwLock},
+    sync::{Arc, LazyLock, RwLock},
 };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,71 @@ pub fn stringify_values(value: &crate::value::Value) -> String {
         Value::Null => "null".to_string(),
         other => format!("{other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Gain curve
+
+/// Highest input the curve is sampled over. Gains cluster in `0..=1`, but
+/// `postgain`, `busgain` and friends are routinely pushed past it.
+pub const GAIN_CURVE_MAX: f64 = 8.0;
+/// `setGainCurve`'s function, sampled into a table.
+///
+/// ponytail: a sampled curve, not the function itself — the scripting VM
+/// cannot run on the scheduler or audio path, which is the same reason
+/// `probe_patternify` tabulates its callback. Linear interpolation between
+/// samples and linear extrapolation past the end; a curve with a step in it
+/// gets that step rounded over. Calling the function directly would mean
+/// giving the audio path a Koto VM.
+static GAIN_CURVE: LazyLock<RwLock<Option<Arc<Vec<f64>>>>> = LazyLock::new(|| RwLock::new(None));
+
+/// Samples across `0..=GAIN_CURVE_MAX`.
+pub const GAIN_CURVE_POINTS: usize = 2049;
+
+/// Install a gain curve from `f`, sampled across `0..=GAIN_CURVE_MAX`.
+pub fn set_gain_curve(f: impl Fn(f64) -> f64) {
+    let step = GAIN_CURVE_MAX / (GAIN_CURVE_POINTS - 1) as f64;
+    set_gain_curve_samples((0..GAIN_CURVE_POINTS).map(|i| f(i as f64 * step)).collect());
+}
+
+/// Install an already-sampled curve: `GAIN_CURVE_POINTS` values, evenly spaced
+/// across `0..=GAIN_CURVE_MAX`. The language layer samples it there, where the
+/// scripting VM is still reachable.
+pub fn set_gain_curve_samples(samples: Vec<f64>) {
+    *GAIN_CURVE.write().unwrap() = (samples.len() >= 2).then(|| Arc::new(samples));
+}
+
+/// Forget any installed curve, so gains pass through unchanged.
+pub fn clear_gain_curve() {
+    *GAIN_CURVE.write().unwrap() = None;
+}
+
+/// Whether a curve is installed.
+pub fn has_gain_curve() -> bool {
+    GAIN_CURVE.read().unwrap().is_some()
+}
+
+/// Rescale a gain-like value through the installed curve (superdough's
+/// `applyGainCurve`). Without one, the value passes through.
+pub fn apply_gain_curve(value: f64) -> f64 {
+    let Some(samples) = GAIN_CURVE.read().unwrap().clone() else {
+        return value;
+    };
+    if !value.is_finite() {
+        return value;
+    }
+    let step = GAIN_CURVE_MAX / (samples.len() - 1) as f64;
+    let at = value / step;
+    // Off either end, carry on along the slope of the last pair of samples
+    // rather than flattening, so a rising curve keeps rising.
+    let (i, frac) = if at < 0.0 {
+        (0usize, at)
+    } else if at >= (samples.len() - 1) as f64 {
+        (samples.len() - 2, at - (samples.len() - 2) as f64)
+    } else {
+        (at.floor() as usize, at.fract())
+    };
+    samples[i] + (samples[i + 1] - samples[i]) * frac
 }
 
 #[cfg(test)]

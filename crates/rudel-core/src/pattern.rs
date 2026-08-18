@@ -35,6 +35,15 @@ pub struct Pattern {
 }
 
 impl Pattern {
+    /// `dough`: play this pattern through the audio output.
+    ///
+    /// Upstream attaches an `onTrigger`, because a Strudel pattern is inert
+    /// until something is listening; rudel's scheduler already routes whatever
+    /// a script returns, so the pattern comes back unchanged.
+    pub fn dough(&self) -> Pattern {
+        self.clone()
+    }
+
     pub fn new<F>(query: F) -> Pattern
     where
         F: Fn(&State) -> Vec<Hap> + Send + Sync + 'static,

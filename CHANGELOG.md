@@ -11,6 +11,56 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.12.4] — 2026-08-19
+
+Two of 0.12.3's additions were placeholders. They are implementations now, and
+the placeholder that could not become one was made a method instead of a
+top-level stub.
+
+### Added
+
+- **`Math`, in full.** It held `pow` and nothing else, and a missing member is
+  not a parse error — it surfaces as `'floor' not found in 'map'` somewhere
+  down the expression that used it. All eight constants and every function are
+  there, including the ones whose obvious Rust spelling is wrong: `Math.round`
+  breaks ties towards +infinity where Rust breaks them away from zero (JS gives
+  `0` for `-0.5`, Rust gives `-1`), `Math.sign` keeps a signed zero, and
+  `max()`/`min()` with no arguments are the infinities. Every value in the test
+  was read out of a real JavaScript engine rather than assumed.
+
+  `Math.random` is the one member that cannot be pure: it is seeded once per
+  process from the clock and is not repeatable, exactly as the host's is under
+  Strudel. A pattern that wants a *reproducible* random still wants rudel's
+  `rand` signal.
+
+- **`setGainCurve`.** Really applied now: `setGainCurve((x) => x * x)` makes
+  `.gain(0.5)` sound like 0.25, and the curve reaches all eight controls
+  superdough puts through `applyGainCurve` — gain, postgain, velocity, delay,
+  busgain, shapevol, distortvol, tremolodepth. Strudel's own documented example
+  for it now runs, and it has come off the reference allowlist as implemented.
+
+  The curve is *sampled* at evaluation time rather than called per note: the
+  scheduler and audio paths have no Koto VM to call it on, which is the same
+  constraint `probe_patternify` tabulates its callbacks around. 2049 points
+  across `0..=8`, interpolated between and extrapolated beyond, so a curve with
+  a step in it gets that step rounded over.
+
+- **`dough`** is a pattern method, as it is upstream, not a top-level name. It
+  attaches an `onTrigger` there because a Strudel pattern is inert until
+  something listens; rudel's scheduler already routes whatever a script
+  returns, so the pattern comes back unchanged.
+
+`initHydra`, `hydra`, `H`, `P5` and `p5` remain accepted-and-logged rather than
+implemented. They drive a visual runtime rudel does not have
+(`docs/UNSUPPORTED.md`), none of them is part of Strudel's documented surface,
+and the log line says so where the console panel will show it.
+
+### Internal
+
+6318 of the 8004 public strudel.cc patterns play, up from 6284, with the
+rudel-only failures at 342. 31/31 strudel.cc tunes, 89/89 of eefano's
+collection, 491/491 of the vendored drum patterns, no panics.
+
 ## [0.12.3] — 2026-08-18
 
 Working down the differential list from 0.12.2. Of the 8004 public strudel.cc

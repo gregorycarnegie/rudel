@@ -21,11 +21,11 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `midi` | 2 | 2 | 0 | 0 | 0 |
 | `motion` | 48 | 0 | 48 | 0 | 0 |
 | `osc` | 1 | 1 | 0 | 0 | 0 |
-| `superdough` | 4 | 2 | 2 | 0 | 0 |
+| `superdough` | 4 | 3 | 1 | 0 | 0 |
 | `tonal` | 10 | 9 | 1 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **650** | **59** | **0** | **0** |
+| **Total** | **709** | **651** | **58** | **0** | **0** |
 
 ## `codemirror`
 
@@ -755,7 +755,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Name | Status | Note |
 | --- | --- | --- |
 | `getDuration` | implemented |  |
-| `setGainCurve` | intentional | unsupported package |
+| `setGainCurve` | implemented |  |
 | `setMaxPolyphony` | intentional | unsupported package |
 | `tables` | implemented |  |
 

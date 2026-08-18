@@ -65,7 +65,7 @@ fn requested_midi(map: &ValueMap) -> Option<f64> {
 /// Every voice type here defaults `gain` to 1.0, so scaling the control (or
 /// introducing it at 1.0 × velocity) matches what the voice would have done.
 fn apply_velocity(map: &ValueMap) -> Option<ValueMap> {
-    let velocity = map.get("velocity").and_then(|v| v.as_f64())?;
+    let velocity = rudel_core::apply_gain_curve(map.get("velocity").and_then(|v| v.as_f64())?);
     if velocity == 1.0 {
         return None;
     }

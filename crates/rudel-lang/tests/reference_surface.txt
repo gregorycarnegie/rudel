@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1036 methods=1126 controls=668
+# functions=1036 methods=1127 controls=668
 
 [functions]
 Array
@@ -185,7 +185,6 @@ disttype
 distvol
 div
 djf
-dough
 drive
 drop
 dry
@@ -865,6 +864,7 @@ set
 setCpm
 setCps
 setDefaultVoicings
+setGainCurve
 setSoundfontUrl
 setVoicingRange
 setcpm
@@ -1240,6 +1240,7 @@ div_squeeze
 div_squeezein
 div_squeezeout
 djf
+dough
 drive
 drop
 dry

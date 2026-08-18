@@ -251,7 +251,7 @@ impl VoiceParams {
             }
         }
         if let Some(g) = map.get("gain").and_then(|v| v.as_f64()) {
-            p.gain = g as f32;
+            p.gain = rudel_core::apply_gain_curve(g) as f32;
         }
         if let Some(pan) = map.get("pan").and_then(|v| v.as_f64()) {
             p.pan = pan as f32;

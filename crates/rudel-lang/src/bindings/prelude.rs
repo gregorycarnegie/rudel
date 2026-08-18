@@ -56,6 +56,26 @@ pub(super) fn add_curried_fn(
     });
 }
 
+/// `Math.random`'s source: xorshift64*, seeded once from the clock. Strudel's
+/// is the host's `Math.random`, which is likewise unseeded and unrepeatable.
+fn next_random() -> f64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STATE: AtomicU64 = AtomicU64::new(0);
+    let mut x = STATE.load(Ordering::Relaxed);
+    if x == 0 {
+        x = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0x2545_F491_4F6C_DD1D, |d| d.as_nanos() as u64)
+            | 1;
+    }
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    STATE.store(x, Ordering::Relaxed);
+    // 53 bits of mantissa, as `Math.random` yields.
+    (x >> 11) as f64 / (1u64 << 53) as f64
+}
+
 /// A partial application holding `held`: each call appends its args, then
 /// either re-curries (still short of `arity`) or applies `f`, so chained
 /// partial calls (`every(4)(rev)(pat)`) work like Strudel's `curry`.
@@ -185,15 +205,96 @@ pub(crate) fn register(prelude: &KMap) {
     // plus the standalone forms of the transforms that take a span.
     super::pattern::register_engine_fns(prelude);
     super::pattern::register_span_fns(prelude);
+    // JavaScript's `Math`, in full. Scripts reach for it constantly, and a
+    // missing member is not a parse error — it surfaces as `'floor' not found
+    // in 'map'` somewhere down the expression that used it.
     let math = KMap::new();
-    math.add_fn("pow", |ctx| {
-        let base = super::pattern::arg_to_f64(&arg0(ctx));
-        let exponent = ctx
-            .args()
-            .get(1)
-            .map(super::pattern::arg_to_f64)
-            .unwrap_or(0.0);
-        Ok(KValue::Number(KNumber::from(base.powf(exponent))))
+    for (name, value) in [
+        ("E", std::f64::consts::E),
+        ("LN10", std::f64::consts::LN_10),
+        ("LN2", std::f64::consts::LN_2),
+        ("LOG10E", std::f64::consts::LOG10_E),
+        ("LOG2E", std::f64::consts::LOG2_E),
+        ("PI", std::f64::consts::PI),
+        ("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2),
+        ("SQRT2", std::f64::consts::SQRT_2),
+    ] {
+        math.insert(name, KValue::Number(KNumber::from(value)));
+    }
+    macro_rules! math_fns {
+        ($($name:literal => $f:expr),* $(,)?) => {
+            $(math.add_fn($name, |ctx| {
+                let f: fn(f64) -> f64 = $f;
+                Ok(KValue::Number(KNumber::from(f(arg_to_f64(&arg0(ctx))))))
+            });)*
+        };
+    }
+    math_fns! {
+        "abs" => f64::abs, "acos" => f64::acos, "acosh" => f64::acosh,
+        "asin" => f64::asin, "asinh" => f64::asinh, "atan" => f64::atan,
+        "atanh" => f64::atanh, "cbrt" => f64::cbrt, "ceil" => f64::ceil,
+        "cos" => f64::cos, "cosh" => f64::cosh, "exp" => f64::exp,
+        "expm1" => f64::exp_m1, "floor" => f64::floor, "log" => f64::ln,
+        "log1p" => f64::ln_1p, "log10" => f64::log10, "log2" => f64::log2,
+        "sin" => f64::sin, "sinh" => f64::sinh, "sqrt" => f64::sqrt,
+        "tan" => f64::tan, "tanh" => f64::tanh, "trunc" => f64::trunc,
+        // `Math.round` breaks ties towards +infinity, where Rust's `round`
+        // breaks them away from zero: JS gives -0 for -0.5, Rust gives -1.
+        "round" => |x: f64| (x + 0.5).floor(),
+        // `fround` is the value as a 32-bit float, `sign` keeps NaN and zeros.
+        "fround" => |x: f64| x as f32 as f64,
+        "sign" => |x: f64| if x == 0.0 || x.is_nan() { x } else { x.signum() },
+    }
+    macro_rules! math_fns2 {
+        ($($name:literal => $f:expr),* $(,)?) => {
+            $(math.add_fn($name, |ctx| {
+                let f: fn(f64, f64) -> f64 = $f;
+                let a = arg_to_f64(&arg0(ctx));
+                let b = ctx.args().get(1).map(arg_to_f64).unwrap_or(f64::NAN);
+                Ok(KValue::Number(KNumber::from(f(a, b))))
+            });)*
+        };
+    }
+    math_fns2! {
+        "atan2" => f64::atan2,
+        "pow" => f64::powf,
+        "imul" => |a: f64, b: f64| ((a as i32).wrapping_mul(b as i32)) as f64,
+    }
+    // Variadic, and empty-argument cases JS defines: `max()` is -Infinity,
+    // `min()` is +Infinity, and either is NaN if any argument is.
+    for (name, empty, pick) in [
+        ("max", f64::NEG_INFINITY, true),
+        ("min", f64::INFINITY, false),
+    ] {
+        math.add_fn(name, move |ctx| {
+            let mut acc = empty;
+            for arg in ctx.args() {
+                let v = arg_to_f64(arg);
+                if v.is_nan() {
+                    acc = f64::NAN;
+                    break;
+                }
+                acc = if pick { acc.max(v) } else { acc.min(v) };
+            }
+            Ok(KValue::Number(KNumber::from(acc)))
+        });
+    }
+    math.add_fn("hypot", |ctx| {
+        let sum: f64 = ctx.args().iter().map(|a| arg_to_f64(a).powi(2)).sum();
+        Ok(KValue::Number(KNumber::from(sum.sqrt())))
+    });
+    math.add_fn("clz32", |ctx| {
+        let n = arg_to_f64(&arg0(ctx));
+        let bits = if n.is_finite() { n as i64 as u32 } else { 0 };
+        Ok(KValue::Number(KNumber::from(f64::from(
+            bits.leading_zeros(),
+        ))))
+    });
+    // `Math.random` is the one member that cannot be a pure function. It is
+    // seeded per process and left out of every golden test; a pattern that
+    // wants a *reproducible* random wants rudel's `rand` signal instead.
+    math.add_fn("random", |_| {
+        Ok(KValue::Number(KNumber::from(next_random())))
     });
     prelude.insert("Math", math);
 
@@ -547,7 +648,29 @@ pub(crate) fn register(prelude: &KMap) {
     // saying so in the log is what keeps that from looking like a silent
     // success. `console.log` goes to the same place the pattern's own `log`
     // does, which is the console panel.
-    for name in ["initHydra", "H", "hydra", "P5", "p5", "dough"] {
+    // `setGainCurve(f)`: rescale every gain-like value through `f`, as
+    // superdough's `applyGainCurve` does (gain, postgain, velocity, delay,
+    // busgain, shapevol, distortvol, tremolodepth). The function is sampled
+    // here, at evaluation time, because the audio path has no Koto VM to call
+    // it on — see `rudel_core::set_gain_curve` for the ceiling that carries.
+    prelude.add_fn("setGainCurve", |ctx| {
+        let f = arg0(ctx);
+        if !f.is_callable() {
+            rudel_core::clear_gain_curve();
+            return Ok(KValue::Null);
+        }
+        let step = rudel_core::GAIN_CURVE_MAX / (rudel_core::GAIN_CURVE_POINTS - 1) as f64;
+        let mut samples = Vec::with_capacity(rudel_core::GAIN_CURVE_POINTS);
+        for i in 0..rudel_core::GAIN_CURVE_POINTS {
+            let x = KValue::Number(KNumber::from(i as f64 * step));
+            let out = ctx.vm.call_function(f.clone(), &[x][..])?;
+            samples.push(arg_to_f64(&out));
+        }
+        rudel_core::set_gain_curve_samples(samples);
+        Ok(KValue::Null)
+    });
+
+    for name in ["initHydra", "H", "hydra", "P5", "p5"] {
         prelude.add_fn(name, move |_| {
             rudel_core::log_line(format!("{name}: not supported here, ignored"));
             Ok(KValue::Null)

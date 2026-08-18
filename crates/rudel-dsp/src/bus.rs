@@ -168,7 +168,7 @@ impl OrbitSend {
             orbit: get("orbit").map(|o| o as i32).unwrap_or(d.orbit),
             dry: get("dry").unwrap_or(d.dry),
             room: get("room").unwrap_or(d.room),
-            delay: get("delay").unwrap_or(d.delay),
+            delay: get("delay").map_or(d.delay, |v| rudel_core::apply_gain_curve(v as f64) as f32),
             reverb: ReverbConfig {
                 size: get("size").unwrap_or(d.reverb.size),
                 fade: get("roomfade").unwrap_or(d.reverb.fade),
@@ -188,7 +188,8 @@ impl OrbitSend {
             },
             djf: get("djf"),
             bus: get("bus").map(|b| b as i32),
-            busgain: get("busgain").unwrap_or(d.busgain),
+            busgain: get("busgain")
+                .map_or(d.busgain, |v| rudel_core::apply_gain_curve(v as f64) as f32),
         }
     }
 }
