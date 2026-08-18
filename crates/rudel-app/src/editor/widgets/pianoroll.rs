@@ -2,10 +2,10 @@ use super::{
     options::VisualWidgetOptions,
     query::hap_is_active,
     style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
-    values::{value_short, value_to_midi},
+    values::value_short,
 };
 use eframe::egui;
-use rudel_core::{Frac, Hap, Value};
+use rudel_core::{Frac, Hap, Value, value_to_midi};
 use std::sync::{Arc, Mutex};
 
 /// Blocks kept for `smear`, and the draw time they were last added at.
@@ -115,11 +115,11 @@ pub(super) fn paint_pianoroll(
         let end = hap.end_clipped().to_f64();
         let active = hap_is_active(hap, time);
         let fallback = if active {
-            options.active_color.unwrap_or(colors.active)
+            options.active_color.unwrap_or(colors.foreground)
         } else if options.colorize_inactive {
-            options.inactive_color.unwrap_or(colors.inactive)
+            options.inactive_color.unwrap_or(colors.muted)
         } else {
-            colors.inactive
+            colors.muted
         };
         let color = event_color(hap, fallback);
         let color = color_with_alpha(color, event_alpha(hap));
@@ -173,12 +173,12 @@ pub(super) fn paint_pianoroll(
                 egui::Align2::LEFT_CENTER,
                 roll_label(hap, active),
                 egui::FontId::monospace((block.height() * 0.55).clamp(9.0, 18.0)),
-                colors.text,
+                colors.foreground,
             );
         }
     }
 
-    let playhead_color = options.playhead_color.unwrap_or(colors.active);
+    let playhead_color = options.playhead_color.unwrap_or(colors.foreground);
     if options.vertical {
         let y = rect.bottom() - playhead * rect.height();
         painter.line_segment(

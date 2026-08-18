@@ -11,9 +11,9 @@
 // chainable and queryable like any other transform.
 
 use crate::{
-    hap::Context,
     pattern::{Pattern, pure},
     transforms::IntoPattern,
+    transforms::core::patternify::{patternify_value, push_loc},
     value::{Value, ValueMap},
 };
 use std::sync::Arc;
@@ -41,33 +41,6 @@ fn move_one(pat: &Pattern, dx: &Value, dy: &Value) -> Pattern {
 fn zoom_one(pat: &Pattern, f: &Value) -> Pattern {
     let d = Value::F64((1.0 - f.as_f64().unwrap_or(0.0)) / 2.0);
     move_one(&rescale_one(pat, f), &d, &d)
-}
-
-fn push_loc(result: Pattern, loc: Option<(usize, usize)>) -> Pattern {
-    let Some((start, end)) = loc else {
-        return result;
-    };
-    result.with_context(move |context: &Context| {
-        let mut context = context.clone();
-        context.locations.push((start, end));
-        context
-    })
-}
-
-/// Patternify a single value argument the way Strudel's `register` does for an
-/// arity-2 transform: pure args bypass (keeping their source location), patterned
-/// args map to the per-value result and `innerJoin`.
-fn patternify_value<F>(pat: &Pattern, arg: Pattern, f: F) -> Pattern
-where
-    F: Fn(&Pattern, &Value) -> Pattern + Send + Sync + 'static,
-{
-    if let Some(v) = &arg.pure_value {
-        return push_loc(f(pat, v), arg.pure_loc);
-    }
-    let pat = pat.clone();
-    let f = Arc::new(f);
-    arg.fmap(move |v| Value::Pat(Box::new(f(&pat, &v))))
-        .inner_join()
 }
 
 /// Patternify two value arguments the way Strudel's `register` does for an

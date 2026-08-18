@@ -321,7 +321,7 @@ fn scale_completion(
         ));
     }
 
-    let start = suffix_start(&ctx.inside, |ch| {
+    let start = fragment_start(&ctx.inside, |ch| {
         ch.is_ascii_alphabetic() || matches!(ch, '#' | 'b')
     });
     let fragment = &ctx.inside[start..];
@@ -423,12 +423,9 @@ fn quoted_arg_context(code: &str, cursor: usize, names: &[&str]) -> Option<Quote
 
     let left = before[..quote_idx].trim_end();
     let left = left.strip_suffix('(')?.trim_end();
-    let ident_start = left
-        .char_indices()
-        .rev()
-        .find(|(_, ch)| !(ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '$'))
-        .map(|(idx, ch)| idx + ch.len_utf8())
-        .unwrap_or(0);
+    let ident_start = fragment_start(left, |ch| {
+        ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'
+    });
     let name = &left[ident_start..];
     names.contains(&name).then(|| QuotedArgContext {
         inside: inside.to_string(),
@@ -437,14 +434,6 @@ fn quoted_arg_context(code: &str, cursor: usize, names: &[&str]) -> Option<Quote
 }
 
 fn fragment_start(text: &str, allowed: impl Fn(char) -> bool) -> usize {
-    text.char_indices()
-        .rev()
-        .find(|(_, ch)| !allowed(*ch))
-        .map(|(idx, ch)| idx + ch.len_utf8())
-        .unwrap_or(0)
-}
-
-fn suffix_start(text: &str, allowed: impl Fn(char) -> bool) -> usize {
     text.char_indices()
         .rev()
         .find(|(_, ch)| !allowed(*ch))
@@ -688,13 +677,13 @@ mod tests {
         // Where the completion's replacement begins: the run of allowed
         // characters ending at the cursor.
         let alpha = |ch: char| char::is_ascii_alphabetic(&ch);
-        assert_eq!(suffix_start("c#4x", alpha), 3, "after the digit");
-        assert_eq!(suffix_start("abc", alpha), 0, "all of it is allowed");
-        assert_eq!(suffix_start("abc#", alpha), 4, "nothing at the end is");
-        assert_eq!(suffix_start("", alpha), 0);
+        assert_eq!(fragment_start("c#4x", alpha), 3, "after the digit");
+        assert_eq!(fragment_start("abc", alpha), 0, "all of it is allowed");
+        assert_eq!(fragment_start("abc#", alpha), 4, "nothing at the end is");
+        assert_eq!(fragment_start("", alpha), 0);
         // Counted in bytes, so a multi-byte character before the fragment has
         // to be stepped over whole.
-        assert_eq!(suffix_start("é4x", alpha), 3, "'é' is two bytes");
+        assert_eq!(fragment_start("é4x", alpha), 3, "'é' is two bytes");
     }
 
     #[test]
@@ -1014,7 +1003,10 @@ mod tests {
         let catalog = catalog(&reference, &idents, &sample_names);
         assert_eq!(completion_at_bytes("ab", 99, &catalog), None);
         assert_eq!(completion_at_bytes("ab", 3, &catalog), None, "one past");
-        assert!(completion_at_bytes("ab", 2, &catalog).is_some(), "at the end");
+        assert!(
+            completion_at_bytes("ab", 2, &catalog).is_some(),
+            "at the end"
+        );
     }
 
     #[test]

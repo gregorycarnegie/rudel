@@ -11,16 +11,7 @@ pub fn randcat(pats: &[Pattern]) -> Pattern {
     if pats.is_empty() {
         return silence();
     }
-    let pats: Vec<Pattern> = pats.to_vec();
-    let len = pats.len();
-    let chooser = rand().segment(1);
-    let pats = Arc::new(pats);
-    chooser
-        .fmap(move |v| {
-            let idx = ((v.as_f64().unwrap_or(0.0) * len as f64) as usize).min(len - 1);
-            Value::Pat(Box::new(pats[idx].clone()))
-        })
-        .inner_join()
+    choose_in_with(rand().segment(1), pats)
 }
 
 /// Shared core of `choose`/`chooseIn` (`__chooseWith`): scale the 0..1 chooser
@@ -53,10 +44,16 @@ pub fn choose(pats: &[Pattern]) -> Pattern {
 /// `chooseIn`: like [`choose`], but the structure comes from the chosen values
 /// (`innerJoin`).
 pub fn choose_in(pats: &[Pattern]) -> Pattern {
+    choose_in_with(rand(), pats)
+}
+
+/// Strudel's `chooseInWith`: index the list by an arbitrary 0..1 `chooser`
+/// signal, taking structure from the chosen patterns (`innerJoin`).
+pub fn choose_in_with(chooser: Pattern, pats: &[Pattern]) -> Pattern {
     if pats.is_empty() {
         return silence();
     }
-    choose_pats(rand(), pats).inner_join()
+    choose_pats(chooser, pats).inner_join()
 }
 
 /// Shared core of the weighted choosers. `chooser` is a 0..1 signal; each pair

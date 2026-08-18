@@ -2,7 +2,10 @@ use super::{
     KPattern,
     convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value},
 };
-use koto::{prelude::*, runtime::Result as KotoResult};
+use koto::{
+    prelude::*,
+    runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error},
+};
 use rudel_core::{Frac, Pattern, Value};
 
 pub(super) fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
@@ -144,4 +147,20 @@ pub(super) fn with_i64_f64_frac_args(
     let b = method_f64_arg(ctx, 1);
     let c = method_frac_arg(ctx, 2);
     with_instance(ctx, |pat| f(pat, a, b, c))
+}
+
+/// Run `body` with the method's instance pattern and its extra args, for the
+/// dynamically-inserted methods that arrive as a plain `CallContext` rather
+/// than through `#[koto_method]`.
+pub(super) fn with_method_instance(
+    ctx: &mut CallContext,
+    body: impl FnOnce(&MethodContext<KPattern>, &Pattern) -> Pattern,
+) -> KotoResult<KValue> {
+    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
+        (KValue::Object(o), extra_args) => {
+            let mctx = MethodContext::new(o, extra_args, ctx.vm);
+            with_instance(&mctx, |pat| body(&mctx, pat))
+        }
+        _ => runtime_error!(ErrorKind::UnexpectedError),
+    }
 }

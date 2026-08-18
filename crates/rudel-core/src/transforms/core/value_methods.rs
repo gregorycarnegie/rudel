@@ -1,5 +1,5 @@
 use super::{
-    Align, IntoPattern,
+    IntoPattern,
     value_ops::{
         bit_and, bit_lshift, bit_or, bit_rshift, bit_xor, cmp_eq, cmp_eqt, cmp_gt, cmp_gte, cmp_lt,
         cmp_lte, cmp_ne, cmp_net, logic_and, logic_or, num_add, num_div, num_mod, num_mul, num_pow,
@@ -15,31 +15,31 @@ macro_rules! aligned_variants {
     ($op:expr; $out:ident $mix:ident $sq:ident $sqo:ident $reset:ident $restart:ident $poly:ident) => {
         #[doc = "Polymetric alignment (`poly`)."]
         pub fn $poly(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::Poly, $op)
+            self.op_poly(other.into_pattern(), $op)
         }
         #[doc = "Structure from the right (`out` alignment)."]
         pub fn $out(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::Out, $op)
+            self.op_out(other.into_pattern(), $op)
         }
         #[doc = "Structure from the intersection of both (`mix` alignment)."]
         pub fn $mix(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::Mix, $op)
+            self.op_mix(other.into_pattern(), $op)
         }
         #[doc = "Squeeze one cycle of `other` into each event (`squeeze`)."]
         pub fn $sq(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::Squeeze, $op)
+            self.op_squeeze(other.into_pattern(), $op)
         }
         #[doc = "Squeeze one cycle of this into each event of `other` (`squeezeOut`)."]
         pub fn $sqo(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::SqueezeOut, $op)
+            self.op_squeeze_out(other.into_pattern(), $op)
         }
         #[doc = "Retrigger this pattern at each onset of `other` (`reset`)."]
         pub fn $reset(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::Reset, $op)
+            self.op_reset_impl(other.into_pattern(), $op, false)
         }
         #[doc = "Retrigger from cycle zero at each onset of `other` (`restart`)."]
         pub fn $restart(&self, other: impl IntoPattern) -> Pattern {
-            self.op_align(other.into_pattern(), Align::Restart, $op)
+            self.op_reset_impl(other.into_pattern(), $op, true)
         }
     };
 }

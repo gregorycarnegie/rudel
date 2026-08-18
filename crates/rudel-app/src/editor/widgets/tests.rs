@@ -1,5 +1,4 @@
 use super::{
-    analyzer::fft_in_place,
     claviature::{hap_midi, is_black},
     geometry::WIDGET_GAP_PADDING,
     options::{DrawWindow, VisualWidgetOptions},
@@ -8,7 +7,7 @@ use super::{
     query::{hap_matches_widget, widget_haps},
     size::{default_surface_size, surface_size},
     spiral::spiral_point,
-    style::{color_with_alpha, parse_hex_color, resolve_color, widget_draw_colors},
+    style::{color_with_alpha, resolve_color, widget_draw_colors},
     *,
 };
 use crate::editor::{
@@ -145,9 +144,9 @@ fn surface_size_follows_widget_size_width_and_height_options() {
 #[test]
 fn widget_draw_colors_follow_strudel_draw_theme_defaults() {
     let colors = widget_draw_colors(EditorTheme::StrudelDark.draw_theme());
-    assert_eq!(colors.active, egui::Color32::WHITE);
+    assert_eq!(colors.foreground, egui::Color32::WHITE);
     assert_eq!(
-        colors.inactive,
+        colors.muted,
         egui::Color32::from_rgba_unmultiplied(0x8a, 0x91, 0x99, 0x66)
     );
     assert_eq!(
@@ -267,24 +266,6 @@ fn spiral_point_matches_strudel_polar_mapping() {
 }
 
 #[test]
-fn fft_peaks_at_the_sine_bin() {
-    let n = 512;
-    let bin = 37;
-    let mut re: Vec<f32> = (0..n)
-        .map(|i| (std::f32::consts::TAU * bin as f32 * i as f32 / n as f32).sin())
-        .collect();
-    let mut im = vec![0.0f32; n];
-    fft_in_place(&mut re, &mut im);
-    let peak = (0..n / 2)
-        .max_by(|&a, &b| {
-            let mag = |k: usize| re[k] * re[k] + im[k] * im[k];
-            mag(a).total_cmp(&mag(b))
-        })
-        .unwrap();
-    assert_eq!(peak, bin);
-}
-
-#[test]
 fn analyzer_and_claviature_options_follow_strudel_names() {
     let scope = widget_with_options(
         "_scope",
@@ -336,7 +317,7 @@ fn claviature_maps_notes_to_midi_and_key_colors() {
 #[test]
 fn parses_hex_event_colors_and_applies_alpha() {
     assert_eq!(
-        parse_hex_color("#ff000080"),
+        resolve_color("#ff000080"),
         Some(egui::Color32::from_rgba_unmultiplied(0xff, 0, 0, 0x80))
     );
     assert_eq!(

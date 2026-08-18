@@ -8,6 +8,7 @@ use crate::{
     hap::Hap,
     pattern::{Pattern, pure, silence, stack},
     transforms::IntoPattern,
+    transforms::core::patternify::patternify_value,
     value::{Value, ValueMap},
 };
 
@@ -127,18 +128,15 @@ fn value_to_semitones(v: &Value) -> f64 {
     }
 }
 
-/// Coerce a value to a MIDI note number: numbers pass through, note-name strings
-/// are parsed.
-fn value_to_midi(v: &Value) -> Option<f64> {
+/// Coerce a value to a MIDI note number: a numeric string or number passes
+/// through, a note-name string is parsed.
+pub fn value_to_midi(v: &Value) -> Option<f64> {
     match v {
-        Value::Int(n) => Some(*n as f64),
-        Value::F64(n) => Some(*n),
-        Value::Frac(f) => Some(f.to_f64()),
         Value::Str(s) => s
             .parse::<f64>()
             .ok()
-            .or_else(|| note_to_midi(s).map(|m| m as f64)),
-        _ => None,
+            .or_else(|| note_to_midi(s).map(f64::from)),
+        other => other.as_f64(),
     }
 }
 
@@ -488,13 +486,9 @@ impl Pattern {
     /// it). Tags each hap with the scale for [`scale_transpose`](Self::scale_transpose).
     /// `scale` may be a string or a pattern of scale names.
     pub fn scale(&self, scale: impl IntoPattern) -> Pattern {
-        let arg = scale.into_pattern();
-        let pat = self.clone();
-        if let Some(v) = &arg.pure_value {
-            return pat.apply_scale(scale_name_of(v));
-        }
-        arg.fmap(move |v| Value::Pat(Box::new(pat.apply_scale(scale_name_of(&v)))))
-            .inner_join()
+        patternify_value(self, scale.into_pattern(), |pat, v| {
+            pat.apply_scale(scale_name_of(v))
+        })
     }
 
     /// Apply a fixed scale name to every hap.
@@ -511,17 +505,10 @@ impl Pattern {
     /// Shift each note by a number of semitones, or by a named interval string
     /// (`"3M"`, `"5P"`, `"-2M"`) — or a pattern of either.
     pub fn transpose(&self, semis: impl IntoPattern) -> Pattern {
-        let arg = semis.into_pattern();
-        let pat = self.clone();
-        if let Some(v) = &arg.pure_value {
+        patternify_value(self, semis.into_pattern(), |pat, v| {
             let s = value_to_semitones(v);
-            return pat.with_value(move |val| transpose_value(val, s));
-        }
-        arg.fmap(move |v| {
-            let s = value_to_semitones(&v);
-            Value::Pat(Box::new(pat.with_value(move |val| transpose_value(val, s))))
+            pat.with_value(move |val| transpose_value(val, s))
         })
-        .inner_join()
     }
 
     /// Alias for [`transpose`](Self::transpose) (`trans`).

@@ -11,6 +11,89 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-18
+
+An over-engineering audit of the whole tree, applied. Net −1651 lines across
+59 files, no behaviour intended to change except where noted below.
+
+### Removed
+
+- `Align` and `Pattern::op_align`. Only `aligned_variants!` consumed them and
+  `Align::In` was never constructed; the macro calls the `op_*` methods it was
+  dispatching to.
+- `EvalMeta::mini_locations`, `EvalMeta::labels`, `EvalMeta::cleanup`, and the
+  `LabelMeta`/`CleanupHints` types behind the latter two. All three were written
+  and never read — the editor takes per-hap source locations from the `m(...)`
+  calls the preprocessor writes into the script, not from a side table, and
+  nothing ever populated the label or cleanup channels at all.
+- `rudel_dsp::note_name_to_midi`, a one-line re-export of
+  `rudel_core::note_to_midi`.
+- `Frac::min`/`Frac::max`. `Frac` derives `Ord`, which provides both with the
+  same semantics, so every `a.min(b)` call site is unaffected.
+- `reset_state`, a one-line alias for `reset_timelines` with no caller.
+- The app's permanently-disabled `multi_cursor` setting, and `todo.md`, whose
+  135 checkboxes were all closed and whose remaining-work notes contradicted
+  later entries.
+
+### Changed
+
+- The reference pane's control list comes from `rudel_lang::reference()`
+  instead of a hand-typed copy of 112 names, so it cannot advertise a control
+  the engine no longer has. It reads alphabetically now rather than in the old
+  curated order.
+- The window icon is a baked `icon.png` loaded through
+  `eframe::icon_data::from_png_bytes`, not a 256×256 signed-distance rasteriser
+  run at every launch. Same artwork, ~125 fewer lines, nothing to rasterise on
+  the startup path.
+
+### Internal
+
+Duplicate implementations collapsed onto one each: a second radix-2 FFT in the
+spectrum widget onto `rudel_dsp::Fft` (which precomputes its twiddles once,
+rather than per repaint); three copies of `value_to_midi` onto one in
+`rudel_core`; three copies of the identifier-fragment scanner in the completion
+code; two byte-identical `MethodContext` adapters; two brace/paren walkers onto
+one parameterised `matching_delimiter`; two local `MidiSink` recorders in the
+MIDI tests onto the module-level one; three sample-map resolutions onto
+`resolve_map_source`; `fetch_cached_text` onto a UTF-8 decode of
+`fetch_cached_bytes`; nine multi-control setters onto one macro; the duplicate
+`EXTRA_CONTROL_BUILDERS`/`EXTRA_CONTROL_KEYS` tables onto one
+`(spelling, key, builder)` row set; and mini's seeded chooser plus `randcat`'s
+parallel selector onto a core `choose_in_with`.
+
+Ten inline `if pure { … } else { fmap().inner_join() }` fast paths in `draw`,
+`xen`, `edo` and `tonal` now route through one crate-visible
+`patternify_value`, which also means they push a bypassed pure argument's
+source location the way Strudel's `register` does — the tune-hap and songs
+parity oracles agree either way.
+
+`EdoScale → Intervals → Pitches` was a three-type pipeline feeding a single
+call site; it is one constructor. Its `tonic` field was always 1 (so the base
+ratio it computed was always 1.0) and `medium` was always an alias for `large`.
+
+Hand-rolled code the platform already ships: base64 decoding (the `base64`
+crate was already in the resolved graph via `ureq`), hex colour parsing
+(`Color32::from_hex`, which also accepts `#rgb`), `startsWith`/`endsWith` (now
+aliases onto Koto's own `starts_with`/`ends_with` rather than second
+implementations), and Euclid's copying split and rotate-copy (slice `split_at`
+and `rotate_left`).
+
+`WidgetDrawColors` carried five fields over three distinct theme colours —
+`text` and `active` were both the foreground, `muted` and `inactive` both the
+gutter foreground. It carries three.
+
+The hand-maintained standalone-transform inventory in the tests is gone; the
+committed reference-surface snapshot already covers every name in it exactly,
+and shows a removal as a diff line.
+
+### Migrating
+
+The removals above are all of items with no in-tree consumer, but they are
+public API. `Align`/`op_align` callers want the `op_*` method the variant named;
+`note_name_to_midi` callers want `rudel_core::note_to_midi`; `Frac::min`/`max`
+callers need no change (`Ord` provides them); `reset_state` callers want
+`reset_timelines`. Readers of `EvalMeta::mini_locations` want the hap contexts.
+
 ## [0.11.3] — 2026-08-17
 
 A second test-only release, continuing the 2026-08-17 mutation sweep into

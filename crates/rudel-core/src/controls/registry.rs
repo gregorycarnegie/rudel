@@ -9,55 +9,32 @@ use crate::pattern::Pattern;
 
 type ControlBuilder = fn(Pattern) -> Pattern;
 type ControlBuilderEntry = (&'static str, ControlBuilder);
-type ControlKeyEntry = (&'static str, &'static str);
 
 /// Control spellings without a same-named Rust builder fn: bespoke controls
 /// (`s` splits `name:index`, `mode` also sets `anchor`) and camelCase /
 /// keyword-safe aliases that otherwise only exist in the language bindings.
-static EXTRA_CONTROL_BUILDERS: &[ControlBuilderEntry] = &[
-    ("s", |p| s(p)),
-    ("sound", |p| sound(p)),
-    ("mode", |p| mode(p)),
-    ("distort", |p| distort(p)),
-    ("shape", |p| shape(p)),
-    ("transient", |p| transient(p)),
-    ("vib", |p| vib(p)),
-    ("vibrato", |p| vib(p)),
-    ("v", |p| vib(p)),
-    ("label", |p| label(p)),
-    ("bendRange", |p| bend_range(p)),
-    ("wavetablePosition", |p| wt(p)),
-    ("wavetableWarp", |p| warp(p)),
-    ("wavetableWarpMode", |p| warpmode(p)),
-    ("wavetablePhaseRand", |p| wtphaserand(p)),
-    ("fadeOutTime", |p| fade_time(p)),
-    ("FXrel", |p| fx_release(p)),
-    ("FXr", |p| fx_release(p)),
-    ("loopb", |p| loop_begin(p)),
-    ("loope", |p| loop_end(p)),
-];
-
-static EXTRA_CONTROL_KEYS: &[ControlKeyEntry] = &[
-    ("s", "s"),
-    ("sound", "s"),
-    ("mode", "mode"),
-    ("distort", "distort"),
-    ("shape", "shape"),
-    ("transient", "transient"),
-    ("vib", "vib"),
-    ("vibrato", "vib"),
-    ("v", "vib"),
-    ("label", "label"),
-    ("bendRange", "bendRange"),
-    ("wavetablePosition", "wt"),
-    ("wavetableWarp", "warp"),
-    ("wavetableWarpMode", "warpmode"),
-    ("wavetablePhaseRand", "wtphaserand"),
-    ("fadeOutTime", "fadeTime"),
-    ("FXrel", "FXrelease"),
-    ("FXr", "FXrelease"),
-    ("loopb", "loopBegin"),
-    ("loope", "loopEnd"),
+/// One row per spelling: `(spelling, canonical key, builder)`.
+static EXTRA_CONTROLS: &[(&str, &str, ControlBuilder)] = &[
+    ("s", "s", |p| s(p)),
+    ("sound", "s", |p| sound(p)),
+    ("mode", "mode", |p| mode(p)),
+    ("distort", "distort", |p| distort(p)),
+    ("shape", "shape", |p| shape(p)),
+    ("transient", "transient", |p| transient(p)),
+    ("vib", "vib", |p| vib(p)),
+    ("vibrato", "vib", |p| vib(p)),
+    ("v", "vib", |p| vib(p)),
+    ("label", "label", |p| label(p)),
+    ("bendRange", "bendRange", |p| bend_range(p)),
+    ("wavetablePosition", "wt", |p| wt(p)),
+    ("wavetableWarp", "warp", |p| warp(p)),
+    ("wavetableWarpMode", "warpmode", |p| warpmode(p)),
+    ("wavetablePhaseRand", "wtphaserand", |p| wtphaserand(p)),
+    ("fadeOutTime", "fadeTime", |p| fade_time(p)),
+    ("FXrel", "FXrelease", |p| fx_release(p)),
+    ("FXr", "FXrelease", |p| fx_release(p)),
+    ("loopb", "loopBegin", |p| loop_begin(p)),
+    ("loope", "loopEnd", |p| loop_end(p)),
 ];
 
 /// Every `(name, builder)` control pair: plain controls, aliases,
@@ -69,8 +46,12 @@ pub fn control_builders() -> impl Iterator<Item = ControlBuilderEntry> {
         .iter()
         .chain(ALIAS_CONTROL_BUILDERS)
         .chain(NAMED_CONTROL_BUILDERS)
-        .chain(EXTRA_CONTROL_BUILDERS)
         .copied()
+        .chain(
+            EXTRA_CONTROLS
+                .iter()
+                .map(|&(name, _, builder)| (name, builder)),
+        )
 }
 
 fn builder_key(name: &'static str) -> &'static str {
@@ -147,7 +128,7 @@ pub fn control_name(name: &str) -> String {
     if let Some((key, _)) = NAMED_CONTROL_BUILDERS.iter().find(|(n, _)| *n == name) {
         return (*key).to_string();
     }
-    if let Some((_, key)) = EXTRA_CONTROL_KEYS.iter().find(|(n, _)| *n == name) {
+    if let Some((_, key, _)) = EXTRA_CONTROLS.iter().find(|(n, _, _)| *n == name) {
         return (*key).to_string();
     }
     if let Some((_, key)) = numbered_control_names()

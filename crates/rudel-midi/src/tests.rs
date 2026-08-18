@@ -455,15 +455,8 @@ fn input_cc_reaches_the_core_bus() {
 #[test]
 fn engine_sends_through_a_sink() {
     // Drive the engine with a recording sink and confirm a note-on arrives.
-    #[derive(Clone)]
-    struct Rec(Arc<Mutex<Vec<Vec<u8>>>>);
-    impl MidiSink for Rec {
-        fn send(&mut self, bytes: &[u8]) {
-            self.0.lock().unwrap().push(bytes.to_vec());
-        }
-    }
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let sink = Rec(log.clone());
+    let sink = Recorder::default();
+    let log = sink.0.clone();
     let pat = note(pure(Value::Int(60)));
     let engine = MidiEngine::start(sink, pat, 4.0); // fast cps for a quick test
     std::thread::sleep(Duration::from_millis(120));
@@ -482,15 +475,8 @@ fn engine_sends_through_a_sink() {
 fn engine_emits_sysex_and_note_through_the_sink() {
     // End-to-end: a hap carrying both a note and sysex flows through the real
     // scheduler thread and the note-independent aux path to a fake device.
-    #[derive(Clone)]
-    struct Rec(Arc<Mutex<Vec<Vec<u8>>>>);
-    impl MidiSink for Rec {
-        fn send(&mut self, bytes: &[u8]) {
-            self.0.lock().unwrap().push(bytes.to_vec());
-        }
-    }
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let sink = Rec(log.clone());
+    let sink = Recorder::default();
+    let log = sink.0.clone();
     let controls = map(&[
         ("note", Value::Int(60)),
         ("sysexid", Value::Int(0x7E)),

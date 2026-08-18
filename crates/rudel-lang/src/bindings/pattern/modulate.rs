@@ -6,12 +6,12 @@
 
 use super::{
     KPattern,
-    args::{method_arg, with_instance},
+    args::{method_arg, with_method_instance},
     convert::arg_to_pattern,
 };
 use koto::{
     prelude::*,
-    runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error},
+    runtime::{CallContext, Result as KotoResult},
 };
 use rudel_core::{Pattern, Value, modulate, pure};
 
@@ -39,24 +39,10 @@ fn id_pattern(arg: Option<KValue>) -> Pattern {
     }
 }
 
-/// Run `body` with the method's instance pattern and its extra args.
-fn with_modulate_instance(
-    ctx: &mut CallContext,
-    body: impl FnOnce(&MethodContext<KPattern>, &Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
-        (KValue::Object(o), extra_args) => {
-            let mctx = MethodContext::new(o, extra_args, ctx.vm);
-            with_instance(&mctx, |pat| body(&mctx, pat))
-        }
-        _ => runtime_error!(ErrorKind::UnexpectedError),
-    }
-}
-
 /// Build the `pat.modulate(type, config, id)` method for a fixed modulator type
 /// (`lfo`/`env`/`bmod`): config is arg 0, the optional id is arg 1.
 fn modulate_typed(ctx: &mut CallContext, mod_type: &'static str) -> KotoResult<KValue> {
-    with_modulate_instance(ctx, |mctx, pat| {
+    with_method_instance(ctx, |mctx, pat| {
         let config = config_entries(&method_arg(mctx, 0));
         let id = id_pattern(mctx.args.get(1).cloned());
         modulate(pat, mod_type, config, id)
@@ -77,7 +63,7 @@ pub(crate) fn insert_modulate_methods(entries: &koto::runtime::KMap) {
     entries.insert(
         "modulate",
         KValue::NativeFunction(KNativeFunction::new(|ctx| {
-            with_modulate_instance(ctx, |mctx, pat| {
+            with_method_instance(ctx, |mctx, pat| {
                 let mod_type = match method_arg(mctx, 0) {
                     KValue::Str(s) => s.to_string(),
                     _ => String::new(),

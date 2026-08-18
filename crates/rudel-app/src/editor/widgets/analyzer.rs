@@ -5,11 +5,15 @@
 
 use super::options::VisualWidgetOptions;
 use eframe::egui;
-use rudel_audio::ScopeTap;
+use rudel_audio::{Fft, ScopeTap};
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
 };
+
+/// The display transform. One fixed size, so the bit-reversal table and
+/// twiddles are built once instead of per repaint.
+static FFT: LazyLock<Fft> = LazyLock::new(|| Fft::new(FFT_SIZE));
 
 /// Displayed samples / frequency bins — the `frequencyBinCount` of Strudel's
 /// default analyser (`fftSize` 1024).
@@ -235,7 +239,7 @@ fn frequency_data(ui: &egui::Ui, widget_id: &str, tap: Option<&ScopeTap>) -> Vec
         let w = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FFT_SIZE as f32).cos();
         *s *= w;
     }
-    fft_in_place(&mut re, &mut im);
+    FFT.forward(&mut re, &mut im);
 
     let smoothed: Arc<Mutex<Vec<f32>>> = ui.data_mut(|d| {
         d.get_temp_mut_or_default::<Arc<Mutex<Vec<f32>>>>(egui::Id::new((
@@ -256,43 +260,4 @@ fn frequency_data(ui: &egui::Ui, widget_id: &str, tap: Option<&ScopeTap>) -> Vec
             20.0 * s.max(1e-10).log10()
         })
         .collect()
-}
-
-/// In-place iterative radix-2 complex FFT (enough for a 1024-point display;
-/// no external FFT dependency in the app crate).
-pub(super) fn fft_in_place(re: &mut [f32], im: &mut [f32]) {
-    let n = re.len();
-    debug_assert!(n.is_power_of_two() && im.len() == n);
-    let mut j = 0usize;
-    for i in 1..n {
-        let mut bit = n >> 1;
-        while j & bit != 0 {
-            j ^= bit;
-            bit >>= 1;
-        }
-        j |= bit;
-        if i < j {
-            re.swap(i, j);
-            im.swap(i, j);
-        }
-    }
-    let mut len = 2;
-    while len <= n {
-        let ang = -std::f32::consts::TAU / len as f32;
-        let (wr, wi) = (ang.cos(), ang.sin());
-        for start in (0..n).step_by(len) {
-            let (mut cr, mut ci) = (1.0f32, 0.0f32);
-            for k in start..start + len / 2 {
-                let (ur, ui) = (re[k], im[k]);
-                let (sr, si) = (re[k + len / 2], im[k + len / 2]);
-                let (vr, vi) = (sr * cr - si * ci, sr * ci + si * cr);
-                re[k] = ur + vr;
-                im[k] = ui + vi;
-                re[k + len / 2] = ur - vr;
-                im[k + len / 2] = ui - vi;
-                (cr, ci) = (cr * wr - ci * wi, cr * wi + ci * wr);
-            }
-        }
-        len <<= 1;
-    }
 }

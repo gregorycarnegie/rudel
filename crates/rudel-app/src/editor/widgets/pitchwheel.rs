@@ -1,10 +1,9 @@
 use super::{
     options::VisualWidgetOptions,
     style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
-    values::value_to_midi,
 };
 use eframe::egui;
-use rudel_core::{Hap, Value};
+use rudel_core::{Hap, Value, value_to_midi};
 
 pub(super) fn paint_pitchwheel(
     ui: &egui::Ui,
@@ -42,7 +41,11 @@ pub(super) fn paint_pitchwheel(
     let int_labels = field("intLabels").and_then(|v| string_list(&v));
 
     if options.circle {
-        painter.circle_stroke(center, radius, egui::Stroke::new(thickness, colors.active));
+        painter.circle_stroke(
+            center,
+            radius,
+            egui::Stroke::new(thickness, colors.foreground),
+        );
     }
 
     if edo > 0 {
@@ -60,7 +63,7 @@ pub(super) fn paint_pitchwheel(
             painter.circle_filled(
                 pos,
                 hap_radius * 0.45,
-                color_with_alpha(colors.inactive, alpha),
+                color_with_alpha(colors.muted, alpha),
             );
 
             // Interval label for this degree, offset off the wheel the way
@@ -102,7 +105,7 @@ pub(super) fn paint_pitchwheel(
         };
         let angle = freq_to_angle(freq, root);
         let pos = pitchwheel_pos(center, radius, angle);
-        let color = color_with_alpha(event_color(hap, colors.active), event_alpha(hap));
+        let color = color_with_alpha(event_color(hap, colors.foreground), event_alpha(hap));
         shape.push((pos, angle, color));
         if !options.polygon {
             painter.line_segment([center, pos], egui::Stroke::new(1.0, color));
@@ -117,7 +120,7 @@ pub(super) fn paint_pitchwheel(
         let points = shape.iter().map(|(pos, _, _)| *pos).collect::<Vec<_>>();
         painter.add(egui::Shape::closed_line(
             points,
-            egui::Stroke::new(hap_radius, colors.active),
+            egui::Stroke::new(hap_radius, colors.foreground),
         ));
     }
 }

@@ -15,7 +15,9 @@ mod xfade;
 #[cfg(test)]
 mod tests;
 
-pub use choice::{choose, choose_cycles, choose_in, choose_with, randcat, wchoose, wrandcat};
+pub use choice::{
+    choose, choose_cycles, choose_in, choose_in_with, choose_with, randcat, wchoose, wrandcat,
+};
 pub use morph::morph;
 pub use numeric::ratio_value;
 pub use structure::{stepalt, zip};

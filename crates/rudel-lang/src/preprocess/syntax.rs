@@ -256,22 +256,27 @@ pub(super) fn rewrite_logical_operators(src: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| src.to_string())
 }
 
-/// Just past the `}` matching the `{` at `open`, skipping nested braces.
-fn matching_brace(mask: &[u8], open: usize) -> Option<usize> {
+/// The index of the closer matching the `open`th delimiter, skipping nested
+/// pairs. `mask` is the code mask, so delimiters inside strings/comments are
+/// already blanked out.
+fn matching_delimiter(mask: &[u8], open: usize, opener: u8, closer: u8) -> Option<usize> {
     let mut depth = 0i32;
     for (i, &byte) in mask.iter().enumerate().skip(open) {
-        match byte {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
+        if byte == opener {
+            depth += 1;
+        } else if byte == closer {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
             }
-            _ => {}
         }
     }
     None
+}
+
+/// Just past the `}` matching the `{` at `open`, skipping nested braces.
+fn matching_brace(mask: &[u8], open: usize) -> Option<usize> {
+    matching_delimiter(mask, open, b'{', b'}')
 }
 
 /// Split a function body into statements at the `;` and newlines that are not
@@ -718,20 +723,7 @@ pub(super) fn rewrite_prototype_methods(src: &str) -> String {
 
 /// Just past the `)` matching the `(` at `open`.
 fn matching_paren(mask: &[u8], open: usize) -> Option<usize> {
-    let mut depth = 0i32;
-    for (i, &byte) in mask.iter().enumerate().skip(open) {
-        match byte {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
+    matching_delimiter(mask, open, b'(', b')')
 }
 
 /// Rename `this` to the parameter the receiver arrives in.
@@ -2574,7 +2566,10 @@ mod tests {
             "c = 1\nb = (x) => c\na = (x) => b"
         );
         // Already in order, so nothing moves...
-        assert_eq!(order_declarations("a = 1\nb = a\nc = b"), "a = 1\nb = a\nc = b");
+        assert_eq!(
+            order_declarations("a = 1\nb = a\nc = b"),
+            "a = 1\nb = a\nc = b"
+        );
         // ...and a cycle is left in source order rather than hanging.
         assert_eq!(
             order_declarations("a = (x) => b(x)\nb = (x) => a(x)"),
@@ -2668,10 +2663,7 @@ mod tests {
             "stack(pure(1).fast( 2),\n  pure(3).fast(\n    4))"
         );
         // Last in its list, so its layout is left alone.
-        assert_eq!(
-            flatten_non_final_groups("f(a(\n  1\n))"),
-            "f(a(\n  1\n))"
-        );
+        assert_eq!(flatten_non_final_groups("f(a(\n  1\n))"), "f(a(\n  1\n))");
         // The `,` that decides this has to be the *list's* — one belonging to a
         // call further along the line says nothing about this group.
         assert_eq!(
@@ -2932,7 +2924,10 @@ mod tests {
         // A name key is not numeric, and a number that is not a key — the
         // opening line of a block body — is not one either.
         assert_eq!(quote_numeric_map_keys("{a: 1}"), "{a: 1}");
-        assert_eq!(quote_numeric_map_keys("f((v) => { 2 * v })"), "f((v) => { 2 * v })");
+        assert_eq!(
+            quote_numeric_map_keys("f((v) => { 2 * v })"),
+            "f((v) => { 2 * v })"
+        );
     }
 
     #[test]
@@ -3048,16 +3043,28 @@ mod tests {
     fn the_condition_starts_after_the_thing_that_cannot_be_part_of_it() {
         // Assignment, separators and a newline each end the condition, and the
         // `=` case has to keep the assignment's spacing readable.
-        assert_eq!(rewrite_ternaries("v = a ? b : c"), "v = (if a then b else c)");
+        assert_eq!(
+            rewrite_ternaries("v = a ? b : c"),
+            "v = (if a then b else c)"
+        );
         // The space is put back after an `=` however the source spaced it.
-        assert_eq!(rewrite_ternaries("v =a ? b : c"), "v = (if a then b else c)");
+        assert_eq!(
+            rewrite_ternaries("v =a ? b : c"),
+            "v = (if a then b else c)"
+        );
         // After a separator or an opening bracket no space is needed.
-        assert_eq!(rewrite_ternaries("f(x, a ? b : c)"), "f(x,(if a then b else c))");
+        assert_eq!(
+            rewrite_ternaries("f(x, a ? b : c)"),
+            "f(x,(if a then b else c))"
+        );
         assert_eq!(rewrite_ternaries("x;a ? b : c"), "x; (if a then b else c)");
         assert_eq!(rewrite_ternaries("x\na ? b : c"), "x\n(if a then b else c)");
         // An operator is not a boundary: `+` binds tighter than `?:`, so the
         // whole sum is the condition.
-        assert_eq!(rewrite_ternaries("x + a ? b : c"), "(if x + a then b else c)");
+        assert_eq!(
+            rewrite_ternaries("x + a ? b : c"),
+            "(if x + a then b else c)"
+        );
     }
 
     #[test]
@@ -3191,10 +3198,3 @@ mod tests {
         assert_eq!(else_end(&code_mask("a ? b : c ? d : e : f"), 6), 18);
     }
 }
-
-
-
-
-
-
-

@@ -6,7 +6,7 @@
 mod align;
 mod higher_order;
 mod into_pattern;
-mod patternify;
+pub(crate) mod patternify;
 mod random;
 mod stepwise;
 mod structure;
@@ -17,7 +17,6 @@ mod value_ops;
 #[cfg(test)]
 mod tests;
 
-pub use align::Align;
 pub use into_pattern::IntoPattern;
 
 pub(crate) use value_ops::{num_mod, num_pow};

@@ -9,7 +9,7 @@
 
 /// An in-place iterative radix-2 Cooley-Tukey FFT over a fixed power-of-two
 /// size, with the bit-reversal permutation and twiddle factors precomputed.
-pub(crate) struct Fft {
+pub struct Fft {
     size: usize,
     rev: Vec<u32>,
     /// Twiddles `e^{-2πi k / size}` for `k` in `0..size/2`.
@@ -18,7 +18,7 @@ pub(crate) struct Fft {
 }
 
 impl Fft {
-    pub(crate) fn new(size: usize) -> Fft {
+    pub fn new(size: usize) -> Fft {
         assert!(size.is_power_of_two());
         let bits = size.trailing_zeros();
         let rev = (0..size)
@@ -41,7 +41,7 @@ impl Fft {
     }
 
     /// Forward transform of `(re, im)` in place.
-    pub(crate) fn forward(&self, re: &mut [f32], im: &mut [f32]) {
+    pub fn forward(&self, re: &mut [f32], im: &mut [f32]) {
         let n = self.size;
         debug_assert_eq!(re.len(), n);
         debug_assert_eq!(im.len(), n);
@@ -73,7 +73,7 @@ impl Fft {
     }
 
     /// Inverse transform of `(re, im)` in place, including the `1/size` scaling.
-    pub(crate) fn inverse(&self, re: &mut [f32], im: &mut [f32]) {
+    pub fn inverse(&self, re: &mut [f32], im: &mut [f32]) {
         for v in im.iter_mut() {
             *v = -*v;
         }

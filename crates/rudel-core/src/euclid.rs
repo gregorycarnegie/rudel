@@ -11,11 +11,6 @@ use crate::{
     value::Value,
 };
 
-fn split_at(n: usize, v: &[Vec<i32>]) -> (Vec<Vec<i32>>, Vec<Vec<i32>>) {
-    let n = n.min(v.len());
-    (v[..n].to_vec(), v[n..].to_vec())
-}
-
 fn zip_concat(a: &[Vec<i32>], b: &[Vec<i32>]) -> Vec<Vec<i32>> {
     a.iter()
         .zip(b.iter())
@@ -33,15 +28,15 @@ type Buckets = (Vec<Vec<i32>>, Vec<Vec<i32>>);
 fn left(n: Counts, x: Buckets) -> (Counts, Buckets) {
     let (ons, offs) = n;
     let (xs, ys) = x;
-    let (_xs, __xs) = split_at(offs as usize, &xs);
-    ((offs, ons - offs), (zip_concat(&_xs, &ys), __xs))
+    let (head, tail) = xs.split_at((offs as usize).min(xs.len()));
+    ((offs, ons - offs), (zip_concat(head, &ys), tail.to_vec()))
 }
 
 fn right(n: Counts, x: Buckets) -> (Counts, Buckets) {
     let (ons, offs) = n;
     let (xs, ys) = x;
-    let (_ys, __ys) = split_at(ons as usize, &ys);
-    ((ons, offs - ons), (zip_concat(&xs, &_ys), __ys))
+    let (head, tail) = ys.split_at((ons as usize).min(ys.len()));
+    ((ons, offs - ons), (zip_concat(&xs, head), tail.to_vec()))
 }
 
 fn bjork_rec(n: Counts, x: Buckets) -> (Counts, Buckets) {
@@ -82,9 +77,8 @@ fn euclid_rot(pulses: i64, steps: i64, rotation: i64) -> Vec<bool> {
     let len = b.len() as i64;
     // Strudel rotates the sequence *right* by `rotation` (`rotate(b, -rotation)`),
     // so a positive rotation shifts onsets to later steps.
-    let r = (-rotation).rem_euclid(len) as usize;
-    let mut out = b[r..].to_vec();
-    out.extend_from_slice(&b[..r]);
+    let mut out = b;
+    out.rotate_left((-rotation).rem_euclid(len) as usize);
     out
 }
 

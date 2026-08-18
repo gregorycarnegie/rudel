@@ -22,11 +22,6 @@ pub fn reset_timelines() {
     TIMELINES.write().unwrap().clear();
 }
 
-/// Reset impure pattern state (`reset_state`). Currently just the timelines.
-pub fn reset_state() {
-    reset_timelines();
-}
-
 impl Pattern {
     /// Switch a pattern between numbered "timelines", for cueing patterns up
     /// when live coding (`timeline`). The timeline id pattern `tpat` selects an

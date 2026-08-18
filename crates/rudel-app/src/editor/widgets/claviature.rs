@@ -38,7 +38,7 @@ pub(super) fn paint_claviature(
         .iter()
         .filter_map(|hap| {
             let midi = hap_midi(hap)?;
-            let color = color_with_alpha(event_color(hap, colors.active), event_alpha(hap));
+            let color = color_with_alpha(event_color(hap, colors.foreground), event_alpha(hap));
             Some((midi, color))
         })
         .collect();
@@ -52,7 +52,7 @@ pub(super) fn paint_claviature(
     let rect = rect.shrink(2.0);
     let white_count = (low..=high).filter(|m| !is_black(*m)).count();
     let key_w = rect.width() / white_count as f32;
-    let stroke = egui::Stroke::new(1.0, colors.inactive);
+    let stroke = egui::Stroke::new(1.0, colors.muted);
 
     let mut white_index = 0.0f32;
     let mut white_x = std::collections::HashMap::new();

@@ -32,7 +32,7 @@ pub mod xen;
 
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
-pub use impure::{reset_state, reset_timelines};
+pub use impure::reset_timelines;
 pub use modulate::modulate;
 pub use pattern::{
     Pattern, arrange, cat, fastcat, gap, nothing, parray, parse_string, polymeter, pure, reify,
@@ -41,7 +41,7 @@ pub use pattern::{
 };
 pub use state::State;
 pub use timespan::TimeSpan;
-pub use transforms::{Align, IntoPattern};
+pub use transforms::IntoPattern;
 pub use value::{Value, ValueMap};
 
 // Signals and randomness.
@@ -54,8 +54,8 @@ pub use signal::{
 pub use euclid::{bjorklund, euclid_bools};
 // Cycle-random combinators.
 pub use transforms::{
-    choose, choose_cycles, choose_in, choose_with, morph, randcat, ratio_value, stepalt, wchoose,
-    wrandcat, xfade, zip,
+    choose, choose_cycles, choose_in, choose_in_with, choose_with, morph, randcat, ratio_value,
+    stepalt, wchoose, wrandcat, xfade, zip,
 };
 // Pick combinators (select patterns from a list/table via a selector pattern).
 pub use transforms::{PickJoin, pick_list, pick_map};
@@ -77,7 +77,7 @@ pub use host::{clear_sample_durations, drain_log, log_line, sample_duration, set
 // Tonal: note names, scales, chords.
 pub use tonal::{
     chord_notes, chord_symbols, note_to_midi, note_to_midi_with_octave, scale_names, scale_offset,
-    scale_step,
+    scale_step, value_to_midi,
 };
 // Xenharmonic helpers.
 pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};

@@ -4,7 +4,6 @@ use crate::{
 };
 use pest::iterators::Pair;
 use rudel_core::{Frac, Pattern, Value, fastcat, pure, rand, silence, stack, timecat};
-use std::sync::Arc;
 
 /// Strudel offsets each `?`/`|` PRNG stream by `0.0003 * seed` cycles, where
 /// `seed` counts those operators left-to-right within one parsed string.
@@ -89,7 +88,7 @@ pub(crate) fn build_stack_or_choose(pair: Pair<Rule>, ctx: &mut Ctx) -> Built {
         }
         Rule::choose_tail => {
             let s = ctx.next_seed();
-            let mut p = choose_in_with(seeded_rand(s).segment(1), pats);
+            let mut p = rudel_core::choose_in_with(seeded_rand(s).segment(1), &pats);
             if let Some(l) = marked_lcm(&children) {
                 p = p.set_steps(Some(l));
             }
@@ -385,23 +384,6 @@ fn range_op(pat: &Pattern, friend: Pattern) -> Pattern {
             fastcat(&pats)
         })))
     })
-}
-
-/// Strudel's `chooseInWith`: index the list by the chooser signal, taking
-/// structure from the chosen patterns.
-fn choose_in_with(chooser: Pattern, pats: Vec<Pattern>) -> Pattern {
-    if pats.is_empty() {
-        return silence();
-    }
-    let len = pats.len();
-    let pats = Arc::new(pats);
-    chooser
-        .range(0.0, len as f64)
-        .fmap(move |v| {
-            let i = (v.as_f64().unwrap_or(0.0).floor() as usize).min(len - 1);
-            Value::Pat(Box::new(pats[i].clone()))
-        })
-        .inner_join()
 }
 
 fn op_slice(op: Pair<Rule>, ctx: &mut Ctx) -> Pattern {

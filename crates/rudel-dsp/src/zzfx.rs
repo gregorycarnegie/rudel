@@ -243,7 +243,7 @@ impl ZzfxParams {
         // frequency: explicit `freq`, else from `note` (default 36).
         let freq = map.get("freq").and_then(|v| v.as_f64()).unwrap_or_else(|| {
             let note = match map.get("note") {
-                Some(Value::Str(s)) => crate::pitch::note_name_to_midi(s)
+                Some(Value::Str(s)) => rudel_core::note_to_midi(s)
                     .map(|m| m as f64)
                     .unwrap_or(36.0),
                 Some(v) => v.as_f64().unwrap_or(36.0),
@@ -668,7 +668,10 @@ mod tests {
             "the voice should have played something"
         );
         // Exactly one pass: done at the end, and silent afterwards.
-        assert!(v.is_done(), "the voice should be done at the end of its buffer");
+        assert!(
+            v.is_done(),
+            "the voice should be done at the end of its buffer"
+        );
         assert_eq!(v.tick(), (0.0, 0.0));
     }
 

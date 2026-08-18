@@ -133,14 +133,6 @@ impl Frac {
         Frac(self.0.ceil())
     }
 
-    pub fn min(self, other: Frac) -> Frac {
-        if self < other { self } else { other }
-    }
-
-    pub fn max(self, other: Frac) -> Frac {
-        if self > other { self } else { other }
-    }
-
     pub fn abs(&self) -> Frac {
         Frac(self.0.abs())
     }

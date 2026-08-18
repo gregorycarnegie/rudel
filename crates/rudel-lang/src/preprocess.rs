@@ -5,12 +5,10 @@ mod scanner;
 mod syntax;
 mod widgets;
 
-use crate::WidgetOption;
 use labels::rewrite_labels;
 use mini::annotate_mini_offsets;
 pub(crate) use mondo::looks_like_mondo;
 use mondo::rewrite_mondo_templates;
-use std::collections::BTreeMap;
 use syntax::{
     flatten_non_final_groups, hoist_leading_commas, indent_dot_continuations,
     join_dangling_operators, order_declarations, quote_numeric_map_keys, rename_koto_keywords,
@@ -23,30 +21,10 @@ use syntax::{
 };
 use widgets::rewrite_editor_widgets_with_context;
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct PreprocessMeta {
-    pub mini_locations: Vec<(usize, usize)>,
-    pub widgets: Vec<PreprocessWidget>,
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct PreprocessWidget {
-    pub widget_type: String,
-    pub id: String,
-    pub from: usize,
-    pub to: usize,
-    pub index: usize,
-    pub options: BTreeMap<String, WidgetOption>,
-    pub value: Option<String>,
-    pub min: Option<f64>,
-    pub max: Option<f64>,
-    pub step: Option<f64>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PreprocessResult {
     pub source: String,
-    pub meta: PreprocessMeta,
+    pub widgets: Vec<crate::WidgetConfig>,
 }
 
 #[cfg(test)]
@@ -66,7 +44,10 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     // script with no mondo left in it.
     let script = rewrite_mondo_templates(script);
     let (script, widgets, anchors) = rewrite_editor_widgets_with_context(&script, node_offset, "");
-    let (script, mini_locations) = annotate_mini_offsets(&script, node_offset, &anchors);
+    // The returned spans are only an assertion handle for `mini`'s own tests;
+    // per-hap source locations reach the editor through the `m(...)` calls this
+    // pass writes into the script, not through a side table.
+    let (script, _spans) = annotate_mini_offsets(&script, node_offset, &anchors);
     let script = strip_comments(&script);
     let script = rename_koto_keywords(&script);
     let script = rewrite_tagged_templates(&script);
@@ -101,11 +82,5 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     } else {
         script
     };
-    PreprocessResult {
-        source,
-        meta: PreprocessMeta {
-            mini_locations,
-            widgets,
-        },
-    }
+    PreprocessResult { source, widgets }
 }

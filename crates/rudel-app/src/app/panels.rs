@@ -5,7 +5,7 @@ use crate::{
         decorations::FlashSpan,
         settings::{EditorFontFamily, EditorTheme},
     },
-    reference::{CONTROLS, DRUMS, FACTORIES, SIGNALS, WAVEFORMS},
+    reference::{DRUMS, FACTORIES, SIGNALS, WAVEFORMS},
     volume::vlc_volume_slider,
 };
 use eframe::egui;
@@ -376,6 +376,12 @@ impl RudelApp {
                 let drums = fuzzy_filter(DRUMS.iter().copied(), query);
                 let samples = fuzzy_filter(self.sample_names.iter().map(String::as_str), query);
                 let sound_groups = [("synths", synths), ("drums", drums), ("samples", samples)];
+                // Controls come straight from the live runtime surface, so the
+                // pane can't advertise a control the engine no longer has.
+                let controls =
+                    fuzzy_filter(self.reference.controls.iter().map(String::as_str), query);
+                let signals = fuzzy_filter(SIGNALS.iter().copied(), query);
+                let factories = fuzzy_filter(FACTORIES.iter().copied(), query);
 
                 // Collected locally to avoid borrowing `self` inside the
                 // closures (sound_groups borrows sample_names immutably).
@@ -404,12 +410,11 @@ impl RudelApp {
                                 }
                             });
                     }
-                    for (title, all, default_open) in [
-                        ("controls", CONTROLS, true),
-                        ("signals", SIGNALS, false),
-                        ("factories", FACTORIES, false),
+                    for (title, items, default_open) in [
+                        ("controls", &controls, true),
+                        ("signals", &signals, false),
+                        ("factories", &factories, false),
                     ] {
-                        let items = fuzzy_filter(all.iter().copied(), query);
                         if items.is_empty() {
                             continue;
                         }
@@ -417,7 +422,7 @@ impl RudelApp {
                             .default_open(default_open)
                             .open(force_open)
                             .show(ui, |ui| {
-                                for (item, hits) in &items {
+                                for (item, hits) in items {
                                     if let Some(text) = reference_item(ui, item, hits) {
                                         insert = Some(text);
                                     }
@@ -518,11 +523,6 @@ impl RudelApp {
                     ui.checkbox(&mut self.editor_settings.tooltips, "tooltips");
                     ui.checkbox(&mut self.editor_settings.tab_indentation, "tab indent");
                     ui.checkbox(&mut self.editor_settings.block_based_eval, "block eval");
-                    ui.add_enabled(
-                        false,
-                        egui::Checkbox::new(&mut self.editor_settings.multi_cursor, "multi-cursor"),
-                    )
-                    .on_hover_text("pending: egui TextEdit has one native selection");
                 });
 
                 ui.horizontal(|ui| {

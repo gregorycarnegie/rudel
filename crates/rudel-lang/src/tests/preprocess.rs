@@ -60,19 +60,15 @@ fn empty_or_commented_out_script_falls_back_to_silence() {
 }
 
 #[test]
-fn preprocess_metadata_reports_mini_locations() {
+fn preprocess_annotates_mini_notation_with_its_source_offsets() {
     let result = preprocess_strudel_with_meta(r#"s("bd sd").note("c e")"#);
-    assert_eq!(result.meta.mini_locations, vec![(3, 8), (17, 20)]);
     assert_eq!(result.source, r#"s(m("bd sd", 3)).note(m("c e", 17))"#);
 }
 
 #[test]
 fn eval_result_carries_editor_metadata() {
     let result = eval_result(r#"s("bd sd")"#).expect("eval");
-    assert_eq!(result.meta.mini_locations, vec![(3, 8)]);
     assert!(result.meta.widgets.is_empty());
-    assert!(result.meta.labels.is_empty());
-    assert!(!result.meta.cleanup.widget_removed);
 }
 
 #[test]
@@ -80,10 +76,9 @@ fn preprocess_rewrites_slider_widgets_like_strudel() {
     let result = preprocess_strudel_with_meta("slider(0.5, 0, 1, 0.01)");
 
     assert_eq!(result.source, r#"slider_with_id("7:10", 0.5, 0, 1, 0.01)"#);
-    assert!(result.meta.mini_locations.is_empty());
-    assert_eq!(result.meta.widgets.len(), 1);
+    assert_eq!(result.widgets.len(), 1);
 
-    let widget = &result.meta.widgets[0];
+    let widget = &result.widgets[0];
     assert_eq!(widget.widget_type, "slider");
     assert_eq!(widget.id, "7:10");
     assert_eq!((widget.from, widget.to), (7, 10));
@@ -104,7 +99,6 @@ fn preprocess_keeps_sliders_from_every_statement() {
     let result = preprocess_strudel_with_meta(src);
 
     let sliders: Vec<_> = result
-        .meta
         .widgets
         .iter()
         .filter(|w| w.widget_type == "slider")
@@ -126,8 +120,8 @@ slider(0.4)
 "#,
     );
 
-    assert_eq!(result.meta.widgets.len(), 1);
-    let widget = &result.meta.widgets[0];
+    assert_eq!(result.widgets.len(), 1);
+    let widget = &result.widgets[0];
     assert_eq!(widget.value.as_deref(), Some("0.4"));
     assert!(result.source.contains(r#"s(m("slider(0.2)","#));
     assert!(result.source.contains("foo.slider(0.3)"));
@@ -152,8 +146,8 @@ fn public_visualizer_names_rewrite_to_inline_widget() {
         ("claviature", "_claviature", "rudel_widget_claviature"),
     ] {
         let result = preprocess_strudel_with_meta(&format!(r#"s("bd sd").{call}()"#));
-        assert_eq!(result.meta.widgets.len(), 1, "{call}");
-        assert_eq!(result.meta.widgets[0].widget_type, widget_type, "{call}");
+        assert_eq!(result.widgets.len(), 1, "{call}");
+        assert_eq!(result.widgets[0].widget_type, widget_type, "{call}");
         assert!(result.source.contains(host), "{call}: {}", result.source);
     }
 }
@@ -206,7 +200,6 @@ fn block_eval_metadata_uses_absolute_source_ranges() {
     let result =
         eval_result_with_source_range(r#"note("c")._spiral()"#, (20, 39)).expect("block eval");
 
-    assert_eq!(result.meta.mini_locations, vec![(26, 27)]);
     assert_eq!(result.meta.widgets.len(), 1);
     let widget = &result.meta.widgets[0];
     assert_eq!(widget.widget_type, "_spiral");
@@ -241,7 +234,13 @@ fn mini_locations_stay_aligned_when_a_slider_precedes_a_pattern() {
     let script = r#"note("c").lpf(slider(0.5)).s("bd")"#;
     let result = preprocess_strudel_with_meta(script);
 
-    assert_eq!(result.meta.mini_locations, vec![(6, 7), (30, 32)]);
+    // The offsets baked into the `m(...)` calls point back at the originals.
+    assert!(result.source.contains(r#"m("c", 6)"#), "{}", result.source);
+    assert!(
+        result.source.contains(r#"m("bd", 30)"#),
+        "{}",
+        result.source
+    );
     assert_eq!(&script[6..7], "c");
     assert_eq!(&script[30..32], "bd");
 
@@ -275,9 +274,9 @@ fn slider_with_id_reads_live_registry_at_query_time() {
 fn preprocess_rewrites_visual_widget_methods_like_strudel() {
     let script = r#"note("c")._pianoroll({ fold: 2 })"#;
     let result = preprocess_strudel_with_meta(script);
-    let widget = &result.meta.widgets[0];
+    let widget = &result.widgets[0];
 
-    assert_eq!(result.meta.widgets.len(), 1);
+    assert_eq!(result.widgets.len(), 1);
     assert_eq!(widget.widget_type, "_pianoroll");
     assert_eq!((widget.from, widget.to), (0, script.len()));
     assert_eq!(widget.index, 0);
@@ -293,7 +292,7 @@ fn preprocess_rewrites_visual_widget_methods_like_strudel() {
         r#".rudel_widget_pianoroll("{}", {{ fold: 2 }})"#,
         widget.id
     )));
-    assert_eq!(result.meta.mini_locations, vec![(6, 7)]);
+    assert!(result.source.contains(r#"m("c", 6)"#), "{}", result.source);
 }
 
 #[test]
@@ -302,10 +301,9 @@ fn visual_widget_methods_are_indexed_per_type() {
         r#"stack(note("c")._pianoroll(), note("d")._pianoroll(), note("e")._spiral())"#,
     );
 
-    assert_eq!(result.meta.widgets.len(), 3);
+    assert_eq!(result.widgets.len(), 3);
     assert_eq!(
         result
-            .meta
             .widgets
             .iter()
             .map(|w| (w.widget_type.as_str(), w.index))
@@ -324,8 +322,8 @@ note("c")._scope()
 "#,
     );
 
-    assert_eq!(result.meta.widgets.len(), 1);
-    assert_eq!(result.meta.widgets[0].widget_type, "_scope");
+    assert_eq!(result.widgets.len(), 1);
+    assert_eq!(result.widgets[0].widget_type, "_scope");
     assert!(result.source.contains(r#"s(m("._pianoroll()","#));
 }
 
@@ -336,7 +334,6 @@ fn visual_widget_rewrite_survives_earlier_slider_in_the_same_chain() {
 
     assert_eq!(
         result
-            .meta
             .widgets
             .iter()
             .map(|widget| widget.widget_type.as_str())
@@ -347,7 +344,7 @@ fn visual_widget_rewrite_survives_earlier_slider_in_the_same_chain() {
     assert!(result.source.contains(".rudel_widget_punchcard("));
     assert!(!result.source.contains("._punchcard("));
     assert_eq!(
-        result.meta.widgets[1].options.get("height"),
+        result.widgets[1].options.get("height"),
         Some(&crate::WidgetOption::Number(200.0))
     );
 
@@ -366,7 +363,6 @@ drums: stack(
 
     assert_eq!(
         result
-            .meta
             .widgets
             .iter()
             .map(|widget| widget.widget_type.as_str())
@@ -576,7 +572,7 @@ fn computed_widget_options_reach_the_widget_config() {
     // The source scan can only read literals, so a computed option is absent
     // from the preprocess metadata...
     let script = "let n = 2 * 4\nnote(\"c\")._pianoroll({ cycles: n, vertical: true })";
-    let scanned = &preprocess_strudel_with_meta(script).meta.widgets[0];
+    let scanned = &preprocess_strudel_with_meta(script).widgets[0];
     assert!(!scanned.options.contains_key("cycles"));
     // ...while a literal alongside it is picked up as before.
     assert_eq!(

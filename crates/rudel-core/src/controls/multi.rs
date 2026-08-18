@@ -85,41 +85,41 @@ pub fn vib(pat: impl IntoPattern) -> Pattern {
     spread_control(&["vib", "vibmod"], pat.into_pattern())
 }
 
-impl Pattern {
+/// Generate the `self.set(ctor(x))` setters for the multi-controls above.
+macro_rules! multi_setters {
+    ($($(#[$attr:meta])* $method:ident => $ctor:ident),* $(,)?) => {
+        impl Pattern {
+            $($(#[$attr])*
+            pub fn $method(&self, x: impl IntoPattern) -> Pattern {
+                self.set($ctor(x))
+            })*
+        }
+    };
+}
+
+multi_setters! {
     /// Set the `distort` multi-control (see [`distort`]).
-    pub fn distort(&self, x: impl IntoPattern) -> Pattern {
-        self.set(distort(x))
-    }
-
+    distort => distort,
     /// Set the `shape` multi-control (see [`shape`]).
-    pub fn shape(&self, x: impl IntoPattern) -> Pattern {
-        self.set(shape(x))
-    }
-
+    shape => shape,
     /// Set the `transient` multi-control (see [`transient`]).
-    pub fn transient(&self, x: impl IntoPattern) -> Pattern {
-        self.set(transient(x))
-    }
-
+    transient => transient,
     /// Set the `label` multi-control (see [`label`]).
-    pub fn label(&self, x: impl IntoPattern) -> Pattern {
-        self.set(label(x))
-    }
-
+    label => label,
     /// Set the `vib` multi-control (see [`vib`]).
-    pub fn vib(&self, x: impl IntoPattern) -> Pattern {
-        self.set(vib(x))
-    }
-
+    vib => vib,
     /// `vibrato`: alias for [`vib`](Self::vib).
-    pub fn vibrato(&self, x: impl IntoPattern) -> Pattern {
-        self.vib(x)
-    }
-
+    vibrato => vib,
     /// `v`: alias for [`vib`](Self::vib).
-    pub fn v(&self, x: impl IntoPattern) -> Pattern {
-        self.vib(x)
-    }
+    v => vib,
+    /// Strudel's `adsr` envelope helper (see [`adsr`]).
+    adsr => adsr,
+    /// Strudel's `ad` envelope helper (see [`ad`]).
+    ad => ad,
+    /// Strudel's `ds` envelope helper (see [`ds`]).
+    ds => ds,
+    /// Strudel's `ar` envelope helper (see [`ar`]).
+    ar => ar,
 }
 
 /// Strudel's `adsr` helper: a `:`-list (`".1:.2:.5:.3"`) expands into
@@ -182,26 +182,6 @@ pub fn ar(pat: impl IntoPattern) -> Pattern {
 }
 
 impl Pattern {
-    /// Strudel's `adsr` envelope helper (see [`adsr`]).
-    pub fn adsr(&self, x: impl IntoPattern) -> Pattern {
-        self.set(adsr(x))
-    }
-
-    /// Strudel's `ad` envelope helper (see [`ad`]).
-    pub fn ad(&self, x: impl IntoPattern) -> Pattern {
-        self.set(ad(x))
-    }
-
-    /// Strudel's `ds` envelope helper (see [`ds`]).
-    pub fn ds(&self, x: impl IntoPattern) -> Pattern {
-        self.set(ds(x))
-    }
-
-    /// Strudel's `ar` envelope helper (see [`ar`]).
-    pub fn ar(&self, x: impl IntoPattern) -> Pattern {
-        self.set(ar(x))
-    }
-
     /// Strudel's `control([ccn, ccv])` MIDI helper: a `:`-list sets the MIDI
     /// control number and value together.
     pub fn control(&self, x: impl IntoPattern) -> Pattern {

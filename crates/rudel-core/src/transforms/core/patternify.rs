@@ -1,29 +1,41 @@
-use crate::{fraction::Frac, pattern::Pattern, value::Value};
+use crate::{fraction::Frac, hap::Context, pattern::Pattern, value::Value};
 use std::sync::Arc;
 
+/// Strudel's `register` keeps a bypassed pure argument's source location by
+/// appending it to every hap's context.
+pub(crate) fn push_loc(result: Pattern, loc: Option<(usize, usize)>) -> Pattern {
+    let Some((start, end)) = loc else {
+        return result;
+    };
+    result.with_context(move |context: &Context| {
+        let mut context = context.clone();
+        context.locations.push((start, end));
+        context
+    })
+}
+
+/// Patternify a single argument, applying raw op `f(pat, value)`. Pure
+/// arguments bypass (preserving steps and their source location), patterned
+/// ones map to the per-value result and `innerJoin` — Strudel's `register`.
+pub(crate) fn patternify_value<F>(pat: &Pattern, arg: Pattern, f: F) -> Pattern
+where
+    F: Fn(&Pattern, &Value) -> Pattern + Send + Sync + 'static,
+{
+    if let Some(v) = &arg.pure_value {
+        return push_loc(f(pat, v), arg.pure_loc);
+    }
+    let pat = pat.clone();
+    let f = Arc::new(f);
+    arg.fmap(move |v| Value::Pat(Box::new(f(&pat, &v))))
+        .inner_join()
+}
+
 /// Patternify a single `Frac`-valued argument, applying raw op `f(pat, frac)`.
-/// Fast-paths pure arguments (preserving steps), matching Strudel's `register`.
 pub(super) fn patternify_frac<F>(pat: &Pattern, arg: Pattern, f: F) -> Pattern
 where
     F: Fn(&Pattern, Frac) -> Pattern + Send + Sync + 'static,
 {
-    if let Some(v) = &arg.pure_value {
-        let result = f(pat, v.to_frac());
-        // Strudel's register keeps the bypassed pure argument's source
-        // location by appending it to every hap's context.
-        if let Some((start, end)) = arg.pure_loc {
-            return result.with_context(move |context| {
-                let mut context = context.clone();
-                context.locations.push((start, end));
-                context
-            });
-        }
-        return result;
-    }
-    let pat = pat.clone();
-    let f = Arc::new(f);
-    arg.fmap(move |v| Value::Pat(Box::new(f(&pat, v.to_frac()))))
-        .inner_join()
+    patternify_value(pat, arg, move |pat, v| f(pat, v.to_frac()))
 }
 
 /// Patternify a single `f64`-valued argument, applying raw op `f(pat, x)`.
@@ -35,19 +47,5 @@ pub(super) fn patternify_f64<F>(pat: &Pattern, arg: Pattern, f: F) -> Pattern
 where
     F: Fn(&Pattern, f64) -> Pattern + Send + Sync + 'static,
 {
-    if let Some(v) = &arg.pure_value {
-        let result = f(pat, v.as_f64().unwrap_or(0.0));
-        if let Some((start, end)) = arg.pure_loc {
-            return result.with_context(move |context| {
-                let mut context = context.clone();
-                context.locations.push((start, end));
-                context
-            });
-        }
-        return result;
-    }
-    let pat = pat.clone();
-    let f = Arc::new(f);
-    arg.fmap(move |v| Value::Pat(Box::new(f(&pat, v.as_f64().unwrap_or(0.0)))))
-        .inner_join()
+    patternify_value(pat, arg, move |pat, v| f(pat, v.as_f64().unwrap_or(0.0)))
 }

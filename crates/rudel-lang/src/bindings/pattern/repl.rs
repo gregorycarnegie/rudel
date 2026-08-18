@@ -5,15 +5,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::{
-    KPattern,
-    args::{method_arg, with_instance},
+    args::{method_arg, with_method_instance},
     callback::Callback,
     convert::koto_to_value,
 };
-use koto::{
-    prelude::*,
-    runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error},
-};
+use koto::{prelude::*, runtime::CallContext};
 use rudel_core::{Pattern, Value, pure, silence, stack};
 use std::cell::{Cell, RefCell};
 
@@ -144,21 +140,6 @@ fn slot_id_string(value: &KValue) -> String {
     }
 }
 
-/// Run `body` with the method's instance pattern (the koto-method call shape
-/// used by the dynamically-inserted slot methods).
-fn with_slot_instance(
-    ctx: &mut CallContext,
-    body: impl FnOnce(&MethodContext<KPattern>, &Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
-        (KValue::Object(o), extra_args) => {
-            let mctx = MethodContext::new(o, extra_args, ctx.vm);
-            with_instance(&mctx, |pat| body(&mctx, pat))
-        }
-        _ => runtime_error!(ErrorKind::UnexpectedError),
-    }
-}
-
 /// Insert the REPL slot methods (`p`, `q`, `d1`-`d9`, `p1`-`p9`, `q1`-`q9`)
 /// onto the shared `KPattern` entries map, alongside the control methods.
 pub(crate) fn insert_slot_methods(entries: &koto::runtime::KMap) {
@@ -166,7 +147,7 @@ pub(crate) fn insert_slot_methods(entries: &koto::runtime::KMap) {
     entries.insert(
         "p",
         KValue::NativeFunction(KNativeFunction::new(|ctx| {
-            with_slot_instance(ctx, |mctx, pat| {
+            with_method_instance(ctx, |mctx, pat| {
                 let id = slot_id_string(&method_arg(mctx, 0));
                 register_slot(&id, pat.clone())
             })
@@ -176,7 +157,7 @@ pub(crate) fn insert_slot_methods(entries: &koto::runtime::KMap) {
     entries.insert(
         "q",
         KValue::NativeFunction(KNativeFunction::new(|ctx| {
-            with_slot_instance(ctx, |_, _| silence())
+            with_method_instance(ctx, |_, _| silence())
         })),
     );
     for i in 1..=9 {
@@ -187,7 +168,7 @@ pub(crate) fn insert_slot_methods(entries: &koto::runtime::KMap) {
                 format!("{prefix}{i}").as_str(),
                 KValue::NativeFunction(KNativeFunction::new(move |ctx| {
                     let id = id.clone();
-                    with_slot_instance(ctx, move |_, pat| register_slot(&id, pat.clone()))
+                    with_method_instance(ctx, move |_, pat| register_slot(&id, pat.clone()))
                 })),
             );
         }
@@ -195,7 +176,7 @@ pub(crate) fn insert_slot_methods(entries: &koto::runtime::KMap) {
         entries.insert(
             format!("q{i}").as_str(),
             KValue::NativeFunction(KNativeFunction::new(|ctx| {
-                with_slot_instance(ctx, |_, _| silence())
+                with_method_instance(ctx, |_, _| silence())
             })),
         );
     }

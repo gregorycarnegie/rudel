@@ -2,28 +2,6 @@ use super::value_ops::{ValueOp, compose_op};
 use crate::{pattern::Pattern, value::Value};
 use std::sync::Arc;
 
-/// The eight pattern alignments Strudel exposes on each operator
-/// (`.add.out`, `.set.squeeze`, ...), bound in Koto as `add_out`/`set_squeeze`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Align {
-    /// Structure from the left (this) pattern. The default.
-    In,
-    /// Structure from the right (other) pattern.
-    Out,
-    /// Structure from the intersection of both.
-    Mix,
-    /// Squeeze one cycle of `other` into each event of this pattern.
-    Squeeze,
-    /// Squeeze one cycle of this pattern into each event of `other`.
-    SqueezeOut,
-    /// Retrigger this pattern at each onset of `other`, aligned to cycle pos.
-    Reset,
-    /// Retrigger this pattern at each onset of `other`, aligned to cycle zero.
-    Restart,
-    /// Polymetric: align step counts via `extend`, then outer-join.
-    Poly,
-}
-
 impl Pattern {
     /// Lift a value combiner into the curried, map-structural form the
     /// applicative ops apply (`a => b => _composeOp(a, b, op)`).
@@ -94,7 +72,7 @@ impl Pattern {
     }
 
     /// `_opReset`/`_opRestart`: retrigger this pattern at each onset of `other`.
-    fn op_reset_impl<O>(&self, other: Pattern, op: O, restart: bool) -> Pattern
+    pub(crate) fn op_reset_impl<O>(&self, other: Pattern, op: O, restart: bool) -> Pattern
     where
         O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
     {
@@ -125,23 +103,5 @@ impl Pattern {
             Value::Pat(Box::new(other.fmap(move |a| compose_op(&a, &b, &*op))))
         })
         .poly_join()
-    }
-
-    /// Combine this pattern with `other` using value-combiner `op` under the
-    /// given [`Align`]ment.
-    pub(crate) fn op_align<O>(&self, other: Pattern, align: Align, op: O) -> Pattern
-    where
-        O: Fn(&Value, &Value) -> Value + Send + Sync + 'static,
-    {
-        match align {
-            Align::In => self.op_in(other, op),
-            Align::Out => self.op_out(other, op),
-            Align::Mix => self.op_mix(other, op),
-            Align::Squeeze => self.op_squeeze(other, op),
-            Align::SqueezeOut => self.op_squeeze_out(other, op),
-            Align::Reset => self.op_reset_impl(other, op, false),
-            Align::Restart => self.op_reset_impl(other, op, true),
-            Align::Poly => self.op_poly(other, op),
-        }
     }
 }

@@ -6,6 +6,7 @@ use crate::{
     hap::Hap,
     pattern::{Pattern, silence},
     transforms::IntoPattern,
+    transforms::core::patternify::patternify_value,
     value::{Value, ValueMap},
 };
 use std::borrow::Cow;
@@ -332,13 +333,9 @@ fn ftrans_hap(hap: Hap, steps: f64, explicit_edo_size: Option<f64>) -> Hap {
 impl Pattern {
     /// Tune.js lookup. Expects an `i` control and returns frequency ratios.
     pub fn tune(&self, scale: impl IntoPattern) -> Pattern {
-        let arg = scale.into_pattern();
-        if let Some(v) = &arg.pure_value {
-            return self.apply_tune((**v).clone());
-        }
-        let pat = self.clone();
-        arg.fmap(move |v| Value::Pat(Box::new(pat.apply_tune(v))))
-            .inner_join()
+        patternify_value(self, scale.into_pattern(), |pat, v| {
+            pat.apply_tune(v.clone())
+        })
     }
 
     fn apply_tune(&self, scale_value: Value) -> Pattern {
@@ -357,13 +354,9 @@ impl Pattern {
     /// Map `i` controls into frequencies using an EDO, Tune.js scale, preset, or
     /// explicit ratio list.
     pub fn xen(&self, scale: impl IntoPattern) -> Pattern {
-        let arg = scale.into_pattern();
-        if let Some(v) = &arg.pure_value {
-            return self.apply_xen((**v).clone());
-        }
-        let pat = self.clone();
-        arg.fmap(move |v| Value::Pat(Box::new(pat.apply_xen(v))))
-            .inner_join()
+        patternify_value(self, scale.into_pattern(), |pat, v| {
+            pat.apply_xen(v.clone())
+        })
     }
 
     fn apply_xen(&self, scale_value: Value) -> Pattern {
@@ -381,37 +374,19 @@ impl Pattern {
 
     /// Rescale frequency values from 220Hz or `[base, originalBase]`.
     pub fn with_base(&self, base: impl IntoPattern) -> Pattern {
-        let arg = base.into_pattern();
-        if let Some(v) = &arg.pure_value {
+        patternify_value(self, base.into_pattern(), |pat, v| {
             let (base, original) = base_pair(v);
-            return self.with_value(move |value| rescale_freq_value(value, base, original));
-        }
-        let pat = self.clone();
-        arg.fmap(move |v| {
-            let (base, original) = base_pair(&v);
-            Value::Pat(Box::new(pat.with_value(move |value| {
-                rescale_freq_value(value, base, original)
-            })))
+            pat.with_value(move |value| rescale_freq_value(value, base, original))
         })
-        .inner_join()
     }
 
     /// Frequency transpose by EDO steps. The amount may be `[steps, edo]` or
     /// `steps`; EDO falls back to hap context, then 12.
     pub fn ftrans(&self, amount: impl IntoPattern) -> Pattern {
-        let arg = amount.into_pattern();
-        if let Some(v) = &arg.pure_value {
+        patternify_value(self, amount.into_pattern(), |pat, v| {
             let (steps, edo_size) = ftrans_amount(v);
-            return self.with_hap(move |hap| ftrans_hap(hap, steps, edo_size));
-        }
-        let pat = self.clone();
-        arg.fmap(move |v| {
-            let (steps, edo_size) = ftrans_amount(&v);
-            Value::Pat(Box::new(
-                pat.with_hap(move |hap| ftrans_hap(hap, steps, edo_size)),
-            ))
+            pat.with_hap(move |hap| ftrans_hap(hap, steps, edo_size))
         })
-        .inner_join()
     }
 
     /// Alias for [`with_base`](Self::with_base) with Strudel's camelCase name.
@@ -438,21 +413,12 @@ impl Pattern {
     /// from `xen.mjs`: like [`xen`](Self::xen) but it reads the value directly as
     /// the scale index (no `i` control) and returns the raw ratio (no 220Hz base).
     pub fn tuning(&self, ratios: impl IntoPattern) -> Pattern {
-        let arg = ratios.into_pattern();
-        if let Some(v) = &arg.pure_value {
-            return match numeric_list(v) {
-                Some(r) => self.apply_tuning(r),
-                None => silence(),
-            };
-        }
-        let pat = self.clone();
-        arg.fmap(move |v| {
-            Value::Pat(Box::new(match numeric_list(&v) {
+        patternify_value(self, ratios.into_pattern(), |pat, v| {
+            match numeric_list(v) {
                 Some(r) => pat.apply_tuning(r),
                 None => silence(),
-            }))
+            }
         })
-        .inner_join()
     }
 
     fn apply_tuning(&self, ratios: Vec<f64>) -> Pattern {

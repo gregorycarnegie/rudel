@@ -77,7 +77,6 @@ pub(crate) struct RudelApp {
     /// The current cycle's flash spans, keyed on `(pattern_generation, cycle)`
     /// — the cycle as raw bits so the key is `Eq`.
     flash_cache: Option<((u64, u64), panels::CycleFlashes)>,
-    eval_meta: rudel_lang::EvalMeta,
     editor_decorations: EditorDecorationState,
     editor_settings: EditorSettings,
     widget_host: WidgetHostState,
@@ -178,7 +177,6 @@ impl RudelApp {
             current: None,
             pattern_generation: 0,
             flash_cache: None,
-            eval_meta: rudel_lang::EvalMeta::default(),
             editor_decorations: EditorDecorationState::default(),
             editor_settings: EditorSettings::default(),
             widget_host: WidgetHostState::default(),
@@ -234,7 +232,6 @@ impl RudelApp {
                 self.trigger_hooks = result.trigger_hooks;
                 self.trigger_fired_upto = None;
                 self.editor_decorations.replace_all(&result.meta);
-                self.eval_meta = result.meta;
                 self.eval_error = None;
                 self.status = "evaluated".to_string();
                 self.route();
@@ -267,7 +264,6 @@ impl RudelApp {
                 let source_range = SourceRange::new(range.from, range.to);
                 self.editor_decorations
                     .replace_range(&result.meta, source_range);
-                self.eval_meta = result.meta;
                 self.eval_error = None;
                 self.block_flash = Some((source_range, Instant::now()));
                 self.status = "block evaluated".to_string();
@@ -281,11 +277,19 @@ impl RudelApp {
     }
 }
 
+/// The window/taskbar icon: a two-turn spiral (a nod to Strudel's pretzel
+/// swirl) on a dark rounded square, purple at the core fading to green at the
+/// tail. Baked to `icon.png` so no rasterizer runs at startup; `icon.ico` is
+/// the same artwork, embedded into the exe by `build.rs` for Explorer.
+fn window_icon() -> egui::IconData {
+    eframe::icon_data::from_png_bytes(include_bytes!("../icon.png")).expect("icon.png is valid")
+}
+
 pub(crate) fn run() -> eframe::Result {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 640.0])
-            .with_icon(crate::icon::icon()),
+            .with_icon(window_icon()),
         ..Default::default()
     };
     eframe::run_native(
@@ -302,6 +306,15 @@ pub(crate) fn run() -> eframe::Result {
 mod tests {
     use super::*;
     use crate::volume::MAX_VOLUME_PERCENT;
+
+    #[test]
+    fn the_baked_window_icon_decodes_at_full_size() {
+        let icon = window_icon();
+        assert_eq!((icon.width, icon.height), (256, 256));
+        // Center sits inside the rounded square; the corner is outside it.
+        assert_eq!(icon.rgba[((256 / 2) * 256 + 256 / 2) * 4 + 3], 255);
+        assert_eq!(icon.rgba[3], 0);
+    }
 
     fn app_without_engine() -> RudelApp {
         RudelApp {

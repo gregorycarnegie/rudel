@@ -13,6 +13,7 @@
 use crate::{
     pattern::{Pattern, silence},
     transforms::IntoPattern,
+    transforms::core::patternify::patternify_value,
     value::{Value, ValueMap},
 };
 
@@ -108,82 +109,10 @@ fn hz_to_midi(freq: f64) -> f64 {
     12.0 * (freq / TUNING).log2() + 69.0
 }
 
-/// An EDO scale built from `(large, small, sequence)`: step types, per-step
-/// sizes, cumulative divisions, and total divisions of the octave.
-struct EdoScale {
-    divisions: Vec<i64>,
-    edivisions: i64,
-    length: usize,
-    tonic: i64,
-}
-
-impl EdoScale {
-    fn new(large: i64, small: i64, sequence: &str) -> EdoScale {
-        let medium = large; // upstream defaults medium = large
-        // step types: 'L' -> large, 'M' -> medium, anything else -> small.
-        let step_values: Vec<i64> = sequence
-            .chars()
-            .map(|c| match c {
-                'L' => large,
-                'M' => medium,
-                _ => small,
-            })
-            .collect();
-        let length = step_values.len();
-        // divisions[i] is the running sum *before* step i; edivisions is the total.
-        let mut divisions = Vec::with_capacity(length);
-        let mut sum = 0;
-        for &sv in &step_values {
-            divisions.push(sum);
-            sum += sv;
-        }
-        EdoScale {
-            divisions,
-            edivisions: sum,
-            length,
-            tonic: 1,
-        }
-    }
-
-    /// Per-step sizes recovered from the cumulative `divisions` (+ total).
-    fn step_value(&self, i: usize) -> i64 {
-        let next = if i + 1 < self.length {
-            self.divisions[i + 1]
-        } else {
-            self.edivisions
-        };
-        next - self.divisions[i]
-    }
-}
-
-/// Interval ratios per degree plus their nearest-named labels.
-struct Intervals {
-    ratios: Vec<f64>,
-    int_labels: Vec<Option<String>>,
-}
-
-impl Intervals {
-    fn new(scale: &EdoScale) -> Intervals {
-        let mut ratios = vec![1.0];
-        // int_labels[0] is never assigned upstream (stays undefined -> null).
-        let mut int_labels: Vec<Option<String>> = vec![None];
-        let mut division = 0i64;
-        for i in 0..scale.length {
-            division += scale.step_value(i);
-            let r = ratio_pow(division, scale.edivisions);
-            ratios.push(r);
-            let key = nearest_interval_key(r);
-            int_labels.push(Some(key.to_string()));
-        }
-        Intervals { ratios, int_labels }
-    }
-}
-
 /// Frequencies/MIDI per (octave, degree) for an EDO scale.
 struct Pitches {
     edivisions: i64,
     length: usize,
-    tonic: i64,
     root_octave: i64,
     base_freq: f64,
     base_freq_str: String,
@@ -193,24 +122,46 @@ struct Pitches {
 }
 
 impl Pitches {
-    fn new(scale: EdoScale, intervals: Intervals, midi_start: f64, root_octave: i64) -> Pitches {
+    /// Build the scale from `(large, small, sequence)`: each step is `L`/`M`
+    /// (both `large`, as upstream defaults medium to large) or `small`, giving
+    /// cumulative divisions, per-degree ratios and their nearest-named labels.
+    fn new(large: i64, small: i64, sequence: &str, midi_start: f64, root_octave: i64) -> Pitches {
+        // `divisions[i]` is the running sum *before* step i; `edivisions` the
+        // total, which the ratios below divide by — so it has to be known first.
+        let mut divisions = Vec::with_capacity(sequence.chars().count());
+        let mut edivisions = 0i64;
+        for c in sequence.chars() {
+            divisions.push(edivisions);
+            edivisions += if matches!(c, 'L' | 'M') { large } else { small };
+        }
+        let mut ratios = vec![1.0];
+        // `int_labels[0]` is never assigned upstream (stays undefined -> null).
+        let mut int_labels: Vec<Option<String>> = vec![None];
+        for i in 0..divisions.len() {
+            // The division *after* step i: the next step's running sum, or the
+            // total for the last step.
+            let after = divisions.get(i + 1).copied().unwrap_or(edivisions);
+            let r = ratio_pow(after, edivisions);
+            ratios.push(r);
+            int_labels.push(Some(nearest_interval_key(r).to_string()));
+        }
         let base_freq = midi_to_hz(midi_start);
         Pitches {
-            edivisions: scale.edivisions,
-            length: scale.length,
-            tonic: scale.tonic,
+            edivisions,
+            length: divisions.len(),
             root_octave,
             base_freq,
             base_freq_str: format!("{base_freq:.4}"),
-            divisions: scale.divisions,
-            ratios: intervals.ratios,
-            int_labels: intervals.int_labels,
+            divisions,
+            ratios,
+            int_labels,
         }
     }
 
-    /// Frequency for the tonic in octave `oct` (`get_freq` with `index = tonic`).
+    /// Frequency for the tonic in octave `oct` (`get_freq` with `index = tonic`,
+    /// and the tonic is always degree 1, so the base ratio is 1).
     fn octave_base(&self, oct: i64) -> f64 {
-        let f = self.base_freq * ratio_pow(self.tonic - 1, self.edivisions);
+        let f = self.base_freq;
         if oct < self.root_octave {
             f / 2f64.powi((self.root_octave - oct) as i32)
         } else if oct > self.root_octave {
@@ -324,12 +275,11 @@ fn build_pitches(def: &Value) -> Option<Pitches> {
     let small = value_to_degree(&tokens[3])?;
     let root_octave = note_octave(&base_note);
     let midi_start = crate::tonal::note_to_midi(&base_note)? as f64;
-    let scale = EdoScale::new(large, small, &sequence);
-    if scale.length == 0 || scale.edivisions == 0 {
+    let pitches = Pitches::new(large, small, &sequence, midi_start, root_octave);
+    if pitches.length == 0 || pitches.edivisions == 0 {
         return None;
     }
-    let intervals = Intervals::new(&scale);
-    Some(Pitches::new(scale, intervals, midi_start, root_octave))
+    Some(pitches)
 }
 
 fn flatten_into(items: &[Value], out: &mut Vec<Value>) {
@@ -397,13 +347,7 @@ impl Pattern {
     /// become MIDI notes; control maps gain `degree`/`degreeIndexes`/`intLabels`/
     /// `root`/`freq`/`edo` fields.
     pub fn edo_scale(&self, def: impl IntoPattern) -> Pattern {
-        let arg = def.into_pattern();
-        let pat = self.clone();
-        if let Some(v) = &arg.pure_value {
-            return pat.apply_edo_scale(v);
-        }
-        arg.fmap(move |v| Value::Pat(Box::new(pat.apply_edo_scale(&v))))
-            .inner_join()
+        patternify_value(self, def.into_pattern(), |pat, v| pat.apply_edo_scale(v))
     }
 
     fn apply_edo_scale(&self, def: &Value) -> Pattern {

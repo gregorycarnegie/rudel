@@ -12,12 +12,6 @@ pub fn note_to_freq(value: &Value) -> Option<f32> {
     rudel_core::get_freq(value).map(|freq| freq as f32)
 }
 
-/// Parse a note name like `c`, `cs4`, `c#4`, `eb3`, `Gb2` to a MIDI number.
-/// Delegates to the canonical implementation in `rudel_core::tonal`.
-pub fn note_name_to_midi(s: &str) -> Option<i32> {
-    rudel_core::note_to_midi(s)
-}
-
 /// Exponential (geometric) interpolation between `a` and `b` over progress `p`,
 /// matching Web Audio's `exponentialRampToValueAtTime`. Zeros are nudged off the
 /// axis; if the endpoints straddle zero (undefined for an exp ramp) it falls
@@ -249,7 +243,6 @@ mod tests {
             "c4 should be ~261.63, got {c4}"
         );
         assert_eq!(note_to_freq(&Value::Str("not a note".into())), None);
-        assert_eq!(note_name_to_midi("a4"), Some(69));
     }
 
     #[test]

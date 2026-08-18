@@ -33,7 +33,7 @@ pub(super) fn paint_pattern_widget(
         haps(DrawWindow::around(time))
             .iter()
             .find(|hap| hap_is_active(hap, time))
-            .map(|hap| event_color(hap, colors.active))
+            .map(|hap| event_color(hap, colors.foreground))
             .or(fallback)
     };
     match widget.widget_type.as_str() {
@@ -80,7 +80,7 @@ pub(super) fn paint_pattern_widget(
             let color = options
                 .active_color
                 .or_else(|| hap_color(None))
-                .unwrap_or(colors.active);
+                .unwrap_or(colors.foreground);
             paint_scope(
                 ui,
                 rect,
@@ -92,7 +92,7 @@ pub(super) fn paint_pattern_widget(
             true
         }
         "_fscope" => {
-            let color = options.active_color.unwrap_or(colors.active);
+            let color = options.active_color.unwrap_or(colors.foreground);
             paint_fscope(
                 ui,
                 rect,
@@ -112,7 +112,7 @@ pub(super) fn paint_pattern_widget(
                 widget_tap().as_deref(),
                 options,
                 hap_color,
-                colors.active,
+                colors.foreground,
             );
             true
         }

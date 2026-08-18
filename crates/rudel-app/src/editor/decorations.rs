@@ -137,7 +137,6 @@ impl EditorDecorationState {
         self.changes_since_eval.clear();
     }
 
-    #[allow(dead_code)]
     pub(crate) fn replace_range(&mut self, meta: &rudel_lang::EvalMeta, range: SourceRange) {
         let mut sliders: Vec<_> = self
             .sliders
@@ -192,7 +191,6 @@ impl EditorDecorationState {
             .collect()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn sliders(&self) -> &[SliderDecoration] {
         &self.sliders
     }
@@ -205,7 +203,6 @@ impl EditorDecorationState {
         true
     }
 
-    #[allow(dead_code)]
     pub(crate) fn widgets(&self) -> &[WidgetDecoration] {
         &self.widgets
     }
@@ -323,15 +320,8 @@ mod tests {
         }
     }
 
-    fn meta(
-        widgets: Vec<rudel_lang::WidgetConfig>,
-        mini: Vec<(usize, usize)>,
-    ) -> rudel_lang::EvalMeta {
-        rudel_lang::EvalMeta {
-            widgets,
-            mini_locations: mini,
-            ..Default::default()
-        }
+    fn meta(widgets: Vec<rudel_lang::WidgetConfig>) -> rudel_lang::EvalMeta {
+        rudel_lang::EvalMeta { widgets }
     }
 
     #[test]
@@ -360,13 +350,10 @@ mod tests {
     #[test]
     fn maps_widget_source_and_flash_ranges_across_edits() {
         let mut state = EditorDecorationState::default();
-        state.replace_all(&meta(
-            vec![
-                widget("slider", "3:6", 3, 6),
-                widget("_spiral", "spiral", 10, 20),
-            ],
-            vec![(7, 9)],
-        ));
+        state.replace_all(&meta(vec![
+            widget("slider", "3:6", 3, 6),
+            widget("_spiral", "spiral", 10, 20),
+        ]));
         state.set_flash_ranges_from_eval(&[(3, 6, None), (10, 12, None)]);
         state.map_change(TextChange {
             from: 0,
@@ -382,7 +369,7 @@ mod tests {
     #[test]
     fn maps_fresh_flash_ranges_from_eval_source_to_current_text() {
         let mut state = EditorDecorationState::default();
-        state.replace_all(&meta(Vec::new(), Vec::new()));
+        state.replace_all(&meta(Vec::new()));
         state.map_change(TextChange {
             from: 0,
             to: 0,
@@ -397,24 +384,18 @@ mod tests {
     #[test]
     fn range_update_preserves_decorations_outside_the_evaluated_range() {
         let mut state = EditorDecorationState::default();
-        state.replace_all(&meta(
-            vec![
-                widget("slider", "2:3", 2, 3),
-                widget("slider", "7:8", 7, 8),
-                widget("_spiral", "outside", 10, 20),
-                widget("_scope", "inside", 8, 12),
-            ],
-            vec![(1, 2), (7, 9)],
-        ));
+        state.replace_all(&meta(vec![
+            widget("slider", "2:3", 2, 3),
+            widget("slider", "7:8", 7, 8),
+            widget("_spiral", "outside", 10, 20),
+            widget("_scope", "inside", 8, 12),
+        ]));
 
         state.replace_range(
-            &meta(
-                vec![
-                    widget("slider", "6:7", 6, 7),
-                    widget("_pitchwheel", "new", 9, 14),
-                ],
-                vec![(6, 8)],
-            ),
+            &meta(vec![
+                widget("slider", "6:7", 6, 7),
+                widget("_pitchwheel", "new", 9, 14),
+            ]),
             SourceRange::new(5, 15),
         );
 
@@ -485,7 +466,11 @@ mod tests {
     #[test]
     fn the_common_suffix_is_counted_in_whole_characters() {
         assert_eq!(common_suffix_bytes("ab", "ab"), 2, "identical");
-        assert_eq!(common_suffix_bytes("xab", "ab"), 2, "the shorter one ends it");
+        assert_eq!(
+            common_suffix_bytes("xab", "ab"),
+            2,
+            "the shorter one ends it"
+        );
         assert_eq!(common_suffix_bytes("ab", "cb"), 1);
         assert_eq!(common_suffix_bytes("ab", "cd"), 0, "nothing in common");
         assert_eq!(common_suffix_bytes("", "ab"), 0);

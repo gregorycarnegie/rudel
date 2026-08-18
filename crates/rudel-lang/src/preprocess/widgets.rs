@@ -1,11 +1,8 @@
-use super::{
-    PreprocessWidget,
-    scanner::{
-        classify, is_ident_char, parse_call, previous_non_ws, top_level_ranges, top_level_split,
-        trim_range,
-    },
+use super::scanner::{
+    classify, is_ident_char, parse_call, previous_non_ws, top_level_ranges, top_level_split,
+    trim_range,
 };
-use crate::WidgetOption;
+use crate::{WidgetConfig, WidgetOption};
 use std::collections::BTreeMap;
 
 pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
@@ -199,10 +196,10 @@ pub(super) fn rewrite_editor_widgets_with_context(
     src: &str,
     node_offset: usize,
     widget_base_id: &str,
-) -> (String, Vec<PreprocessWidget>, Vec<(usize, usize)>) {
+) -> (String, Vec<WidgetConfig>, Vec<(usize, usize)>) {
     const NAME: &str = "slider";
     let mut out = String::with_capacity(src.len());
-    let mut widgets: Vec<PreprocessWidget> = Vec::new();
+    let mut widgets: Vec<WidgetConfig> = Vec::new();
     // `(rewritten_start, original_start)` for each verbatim chunk copied from
     // `src`, so mini-notation offsets recorded against the rewritten output can
     // be mapped back to the original editor source (the widget rewrite changes
@@ -234,7 +231,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
                 .filter(|widget| widget.widget_type == widget_type)
                 .count();
             let id = widget_id(widget_base_id, widget_type, index, from, to);
-            widgets.push(PreprocessWidget {
+            widgets.push(WidgetConfig {
                 widget_type: widget_type.to_string(),
                 id: id.clone(),
                 from,
@@ -298,7 +295,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
             .iter()
             .filter(|widget| widget.widget_type == "slider")
             .count();
-        widgets.push(PreprocessWidget {
+        widgets.push(WidgetConfig {
             widget_type: "slider".to_string(),
             id: id.clone(),
             from,
@@ -343,7 +340,7 @@ mod tests {
     // rewrite on well-formed input, which never exercises the boundaries those
     // helpers are made of.
 
-    fn rewrite(src: &str) -> (String, Vec<PreprocessWidget>) {
+    fn rewrite(src: &str) -> (String, Vec<WidgetConfig>) {
         let (out, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
         (out, widgets)
     }
@@ -625,7 +622,7 @@ note(\"d\")._pitchwheel()";
     // with its own name-boundary checks. The tests above only ever fed the
     // rewriter `_spiral`/`_pianoroll` calls, so none of it was reached.
 
-    fn sliders(src: &str) -> Vec<PreprocessWidget> {
+    fn sliders(src: &str) -> Vec<WidgetConfig> {
         let (_, widgets, _) = rewrite_editor_widgets_with_context(src, 0, "w");
         widgets
             .into_iter()

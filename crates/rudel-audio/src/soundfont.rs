@@ -11,6 +11,7 @@
 // shared with every other sound. Only the asset format is new.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use base64::Engine as _;
 use rudel_dsp::Sample;
 use std::{
     collections::{HashMap, HashSet},
@@ -294,39 +295,13 @@ pub fn parse_preset(
     Ok(Preset { zones })
 }
 
-/// Decode standard base64. Hand-rolled rather than pulling a crate in for one
-/// call site; whitespace is skipped and padding is optional.
+/// Decode standard base64: whitespace is skipped and padding is optional, as
+/// the WebAudioFont preset files wrap their zone payloads over several lines.
 pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    const INVALID: i8 = -1;
-    static TABLE: LazyLock<[i8; 256]> = LazyLock::new(|| {
-        let mut t = [INVALID; 256];
-        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        for (i, c) in alphabet.iter().enumerate() {
-            t[*c as usize] = i as i8;
-        }
-        t
-    });
-    let mut out = Vec::with_capacity(input.len() / 4 * 3);
-    let (mut acc, mut bits) = (0u32, 0u32);
-    for &c in input.as_bytes() {
-        if c == b'=' {
-            break;
-        }
-        if c.is_ascii_whitespace() {
-            continue;
-        }
-        let v = TABLE[c as usize];
-        if v == INVALID {
-            return Err(format!("invalid base64 byte {c:#x}"));
-        }
-        acc = (acc << 6) | v as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Ok(out)
+    let packed: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    base64::engine::general_purpose::STANDARD_NO_PAD
+        .decode(packed.trim_end_matches('='))
+        .map_err(|e| format!("invalid base64: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -600,15 +575,6 @@ mod tests {
     }
 
     #[test]
-    fn base64_round_trips_known_values() {
-        assert_eq!(base64_decode("QUJD").unwrap(), b"ABC");
-        // Padding is optional and whitespace is skipped.
-        assert_eq!(base64_decode("QQ==").unwrap(), b"A");
-        assert_eq!(base64_decode("Q U J D").unwrap(), b"ABC");
-        assert!(base64_decode("!!").is_err());
-    }
-
-    #[test]
     fn preset_zones_parse_with_their_tuning() {
         let preset = parse_preset(PRESET, stub).expect("parse");
         assert_eq!(preset.zones.len(), 2);
@@ -729,10 +695,13 @@ mod tests {
         // The two non-alphanumeric characters are distinct.
         assert_eq!(base64_decode("+/+/").unwrap(), vec![0xfb, 0xff, 0xbf]);
 
-        // Anything outside the alphabet is an error rather than silent data.
+        // Anything outside the alphabet is an error rather than silent data,
+        // never a silent `A` (which is what decoding to 0 would look like).
         assert!(base64_decode("QU*D").is_err());
         assert!(base64_decode("QU-D").is_err());
         assert!(base64_decode("QU_D").is_err());
+        assert!(base64_decode("TW$u").is_err());
+        assert_eq!(base64_decode("ABCD").unwrap(), vec![0x00, 0x10, 0x83]);
     }
 
     #[test]
@@ -771,26 +740,5 @@ mod tests {
         // An unterminated zones array ends at the end of the source rather
         // than reading past it.
         assert_eq!(zone_bodies("x={zones:[{a:1}"), vec!["a:1"]);
-    }
-
-    #[test]
-    fn base64_rejects_bytes_outside_the_alphabet() {
-        assert_eq!(base64_decode("TWFu"), Ok(b"Man".to_vec()));
-        // Padding is optional and whitespace is skipped.
-        assert_eq!(base64_decode("TWE=").unwrap(), b"Ma".to_vec());
-        assert_eq!(
-            base64_decode(
-                "TW Fu
-"
-            )
-            .unwrap(),
-            b"Man".to_vec()
-        );
-        // `A` decodes to 0, so a sentinel of 0 would make every invalid byte
-        // decode as an `A` instead of erroring.
-        assert!(base64_decode("TW$u").is_err());
-        // ...and a sentinel of 1 would reject `B`, which legitimately decodes
-        // to 1, while still rejecting everything it should.
-        assert_eq!(base64_decode("ABCD").unwrap(), vec![0x00, 0x10, 0x83]);
     }
 }

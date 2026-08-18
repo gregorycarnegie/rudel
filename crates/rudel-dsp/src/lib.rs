@@ -9,7 +9,7 @@ mod bytebeat;
 mod convolver;
 mod drum;
 mod envelope;
-mod fft;
+pub mod fft;
 mod filter;
 mod fm;
 mod modulator;
@@ -30,6 +30,7 @@ pub use bytebeat::{ByteBeatExpr, ByteBeatParams, ByteBeatVoice, DEFAULT_BEATS};
 pub use convolver::{Convolver, ImpulseResponse, adjust_length, generate_reverb_ir};
 pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::{Adsr, adsr_value, adsr_values};
+pub use fft::Fft;
 pub use filter::{FilterModel, FilterParams, FilterSet, Ladder, VoiceFilters};
 pub use fm::{FmOp, FmSpec};
 pub use modulator::{
@@ -38,7 +39,7 @@ pub use modulator::{
 };
 pub use oscillator::{NoiseKind, Waveform};
 pub use params::VoiceParams;
-pub use pitch::{PitchMod, mtof, note_name_to_midi, note_to_freq};
+pub use pitch::{PitchMod, mtof, note_to_freq};
 pub use postfx::{DistortAlgo, PostFx, PostFxVoice, TransientShaper, Vowel};
 pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::VoiceSpec;

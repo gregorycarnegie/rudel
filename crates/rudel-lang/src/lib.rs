@@ -32,15 +32,8 @@ pub fn install_mini() {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct EvalMeta {
-    /// Source byte ranges for mini-notation leaves discovered during
-    /// preprocessing, matching Strudel's `meta.miniLocations` role.
-    pub mini_locations: Vec<(usize, usize)>,
     /// Inline editor widgets discovered during preprocessing/evaluation.
     pub widgets: Vec<WidgetConfig>,
-    /// Block/label metadata for range-aware evaluation.
-    pub labels: Vec<LabelMeta>,
-    /// Cleanup requested after eval, e.g. when a visual widget was removed.
-    pub cleanup: CleanupHints,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -91,21 +84,6 @@ impl WidgetOption {
             _ => None,
         }
     }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct LabelMeta {
-    pub name: String,
-    pub index: usize,
-    pub end: usize,
-    pub full_match: String,
-    pub active_visualizer: Option<String>,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct CleanupHints {
-    pub widget_removed: bool,
-    pub cleanup_draw_context: bool,
 }
 
 pub struct EvalResult {
@@ -222,28 +200,8 @@ fn eval_result_with_preprocessor(
     register_samples(koto.prelude(), effects.clone());
     let preprocessed = preprocess();
     let script = preprocessed.source;
-    let preprocess::PreprocessMeta {
-        mini_locations,
-        widgets,
-    } = preprocessed.meta;
     let mut meta = EvalMeta {
-        mini_locations,
-        widgets: widgets
-            .into_iter()
-            .map(|widget| WidgetConfig {
-                widget_type: widget.widget_type,
-                id: widget.id,
-                from: widget.from,
-                to: widget.to,
-                index: widget.index,
-                options: widget.options,
-                value: widget.value,
-                min: widget.min,
-                max: widget.max,
-                step: widget.step,
-            })
-            .collect(),
-        ..Default::default()
+        widgets: preprocessed.widgets,
     };
     // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
     // they don't leak into this one (Strudel calls `hush()` at eval start).

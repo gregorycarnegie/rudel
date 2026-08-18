@@ -1,5 +1,6 @@
 use crate::{
     pattern::Pattern,
+    tonal::value_to_midi,
     transforms::IntoPattern,
     value::{Value, ValueMap},
     xen::freq_to_midi,
@@ -105,13 +106,6 @@ fn piano_pan(m: &ValueMap) -> Option<f64> {
     let max_pan = crate::tonal::note_to_midi("C8")? as f64;
     let pitch_pan = (midi.round() / max_pan).clamp(0.0, 1.0);
     Some(pitch_pan * 0.5 + 0.25)
-}
-
-fn value_to_midi(value: &Value) -> Option<f64> {
-    match value {
-        Value::Str(s) => crate::tonal::note_to_midi(s).map(|m| m as f64),
-        other => other.as_f64(),
-    }
 }
 
 #[cfg(test)]

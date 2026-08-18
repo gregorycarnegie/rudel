@@ -37,8 +37,8 @@ pub(super) fn paint_spiral(
             continue;
         }
         let active = hap_is_active(hap, time);
-        let active_color = options.active_color.unwrap_or(colors.active);
-        let inactive_color = options.inactive_color.unwrap_or(colors.inactive);
+        let active_color = options.active_color.unwrap_or(colors.foreground);
+        let inactive_color = options.inactive_color.unwrap_or(colors.muted);
         let base = if active || options.colorize_spiral_inactive {
             event_color(hap, active_color)
         } else {
@@ -76,7 +76,7 @@ pub(super) fn paint_spiral(
             rotate,
             stretch,
             thickness: options.playhead_thickness.unwrap_or(thickness),
-            color: options.playhead_color.unwrap_or(colors.active),
+            color: options.playhead_color.unwrap_or(colors.foreground),
             cap: options.spiral_cap,
         },
     );

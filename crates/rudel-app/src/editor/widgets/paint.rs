@@ -97,7 +97,7 @@ fn paint_widget_surface(
 ) {
     let painter = ui.painter();
     let colors = widget_draw_colors(paint.draw_theme);
-    let stroke = egui::Stroke::new(1.0, colors.inactive);
+    let stroke = egui::Stroke::new(1.0, colors.muted);
     painter.rect_filled(rect, 4.0, colors.background);
     painter.rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Outside);
 
@@ -108,7 +108,7 @@ fn paint_widget_surface(
 
     if !painted {
         let left = egui::Rect::from_min_size(rect.min, egui::vec2(4.0, rect.height()));
-        painter.rect_filled(left, 4.0, colors.active);
+        painter.rect_filled(left, 4.0, colors.foreground);
         paint_widget_label(ui, rect, widget, surface, colors);
     }
 }
@@ -127,7 +127,7 @@ fn paint_widget_label(
         egui::Align2::LEFT_TOP,
         title,
         egui::TextStyle::Monospace.resolve(ui.style()),
-        colors.text,
+        colors.foreground,
     );
     painter.text(
         rect.right_top() + egui::vec2(-8.0, 8.0),

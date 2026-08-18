@@ -188,20 +188,13 @@ fn instance_str(
 }
 
 fn register_string(string: &KMap) {
-    string.add_fn("endsWith", move |ctx| {
-        let (s, args) = instance_str(ctx, "|String, String|")?;
-        let Some(KValue::Str(suffix)) = args.first() else {
-            return runtime_error!("endsWith expects a string");
-        };
-        Ok(s.as_str().ends_with(suffix.as_str()).into())
-    });
-    string.add_fn("startsWith", move |ctx| {
-        let (s, args) = instance_str(ctx, "|String, String|")?;
-        let Some(KValue::Str(prefix)) = args.first() else {
-            return runtime_error!("startsWith expects a string");
-        };
-        Ok(s.as_str().starts_with(prefix.as_str()).into())
-    });
+    // Koto already ships these two under snake_case names, so the JS spelling
+    // is the same function under a second key rather than a reimplementation.
+    for (js, koto) in [("startsWith", "starts_with"), ("endsWith", "ends_with")] {
+        if let Some(f) = string.get(koto) {
+            string.insert(js, f);
+        }
+    }
     // `s.substring(from, to)` clamps and swaps like JS rather than panicking,
     // and counts characters, not bytes.
     string.add_fn("substring", move |ctx| {

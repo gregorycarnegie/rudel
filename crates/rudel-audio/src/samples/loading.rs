@@ -105,38 +105,15 @@ impl SampleBank {
 
     /// Resolves the sample source (JSON, URL, directory) into loaded sample records.
     pub(crate) fn load_samples_source_entries(source: &str) -> Result<Vec<LoadedSample>, String> {
-        let resolved = sample_map::resolve_special_paths(source.trim());
-        // github: bases point at the repo's strudel.json.
-        let url = if resolved.starts_with("github:") {
-            sample_map::github_path(&resolved, "strudel.json")?
-        } else {
-            resolved
-        };
-
-        if is_http(&url) {
-            let json = fetch_text(&url)?;
-            let base = sample_map::base_url_of(&url);
-            return Self::load_sample_map_entries(&json, &base);
-        }
-
-        // Local path: expand a leading `~` to the user's home directory.
-        let url = expand_home(&url);
-        let path = Path::new(&url);
+        // A local directory of sample folders is the one source that is not a
+        // sample map; everything else resolves to `strudel.json` text + base.
+        let local = expand_home(&sample_map::resolve_special_paths(source.trim()));
+        let path = Path::new(&local);
         if path.is_dir() {
             return Self::load_dir_entries(path);
         }
-        if path.is_file() {
-            let json = std::fs::read_to_string(path).map_err(|e| format!("read {url}: {e}"))?;
-            let base = path
-                .parent()
-                .and_then(|p| p.to_str())
-                .unwrap_or("")
-                .to_string();
-            return Self::load_sample_map_entries(&json, &base);
-        }
-        Err(format!(
-            "samples: not a URL, .json file, or directory: {url}"
-        ))
+        let (json, base) = Self::resolve_map_source(source)?;
+        Self::load_sample_map_entries(&json, &base)
     }
 
     /// Load a Strudel-format sample map (the contents of a `strudel.json`).
@@ -302,26 +279,7 @@ impl SampleBank {
     ) -> Result<Vec<(String, WaveTable)>, String> {
         use sample_map::SoundFiles;
 
-        let resolved = sample_map::resolve_special_paths(source.trim());
-        let (json, base) = if resolved.starts_with("github:") {
-            let url = sample_map::github_path(&resolved, "strudel.json")?;
-            let base = sample_map::base_url_of(&url);
-            (fetch_text(&url)?, base)
-        } else if is_http(&resolved) {
-            let base = sample_map::base_url_of(&resolved);
-            (fetch_text(&resolved)?, base)
-        } else {
-            let path = expand_home(&resolved);
-            let path = Path::new(&path);
-            let json = std::fs::read_to_string(path)
-                .map_err(|e| format!("read {}: {e}", path.display()))?;
-            let base = path
-                .parent()
-                .and_then(|p| p.to_str())
-                .unwrap_or("")
-                .to_string();
-            (json, base)
-        };
+        let (json, base) = Self::resolve_map_source(source)?;
 
         let mut jobs: Vec<(String, String)> = Vec::new();
         for (name, files) in sample_map::parse_sample_map(&json, &base)? {
@@ -446,24 +404,7 @@ pub(super) fn fetch_text(url: &str) -> Result<String, String> {
 /// disk like the sample downloads. Preset files are ~1MB each, so a font is
 /// fetched once per machine rather than once per session.
 pub(crate) fn fetch_cached_text(url: &str) -> Result<String, String> {
-    if !is_http(url) {
-        return std::fs::read_to_string(url).map_err(|e| format!("read {url}: {e}"));
-    }
-    let cache = cache_path(url);
-    if let Some(path) = &cache
-        && let Ok(text) = std::fs::read_to_string(path)
-    {
-        return Ok(text);
-    }
-    let text = fetch_text(url)?;
-    // Best-effort cache write; a failed write just re-downloads next time.
-    if let Some(path) = &cache
-        && let Some(parent) = path.parent()
-        && std::fs::create_dir_all(parent).is_ok()
-    {
-        let _ = std::fs::write(path, &text);
-    }
-    Ok(text)
+    String::from_utf8(fetch_cached_bytes(url)?).map_err(|e| format!("decode {url}: {e}"))
 }
 
 /// Decode in-memory audio bytes (a soundfont zone's payload, say).
