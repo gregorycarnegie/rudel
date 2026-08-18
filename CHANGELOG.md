@@ -11,6 +11,62 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.12.2] — 2026-08-18
+
+The other half of the 8004-pattern run: every pattern was also evaluated in a
+real Strudel runtime, so a failure can be attributed rather than guessed at.
+Of the 8004, **1260 fail in both engines** — user sketches that were never
+finished — and the 933 that only rudel refused are what this release is about.
+Six of them are now fixed, leaving 388.
+
+### Fixed
+
+- **`x. gain(1)` and `x .gain(1)`.** JavaScript ignores whitespace either side
+  of a member-access dot; Koto reported `expected key after '.' in Map access`
+  on the method the user did write. 315 patterns.
+- **An argument written *out*dented from the one above.** A bracketed group's
+  lines have to land on one column in Koto, and an over-indented argument was
+  already pulled back — but an under-indented one broke the call just as badly,
+  with the error landing on the closing paren several lines later. The
+  alignment now works in both directions.
+- **A comment inside a labelled chain.** `strip_comments` blanks a comment
+  rather than deleting it, so error messages still point at the line the user
+  wrote — but the label pass read that blank as the end of its expression and
+  cut the chain in half. A gap followed by a leading dot now continues.
+- **`sd : s("bd")`.** A labelled statement may have a gap before its colon.
+- **`rev()`.** Strudel's `register` curries, so calling a no-argument transform
+  with no argument hands back the transform rather than applying it to nothing:
+  `.sometimesBy(0.8, rev())` passes a function. Every transform in the
+  `noarg` group now does this, and `rev` — which was registered by hand and so
+  missed the currying entirely — joined the group.
+- **`seq([a, b])`.** A list argument is a sequence, as Strudel's `reify` makes
+  it. It used to evaluate to silence.
+
+### Added
+
+`tools/oracle/strudel_diff.test.mjs` evaluates a directory of patterns in a
+real Strudel runtime and emits the same `<outcome>\t<id>\t<detail>` shape the
+rudel side produces, so any corpus can be diffed against upstream instead of
+against a snapshot. Setup — it needs rather more of the strudel workspace
+linked than the golden generators do — is in `tools/oracle/README.md`.
+
+### Internal
+
+Over the 8004 public strudel.cc patterns: **6198 play, up from 5069** before
+this run began, with 0 panics. The regression corpora are unchanged: 31/31
+strudel.cc tunes, 89/89 of eefano's collection, 491/491 of the vendored drum
+patterns.
+
+Two more intermittent test failures fixed, both pre-existing: `rudel-core`'s
+two MIDI-note-queue tests share a process-global queue whose "any device" entry
+is drained by either of them, and failed together about half the time; they now
+take the same lock the MIDI port tests do.
+
+The 388 that remain are 301 distinct sources spread over a dozen error shapes —
+JavaScript spread into call arguments, `initHydra` (visuals, unsupported by
+design), and a long tail of indentation interactions with no single cause left
+in it.
+
 ## [0.12.1] — 2026-08-18
 
 Four crashes and one silent mis-parse, all found by running the 8004 public

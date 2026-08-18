@@ -368,8 +368,17 @@ mod tests {
         assert_eq!(get_cc(1, 31), 0.6);
     }
 
+    /// The note queue is process-global and its `""` entry is shared by every
+    /// device, so a test that drains it drains what another test just pushed.
+    /// Every test that touches the queue takes this first.
+    fn note_queue_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn midi_notes_are_delivered_once_through_either_view() {
+        let _guard = note_queue_lock();
         // One test, because the queue is process-global and the `""` entry is
         // shared between every device.
         push_midi_note("dev-a", 60, 0.5);
@@ -387,6 +396,7 @@ mod tests {
 
     #[test]
     fn midi_keys_haps_run_the_requested_length_from_the_query_point() {
+        let _guard = note_queue_lock();
         use crate::state::State;
         use crate::timespan::TimeSpan;
         use crate::value::ValueMap;

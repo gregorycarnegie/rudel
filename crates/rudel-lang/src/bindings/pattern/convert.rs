@@ -67,6 +67,11 @@ pub(crate) fn arg_to_pattern(value: &KValue) -> Pattern {
         KValue::Bool(b) => rudel_core::pure(Value::Bool(*b)),
         KValue::Str(s) => rudel_core::pure(Value::Str(s.to_string())),
         KValue::Object(o) if o.is_a::<KPattern>() => o.cast::<KPattern>().unwrap().0.clone(),
+        // A list is a sequence, as Strudel's `reify` makes it: `seq([a, b])`
+        // and `stack([a, b])` both lay `a` and `b` out across one cycle.
+        KValue::List(l) => {
+            rudel_core::fastcat(&l.data().iter().map(arg_to_pattern).collect::<Vec<_>>())
+        }
         _ => rudel_core::silence(),
     }
 }

@@ -400,3 +400,40 @@ fn a_script_that_evaluates_to_something_else_is_not_a_pattern() {
     assert!(eval("Fraction(1)").is_err());
     assert!(eval("42").is_err());
 }
+
+#[test]
+fn a_transform_called_with_no_argument_is_the_transform_itself() {
+    // Strudel's `register` curries, so `rev()` is a function, and passing it
+    // where a transform is expected has to keep working.
+    assert_eq!(
+        shape(
+            &eval(r#"s("bd sd hh").sometimesBy(1, rev())"#).expect("rev()"),
+            1
+        ),
+        shape(
+            &eval(r#"s("bd sd hh").sometimesBy(1, rev)"#).expect("rev"),
+            1
+        ),
+    );
+    // Applied normally it still transforms.
+    assert_eq!(
+        shape(&eval(r#"rev(s("bd sd"))"#).expect("rev(pat)"), 1),
+        shape(&eval(r#"s("bd sd").rev()"#).expect("pat.rev()"), 1),
+    );
+}
+
+#[test]
+fn a_list_argument_is_a_sequence() {
+    // Strudel reifies an array into a fastcat, so `seq([a, b])` lays both out
+    // across one cycle rather than evaluating to silence.
+    for (list, spread) in [
+        (r#"seq([s("bd"), s("hh")])"#, r#"seq(s("bd"), s("hh"))"#),
+        (r#"cat([s("bd"), s("hh")])"#, r#"seq(s("bd"), s("hh"))"#),
+    ] {
+        assert_eq!(
+            shape(&eval(list).expect(list), 1),
+            shape(&eval(spread).expect(spread), 1),
+            "{list}"
+        );
+    }
+}

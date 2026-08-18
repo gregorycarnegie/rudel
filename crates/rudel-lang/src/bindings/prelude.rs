@@ -103,6 +103,15 @@ macro_rules! register_pattern_fns {
         });)*
         $($p.add_fn($n_a0, |ctx| {
             let a = ctx.args();
+            // Strudel's `register` curries, so calling one of these with no
+            // argument hands back the transform rather than applying it to
+            // nothing: `.sometimesBy(0.8, rev())` passes a function.
+            if a.is_empty() {
+                return Ok(curried(Vec::new(), 1, |a: &[KValue]| {
+                    let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
+                    Ok(KPattern(pat.$a0()).into())
+                }));
+            }
             let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
             Ok(KPattern(pat.$a0()).into())
         });)*
@@ -529,9 +538,6 @@ pub(crate) fn register(prelude: &KMap) {
             _ => Ok(KPattern(arg_to_pattern(&value)).into()),
         }
     });
-    prelude.add_fn("rev", |ctx| {
-        Ok(KPattern(arg_to_pattern(&arg0(ctx)).rev()).into())
-    });
     // scan: step through growing runs (run(1), run(2), ... run(n)).
     prelude.add_fn("scan", |ctx| {
         Ok(KPattern(rudel_core::scan(
@@ -837,6 +843,7 @@ pub(crate) fn register(prelude: &KMap) {
             "palindrome" => palindrome, "degrade" => degrade, "undegrade" => undegrade,
             "press" => press, "brak" => brak, "ratio" => ratio, "fit" => fit,
             "invert" => invert, "inv" => invert, "collect" => collect,
+            "rev" => rev,
         ];
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back, "iterback" => iter_back,

@@ -928,6 +928,73 @@ pub(super) fn quote_numeric_map_keys(src: &str) -> String {
     out
 }
 
+/// Close the gaps around a member-access dot: `x . gain(1)` and `x. gain(1)`.
+///
+/// JavaScript ignores whitespace either side of the dot; Koto wants the name
+/// straight after it and reports `expected key after '.' in Map access` on the
+/// method the user did write. Only spaces and tabs are closed, and only when
+/// the dot already has something to attach to on its own line — a dot opening a
+/// continuation line keeps its indentation, which is what
+/// [`indent_dot_continuations`] later lines up.
+pub(super) fn tighten_member_dots(src: &str) -> String {
+    let mask = code_mask(src);
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    // What a member access can be read off: a name, a closing bracket, or the
+    // end of a string literal (`"c e".note()`).
+    let receiver = |b: u8| ident(b) || matches!(b, b')' | b']' | b'}' | b'"' | b'\'' | b'`');
+    let blank = |b: u8| matches!(b, b' ' | b'\t');
+    let mut out = String::with_capacity(src.len());
+    let mut copied = 0usize;
+    let mut i = 0usize;
+    while i < mask.len() {
+        if mask[i] != b'.' {
+            i += 1;
+            continue;
+        }
+        // `..` and `...` are ranges and spreads, not member access.
+        if mask.get(i + 1) == Some(&b'.') || (i > 0 && mask[i - 1] == b'.') {
+            i += 2;
+            continue;
+        }
+        let after = mask[i + 1..].iter().take_while(|b| blank(**b)).count();
+        // A name has to follow, so `gain(.5)` and a decimal point are untouched.
+        if after == 0
+            || !mask
+                .get(i + 1 + after)
+                .copied()
+                .is_some_and(|b| ident(b) && !b.is_ascii_digit())
+        {
+            let before = mask[..i].iter().rev().take_while(|b| blank(**b)).count();
+            if before == 0
+                || !mask[..i - before].last().copied().is_some_and(receiver)
+                || !mask
+                    .get(i + 1)
+                    .copied()
+                    .is_some_and(|b| ident(b) && !b.is_ascii_digit())
+            {
+                i += 1;
+                continue;
+            }
+            out.push_str(&src[copied..i - before]);
+            copied = i;
+            i += 1;
+            continue;
+        }
+        let before = mask[..i].iter().rev().take_while(|b| blank(**b)).count();
+        let keep_from = if before > 0 && mask[..i - before].last().copied().is_some_and(receiver) {
+            i - before
+        } else {
+            i
+        };
+        out.push_str(&src[copied..keep_from]);
+        out.push('.');
+        copied = i + 1 + after;
+        i = copied;
+    }
+    out.push_str(&src[copied..]);
+    out
+}
+
 /// Words whose parenthesised head is not an argument list, so the space before
 /// it is real. JavaScript's control flow plus the Koto keywords that can stand
 /// in front of a parenthesised expression.
@@ -2010,7 +2077,10 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
                             && previous_ended_comma
                             && !in_block
                             && let Some(&previous) = stmt.get(depth)
-                            && col > previous
+                            // Either way: an argument written *out*dented from
+                            // the one above breaks Koto exactly as an indented
+                            // one does, and JavaScript indents to taste.
+                            && col != previous
                             && previous >= open_col.get(depth).copied().unwrap_or(0)
                         {
                             col = previous;
@@ -3104,6 +3174,53 @@ mod tests {
         // Strings are not names, and a paren inside one is not a call.
         assert_eq!(tighten_call_parens("\"bd\" (x)"), "\"bd\" (x)");
         assert_eq!(tighten_call_parens("s(\"a (b\")"), "s(\"a (b\")");
+    }
+
+    #[test]
+    fn whitespace_around_a_member_dot_is_closed() {
+        // Koto wants the name straight after the dot and otherwise reports
+        // `expected key after '.'` on the method the user did write.
+        assert_eq!(
+            tighten_member_dots("s(\"bd\"). gain(1)"),
+            "s(\"bd\").gain(1)"
+        );
+        assert_eq!(
+            tighten_member_dots("s(\"bd\") .gain(1)"),
+            "s(\"bd\").gain(1)"
+        );
+        assert_eq!(
+            tighten_member_dots("s(\"bd\") . gain(1)"),
+            "s(\"bd\").gain(1)"
+        );
+        assert_eq!(tighten_member_dots("f()\t.g()"), "f().g()");
+        // Decimals, ranges and spreads are not member access.
+        assert_eq!(tighten_member_dots("gain(.5)"), "gain(.5)");
+        assert_eq!(tighten_member_dots("n(\"0 .. 3\")"), "n(\"0 .. 3\")");
+        assert_eq!(tighten_member_dots("f(...args)"), "f(...args)");
+        // A dot opening a continuation line keeps its indentation.
+        assert_eq!(
+            tighten_member_dots("s(\"bd\")\n  .gain(1)"),
+            "s(\"bd\")\n  .gain(1)"
+        );
+    }
+
+    #[test]
+    fn an_argument_written_outdented_from_the_one_above_is_lined_up() {
+        // JavaScript indents to taste; Koto wants a bracketed group's lines at
+        // one column. Pulling an over-indented argument back was already done,
+        // but an argument written *out*dented broke the call just as badly and
+        // the error landed on the closing paren lines later.
+        let out = indent_dot_continuations("stack(\n    s(\"bd\"),\n  note(\"c\")\n)");
+        let cols: Vec<usize> = out
+            .lines()
+            .filter(|l| l.contains("s(\"bd\")") || l.contains("note(\"c\")"))
+            .map(|l| l.len() - l.trim_start().len())
+            .collect();
+        assert_eq!(cols.len(), 2, "{out:?}");
+        assert_eq!(
+            cols[0], cols[1],
+            "both arguments land on one column: {out:?}"
+        );
     }
 
     #[test]

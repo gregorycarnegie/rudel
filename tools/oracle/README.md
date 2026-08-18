@@ -47,6 +47,40 @@ cd node_modules/@strudel
 for p in core mini tonal xen edo; do ln -s "$PWD/../../../../strudel/packages/$p" "$p"; done
 ```
 
+## Differential run
+
+The golden generators above read Strudel's *committed* values. `strudel_diff.
+test.mjs` does the other thing: it evaluates a directory of patterns in a real
+Strudel runtime, so an arbitrary corpus can be compared against rudel rather
+than against a snapshot. That comparison is the only way to read a pass rate
+over user-written patterns — a large share of them do not work in Strudel
+either, and without the other side you cannot tell those from a rudel gap.
+
+It needs more of the workspace than the generators do: every `@strudel/*`
+package plus `superdough`/`supradough` linked into `strudel/node_modules`, and
+vitest (superdough imports its audioworklets extensionless, which only resolves
+once vite transforms the package instead of handing it to node).
+
+```sh
+cd tools/oracle
+npm install --no-save vitest@3.0.4 acorn escodegen estree-walker   @tonaljs/tonal chord-voicings webmidi nanostores @kabelsalat/lib @kabelsalat/web
+# link the third-party deps and every strudel package into the strudel root
+cd ../../strudel/node_modules
+for d in ../../tools/oracle/node_modules/*/; do ln -sfn "$PWD/$d" "$(basename $d)"; done
+for p in ../packages/*/; do ln -sfn "$PWD/$p" "@strudel/$(basename $p)"; done
+ln -sfn "$PWD/../packages/superdough" superdough
+ln -sfn "$PWD/../packages/supradough" supradough
+```
+
+Then, from the repo root:
+
+```sh
+DIFF_CORPUS=/path/to/patterns DIFF_OUT=strudel.tsv   node strudel/node_modules/vitest/vitest.mjs run     --config tools/oracle/strudel_diff.config.mjs
+```
+
+Each line is `<OK|EMPTY|ERR>	<id>	<haps|message>`. `DIFF_FROM`/`DIFF_TO`
+shard a long run; `DIFF_CYCLES` sets the query length (8 by default).
+
 ## Regenerate
 
 ```sh

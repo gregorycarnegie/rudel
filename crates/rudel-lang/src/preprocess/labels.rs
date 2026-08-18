@@ -53,7 +53,11 @@ fn label_at_line(line: &str) -> Option<(String, String)> {
     if end == 0 {
         return None;
     }
-    let rest = &line[end..];
+    // JavaScript allows a gap before the colon of a labelled statement, and
+    // `sd : s("bd")` is written that way often enough to matter. Nothing else
+    // at column zero reaches a colon through spaces alone: a ternary hits its
+    // `?` first, and a map key at column zero is excluded by the caller.
+    let rest = line[end..].trim_start_matches([' ', '\t']);
     rest.strip_prefix(':')
         .map(|expr| (line[..end].to_string(), expr.trim_start().to_string()))
 }
@@ -113,8 +117,23 @@ pub(super) fn rewrite_labels(src: &str) -> String {
             let line = lines[i];
             if depth <= 0 && !in_string(i) {
                 if line.trim().is_empty() {
+                    // A blank line ends the label's expression — unless the
+                    // chain merely has a gap in it and picks up again with a
+                    // leading dot. A comment inside a chain arrives here as a
+                    // blank, because `strip_comments` blanks rather than
+                    // deletes so error messages still point at the line the
+                    // user wrote.
+                    let resumes = lines[i + 1..]
+                        .iter()
+                        .find(|l| !l.trim().is_empty())
+                        .is_some_and(|l| l.trim_start().starts_with('.'));
+                    if !resumes {
+                        i += 1;
+                        break;
+                    }
+                    expr_lines.push(line.to_string());
                     i += 1;
-                    break;
+                    continue;
                 }
                 if label_at_line(line).is_some() || top_level_boundary(line) {
                     break;
@@ -184,6 +203,30 @@ mod tests {
         // A colon with no name before it is a map key, not a label.
         let keyed = r#": s("bd")"#;
         assert_eq!(rewrite_labels(keyed), keyed);
+    }
+
+    #[test]
+    fn a_gap_before_the_colon_still_labels() {
+        // JavaScript allows it and strudel.cc patterns are written that way.
+        assert!(rewrite_labels("sd : s(\"bd\")").contains("rudel_label(\"sd\""));
+        assert!(rewrite_labels("$ : s(\"bd\")").contains("rudel_label(\"$\""));
+        assert!(rewrite_labels("sd\t: s(\"bd\")").contains("rudel_label(\"sd\""));
+        // A ternary at column zero reaches its `?` first and is not a label.
+        let ternary = "a ? b : c";
+        assert_eq!(rewrite_labels(ternary), ternary);
+    }
+
+    #[test]
+    fn a_labelled_chain_survives_a_gap_in_it() {
+        // A comment inside a chain arrives here as a blank line, because
+        // `strip_comments` blanks rather than deletes so error messages still
+        // point at the line the user wrote. The chain continues below it.
+        let out = rewrite_labels("p1: s(\"bd\")\n  .fast(2)\n\n  .rev()");
+        assert!(out.contains(".rev()"), "the chain keeps its tail: {out}");
+        assert_eq!(out.matches("rudel_label(").count(), 1, "{out}");
+        // A blank line *not* followed by a continuation still ends the label.
+        let two = rewrite_labels("a: s(\"bd\")\n\nb: s(\"hh\")");
+        assert_eq!(two.matches("rudel_label(").count(), 2, "{two}");
     }
 
     #[test]
