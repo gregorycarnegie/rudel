@@ -410,10 +410,8 @@ impl RudelApp {
                                     }
                                     first = false;
                                     ui.weak(*label);
-                                    for (item, hits) in items {
-                                        if let Some(text) = reference_item(ui, item, hits) {
-                                            insert = Some(text);
-                                        }
+                                    if let Some(text) = reference_items(ui, items) {
+                                        insert = Some(text);
                                     }
                                 }
                             });
@@ -430,10 +428,8 @@ impl RudelApp {
                             .default_open(default_open)
                             .open(force_open)
                             .show(ui, |ui| {
-                                for (item, hits) in items {
-                                    if let Some(text) = reference_item(ui, item, hits) {
-                                        insert = Some(text);
-                                    }
+                                if let Some(text) = reference_items(ui, items) {
+                                    insert = Some(text);
                                 }
                             });
                     }
@@ -701,6 +697,33 @@ fn fuzzy_filter<'a>(
     items
         .filter_map(|item| fuzzy_match(item, query).map(|hits| (item, hits)))
         .collect()
+}
+
+/// One reference section's entries, culled to the scroll viewport: rows above
+/// and below it become a single blank space each.
+///
+/// Every entry is a `dnd_drag_source` around a `Label`, and egui charges per
+/// widget per frame (id-clash check, widget_info, accesskit registration)
+/// whether or not the widget is visible. With the sample banks loaded that is
+/// thousands of widgets a frame for ~20 visible rows — profiling put this whole
+/// panel at 45% of the process's CPU. Rows are uniform monospace, so the
+/// visible range is arithmetic.
+fn reference_items(ui: &mut egui::Ui, items: &[(&str, Vec<usize>)]) -> Option<String> {
+    let row = ui.text_style_height(&egui::TextStyle::Monospace) + ui.spacing().item_spacing.y;
+    let top = ui.cursor().top();
+    let view = ui.clip_rect();
+    let first = (((view.top() - top) / row).floor().max(0.0) as usize).min(items.len());
+    let last = ((((view.bottom() - top) / row).ceil().max(0.0)) as usize + 1).min(items.len());
+
+    let mut insert = None;
+    ui.add_space(first as f32 * row);
+    for (item, hits) in &items[first..last] {
+        if let Some(text) = reference_item(ui, item, hits) {
+            insert = Some(text);
+        }
+    }
+    ui.add_space((items.len() - last) as f32 * row);
+    insert
 }
 
 /// A reference list entry: draggable into the editor, double-click to insert
