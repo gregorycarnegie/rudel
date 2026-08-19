@@ -129,6 +129,11 @@ pub(crate) struct RudelApp {
     /// position they have already been fired up to.
     pub(super) trigger_hooks: rudel_lang::triggers::TriggerHooks,
     pub(super) trigger_fired_upto: Option<f64>,
+    /// The platform speech synthesiser behind `.speak(...)`, and whether the
+    /// active pattern has anything for it — checked when the pattern is routed
+    /// so the per-frame trigger sweep can be skipped when it has not.
+    pub(super) speech: crate::speech::Speech,
+    pub(super) speaks: bool,
 }
 
 impl RudelApp {
@@ -203,6 +208,8 @@ impl RudelApp {
             log_lines: Vec::new(),
             trigger_hooks: rudel_lang::triggers::TriggerHooks::default(),
             trigger_fired_upto: None,
+            speech: crate::speech::Speech::default(),
+            speaks: false,
         }
     }
 

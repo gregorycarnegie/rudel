@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1037 methods=1127 controls=668
+# functions=1038 methods=1128 controls=668
 
 [functions]
 Array
@@ -21,6 +21,7 @@ TimeSpan
 accelerate
 activeLabel
 add
+addVoicings
 aliasBank
 all
 almostAlways
@@ -2015,6 +2016,7 @@ sound
 soundfont
 source
 sparsity
+speak
 spectrum
 speed
 spiral

@@ -132,12 +132,16 @@ impl RudelApp {
         if self.playing && (self.output == Output::Osc || tag_osc) {
             self.ensure_osc();
         }
+        self.speaks = active
+            .query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one())
+            .iter()
+            .any(|hap| rudel_core::speak::is_speech(&hap.value));
         if let Some(e) = &self.engine {
-            e.set_pattern(rudel_lang::filter_output(
-                &active,
-                "audio",
-                self.output == Output::Audio,
-            ));
+            // `.speak(...)` is a dominant `onTrigger` upstream: it replaces the
+            // sound rather than adding to it, so those haps never reach a voice.
+            let audible = rudel_lang::filter_output(&active, "audio", self.output == Output::Audio)
+                .filter_values(|v| !rudel_core::speak::is_speech(v));
+            e.set_pattern(audible);
         }
         if let Some(m) = &self.midi {
             m.set_pattern(rudel_lang::filter_output(

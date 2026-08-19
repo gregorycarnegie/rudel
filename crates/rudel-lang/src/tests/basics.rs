@@ -591,3 +591,55 @@ fn a_callback_may_hand_back_a_pattern_for_a_join_to_flatten() {
     let named = eval(r#"pure(1).fmap(|v| "c3")"#).expect("literal from a callback");
     assert_eq!(values(&named, 0, 1), vec![Value::Str("c3".to_string())]);
 }
+
+#[test]
+fn add_voicings_registers_a_dictionary_a_chord_can_name() {
+    // `addVoicings`'s own jsdoc example, with the notes real Strudel gives for
+    // it. The numeric key (`7:`) and the empty one both have to survive the
+    // preprocessor and arrive as chord symbols.
+    let script = r#"
+addVoicings('koto_cookie', {
+  7: ['3M 7m 9M 12P 15P', '7m 10M 13M 16M 19P'],
+  '^7': ['3M 6M 9M 12P 14M', '7M 10M 13M 16M 19P'],
+}, ['C3', 'C6'])
+"<C^7>".voicings('koto_cookie')
+"#;
+    let pat = eval(script).expect("register and voice a dictionary");
+    let notes: Vec<f64> = values(&pat, 0, 1)
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("note").and_then(|n| n.as_f64()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notes, vec![52.0, 57.0, 62.0, 67.0, 71.0]);
+}
+
+#[test]
+fn speak_marks_the_words_to_say() {
+    // `"<[i am] here>".speak('en', "<2 3>")` — the words become a control, and
+    // the voice is sampled per cycle like any other patterned argument.
+    let pat = eval(r#""<[i am] here>".speak('en', "<2 3>")"#).expect("speak");
+    let spoken = |cycle: i64| {
+        values(&pat, cycle, cycle + 1)
+            .iter()
+            .filter_map(|v| match v {
+                Value::Map(m) => Some((
+                    m.get("speak")?.as_str()?.to_string(),
+                    m.get("speaklang")?.as_str()?.to_string(),
+                    m.get("speakvoice")?.as_f64()?,
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // `[i am]` is a subsequence, so it is two haps and two utterances.
+    assert_eq!(
+        spoken(0),
+        vec![
+            ("i".into(), "en".into(), 2.0),
+            ("am".into(), "en".into(), 2.0)
+        ]
+    );
+    assert_eq!(spoken(1), vec![("here".into(), "en".into(), 3.0)]);
+}

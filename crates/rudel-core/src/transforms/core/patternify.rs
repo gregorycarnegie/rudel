@@ -30,6 +30,28 @@ where
         .inner_join()
 }
 
+/// Patternify two value arguments the way Strudel's `register` does for an
+/// arity-3 transform: `a` is the structural outer (`fmap`), `b` is sampled by
+/// `appLeft`, then `innerJoin`. Both-pure bypasses to a direct call.
+pub(crate) fn patternify_value2<F>(pat: &Pattern, a: Pattern, b: Pattern, f: F) -> Pattern
+where
+    F: Fn(&Pattern, &Value, &Value) -> Pattern + Send + Sync + 'static,
+{
+    if let (Some(av), Some(bv)) = (&a.pure_value, &b.pure_value) {
+        let loc = a.pure_loc.or(b.pure_loc);
+        return push_loc(f(pat, av, bv), loc);
+    }
+    let pat = pat.clone();
+    let f = Arc::new(f);
+    a.fmap(move |av| {
+        let pat = pat.clone();
+        let f = f.clone();
+        Value::func(move |bv| Value::Pat(Box::new(f(&pat, &av, &bv))))
+    })
+    .app_left(&b)
+    .inner_join()
+}
+
 /// Patternify a single `Frac`-valued argument, applying raw op `f(pat, frac)`.
 pub(super) fn patternify_frac<F>(pat: &Pattern, arg: Pattern, f: F) -> Pattern
 where

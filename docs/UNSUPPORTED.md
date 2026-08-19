@@ -446,6 +446,49 @@ OSC over UDP** (`crates/rudel-osc`) — selectable in the app's output picker.
 These cover the common "drive external gear / another program" use cases without
 needing the Web Serial or MQTT-over-WebSocket bridges.
 
+### `speak` (`core/speak.mjs`) — supported, against the platform synthesiser
+
+Upstream `.speak(lang, voice)` is an `onTrigger` over the browser's Web Speech
+API: it filters `speechSynthesis.getVoices()` by language tag, picks one by
+index or name, and utters `hap.value`. Rudel does the same thing with the
+operating system's synthesiser, split across two halves because its query path
+is `Send`/`Sync` and cannot carry the closure:
+
+- `.speak(lang, voice)` (`crates/rudel-core/src/speak.rs`) marks each hap with
+  the words, the language and the voice as controls. Both arguments are
+  patternable and both may be `null` for the system default, as upstream's are.
+- `crates/rudel-app/src/speech.rs` says them, from the same per-frame sweep the
+  `onTriggerTime` hooks run on — so the frame rate bounds the timing, exactly as
+  for those hooks, and the audio callback never waits on an OS call.
+
+A spoken hap makes no sound of its own, matching upstream's *dominant*
+`onTrigger`: it replaces the sound rather than adding to it.
+
+| Platform | Synthesiser | Difference |
+| --- | --- | --- |
+| Windows | SAPI, via the `windows` crate cpal already pulls in | none |
+| macOS | `say` | |
+| Linux | `spd-say` (speech-dispatcher), if installed | |
+
+On macOS and Linux the voice list comes from `say -v '?'` / `spd-say -L`, so
+language filtering and selection by index or name work the same way; a machine
+with no synthesiser installed reports that once rather than on every hap.
+
+### Voicing dictionaries — `addVoicings` yes, `registerVoicings` no
+
+`addVoicings(name, dictionary, range)` registers a chord dictionary at run time
+and is supported: a name registered this way shadows a built-in one, as
+upstream's `Object.assign` onto `voicingRegistry` does. Its `range` argument is
+accepted and ignored, for the same reason `setVoicingRange` is a no-op — `range`
+reaches only the deprecated `.voicings(dict)` voice-leading path, which Rudel
+aliases to `voicing`.
+
+`registerVoicings(name, dictionary, options)` — the newer call signature — is
+not exposed. Its `options` carry `mode` and `anchor`, and both are dead for the
+`voicing` path in Strudel itself: `voicing` spreads the value's `undefined`
+`anchor`/`mode` controls *over* the registry entry, so they always fall back to
+`renderVoicing`'s `c5`/`below` defaults.
+
 ### Csound (`@strudel/csound`) — supported, with Csound installed separately
 
 `@strudel/csound` (`loadCsound`/`loadCSound`, `loadOrc`, and the `csound` /

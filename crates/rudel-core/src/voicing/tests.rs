@@ -49,6 +49,43 @@ fn voicing_pattern_stacks_notes() {
 }
 
 #[test]
+fn a_registered_dictionary_is_used_and_can_shadow_a_built_in() {
+    // `addVoicings`'s own jsdoc example, and the notes real Strudel gives for
+    // it (`"<C^7>".voicings('cookie').note()` -> E3 A3 D4 G4 B4).
+    let entry = |symbol: &str, voicings: &[&str]| {
+        (
+            symbol.to_string(),
+            voicings
+                .iter()
+                .map(|v| (*v).to_string())
+                .collect::<Vec<_>>(),
+        )
+    };
+    add_voicings(
+        "cookie",
+        [
+            entry("^7", &["3M 6M 9M 12P 14M", "7M 10M 13M 16M 19P"]),
+            entry("7", &["3M 7m 9M 12P 15P", "7m 10M 13M 16M 19P"]),
+        ],
+    );
+    let pat = pure(Value::Str("C^7".into())).voicings("cookie");
+    assert_eq!(notes(&pat), vec![52, 57, 62, 67, 71]);
+    // A symbol the dictionary does not list has no voicing — the registered
+    // table replaces the built-in one rather than extending it.
+    assert!(notes(&pure(Value::Str("Cm7".into())).voicings("cookie")).is_empty());
+
+    // Registering the name again replaces what it held — upstream assigns onto
+    // the registry, so the last call wins. (A built-in's name is overwritten
+    // the same way; this uses a scratch one because the registry is
+    // process-global and there is no unregistering, here or upstream.)
+    add_voicings("cookie", [entry("^7", &["1P 5P"])]);
+    assert_eq!(
+        notes(&pure(Value::Str("C^7".into())).voicings("cookie")),
+        vec![60, 67]
+    );
+}
+
+#[test]
 fn voicings_named_dictionary() {
     let pat = pure(Value::Str("C^7".into())).voicings("lefthand");
     assert_eq!(notes(&pat), vec![59, 62, 64, 67]);
@@ -253,8 +290,7 @@ fn an_offset_rotates_the_voicing_list_and_octaves_the_overshoot() {
     assert_ne!(at(1).expect("a voicing"), base);
     assert_ne!(at(-1).expect("a voicing"), base);
     let laps = dictionary("ireal")
-        .table
-        .get("^7")
+        .voicings("^7")
         .expect("^7 voicings")
         .len() as i32;
     let up: Vec<i32> = base.iter().map(|n| n + 12).collect();

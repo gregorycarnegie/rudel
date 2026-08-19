@@ -265,13 +265,16 @@ impl RudelApp {
         });
     }
 
-    /// Fire the `onTriggerTime` callbacks of every event whose onset the
-    /// playhead has passed since the last frame. Upstream schedules these with
-    /// `window.setTimeout`, so frame-rate accuracy matches its own caveat that
-    /// the hook is "innacurate for audio tasks". The callbacks run here because
-    /// this is the thread that owns the Koto VM.
+    /// Fire the `onTriggerTime` callbacks — and speak the `.speak(...)` haps —
+    /// of every event whose onset the playhead has passed since the last frame.
+    /// Upstream schedules these with `window.setTimeout`, so frame-rate accuracy
+    /// matches its own caveat that the hook is "innacurate for audio tasks".
+    ///
+    /// Both run here because this is the thread that owns the Koto VM, and the
+    /// one that may block: speech is an OS call, not something to make the
+    /// audio callback wait on.
     fn fire_trigger_hooks(&mut self) {
-        if self.trigger_hooks.is_empty() {
+        if self.trigger_hooks.is_empty() && !self.speaks {
             return;
         }
         let Some(pos) = self.playback_position_cycles() else {
@@ -303,6 +306,11 @@ impl RudelApp {
             }
             if let Some(e) = self.trigger_hooks.fire(&hap) {
                 self.eval_error = Some(format!("onTriggerTime: {e}"));
+            }
+            if let Some((words, lang, pick)) = crate::speech::request(&hap.value)
+                && let Some(e) = self.speech.say(&words, lang.as_deref(), pick.as_ref())
+            {
+                self.eval_error = Some(e);
             }
         }
     }

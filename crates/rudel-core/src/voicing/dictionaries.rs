@@ -1,15 +1,54 @@
 //! Static chord-symbol voicing dictionaries.
 
 use super::Mode;
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, RwLock},
+};
 pub(super) type VoicingTable = phf::OrderedMap<&'static str, &'static [&'static str]>;
+
+/// A dictionary a script built with `addVoicings`: chord symbol -> voicings.
+pub(super) type CustomTable = HashMap<String, Vec<String>>;
+
+/// The dictionaries `addVoicings` has registered this session. Upstream's
+/// `voicingRegistry` is a module-level object and `addVoicings` an
+/// `Object.assign` onto it, so a name registered here shadows a built-in one
+/// just as it does there.
+static CUSTOM: LazyLock<RwLock<HashMap<String, Arc<CustomTable>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+pub(super) fn register(name: &str, table: CustomTable) {
+    CUSTOM
+        .write()
+        .unwrap()
+        .insert(name.to_string(), Arc::new(table));
+}
+
+/// Where a dictionary's voicings live: compiled in, or registered at runtime.
+enum Table {
+    Builtin(&'static VoicingTable),
+    Custom(Arc<CustomTable>),
+}
 
 /// A named voicing dictionary plus its default alignment.
 pub(super) struct Dictionary {
     /// chord symbol -> list of voicings (each a list of interval strings).
-    pub(super) table: &'static VoicingTable,
+    table: Table,
     pub(super) mode: Mode,
     /// Anchor note name (parsed with default octave 4).
     pub(super) anchor: &'static str,
+}
+
+impl Dictionary {
+    /// The voicings this dictionary lists for `symbol`, if any.
+    pub(super) fn voicings(&self, symbol: &str) -> Option<Vec<String>> {
+        match &self.table {
+            Table::Builtin(table) => table
+                .get(symbol)
+                .map(|defs| defs.iter().map(|d| (*d).to_string()).collect()),
+            Table::Custom(table) => table.get(symbol).cloned(),
+        }
+    }
 }
 
 static LEFTHAND: VoicingTable = phf::phf_ordered_map! {
@@ -1223,6 +1262,13 @@ static IREAL_EXT: VoicingTable = phf::phf_ordered_map! {
 /// `a4`/`above` settings are dead for the `voicing` path; only an explicit
 /// `.anchor(...)` / `.mode(...)` control changes them (handled in [`VoicingOpts`]).
 pub(super) fn dictionary(name: &str) -> Dictionary {
+    if let Some(custom) = CUSTOM.read().unwrap().get(name).cloned() {
+        return Dictionary {
+            table: Table::Custom(custom),
+            mode: Mode::Below,
+            anchor: "c5",
+        };
+    }
     let table = match name {
         "lefthand" => &LEFTHAND,
         "triads" => &TRIADS,
@@ -1233,7 +1279,7 @@ pub(super) fn dictionary(name: &str) -> Dictionary {
         _ => &IREAL,
     };
     Dictionary {
-        table,
+        table: Table::Builtin(table),
         mode: Mode::Below,
         anchor: "c5",
     }

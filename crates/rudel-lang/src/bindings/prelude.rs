@@ -598,6 +598,39 @@ pub(crate) fn register(prelude: &KMap) {
         super::pattern::register_prototype_method(&name, func.clone());
         Ok(func)
     });
+    // `addVoicings(name, dictionary, range)` (tonal/voicings.mjs) registers a
+    // chord dictionary a later `.voicing(name)` can name. `range` is accepted
+    // and ignored for the reason `setVoicingRange` above is a no-op: upstream
+    // reads it only on the deprecated `.voicings(dict)` path.
+    prelude.add_fn("addVoicings", |ctx| {
+        let args = ctx.args();
+        let (Some(Some(name)), Some(KValue::Map(dictionary))) =
+            (args.first().map(arg_to_raw_str), args.get(1))
+        else {
+            return koto::runtime::runtime_error!(
+                "addVoicings(name, dictionary) needs a name and a map of chord symbols"
+            );
+        };
+        let data = dictionary.data();
+        let entries: Vec<(String, Vec<String>)> = data
+            .iter()
+            .filter_map(|(symbol, voicings)| {
+                let KValue::Str(symbol) = symbol.value() else {
+                    return None;
+                };
+                // A single voicing may be written without its list, as one string.
+                let voicings = match voicings {
+                    KValue::Str(one) => vec![one.to_string()],
+                    KValue::List(l) => l.data().iter().filter_map(arg_to_raw_str).collect(),
+                    KValue::Tuple(t) => t.iter().filter_map(arg_to_raw_str).collect(),
+                    _ => return None,
+                };
+                Some((symbol.to_string(), voicings))
+            })
+            .collect();
+        rudel_core::voicing::add_voicings(&name, entries);
+        Ok(KPattern(rudel_core::silence()).into())
+    });
     prelude.add_fn("setDefaultVoicings", |ctx| {
         if let Some(dict) = arg_to_raw_str(&arg0(ctx)) {
             rudel_core::voicing::set_default_voicings(dict);

@@ -385,7 +385,7 @@ kpattern_methods! {
     stepwise_arg: [expand, extend, contract, shrink, grow, take, drop, replicate],
     f64_arg: [cpm],
     frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
-    pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy],
+    pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy, speak],
     frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
     f64_f64_arg: [range, range2, rangex],
     i64_frac_f64_arg: [echo],

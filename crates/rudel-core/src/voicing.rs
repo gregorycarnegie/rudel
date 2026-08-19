@@ -141,6 +141,18 @@ fn default_dict() -> String {
     DEFAULT_DICT.read().unwrap().clone()
 }
 
+/// `addVoicings(name, dictionary)` (tonal/voicings.mjs): register a chord
+/// dictionary under `name`, for a later `.voicing(name)` or
+/// `setDefaultVoicings(name)` to reach. Each entry maps a chord symbol to the
+/// voicings to choose between, written as interval lists (`"3M 7m 9M"`).
+///
+/// Upstream's third argument, `range`, is not taken: it reaches only the
+/// deprecated `.voicings(dict)` voice-leading path, which Rudel aliases to
+/// `voicing` — the same gap `setVoicingRange` already documents.
+pub fn add_voicings(name: &str, dictionary: impl IntoIterator<Item = (String, Vec<String>)>) {
+    dictionaries::register(name, dictionary.into_iter().collect());
+}
+
 impl Default for VoicingOpts {
     fn default() -> Self {
         VoicingOpts {
@@ -168,10 +180,8 @@ fn render_voicing(chord: &str, opts: &VoicingOpts) -> Option<Vec<i32>> {
 
     let normalized = normalize_symbol(&symbol);
     let voicing_defs = dict
-        .table
-        .get(symbol.as_str())
-        .or_else(|| dict.table.get(normalized))
-        .copied()?;
+        .voicings(symbol.as_str())
+        .or_else(|| dict.voicings(normalized))?;
     let voicings: Vec<Vec<i32>> = voicing_defs
         .iter()
         .map(|v| {

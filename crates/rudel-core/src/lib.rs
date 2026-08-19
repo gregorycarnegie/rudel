@@ -21,6 +21,7 @@ pub mod pattern;
 pub mod query;
 pub mod samples;
 pub mod signal;
+pub mod speak;
 pub mod state;
 pub mod timespan;
 pub mod tonal;

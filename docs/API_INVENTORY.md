@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 618 | 611 | 7 | 0 | 0 |
+| `core` | 618 | 612 | 6 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -22,10 +22,10 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `motion` | 48 | 0 | 48 | 0 | 0 |
 | `osc` | 1 | 1 | 0 | 0 | 0 |
 | `superdough` | 4 | 3 | 1 | 0 | 0 |
-| `tonal` | 10 | 9 | 1 | 0 | 0 |
+| `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **651** | **58** | **0** | **0** |
+| **Total** | **709** | **653** | **56** | **0** | **0** |
 
 ## `codemirror`
 
@@ -538,7 +538,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `sound` | implemented |  |
 | `source` | implemented |  |
 | `sparsity` | implemented |  |
-| `speak` | intentional | unsupported package |
+| `speak` | implemented |  |
 | `speed` | implemented |  |
 | `splice` | implemented |  |
 | `spread` | implemented |  |
@@ -763,7 +763,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `addVoicings` | intentional | unsupported package |
+| `addVoicings` | implemented |  |
 | `rootNotes` | implemented |  |
 | `scale` | implemented |  |
 | `scaleTrans` | implemented |  |

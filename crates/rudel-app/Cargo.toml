@@ -22,6 +22,15 @@ eframe = "0.36.1"
 # has to go to the platform itself. Already in the tree via egui-winit.
 arboard = "3.6.1"
 
+# SAPI, for `.speak(...)`. Already in the tree via cpal, so this asks the same
+# crate for two more of its feature-gated modules rather than adding one.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Globalization",
+    "Win32_Media_Speech",
+    "Win32_System_Com",
+] }
+
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1.31"
 

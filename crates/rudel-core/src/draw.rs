@@ -13,10 +13,9 @@
 use crate::{
     pattern::{Pattern, pure},
     transforms::IntoPattern,
-    transforms::core::patternify::{patternify_value, push_loc},
+    transforms::core::patternify::{patternify_value, patternify_value2},
     value::{Value, ValueMap},
 };
-use std::sync::Arc;
 
 /// A pure pattern of `{ key: value, ... }` for the given draw params.
 fn param_map(pairs: &[(&str, &Value)]) -> Pattern {
@@ -41,28 +40,6 @@ fn move_one(pat: &Pattern, dx: &Value, dy: &Value) -> Pattern {
 fn zoom_one(pat: &Pattern, f: &Value) -> Pattern {
     let d = Value::F64((1.0 - f.as_f64().unwrap_or(0.0)) / 2.0);
     move_one(&rescale_one(pat, f), &d, &d)
-}
-
-/// Patternify two value arguments the way Strudel's `register` does for an
-/// arity-3 transform: `a` is the structural outer (`fmap`), `b` is sampled by
-/// `appLeft`, then `innerJoin`. Both-pure bypasses to a direct call.
-fn patternify_value2<F>(pat: &Pattern, a: Pattern, b: Pattern, f: F) -> Pattern
-where
-    F: Fn(&Pattern, &Value, &Value) -> Pattern + Send + Sync + 'static,
-{
-    if let (Some(av), Some(bv)) = (&a.pure_value, &b.pure_value) {
-        let loc = a.pure_loc.or(b.pure_loc);
-        return push_loc(f(pat, av, bv), loc);
-    }
-    let pat = pat.clone();
-    let f = Arc::new(f);
-    a.fmap(move |av| {
-        let pat = pat.clone();
-        let f = f.clone();
-        Value::func(move |bv| Value::Pat(Box::new(f(&pat, &av, &bv))))
-    })
-    .app_left(&b)
-    .inner_join()
 }
 
 impl Pattern {
