@@ -4,7 +4,7 @@ use super::{
     options::{DrawWindow, VisualWidgetOptions},
     pianoroll::{RollRectInput, RollValue, horizontal_roll_rect, pianoroll_value},
     pitchwheel::freq_to_angle,
-    query::{hap_matches_widget, widget_haps},
+    query::{hap_matches_widget, in_window, widget_haps},
     size::{default_surface_size, surface_size},
     spiral::spiral_point,
     style::{color_with_alpha, resolve_color, widget_draw_colors},
@@ -442,7 +442,7 @@ fn cached_whole_cycle_query_matches_querying_the_window_directly() {
         haps.sort_by_key(|hap| hap.whole_or_part().begin);
         haps
     };
-    let shape = |haps: &[Hap]| -> Vec<(Frac, Frac, String)> {
+    let shape = |haps: &[&Hap]| -> Vec<(Frac, Frac, String)> {
         haps.iter()
             .map(|hap| {
                 let whole = hap.whole.expect("filtered to haps with a whole");
@@ -457,8 +457,8 @@ fn cached_whole_cycle_query_matches_querying_the_window_directly() {
         let time = f64::from(step) * 0.17;
         let window = DrawWindow::around(time);
         assert_eq!(
-            shape(&widget_haps(&ctx, 1, &pattern, &widget, window)),
-            shape(&uncached(window)),
+            shape(&in_window(&widget_haps(&ctx, 1, &pattern, &widget, window), window)),
+            shape(&uncached(window).iter().collect::<Vec<_>>()),
             "cached and direct queries disagree at time {time}"
         );
     }
@@ -473,7 +473,7 @@ fn bumping_the_generation_drops_haps_from_the_previous_pattern() {
     let window = DrawWindow::around(0.5);
     let count = |src: &str, generation: u64| {
         let pattern = rudel_lang::eval_result(src).expect("eval").pattern;
-        widget_haps(&ctx, generation, &pattern, &widget, window).len()
+        in_window(&widget_haps(&ctx, generation, &pattern, &widget, window), window).len()
     };
 
     let one = count(r#"s("bd")"#, 1);

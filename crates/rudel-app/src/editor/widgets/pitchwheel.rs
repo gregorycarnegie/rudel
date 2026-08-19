@@ -8,7 +8,7 @@ use rudel_core::{Hap, Value, value_to_midi};
 pub(super) fn paint_pitchwheel(
     ui: &egui::Ui,
     rect: egui::Rect,
-    haps: &[Hap],
+    haps: &[&Hap],
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,
 ) {

@@ -16,7 +16,7 @@ const HIGH_MIDI: i32 = 84;
 pub(super) fn paint_claviature(
     ui: &egui::Ui,
     rect: egui::Rect,
-    haps: &[Hap],
+    haps: &[&Hap],
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,
 ) {

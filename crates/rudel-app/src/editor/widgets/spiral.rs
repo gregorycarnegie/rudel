@@ -9,7 +9,7 @@ use rudel_core::Hap;
 pub(super) fn paint_spiral(
     ui: &egui::Ui,
     rect: egui::Rect,
-    haps: &[Hap],
+    haps: &[&Hap],
     time: f64,
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,

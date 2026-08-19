@@ -2,6 +2,7 @@ use super::options::DrawWindow;
 use crate::editor::decorations::WidgetDecoration;
 use eframe::egui;
 use rudel_core::{Frac, Hap, Pattern};
+use std::sync::Arc;
 
 /// One widget's haps over a whole-cycle span, kept in egui's temp store between
 /// frames. `generation` and `range` are the inputs to the query that are not in
@@ -12,22 +13,25 @@ struct CachedHaps {
     generation: u64,
     range: (usize, usize),
     cycles: (i64, i64),
-    haps: Vec<Hap>,
+    haps: Arc<[Hap]>,
 }
 
-/// The haps a widget should draw for `window`.
+/// The cached whole cycles covering `window`, shared with the cache rather than
+/// copied. Narrow it to what is actually visible with [`in_window`].
 ///
 /// The draw window slides with the playhead, so querying it directly re-runs
 /// the whole pattern at the repaint rate — profiling put that at 66% of the UI
-/// thread. Whole cycles change only once per cycle, so query those, cache them,
-/// and slice the visible window out of the result.
+/// thread. Whole cycles change only once per cycle, so query those and cache
+/// them. Handing back an `Arc` matters as much: a `Hap` owns its control map,
+/// so copying the visible slice out every frame deep-cloned an `IndexMap` per
+/// event — 5.8% of the UI thread on its own.
 pub(super) fn widget_haps(
     ctx: &egui::Context,
     generation: u64,
     pattern: &Pattern,
     widget: &WidgetDecoration,
     window: DrawWindow,
-) -> Vec<Hap> {
+) -> Arc<[Hap]> {
     let cycles = (window.begin.floor() as i64, window.end.ceil() as i64);
     let range = (widget.range.from, widget.range.to);
     let id = egui::Id::new((
@@ -39,24 +43,27 @@ pub(super) fn widget_haps(
         generation,
         range,
         cycles,
-        haps: query_cycles(pattern, widget, cycles),
+        haps: query_cycles(pattern, widget, cycles).into(),
     };
     ctx.data_mut(|d| {
         let cached = d.get_temp_mut_or_insert_with(id, fresh);
         if cached.generation != generation || cached.range != range || cached.cycles != cycles {
             *cached = fresh();
         }
-        // The cached span is a superset of `window`, and widening a query only
-        // widens each hap's `part` clip — it never changes which haps overlap
-        // `window` — so this is the same set `query_arc(window)` would return.
-        let (begin, end) = (Frac::from_f64(window.begin), Frac::from_f64(window.end));
-        cached
-            .haps
-            .iter()
-            .filter(|hap| hap.part.begin < end && begin < hap.part.end)
-            .cloned()
-            .collect()
+        Arc::clone(&cached.haps)
     })
+}
+
+/// The haps of a cached cycle span that touch `window`.
+///
+/// The cached span is a superset of `window`, and widening a query only widens
+/// each hap's `part` clip — it never changes which haps overlap `window` — so
+/// this is the same set `query_arc(window)` would return.
+pub(super) fn in_window(haps: &[Hap], window: DrawWindow) -> Vec<&Hap> {
+    let (begin, end) = (Frac::from_f64(window.begin), Frac::from_f64(window.end));
+    haps.iter()
+        .filter(|hap| hap.part.begin < end && begin < hap.part.end)
+        .collect()
 }
 
 fn query_cycles(pattern: &Pattern, widget: &WidgetDecoration, cycles: (i64, i64)) -> Vec<Hap> {
@@ -147,7 +154,9 @@ mod tests {
             options: Default::default(),
         };
         let haps = |begin, end| {
-            widget_haps(&ctx, 0, &pattern, &widget, DrawWindow { begin, end })
+            let window = DrawWindow { begin, end };
+            let cycles = widget_haps(&ctx, 0, &pattern, &widget, window);
+            in_window(&cycles, window)
                 .into_iter()
                 .map(|hap| hap.part.begin)
                 .collect::<Vec<_>>()

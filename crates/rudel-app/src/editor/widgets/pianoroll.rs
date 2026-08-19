@@ -34,7 +34,7 @@ pub(super) fn paint_pianoroll(
     ui: &egui::Ui,
     rect: egui::Rect,
     widget_id: &str,
-    haps: &[Hap],
+    haps: &[&Hap],
     time: f64,
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,
@@ -71,6 +71,7 @@ pub(super) fn paint_pianoroll(
     }
     let mut haps = haps
         .iter()
+        .copied()
         .filter(|hap| {
             !options.hide_negative || hap.whole.is_some_and(|whole| whole.begin >= Frac::zero())
         })
