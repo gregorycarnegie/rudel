@@ -39,10 +39,13 @@ fn label_at_line(line: &str) -> Option<(String, String)> {
     }
     let mut end = 0;
     for (i, c) in line.char_indices() {
+        // JavaScript identifiers are Unicode, and tunes label their parts in
+        // whatever language they are written in (`節奏:`, `armonía:`).
+        // `sanitize_label` still gives the Koto variable an ASCII name.
         let ok = if i == 0 {
-            c.is_ascii_alphabetic() || c == '_' || c == '$'
+            c.is_alphabetic() || c == '_' || c == '$'
         } else {
-            c.is_ascii_alphanumeric() || c == '_' || c == '$'
+            c.is_alphanumeric() || c == '_' || c == '$'
         };
         if ok {
             end = i + c.len_utf8();

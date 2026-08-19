@@ -658,3 +658,23 @@ fn set_max_polyphony_installs_the_cap_it_was_given() {
         rudel_core::DEFAULT_MAX_POLYPHONY
     );
 }
+
+#[test]
+fn javascript_shifts_and_powers() {
+    // Koto has `^` for a power and no shift operator at all, and a script
+    // reaches for `>> 0` to truncate and `1 << n` to build a mask.
+    for (expr, want) in [
+        ("(40 / 12) >> 0", 3.0),
+        ("1 << 4", 16.0),
+        ("-9 >> 1", -5.0),
+        ("1.5 ** 3", 3.375),
+        ("2 ** 10 >> 2", 256.0),
+        // JS truncates to a signed 32-bit integer first.
+        ("4294967297 >> 0", 1.0),
+        ("2147483648 >> 0", -2147483648.0),
+    ] {
+        let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+        let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
+        assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
+    }
+}

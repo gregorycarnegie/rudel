@@ -26,6 +26,136 @@ pub(super) fn strip_comments(src: &str) -> String {
     out
 }
 
+/// Rewrite JavaScript's `**` into Koto's `^`.
+///
+/// Both raise to a power and both bind tighter than `*`, so the operator is
+/// simply respelled. They associate differently — `2 ** 3 ** 2` is 512 in
+/// JavaScript and 64 here — which no pattern in the wild leans on; a chain of
+/// three is not a shape anyone writes.
+pub(super) fn rewrite_exponentiation(src: &str) -> String {
+    if !src.contains("**") {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let mut rest = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(rest);
+            continue;
+        }
+        while let Some(at) = rest.find("**") {
+            out.push_str(&rest[..at]);
+            out.push('^');
+            rest = &rest[at + 2..];
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
+/// Rewrite JavaScript's bitwise shifts into calls: Koto has no `<<` or `>>`.
+///
+/// `(note / 12) >> 0` is how a script truncates to an integer, and `1 << n` how
+/// it builds a bit mask. Both operands are taken as far as the arithmetic
+/// around the operator runs — to the enclosing bracket, separator or comparison
+/// — because a shift binds looser than everything inside it.
+pub(super) fn rewrite_shift_operators(src: &str) -> String {
+    let mut current = src.to_string();
+    // Each round consumes one operator; the count in the original is the ceiling.
+    for _ in 0..src.matches(">>").count() + src.matches("<<").count() {
+        let mask = code_mask(&current);
+        let Some(at) =
+            (0..mask.len().saturating_sub(1)).find(|&i| matches!(&mask[i..i + 2], b">>" | b"<<"))
+        else {
+            break;
+        };
+        // `>>>` is JavaScript's unsigned shift. It differs from `>>` only on
+        // negative inputs, which a note or a step count is not.
+        let width = 2 + usize::from(mask.get(at + 2) == Some(&mask[at]));
+        // Leave the blank after whatever the operand follows where it is, so
+        // the call does not end up wedged against an `=`.
+        let start = shift_operand_start(&mask, at);
+        let from = start + mask[start..at].iter().take_while(|b| **b == b' ').count();
+        let end = shift_operand_end(&mask, at + width);
+        let to = end - mask[..end].iter().rev().take_while(|b| **b == b' ').count();
+        let call = if mask[at] == b'>' {
+            "rudel_shr"
+        } else {
+            "rudel_shl"
+        };
+        current = format!(
+            "{}{call}({}, {}){}",
+            &current[..from],
+            current[from..at].trim(),
+            current[at + width..to].trim(),
+            &current[to..],
+        );
+    }
+    current
+}
+
+/// Anything that cannot be part of a shift's operand: a bracket it sits inside,
+/// a separator, or an operator that binds looser than a shift does.
+fn ends_shift_operand(byte: u8) -> bool {
+    matches!(
+        byte,
+        b',' | b';' | b'\n' | b'?' | b':' | b'=' | b'<' | b'>' | b'&' | b'|' | b'!'
+    )
+}
+
+/// The start of the left operand of the shift at `at`.
+fn shift_operand_start(mask: &[u8], at: usize) -> usize {
+    let mut depth = 0i32;
+    for i in (0..at).rev() {
+        depth -= bracket_delta(mask[i]);
+        if depth < 0 || (depth == 0 && ends_shift_operand(mask[i])) {
+            return i + 1;
+        }
+    }
+    0
+}
+
+/// Just past the right operand of a shift whose operator ends at `at`.
+fn shift_operand_end(mask: &[u8], at: usize) -> usize {
+    let mut depth = 0i32;
+    for (i, &byte) in mask.iter().enumerate().skip(at) {
+        depth += bracket_delta(byte);
+        if depth < 0 || (depth == 0 && ends_shift_operand(byte)) {
+            return i;
+        }
+    }
+    mask.len()
+}
+
+/// Turn the Unicode blanks JavaScript accepts as whitespace into plain spaces.
+///
+/// A no-break space is whitespace to JavaScript and to Rust's `is_whitespace`,
+/// but not to Koto's lexer, which reads it as the start of a token — so a line
+/// indented with one is not indented at all and a chain continued on it ends
+/// the call above. They arrive by the usual routes: pasted from a browser, or
+/// typed on a keyboard layout that produces them.
+///
+/// Only code: a mini-notation string is the pattern author's text, and its
+/// parser has its own idea of what separates a word.
+pub(super) fn normalize_unicode_blanks(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        out.extend(text.chars().map(|c| {
+            if c.is_whitespace() && !matches!(c, '\n' | '\r' | '\t' | ' ') {
+                ' '
+            } else {
+                c
+            }
+        }));
+    }
+    out
+}
+
 /// Rewrite a JavaScript tagged template — a call written as a function name
 /// with a backtick literal stuck straight onto it — into an ordinary call.
 ///
@@ -1079,18 +1209,28 @@ pub(super) fn rewrite_length_property(src: &str) -> String {
     out
 }
 
-/// Quote a map key that is written as a bare number.
+/// Every Koto keyword. A map key spelled as one has to be quoted, where in
+/// JavaScript it needs nothing: `{break: 'x.wav'}` names a sample and
+/// `{from: 0, to: 4}` sets a widget's window.
+const KOTO_KEYWORDS: &[&str] = &[
+    "and", "as", "await", "break", "catch", "const", "continue", "debug", "else", "export",
+    "false", "finally", "for", "from", "if", "import", "in", "let", "loop", "match", "not", "null",
+    "or", "return", "self", "switch", "then", "throw", "true", "try", "until", "while", "yield",
+];
+
+/// Quote a map key Koto will not take bare: a number, or one of its keywords.
 ///
 /// JS object literals are keyed by number constantly — `{0: "...", 1: "..."}`
-/// is how songs name the sections a `pickRestart` selects between. Koto's map
-/// declaration takes an identifier or a string, so a numeric key is "expected
-/// '}' at end of map declaration" pointing at the key itself, which reads as a
-/// complaint about the brace instead. Quoting is faithful: JS object keys are
-/// strings too, and the pick lookup matches on the key's text.
+/// is how songs name the sections a `pickRestart` selects between — and by
+/// words Koto has reserved and JavaScript has not. Koto's map declaration takes
+/// an identifier or a string, so either is "expected '}' at end of map
+/// declaration" pointing at the key itself, which reads as a complaint about
+/// the brace instead. Quoting is faithful: JS object keys are strings too, and
+/// every lookup matches on the key's text.
 ///
-/// Only a number in key position — right after the `{` or a `,` that opens an
+/// Only a key in key position — right after the `{` or a `,` that opens an
 /// entry, and immediately followed by `:` — is touched.
-pub(super) fn quote_numeric_map_keys(src: &str) -> String {
+pub(super) fn quote_map_keys(src: &str) -> String {
     if !src.contains('{') {
         return src.to_string();
     }
@@ -1121,15 +1261,23 @@ pub(super) fn quote_numeric_map_keys(src: &str) -> String {
             .take_while(|b| b.is_ascii_whitespace())
             .count();
         let key_start = i + blanks;
-        let key_len = mask[key_start..]
-            .iter()
-            .take_while(|b| b.is_ascii_digit() || **b == b'.' || **b == b'-')
-            .count();
-        if key_len == 0 || mask.get(key_start + key_len) != Some(&b':') {
+        let numeric = |b: &u8| b.is_ascii_digit() || matches!(b, b'.' | b'-');
+        let mut key_len = mask[key_start..].iter().take_while(|b| numeric(b)).count();
+        if key_len == 0 {
+            // Not a number: a keyword is the other key Koto refuses.
+            key_len = mask[key_start..]
+                .iter()
+                .take_while(|b| b.is_ascii_alphanumeric() || **b == b'_')
+                .count();
+            if !KOTO_KEYWORDS.contains(&&src[key_start..key_start + key_len]) {
+                continue;
+            }
+        }
+        if mask.get(key_start + key_len) != Some(&b':') {
             continue;
         }
-        // The key is ASCII digits/`.`/`-` after ASCII whitespace, so both ends
-        // of the quoted run are char boundaries.
+        // The key is ASCII after ASCII whitespace, so both ends of the quoted
+        // run are char boundaries.
         out.push_str(&src[copied..key_start]);
         out.push('\'');
         out.push_str(&src[key_start..key_start + key_len]);
@@ -1241,8 +1389,11 @@ fn split_top_level_args(inner: &[u8], offset: usize) -> Vec<(usize, usize)> {
 ///
 /// Only bare identifiers are renamed. A member access (`x._foo`) and a map key
 /// are not ignored values, and rudel's own inline-widget spellings (`._spiral`)
-/// are reached that way, so leaving those alone keeps them working. A lone `_`
-/// (or `__`) is Koto's real discard and stays.
+/// are reached that way, so leaving those alone keeps them working.
+///
+/// A lone `_` goes too. It is Koto's real discard, but this reads *JavaScript*,
+/// where it is an ordinary name — `every(4, _ => _.shuffle())` is a common
+/// spelling — and nothing generated by the passes before this one uses Koto's.
 pub(super) fn rename_ignored_identifiers(src: &str) -> String {
     let bytes = src.as_bytes();
     let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
@@ -1270,9 +1421,6 @@ pub(super) fn rename_ignored_identifiers(src: &str) -> String {
             let name_start = i;
             while i < end && ident(bytes[i]) {
                 i += 1;
-            }
-            if bytes[name_start..i].iter().all(|b| *b == b'_') {
-                continue;
             }
             out.push_str(&src[copied..name_start]);
             out.push_str("rudel_u");
@@ -1467,6 +1615,32 @@ fn body_is_a_block(src: &str, arrow: usize) -> bool {
 /// converted — Koto would read `{ ... }` as a map literal — which mirrors the
 /// expression-bodied callbacks Strudel's docs use. String literals are skipped
 /// so an `=>` inside a pattern string is left intact.
+/// Spell a JavaScript parameter list the way Koto does: an array-destructured
+/// parameter unpacks as a tuple (`([c, v]) =>` is `|(c, v)|`), and a rest
+/// parameter carries its `...` behind the name (`(...args) =>` is `|args...|`).
+///
+/// Object destructuring (`({a, b}) =>`) has no Koto spelling and is left as it
+/// is, to fail where it is written rather than somewhere else.
+fn koto_params(params: &str) -> String {
+    if !params.contains('[') && !params.contains("...") {
+        return params.to_string();
+    }
+    top_level_ranges(params, ',')
+        .iter()
+        .map(|&(from, to)| {
+            let param = params[from..to].trim();
+            if let Some(name) = param.strip_prefix("...") {
+                return format!("{name}...");
+            }
+            match param.strip_prefix('[').and_then(|p| p.strip_suffix(']')) {
+                Some(names) => format!("({names})"),
+                None => param.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub(super) fn rewrite_arrow_functions(src: &str) -> String {
     let mut out: Vec<char> = Vec::with_capacity(src.len());
     for (kind, start, end) in chunks(src) {
@@ -1520,6 +1694,11 @@ pub(super) fn rewrite_arrow_functions(src: &str) -> String {
                         let last = out.len() - 1;
                         out[last] = '|';
                         out[open_idx] = '|';
+                        let params: String = out[open_idx + 1..last].iter().collect();
+                        let koto = koto_params(&params);
+                        if koto != params {
+                            out.splice(open_idx + 1..last, koto.chars());
+                        }
                         true
                     } else {
                         false
@@ -1976,6 +2155,11 @@ pub(super) fn join_dangling_operators(src: &str) -> String {
             // below it, and the label rewriter needs the two together or it
             // names an empty expression.
             Some(':') => true,
+            // A chain broken after the dot: `.gain(.32).` with `lpf(2500)` on
+            // the line below. By here a number's own trailing point is already
+            // `72.0`, so a line still ending in one is a member access whose
+            // key is on the next line. `..` is a range, not a chain.
+            Some('.') => !code.ends_with(".."),
             _ => false,
         };
         if !dangling && !split_call {
@@ -1987,8 +2171,13 @@ pub(super) fn join_dangling_operators(src: &str) -> String {
         };
         let next = lines.drain(i + 1..=value).next_back().unwrap_or_default();
         // A split call is one expression, so its `(` has to land against the
-        // name; the operator forms read better with the blank kept.
-        let gap = if split_call { "" } else { " " };
+        // name — as does the key after a member dot; the operator forms read
+        // better with the blank kept.
+        let gap = if split_call || tail == Some('.') {
+            ""
+        } else {
+            " "
+        };
         lines[i] = format!("{code}{gap}{}", next.trim_start());
     }
     lines.join("\n")
@@ -2096,8 +2285,17 @@ pub(super) fn flatten_non_final_groups(src: &str) -> String {
         // Take the line break and the indentation after it. A single space
         // stands in, except before punctuation that has to sit against what it
         // follows — Koto reads `) .fast(2)` as a map access, not a chain.
+        // Trailing blanks go with the break, or they stand in for it and put
+        // the space back in front of a `.` that must not have one.
+        while out.last().is_some_and(|b| matches!(b, b' ' | b'\t')) {
+            out.pop();
+        }
+        // Blank lines are taken with it too: a comment between two links of a
+        // chain leaves one behind, and stopping at it did the same thing.
         i += 1;
-        while bytes.get(i).is_some_and(|b| *b == b' ' || *b == b'\t') {
+        while bytes.get(i).is_some_and(|b| {
+            matches!(b, b' ' | b'\t') || (*b == b'\n' && flatten.get(i).is_some_and(|f| *f))
+        }) {
             i += 1;
         }
         if !bytes
@@ -2289,6 +2487,36 @@ const CONTINUATION_INDENT: usize = 2;
 /// Refuses when the break is a blank line or more — that is a deliberate
 /// separation, and swallowing it would join two statements — and reports
 /// whether it joined.
+/// Drop the blank lines in front of a line that opens with a `.`.
+///
+/// No statement can begin with a member access, so such a line is always a
+/// continuation and the gap above it is noise — usually a commented-out link of
+/// the chain, which `strip_comments` leaves as an empty line to keep the line
+/// numbering. [`indent_dot_continuations`] refuses to join across a blank line,
+/// rightly, since elsewhere that is a deliberate separation; this removes the
+/// ones that are not.
+pub(super) fn close_chain_gaps(src: &str) -> String {
+    let lines: Vec<&str> = src.split('\n').collect();
+    let opens_chain = |from: usize| {
+        lines[from..]
+            .iter()
+            .find(|line| !line.trim().is_empty())
+            .is_some_and(|line| {
+                let rest = line.trim_start();
+                rest.starts_with('.') && !rest.starts_with("..")
+            })
+    };
+    let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        // Never the first line: there is no chain above it to continue.
+        if line.trim().is_empty() && i > 0 && opens_chain(i) {
+            continue;
+        }
+        out.push(line);
+    }
+    out.join("\n")
+}
+
 fn join_onto_previous(out: &mut String) -> bool {
     let kept = out.trim_end_matches([' ', '\t', '\r', '\n']).len();
     if out[kept..].chars().filter(|&c| c == '\n').count() != 1 {
@@ -2532,14 +2760,21 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
     if changed { out } else { src.to_string() }
 }
 
-/// Rewrite JavaScript's leading-dot decimal literals (`.5`, `-.25`) into the
-/// `0.`-prefixed form Koto requires, so Strudel snippets paste unchanged.
+/// Rewrite JavaScript's decimal literals with an implied zero — `.5`, `-.25`
+/// and `72.` — into the form Koto requires, so Strudel snippets paste
+/// unchanged.
 ///
-/// A dot starts a number only when what precedes it cannot be a value: after an
-/// operator, an opening bracket, a comma, or the start of the source. A dot
+/// A dot *starts* a number only when what precedes it cannot be a value: after
+/// an operator, an opening bracket, a comma, or the start of the source. A dot
 /// following an identifier, a number, `)`, `]`, or a string is method access
-/// (`pat.fast`, `1.5`, `f(x).gain`) and is left alone. String literals and
-/// comments are skipped.
+/// (`pat.fast`, `1.5`, `f(x).gain`) and is left alone.
+///
+/// A dot *ends* one when the run in front of it is all digits and nothing that
+/// could be a key follows — `cpm(72.)`, `{steady: 1.}`. Requiring pure digits
+/// is what keeps `x1.gain` out of it, and `lpf(1000).` — a chain carrying on
+/// below, which [`join_dangling_operators`] folds up instead.
+///
+/// String literals and comments are skipped.
 pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     // The last emitted character that is not whitespace, which decides whether a
@@ -2555,6 +2790,9 @@ pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
             }
             continue;
         }
+        // Whether the name-or-number run being read is all digits, which is
+        // what tells a number's own point from a member access.
+        let mut digits: Option<bool> = None;
         let mut rest = text.chars().peekable();
         while let Some(c) = rest.next() {
             if c == '.'
@@ -2568,6 +2806,20 @@ pub(super) fn rewrite_leading_dot_numbers(src: &str) -> String {
                 out.push('0');
             }
             out.push(c);
+            if c == '.'
+                && digits == Some(true)
+                && !rest
+                    .peek()
+                    .is_some_and(|d| d.is_alphanumeric() || matches!(d, '_' | '$' | '.'))
+            {
+                out.push('0');
+            }
+            digits = match c {
+                _ if c.is_ascii_digit() => Some(digits.unwrap_or(true)),
+                '.' => digits,
+                _ if c.is_alphanumeric() || matches!(c, '_' | '$') => Some(false),
+                _ => None,
+            };
             if !c.is_whitespace() {
                 prev = Some(c);
             }
@@ -3461,22 +3713,19 @@ mod tests {
     #[test]
     fn a_numeric_map_key_gets_quoted_wherever_the_map_is() {
         assert_eq!(
-            quote_numeric_map_keys("x = {0: 'a', 1.5: 'b'}"),
+            quote_map_keys("x = {0: 'a', 1.5: 'b'}"),
             "x = {'0': 'a', '1.5': 'b'}"
         );
         // Nested maps, and a key after an inner map has closed — which needs
         // the depth to come back down by one.
         assert_eq!(
-            quote_numeric_map_keys("{a: {2: 'x'}, 3: 'y'}"),
+            quote_map_keys("{a: {2: 'x'}, 3: 'y'}"),
             "{a: {'2': 'x'}, '3': 'y'}"
         );
         // A name key is not numeric, and a number that is not a key — the
         // opening line of a block body — is not one either.
-        assert_eq!(quote_numeric_map_keys("{a: 1}"), "{a: 1}");
-        assert_eq!(
-            quote_numeric_map_keys("f((v) => { 2 * v })"),
-            "f((v) => { 2 * v })"
-        );
+        assert_eq!(quote_map_keys("{a: 1}"), "{a: 1}");
+        assert_eq!(quote_map_keys("f((v) => { 2 * v })"), "f((v) => { 2 * v })");
     }
 
     #[test]
@@ -3484,22 +3733,19 @@ mod tests {
         // Byte-at-a-time copying split these mid-character and panicked. Each
         // shape below reached rudel from a real strudel.cc pattern.
         let nbsp = "s(\"bd\").room(2)\u{a0}// nbsp";
-        assert_eq!(quote_numeric_map_keys(nbsp), nbsp);
+        assert_eq!(quote_map_keys(nbsp), nbsp);
+        assert_eq!(quote_map_keys("{ x: 1 }\u{3108}"), "{ x: 1 }\u{3108}");
         assert_eq!(
-            quote_numeric_map_keys("{ x: 1 }\u{3108}"),
-            "{ x: 1 }\u{3108}"
-        );
-        assert_eq!(
-            quote_numeric_map_keys("// \u{2728}\nn(\"0\")"),
+            quote_map_keys("// \u{2728}\nn(\"0\")"),
             "// \u{2728}\nn(\"0\")"
         );
         // ...and the rewrite itself still happens around them.
         assert_eq!(
-            quote_numeric_map_keys("pick({ 0: a, 1: b })\u{e9}"),
+            quote_map_keys("pick({ 0: a, 1: b })\u{e9}"),
             "pick({ '0': a, '1': b })\u{e9}"
         );
         assert_eq!(
-            quote_numeric_map_keys("\u{e9}.pick({ 2: a })"),
+            quote_map_keys("\u{e9}.pick({ 2: a })"),
             "\u{e9}.pick({ '2': a })"
         );
     }
@@ -3873,6 +4119,137 @@ mod tests {
         );
         // A newline followed by anything else still ends the branch.
         assert_eq!(rewrite_ternaries("a ? b : c\nd"), "(if a then b else c)\nd");
+    }
+
+    #[test]
+    fn a_chain_survives_a_comment_between_its_links() {
+        // `strip_comments` leaves the commented-out link as a blank line, and
+        // Koto will not carry a chain across one. Nothing else can start with a
+        // `.`, so the gap is always noise.
+        assert_eq!(
+            close_chain_gaps("a.b()\n\n.c()"),
+            "a.b()\n.c()",
+            "a blank line before a `.` line"
+        );
+        // A blank line before anything else is a real separation and stays, as
+        // does one at the very top with no chain above it.
+        assert_eq!(close_chain_gaps("a.b()\n\nc()"), "a.b()\n\nc()");
+        assert_eq!(close_chain_gaps("\n.b()"), "\n.b()");
+        // `..` is a range, not a chain.
+        assert_eq!(close_chain_gaps("a\n\n..b"), "a\n\n..b");
+    }
+
+    #[test]
+    fn flattening_a_group_keeps_a_dot_against_what_it_chains_off() {
+        // Both halves of the gap have to go: the indentation of the line being
+        // pulled up, and the blanks left at the end of the one above it — plus
+        // any blank lines between, which a comment leaves behind.
+        assert_eq!(
+            flatten_non_final_groups("f(g(a\n  .b()  \n\n  .c()), d)"),
+            "f(g(a.b().c()), d)"
+        );
+    }
+
+    #[test]
+    fn a_number_may_end_on_its_point() {
+        // `cpm(72.)` and `{steady: 1.}` are ordinary JavaScript.
+        assert_eq!(rewrite_leading_dot_numbers("cpm(72.)"), "cpm(72.0)");
+        assert_eq!(rewrite_leading_dot_numbers("{s: 1.}"), "{s: 1.0}");
+        // Only when the run in front of the point is all digits: a name that
+        // ends in one is a member access, and so is a chain broken after the
+        // dot, which `join_dangling_operators` folds up instead.
+        assert_eq!(rewrite_leading_dot_numbers("x1.gain(2)"), "x1.gain(2)");
+        assert_eq!(
+            rewrite_leading_dot_numbers("lpf(1).\ngain(2)"),
+            "lpf(1).\ngain(2)"
+        );
+        // And the leading form still works.
+        assert_eq!(rewrite_leading_dot_numbers("gain(.5)"), "gain(0.5)");
+    }
+
+    #[test]
+    fn a_chain_broken_after_the_dot_is_folded_up() {
+        assert_eq!(
+            join_dangling_operators("s(\"bd\").gain(0.3).\n  lpf(2500)"),
+            "s(\"bd\").gain(0.3).lpf(2500)"
+        );
+    }
+
+    #[test]
+    fn a_no_break_space_is_whitespace_here_too() {
+        // Koto's lexer reads one as the start of a token, so a line indented
+        // with one is not indented at all.
+        assert_eq!(normalize_unicode_blanks("a\n\u{a0}\u{a0}.b()"), "a\n  .b()");
+        // Not inside a string: that is the pattern author's own text.
+        assert_eq!(
+            normalize_unicode_blanks("s(\"bd\u{a0}sd\")"),
+            "s(\"bd\u{a0}sd\")"
+        );
+    }
+
+    #[test]
+    fn a_lone_underscore_is_a_name_here_not_a_discard() {
+        // `every(4, _ => _.shuffle())` is a common spelling, and Koto's own
+        // meaning for `_` would make the body unreadable.
+        assert_eq!(
+            rename_ignored_identifiers("every(4, _ => _.shuffle())"),
+            "every(4, rudel_u_ => rudel_u_.shuffle())"
+        );
+        // A member access is not an ignored value and keeps its name.
+        assert_eq!(rename_ignored_identifiers("x._spiral()"), "x._spiral()");
+    }
+
+    #[test]
+    fn a_parameter_list_is_spelled_the_way_koto_spells_it() {
+        assert_eq!(
+            rewrite_arrow_functions("([c, v]) => [c, v]"),
+            "|(c, v)| [c, v]"
+        );
+        assert_eq!(
+            rewrite_arrow_functions("(...args) => args"),
+            "|args...| args"
+        );
+        assert_eq!(
+            rewrite_arrow_functions("(x, ...rest) => rest"),
+            "|x, rest...| rest"
+        );
+        // Ordinary lists are untouched.
+        assert_eq!(rewrite_arrow_functions("(a, b) => a"), "|a, b| a");
+    }
+
+    #[test]
+    fn a_map_key_koto_reserves_is_quoted() {
+        // `{break: …}` names a sample and `{from: 0, to: 4}` a widget window;
+        // neither word is reserved in JavaScript.
+        assert_eq!(
+            quote_map_keys("{break: 'x.wav', from: 0, to: 4}"),
+            "{'break': 'x.wav', 'from': 0, to: 4}"
+        );
+        // The numeric form still works, and an ordinary key is left alone.
+        assert_eq!(quote_map_keys("{0: a, x: b}"), "{'0': a, x: b}");
+    }
+
+    #[test]
+    fn javascript_arithmetic_koto_has_no_operator_for() {
+        // `**` is `^` here, and binds the same way against `*`.
+        assert_eq!(rewrite_exponentiation("1.5 ** 3"), "1.5 ^ 3");
+        // Shifts become calls, taking the arithmetic either side with them.
+        assert_eq!(
+            rewrite_shift_operators("octave = (note / 12) >> 0"),
+            "octave = rudel_shr((note / 12), 0)"
+        );
+        assert_eq!(
+            rewrite_shift_operators("m = 1 << n + 1"),
+            "m = rudel_shl(1, n + 1)"
+        );
+        // `>>>` is the unsigned form, which only differs on negatives.
+        assert_eq!(rewrite_shift_operators("a >>> 1"), "rudel_shr(a, 1)");
+        // The operand stops at a separator and at a looser operator.
+        assert_eq!(
+            rewrite_shift_operators("f(a >> 1, b)"),
+            "f(rudel_shr(a, 1), b)"
+        );
+        assert_eq!(rewrite_shift_operators("x >> 1 > 2"), "rudel_shr(x, 1) > 2");
     }
 
     #[test]

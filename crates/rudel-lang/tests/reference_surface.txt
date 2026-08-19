@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1039 methods=1128 controls=668
+# functions=1041 methods=1128 controls=668
 
 [functions]
 Array
@@ -837,6 +837,8 @@ rudel_concat
 rudel_label
 rudel_prop
 rudel_prototype
+rudel_shl
+rudel_shr
 rudel_spread
 rudel_typeof
 run

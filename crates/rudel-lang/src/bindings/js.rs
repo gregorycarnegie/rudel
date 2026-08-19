@@ -126,6 +126,24 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
             _ => KValue::Number(KNumber::from(0.0)),
         })
     });
+    // Back the preprocessor's rewrite of `<<` and `>>`, which Koto has no
+    // operators for. JavaScript coerces both sides to a signed 32-bit integer,
+    // masks the count to five bits, and gives a signed 32-bit result.
+    for (name, left) in [("rudel_shl", true), ("rudel_shr", false)] {
+        prelude.add_fn(name, move |ctx| {
+            let arg = |slot: usize| match ctx.args().get(slot) {
+                Some(KValue::Number(n)) => js_int32(f64::from(*n)),
+                _ => 0,
+            };
+            let (value, count) = (arg(0), arg(1) as u32 & 31);
+            let shifted = if left {
+                value.wrapping_shl(count)
+            } else {
+                value.wrapping_shr(count)
+            };
+            Ok(KValue::Number(KNumber::from(shifted)))
+        });
+    }
     // JS's absent value. Helpers test hap values with `x.value !== undefined`.
     prelude.insert("undefined", KValue::Null);
     // Backs the preprocessor's rewrite of JS property access. Reading a field
@@ -281,6 +299,20 @@ fn js_slice_bounds(args: &[KValue], len: usize) -> (usize, usize) {
     let from = resolve(index(0, 0));
     let to = resolve(index(1, len as i64));
     (from, to.max(from))
+}
+
+/// JavaScript's `ToInt32`: truncate towards zero, then wrap into the signed
+/// 32-bit range. Anything that is not a finite number is zero.
+fn js_int32(x: f64) -> i32 {
+    if !x.is_finite() {
+        return 0;
+    }
+    let wrapped = x.trunc().rem_euclid(4_294_967_296.0);
+    (if wrapped >= 2_147_483_648.0 {
+        wrapped - 4_294_967_296.0
+    } else {
+        wrapped
+    }) as i32
 }
 
 /// JavaScript's `String(x)`.
