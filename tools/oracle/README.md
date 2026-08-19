@@ -81,6 +81,12 @@ DIFF_CORPUS=/path/to/patterns DIFF_OUT=strudel.tsv   node strudel/node_modules/v
 Each line is `<OK|EMPTY|ERR>	<id>	<haps|message>`. `DIFF_FROM`/`DIFF_TO`
 shard a long run; `DIFF_CYCLES` sets the query length (8 by default).
 
+The Rudel half of the same run is `cargo run --release -p rudel-lang --example
+sweep`, which writes that shape too and crosses the two into a works/fails
+square. `.claude/skills/parity-square/SKILL.md` is the whole loop — fetching a
+corpus, running both sides, reading the square, and checking a change for
+regressions across it.
+
 ## Regenerate
 
 ```sh
