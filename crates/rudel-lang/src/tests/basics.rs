@@ -643,3 +643,18 @@ fn speak_marks_the_words_to_say() {
     );
     assert_eq!(spoken(1), vec![("here".into(), "en".into(), 3.0)]);
 }
+
+#[test]
+fn set_max_polyphony_installs_the_cap_it_was_given() {
+    // Process-global, as superdough's module-level `maxPolyphony` is, so put
+    // the default back afterwards.
+    eval("setMaxPolyphony(4)\ns(\"bd\")").expect("set the cap");
+    assert_eq!(rudel_core::max_polyphony(), 4);
+    // `parseInt` of something that is not a number leaves the default
+    // standing, which is what upstream's `?? DEFAULT_MAX_POLYPHONY` intends.
+    eval("setMaxPolyphony('lots')\ns(\"bd\")").expect("a nonsense cap");
+    assert_eq!(
+        rudel_core::max_polyphony(),
+        rudel_core::DEFAULT_MAX_POLYPHONY
+    );
+}

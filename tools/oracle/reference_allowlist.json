@@ -57,12 +57,11 @@
     },
     "unsupported_package": {
       "status": "unsupported",
-      "reason": "Browser-only / alternative-engine features and config setters with no native analog: the kabelsalat worklet (K/worklet), the FX effect-chain graph, and superdough's polyphony cap. Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs). Nor is `speak`, which now drives the platform speech synthesiser (crates/rudel-app/src/speech.rs), or `addVoicings`, which registers a dictionary at runtime (crates/rudel-core/src/voicing.rs).",
+      "reason": "Browser-only / alternative-engine features and config setters with no native analog: the kabelsalat worklet (K/worklet) and the FX effect-chain graph. Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs). Nor is `speak`, which now drives the platform speech synthesiser (crates/rudel-app/src/speech.rs), or `addVoicings`, which registers a dictionary at runtime (crates/rudel-core/src/voicing.rs).",
       "names": [
         "K",
         "worklet",
-        "FX",
-        "setMaxPolyphony"
+        "FX"
       ]
     },
     "doc_artifact": {

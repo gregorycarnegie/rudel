@@ -446,6 +446,20 @@ OSC over UDP** (`crates/rudel-osc`) — selectable in the app's output picker.
 These cover the common "drive external gear / another program" use cases without
 needing the Web Serial or MQTT-over-WebSocket bridges.
 
+### `setMaxPolyphony` — supported, with a different fade shape
+
+`setMaxPolyphony(n)` caps how many voices sound at once. Past the cap, Rudel
+fades the oldest ones out — first in, first out — over a quarter of a second,
+which is what superdough's `linearRampToValueAtTime(0, t + 0.25)` does to the
+oldest entries of its `activeSoundSources` map. A voice already fading no
+longer counts against the cap, mirroring upstream deleting it from that map as
+it starts the ramp.
+
+The one difference is the fade itself: Rudel's is linear in amplitude and
+applied per sample by the mixer, upstream's is a Web Audio gain ramp. The
+voice is also dropped when it reaches silence rather than left parked at zero
+gain, so `active_len()` falls to the cap instead of staying above it.
+
 ### `speak` (`core/speak.mjs`) — supported, against the platform synthesiser
 
 Upstream `.speak(lang, voice)` is an `onTrigger` over the browser's Web Speech

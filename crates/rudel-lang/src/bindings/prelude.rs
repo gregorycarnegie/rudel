@@ -702,6 +702,31 @@ pub(crate) fn register(prelude: &KMap) {
         rudel_core::set_gain_curve_samples(samples);
         Ok(KValue::Null)
     });
+    // `setMaxPolyphony(n)`: the most voices allowed to sound at once. Past it
+    // the mixer fades the oldest ones out, first in first out, as superdough
+    // does when its `activeSoundSources` map outgrows the cap.
+    prelude.add_fn("setMaxPolyphony", |ctx| {
+        // `parseInt(polyphony)`: a number, or the leading digits of a string.
+        // Anything that does not read as one leaves the default standing,
+        // which is what upstream's `?? DEFAULT_MAX_POLYPHONY` intends.
+        let voices = match arg0(ctx) {
+            KValue::Number(n) => Some(f64::from(n).trunc()),
+            KValue::Str(s) => {
+                let digits: String = s
+                    .trim_start()
+                    .chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect();
+                digits.parse::<f64>().ok()
+            }
+            _ => None,
+        };
+        rudel_core::set_max_polyphony(match voices {
+            Some(n) if n.is_finite() && n >= 0.0 => n as usize,
+            _ => rudel_core::DEFAULT_MAX_POLYPHONY,
+        });
+        Ok(KValue::Null)
+    });
 
     for name in ["initHydra", "H", "hydra", "P5", "p5"] {
         prelude.add_fn(name, move |_| {

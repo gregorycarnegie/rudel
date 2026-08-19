@@ -75,9 +75,9 @@ pub use input::{
 pub use midimap::{CcMapping, has_midimap, midimap_ccs, set_midimap};
 // Host-published tables read back by scripts (sample durations, the log ring).
 pub use host::{
-    GAIN_CURVE_MAX, GAIN_CURVE_POINTS, apply_gain_curve, clear_gain_curve, clear_sample_durations,
-    drain_log, log_line, sample_duration, set_gain_curve, set_gain_curve_samples,
-    set_sample_duration,
+    DEFAULT_MAX_POLYPHONY, GAIN_CURVE_MAX, GAIN_CURVE_POINTS, apply_gain_curve, clear_gain_curve,
+    clear_sample_durations, drain_log, log_line, max_polyphony, sample_duration, set_gain_curve,
+    set_gain_curve_samples, set_max_polyphony, set_sample_duration,
 };
 // Tonal: note names, scales, chords.
 pub use tonal::{

@@ -773,7 +773,7 @@ fn cut_group_chokes_the_previous_voice() {
     }
     assert_eq!(mixer.active.len(), 1, "the choked voice should be gone");
     assert!(
-        mixer.active[0].choke_gain.is_none(),
+        mixer.active[0].choke.is_none(),
         "the surviving voice is the new one, not choking"
     );
 }
@@ -874,7 +874,7 @@ fn master_volume_scales_the_final_mix() {
         tags: Vec::new(),
         cut: None,
         send: OrbitSend::default(),
-        choke_gain: None,
+        choke: None,
     });
 
     assert_eq!(mixer.render_frame(), (0.5, 0.5));
@@ -2259,7 +2259,7 @@ fn render_choked_from_the_start(send: OrbitSend, pan: f32, n: usize) -> Vec<(f32
         tags: Vec::new(),
         cut: None,
         send,
-        choke_gain: Some(1.0),
+        choke: Some(Choke::over(CHOKE_SECS, mixer.sample_rate)),
     });
     let mut out = vec![(0.0f32, 0.0f32); n];
     mixer.render_block(&mut out);
@@ -2355,7 +2355,7 @@ fn a_choked_voice_still_feeds_its_reverb_send_the_right_way_up() {
 
 #[test]
 fn a_choked_voices_bus_send_fades_with_it() {
-    // `busgain * choke_gain`: the signal bus sees a choked voice at its current
+    // `busgain * choke.gain`: the signal bus sees a choked voice at its current
     // fade level, so a voice that is half faded sends at half its busgain.
     let level_at = |choke: f32| {
         let (tx, rx) = mpsc::channel::<NoteEvent>();
@@ -2376,7 +2376,10 @@ fn a_choked_voices_bus_send_fades_with_it() {
             tags: Vec::new(),
             cut: None,
             send,
-            choke_gain: Some(choke),
+            choke: Some(Choke {
+                gain: choke,
+                step: 0.0,
+            }),
         });
         let mut out = vec![(0.0f32, 0.0f32); 64];
         mixer.render_block(&mut out);
@@ -2446,4 +2449,47 @@ fn a_centred_voice_stays_centred_through_a_signal_bus() {
     let mut out = vec![(0.0f32, 0.0f32); 4096];
     mixer.render_block(&mut out);
     assert_channels_agree("bus", &out);
+}
+
+#[test]
+fn max_polyphony_fades_out_the_oldest_voices() {
+    // `setMaxPolyphony(n)`: starting a voice past the cap ramps the oldest ones
+    // down over a quarter second, oldest first, and the cap counts only voices
+    // that are not already fading — superdough drops those from its map as it
+    // starts the ramp.
+    //
+    // 8 is chosen so no other test in this process is affected while the cap
+    // stands; none of them sounds more than four voices at once.
+    const CAP: usize = 8;
+    rudel_core::set_max_polyphony(CAP);
+    let mut mixer = OfflineMixer::new(44100.0);
+    for _ in 0..CAP + 4 {
+        mixer.schedule(routed_event(OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        }));
+    }
+    // One block, far shorter than the fade: every voice is still there, but
+    // four of them are on their way out.
+    let mut out = vec![(0.0f32, 0.0f32); 512];
+    mixer.render_block(&mut out);
+    assert_eq!(mixer.active_len(), CAP + 4, "the fade has not finished yet");
+    assert!(peak_of(&out) > 0.0, "and the mix is still sounding");
+
+    // A quarter second later the four oldest are gone and the cap holds.
+    let mut rest = vec![(0.0f32, 0.0f32); 16384];
+    mixer.render_block(&mut rest);
+    assert_eq!(mixer.active_len(), CAP, "down to the cap");
+
+    // Back under the default, nothing is choked at all.
+    rudel_core::set_max_polyphony(rudel_core::DEFAULT_MAX_POLYPHONY);
+    let mut mixer = OfflineMixer::new(44100.0);
+    for _ in 0..CAP + 4 {
+        mixer.schedule(routed_event(OrbitSend {
+            dry: 1.0,
+            ..Default::default()
+        }));
+    }
+    mixer.render_block(&mut rest);
+    assert_eq!(mixer.active_len(), CAP + 4, "no cap, no choking");
 }

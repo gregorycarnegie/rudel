@@ -17,7 +17,10 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, LazyLock, RwLock},
+    sync::{
+        Arc, LazyLock, RwLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +100,27 @@ pub fn stringify_values(value: &crate::value::Value) -> String {
         Value::Null => "null".to_string(),
         other => format!("{other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Polyphony
+
+/// superdough's `DEFAULT_MAX_POLYPHONY`.
+pub const DEFAULT_MAX_POLYPHONY: usize = 128;
+
+/// The most voices allowed to sound at once, as `setMaxPolyphony(n)` last left
+/// it. Process-global because upstream's is a module-level `let` a script sets
+/// once at the top, and read from the audio callback, which is why it is an
+/// atomic rather than a lock.
+static MAX_POLYPHONY: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_POLYPHONY);
+
+/// `setMaxPolyphony(n)`.
+pub fn set_max_polyphony(voices: usize) {
+    MAX_POLYPHONY.store(voices, Ordering::Relaxed);
+}
+
+pub fn max_polyphony() -> usize {
+    MAX_POLYPHONY.load(Ordering::Relaxed)
 }
 
 // ---------------------------------------------------------------------------

@@ -258,13 +258,34 @@ struct ActiveVoice {
     cut: Option<i32>,
     /// Orbit routing and send levels for this voice.
     send: OrbitSend,
-    /// When choked, the remaining gain (ramps 1.0 → 0.0 over `CHOKE_SECS`).
-    /// `None` means the voice is playing normally.
-    choke_gain: Option<f32>,
+    /// The fade running this voice out, if one is. `None` means the voice is
+    /// playing normally.
+    choke: Option<Choke>,
+}
+
+/// A voice fading to silence: what is left of its gain, and how much of it each
+/// sample takes off. The rate is per voice because the two things that choke
+/// one want different ones.
+#[derive(Clone, Copy)]
+struct Choke {
+    gain: f32,
+    step: f32,
+}
+
+impl Choke {
+    fn over(seconds: f32, sample_rate: f32) -> Choke {
+        Choke {
+            gain: 1.0,
+            step: 1.0 / (sample_rate * seconds),
+        }
+    }
 }
 
 /// Fade time applied when a `cut`-group voice is choked (matches Strudel's 10ms).
 const CHOKE_SECS: f32 = 0.01;
+/// Fade time applied when `setMaxPolyphony` makes room for a new voice —
+/// superdough ramps the ones it drops to zero over a quarter second.
+const POLYPHONY_FADE_SECS: f32 = 0.25;
 const DEFAULT_MASTER_VOLUME: f64 = 1.0;
 const MAX_MASTER_VOLUME: f64 = 2.0;
 
@@ -392,10 +413,27 @@ impl Mixer {
                 }
                 if let Some(g) = ev.cut {
                     for av in &mut self.active {
-                        if av.cut == Some(g) && av.choke_gain.is_none() {
-                            av.choke_gain = Some(1.0);
+                        if av.cut == Some(g) && av.choke.is_none() {
+                            av.choke = Some(Choke::over(CHOKE_SECS, self.sample_rate));
                         }
                     }
+                }
+                // `setMaxPolyphony(n)`: making room for this voice fades out
+                // the oldest ones, oldest first — `self.active` is in start
+                // order, as superdough's insertion-ordered map is. A voice
+                // already fading no longer counts against the cap, which is
+                // upstream deleting it from the map as it starts the ramp.
+                let cap = rudel_core::max_polyphony();
+                let sounding = self.active.iter().filter(|av| av.choke.is_none()).count();
+                let over = sounding.saturating_sub(cap.saturating_sub(1));
+                let rate = Choke::over(POLYPHONY_FADE_SECS, self.sample_rate);
+                for av in self
+                    .active
+                    .iter_mut()
+                    .filter(|av| av.choke.is_none())
+                    .take(over)
+                {
+                    av.choke = Some(rate);
                 }
                 // Create the orbit on first use and let this event configure
                 // it, as superdough does when it builds a voice's chain.
@@ -428,7 +466,7 @@ impl Mixer {
                     tags: ev.tags,
                     cut: ev.cut,
                     send: ev.send,
-                    choke_gain: None,
+                    choke: None,
                 });
             } else {
                 i += 1;
@@ -442,7 +480,6 @@ impl Mixer {
     fn mix_sub_block(&mut self, out: &mut [(f32, f32)], csound: Option<&mut Csound>) {
         let len = out.len();
         let volume = load_f64(&self.volume) as f32;
-        let choke_step = 1.0 / (self.sample_rate * CHOKE_SECS);
         let sample_rate = self.sample_rate;
         self.scratch.ensure(len);
 
@@ -503,7 +540,7 @@ impl Mixer {
             // of (not instead of) its orbit routing. A choked voice sends at its
             // current fade level.
             if let Some((l, r)) = av.send.bus.and_then(|b| signal_buses.get_mut(&b)) {
-                let g = av.send.busgain * av.choke_gain.unwrap_or(1.0);
+                let g = av.send.busgain * av.choke.map_or(1.0, |c| c.gain);
                 for i in 0..len {
                     l[i] += src_l[i] * g;
                     r[i] += src_r[i] * g;
@@ -531,9 +568,9 @@ impl Mixer {
                 b.clear(len);
                 b
             });
-            if let Some(g) = &mut av.choke_gain {
+            if let Some(choke) = &mut av.choke {
                 // Choked voices fade per sample; drop the voice once silent.
-                let mut gain = *g;
+                let (mut gain, choke_step) = (choke.gain, choke.step);
                 for i in 0..len {
                     let (a, b) = (src_l[i] * gain, src_r[i] * gain);
                     bus.dry_l[i] += a * dry;
@@ -551,7 +588,7 @@ impl Mixer {
                         return false; // fully faded — drop the voice
                     }
                 }
-                *g = gain;
+                choke.gain = gain;
             } else {
                 for i in 0..len {
                     bus.dry_l[i] += src_l[i] * dry;
