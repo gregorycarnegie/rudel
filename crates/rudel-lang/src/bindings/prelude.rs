@@ -1101,6 +1101,9 @@ pub(crate) fn register(prelude: &KMap) {
             "invert" => invert, "inv" => invert, "collect" => collect,
             "rev" => rev,
             "voicing" => voicing,
+            // The rounding transforms, which a script reaches for standalone
+            // (`n(floor(rand.range(1, 6)))`) as often as it chains them.
+            "floor" => floor, "ceil" => ceil, "round" => round,
         ];
         i64_1: [
             "iter" => iter, "iterBack" => iter_back, "iter_back" => iter_back, "iterback" => iter_back,

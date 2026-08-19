@@ -678,3 +678,63 @@ fn javascript_shifts_and_powers() {
         assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
     }
 }
+
+#[test]
+fn a_pattern_answers_the_arithmetic_operators() {
+    // JavaScript has no operator overloading, so `"<1 2>" / 48` in Strudel is a
+    // string over a number — `NaN` — and scripts write it meaning the
+    // mini-notation. Koto asks the object, so it gets the pattern arithmetic.
+    for (expr, want) in [
+        ("pure(3) + 4", 7.0),
+        ("4 + pure(3)", 7.0),
+        ("pure(10) - 4", 6.0),
+        ("10 - pure(4)", 6.0),
+        ("pure(3) * 4", 12.0),
+        ("pure(12) / 4", 3.0),
+        ("pure(7) % 4", 3.0),
+    ] {
+        let pat = eval(expr).unwrap_or_else(|e| panic!("{expr}: {e}"));
+        let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
+        assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
+    }
+}
+
+#[test]
+fn the_pattern_methods_a_script_reaches_for_by_upstream_name() {
+    // `filterHaps` is upstream's own name for `filter`; `mod` is `modulo`,
+    // which is only spelled that way here because Rust reserves the word.
+    // Single quotes: a double-quoted literal is mini-notation here, so it
+    // would arrive as a pattern rather than the sound's name.
+    let kept = eval(r#"s("bd sd hh").filterHaps(|h| h.value.s != 'hh')"#).expect("filterHaps");
+    assert_eq!(values(&kept, 0, 1).len(), 2);
+    let modded = eval("pure(7).mod(4)").expect("mod");
+    assert_eq!(values(&modded, 0, 1)[0].as_f64(), Some(3.0));
+    // `restartJoin`/`resetJoin` flatten a pattern of patterns by retriggering.
+    let joined = eval(r#""<0 1>".fmap(|v| seq(1, 2)).restartJoin()"#).expect("restartJoin");
+    assert_eq!(values(&joined, 0, 2).len(), 4);
+    // `setContext({})` clears the source locations the editor highlights from.
+    let plain = eval(r#"s("bd").setContext({})"#).expect("setContext");
+    let haps = plain.query_arc(Frac::zero(), Frac::one());
+    assert!(haps[0].context.locations.is_empty(), "locations cleared");
+    // `floor`/`ceil`/`round` standalone, as `n(floor(rand.range(1, 6)))` uses
+    // them.
+    let floored = eval("floor(pure(1.7))").expect("floor");
+    assert_eq!(values(&floored, 0, 1)[0].as_f64(), Some(1.0));
+}
+
+#[test]
+fn the_javascript_collection_builtins_helpers_call() {
+    // `Array.from({length: n})` is how a script repeats something n times;
+    // `flat`/`flatMap` and `Object.entries` are the rest of what they reach for.
+    for (expr, want) in [
+        ("Array.from({length: 3}).length()", 3.0),
+        ("[[1, 2], [3]].flat().length()", 3.0),
+        ("[1, 2].flatMap(|v| [v, v]).length()", 4.0),
+        ("Object.entries({a: 1, b: 2}).length()", 2.0),
+        ("Object.entries({a: 7})[0][1]", 7.0),
+    ] {
+        let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+        let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
+        assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
+    }
+}

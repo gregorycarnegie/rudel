@@ -1,5 +1,6 @@
 use super::scanner::{
     Chunk, chunks, classify, code_mask, is_ident_char, is_tagged_template, top_level_ranges,
+    top_level_split,
 };
 
 /// Drop JavaScript's comments, keeping the newlines they covered so line
@@ -2269,8 +2270,26 @@ pub(super) fn flatten_non_final_groups(src: &str) -> String {
                 None
             }
         });
-        if followed == Some(true) {
+        // Koto will not take a further argument on a new line once the first
+        // one started on the opening line and carried on below it — a shape a
+        // tune writes whenever it opens `stack(` with a pattern and puts the
+        // rest of the layers underneath.
+        let inner = &src[open + 1..close];
+        let carries_on = inner
+            .split('\n')
+            .next()
+            .is_some_and(|first| !first.trim().is_empty())
+            && top_level_split(inner, ',').is_some();
+        if followed == Some(true) || carries_on {
             flatten[open..=close].fill(true);
+        }
+    }
+    // A line break inside a string literal is the author's own text — a
+    // template literal's layout, or a `\` continuation — and folding it away
+    // rewrites what the pattern says.
+    for (kind, start, end) in chunks(src) {
+        if kind != Chunk::Code {
+            flatten[start..end].fill(false);
         }
     }
     let bytes = src.as_bytes();
@@ -2487,16 +2506,27 @@ const CONTINUATION_INDENT: usize = 2;
 /// Refuses when the break is a blank line or more — that is a deliberate
 /// separation, and swallowing it would join two statements — and reports
 /// whether it joined.
-/// Drop the blank lines in front of a line that opens with a `.`.
+/// Drop the blank lines JavaScript writes for readability and Koto reads as the
+/// end of something.
 ///
-/// No statement can begin with a member access, so such a line is always a
-/// continuation and the gap above it is noise — usually a commented-out link of
-/// the chain, which `strip_comments` leaves as an empty line to keep the line
-/// numbering. [`indent_dot_continuations`] refuses to join across a blank line,
-/// rightly, since elsewhere that is a deliberate separation; this removes the
-/// ones that are not.
-pub(super) fn close_chain_gaps(src: &str) -> String {
+/// Two places they hurt. A line opening with a `.` is always a continuation —
+/// no statement can begin with a member access — so a gap above it is noise,
+/// usually a commented-out link of the chain that `strip_comments` left as an
+/// empty line. And inside brackets Koto ends the argument list at a blank line,
+/// so a tune that spaces out the parts of a long `stack(` loses everything
+/// below the first gap.
+///
+/// Removing an empty line never joins two statements, so this cannot change
+/// what the source means; a line inside a template literal is content and is
+/// left alone.
+pub(super) fn close_expression_gaps(src: &str) -> String {
+    let mask = code_mask(src);
     let lines: Vec<&str> = src.split('\n').collect();
+    let strings: Vec<(usize, usize)> = chunks(src)
+        .into_iter()
+        .filter(|(kind, ..)| *kind == Chunk::Str)
+        .map(|(_, start, end)| (start, end))
+        .collect();
     let opens_chain = |from: usize| {
         lines[from..]
             .iter()
@@ -2507,9 +2537,19 @@ pub(super) fn close_chain_gaps(src: &str) -> String {
             })
     };
     let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut at = 0usize;
+    let mut depth = 0i32;
     for (i, line) in lines.iter().enumerate() {
-        // Never the first line: there is no chain above it to continue.
-        if line.trim().is_empty() && i > 0 && opens_chain(i) {
+        let start = at;
+        at += line.len() + 1;
+        let inside = depth > 0;
+        depth += mask[start..(start + line.len()).min(mask.len())]
+            .iter()
+            .map(|&b| bracket_delta(b))
+            .sum::<i32>();
+        // Never the first line: there is no expression above it to continue.
+        let quoted = strings.iter().any(|&(from, to)| from < start && to > start);
+        if line.trim().is_empty() && i > 0 && !quoted && (inside || opens_chain(i)) {
             continue;
         }
         out.push(line);
@@ -3441,6 +3481,38 @@ mod tests {
     }
 
     #[test]
+    fn a_group_is_folded_when_its_first_argument_started_on_the_opening_line() {
+        // Koto takes `f(x\n  .fast(2)\n)` — one argument, carried on below —
+        // but not a second argument after it, which is how a tune writes a
+        // `stack(` that opens with a pattern.
+        assert_eq!(
+            flatten_non_final_groups("f(x\n  .fast(2),\n  y\n)"),
+            "f(x.fast(2), y)"
+        );
+        // A line break inside a string is the author's text: a template
+        // literal's layout, or JavaScript's `\` continuation.
+        let quoted = "f(`a
+b`,
+  y
+)";
+        assert_eq!(
+            flatten_non_final_groups(quoted),
+            "f(`a
+b`, y)"
+        );
+        // One argument spanning lines is fine as it stands, and so is a list
+        // whose arguments all start on their own line.
+        assert_eq!(
+            flatten_non_final_groups("f(x\n  .fast(2)\n)"),
+            "f(x\n  .fast(2)\n)"
+        );
+        assert_eq!(
+            flatten_non_final_groups("f(\n  x,\n  y\n)"),
+            "f(\n  x,\n  y\n)"
+        );
+    }
+
+    #[test]
     fn a_line_edge_tells_a_string_from_a_comment() {
         // The joining passes read these: a line ending in a quote is not a line
         // ending in a comment, and `join_dangling_operators` treats them
@@ -3458,10 +3530,12 @@ mod tests {
     #[test]
     fn a_multi_line_group_is_folded_only_when_something_follows_it() {
         // Koto reads a nested call whose arguments span lines only in final
-        // position; anywhere else it ends the outer list.
+        // position; anywhere else it ends the outer list. The outer `stack(`
+        // is folded too, by the rule in the test below: its first argument
+        // started on the opening line and another follows it.
         assert_eq!(
             flatten_non_final_groups("stack(pure(1).fast(\n  2),\n  pure(3).fast(\n    4))"),
-            "stack(pure(1).fast( 2),\n  pure(3).fast(\n    4))"
+            "stack(pure(1).fast( 2), pure(3).fast( 4))"
         );
         // Last in its list, so its layout is left alone.
         assert_eq!(flatten_non_final_groups("f(a(\n  1\n))"), "f(a(\n  1\n))");
@@ -4127,16 +4201,16 @@ mod tests {
         // Koto will not carry a chain across one. Nothing else can start with a
         // `.`, so the gap is always noise.
         assert_eq!(
-            close_chain_gaps("a.b()\n\n.c()"),
+            close_expression_gaps("a.b()\n\n.c()"),
             "a.b()\n.c()",
             "a blank line before a `.` line"
         );
         // A blank line before anything else is a real separation and stays, as
         // does one at the very top with no chain above it.
-        assert_eq!(close_chain_gaps("a.b()\n\nc()"), "a.b()\n\nc()");
-        assert_eq!(close_chain_gaps("\n.b()"), "\n.b()");
+        assert_eq!(close_expression_gaps("a.b()\n\nc()"), "a.b()\n\nc()");
+        assert_eq!(close_expression_gaps("\n.b()"), "\n.b()");
         // `..` is a range, not a chain.
-        assert_eq!(close_chain_gaps("a\n\n..b"), "a\n\n..b");
+        assert_eq!(close_expression_gaps("a\n\n..b"), "a\n\n..b");
     }
 
     #[test]

@@ -51,6 +51,24 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
     array.add_fn("isArray", |ctx| {
         Ok(matches!(ctx.args().first(), Some(KValue::List(_) | KValue::Tuple(_))).into())
     });
+    // `Array.from({length: n})` builds a list of that many holes, which a
+    // script maps over to repeat something `n` times. The iterable form is the
+    // other half of what JS accepts.
+    array.add_fn("from", |ctx| {
+        let items: Vec<KValue> = match ctx.args().first() {
+            Some(KValue::List(l)) => l.data().to_vec(),
+            Some(KValue::Tuple(t)) => t.data().to_vec(),
+            Some(KValue::Map(m)) => {
+                let length = match m.get("length") {
+                    Some(KValue::Number(n)) => f64::from(n).max(0.0) as usize,
+                    _ => 0,
+                };
+                vec![KValue::Null; length]
+            }
+            _ => Vec::new(),
+        };
+        Ok(KValue::List(KList::with_data(items.into())))
+    });
     prelude.insert("Array", array);
     let object = KMap::new();
     // `Object.fromEntries([[k, v], …])`: the pairs as a map. Helpers build a
@@ -79,6 +97,25 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
             }
         }
         Ok(KValue::Map(map))
+    });
+    // `Object.entries(map)`: the pairs as a list of `[key, value]`, the
+    // inverse of `fromEntries` above.
+    object.add_fn("entries", |ctx| {
+        let Some(KValue::Map(map)) = ctx.args().first() else {
+            return Ok(KValue::List(KList::default()));
+        };
+        let pairs: Vec<KValue> = map
+            .data()
+            .iter()
+            .map(|(key, value)| {
+                let key = match key.value() {
+                    KValue::Str(s) => s.to_string(),
+                    other => js_string(Some(other)),
+                };
+                KValue::List(KList::from_slice(&[key.into(), value.clone()]))
+            })
+            .collect();
+        Ok(KValue::List(KList::with_data(pairs.into())))
     });
     prelude.insert("Object", object);
     // Backs the preprocessor's `typeof` rewrite. Koto's own `type` answers with
@@ -212,28 +249,57 @@ fn register_list(list: &KMap) {
     });
     // `arr.map((value, index) => ...)`: a new list, with the index passed as
     // JS does. Koto's `each` yields values only and returns an iterator.
-    list.add_fn("map", |ctx| {
-        let expected = "|List, |Any, Number| -> Any|";
+    // `flatMap` is the same, with one level of the result flattened away.
+    for (name, flatten) in [("map", false), ("flatMap", true)] {
+        list.add_fn(name, move |ctx| {
+            let expected = "|List, |Any, Number| -> Any|";
+            match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
+                (KValue::List(l), [f]) if f.is_callable() => {
+                    let source = l.data().clone();
+                    let f = f.clone();
+                    let mut out = Vec::with_capacity(source.len());
+                    for (i, value) in source.iter().enumerate() {
+                        let args = [value.clone(), KValue::Number(KNumber::from(i as i64))];
+                        // Koto is strict about arity, so a callback that ignores
+                        // the index has to be retried with one argument. If that
+                        // fails too the two-argument error is the one worth
+                        // reporting — the retry's "insufficient arguments" only
+                        // describes the retry.
+                        let mapped =
+                            match ctx.vm.call_function(f.clone(), CallArgs::Separate(&args)) {
+                                Ok(value) => value,
+                                Err(err) => ctx
+                                    .vm
+                                    .call_function(f.clone(), value.clone())
+                                    .map_err(|_| err)?,
+                            };
+                        match (flatten, &mapped) {
+                            (true, KValue::List(inner)) => {
+                                out.extend(inner.data().iter().cloned());
+                            }
+                            (true, KValue::Tuple(inner)) => out.extend(inner.iter().cloned()),
+                            _ => out.push(mapped),
+                        }
+                    }
+                    Ok(KValue::List(KList::with_data(out.into())))
+                }
+                (instance, args) => unexpected_args_after_instance(expected, instance, args),
+            }
+        });
+    }
+    // `arr.flat()`: one level of nesting undone. `flatMap(f)` is `map` then
+    // `flat`, which is how a script turns each entry into several.
+    list.add_fn("flat", |ctx| {
+        let expected = "|List|";
         match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
-            (KValue::List(l), [f]) if f.is_callable() => {
-                let source = l.data().clone();
-                let f = f.clone();
-                let mut out = Vec::with_capacity(source.len());
-                for (i, value) in source.iter().enumerate() {
-                    let args = [value.clone(), KValue::Number(KNumber::from(i as i64))];
-                    // Koto is strict about arity, so a callback that ignores the
-                    // index has to be retried with one argument. If that fails
-                    // too the two-argument error is the one worth reporting —
-                    // the retry's "insufficient arguments" only describes the
-                    // retry.
-                    let mapped = match ctx.vm.call_function(f.clone(), CallArgs::Separate(&args)) {
-                        Ok(value) => value,
-                        Err(err) => ctx
-                            .vm
-                            .call_function(f.clone(), value.clone())
-                            .map_err(|_| err)?,
-                    };
-                    out.push(mapped);
+            (KValue::List(l), _) => {
+                let mut out = Vec::new();
+                for value in l.data().iter() {
+                    match value {
+                        KValue::List(inner) => out.extend(inner.data().iter().cloned()),
+                        KValue::Tuple(inner) => out.extend(inner.iter().cloned()),
+                        other => out.push(other.clone()),
+                    }
                 }
                 Ok(KValue::List(KList::with_data(out.into())))
             }

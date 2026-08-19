@@ -597,6 +597,20 @@ fn filter_build(pat: &Pattern, cb: &Callback, arg: impl Fn(&rudel_core::Hap) -> 
     static_period_pattern(haps, pat.steps, Frac::int(PROBE))
 }
 
+/// `pat.setContext(ctx)`: replace every hap's context.
+///
+/// Upstream a hap's context carries whatever the passing transforms put there;
+/// here it is the source locations the editor highlights from, and a script
+/// calls this with `{}` to clear them — `.off(.25, x => x.…setContext({}))` so
+/// the offset copy stops lighting up the line the original came from. Whatever
+/// map is passed, the context that comes out is empty, because rudel's holds
+/// nothing a script can name.
+pub(super) fn kpattern_set_context(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    with_instance(&ctx, |pat| {
+        pat.with_context(|_| rudel_core::hap::Context::default())
+    })
+}
+
 /// `pat.filter(|hap| ...)`: keep only the haps the predicate accepts.
 pub(super) fn kpattern_filter(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
     let pat = ctx.instance()?.0.clone();

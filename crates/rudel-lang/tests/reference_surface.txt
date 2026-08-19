@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1041 methods=1128 controls=668
+# functions=1044 methods=1136 controls=668
 
 [functions]
 Array
@@ -96,6 +96,7 @@ cat
 ccin
 ccn
 ccv
+ceil
 ch
 channel
 channels
@@ -239,6 +240,7 @@ fft
 firstOf
 first_of
 fit
+floor
 flux
 fluxBy
 fluxby
@@ -831,6 +833,7 @@ roomlp
 roomsize
 rootNotes
 root_notes
+round
 rsize
 rudel_apply
 rudel_concat
@@ -1302,6 +1305,7 @@ fastchunk
 fastgap
 fft
 filter
+filterHaps
 filterValues
 filterWhen
 filter_values
@@ -1761,6 +1765,7 @@ midiport
 miditouch
 minutes
 mix
+mod
 mode
 modulate
 modulo
@@ -1938,8 +1943,12 @@ repeat_cycles
 replicate
 rescale
 reset
+resetJoin
+reset_join
 resonance
 restart
+restartJoin
+restart_join
 rev
 revv
 rfade
@@ -1982,7 +1991,9 @@ semitone
 seq
 sequence
 set
+setContext
 setSteps
+set_context
 set_mix
 set_out
 set_poly

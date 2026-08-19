@@ -229,7 +229,9 @@ pub(super) fn top_level_ranges(text: &str, delimiter: char) -> Vec<(usize, usize
         match b[i] {
             b'(' | b'[' | b'{' => depth += 1,
             b')' | b']' | b'}' => depth -= 1,
-            _ if depth == 0 && text[i..].starts_with(delimiter) => {
+            // `i` walks bytes, so a multi-byte character would be sliced
+            // through the middle of.
+            _ if depth == 0 && text.is_char_boundary(i) && text[i..].starts_with(delimiter) => {
                 if start < i {
                     ranges.push((start, i));
                 }
@@ -258,7 +260,9 @@ pub(super) fn top_level_split(text: &str, delimiter: char) -> Option<usize> {
         match b[i] {
             b'(' | b'[' | b'{' => depth += 1,
             b')' | b']' | b'}' => depth -= 1,
-            _ if depth == 0 && text[i..].starts_with(delimiter) => return Some(i),
+            _ if depth == 0 && text.is_char_boundary(i) && text[i..].starts_with(delimiter) => {
+                return Some(i);
+            }
             _ => {}
         }
         i += 1;
@@ -548,5 +552,23 @@ mod tests {
         assert_eq!(at("[a:b]:c", ':'), Some("[a:b]"));
         assert_eq!(at(r#""a:b":c"#, ':'), Some(r#""a:b""#));
         assert_eq!(at("abc", ':'), None);
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    #[test]
+    fn splitting_steps_over_a_multi_byte_character() {
+        // The cursor walks bytes, so slicing at one to test for the delimiter
+        // panicked in the middle of any character wider than ASCII — reachable
+        // from any source with an emoji in it.
+        assert_eq!(top_level_split("🌸, b", ','), Some(4));
+        assert_eq!(top_level_split("🌸 b", ','), None);
+        assert_eq!(
+            top_level_ranges("🌸, b", ','),
+            vec![(0, 4), (5, "🌸, b".len())]
+        );
     }
 }

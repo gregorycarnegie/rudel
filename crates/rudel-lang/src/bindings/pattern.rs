@@ -37,7 +37,36 @@ pub(crate) use repl::{apply_pattern_transforms, push_all, register_slot, reset_s
 #[derive(Clone, KotoCopy, KotoType)]
 pub struct KPattern(pub Pattern);
 
-impl KotoObject for KPattern {}
+/// Give `KPattern` the arithmetic operators, in both operand orders, as the
+/// methods of the same name.
+///
+/// JavaScript has no operator overloading, so `"<1 2>" / 48` in Strudel is a
+/// string divided by a number: `NaN`, silently, wherever it is used. Scripts
+/// write it anyway — meaning the mini-notation `"<1 2>/48"` — and Koto asks the
+/// object what `/` means rather than guessing, so answering with the pattern
+/// arithmetic is both the useful reading and the one that cannot error.
+macro_rules! kpattern_operators {
+    ($($op:ident, $rhs:ident => $method:ident),* $(,)?) => {
+        impl KotoObject for KPattern {
+            $(
+                fn $op(&self, other: &KValue) -> koto::runtime::Result<KValue> {
+                    Ok(KPattern::wrap(self.0.$method(arg_to_pattern(other))))
+                }
+                fn $rhs(&self, other: &KValue) -> koto::runtime::Result<KValue> {
+                    Ok(KPattern::wrap(arg_to_pattern(other).$method(self.0.clone())))
+                }
+            )*
+        }
+    };
+}
+
+kpattern_operators! {
+    add, add_rhs => add,
+    subtract, subtract_rhs => sub,
+    multiply, multiply_rhs => mul,
+    divide, divide_rhs => div,
+    remainder, remainder_rhs => modulo,
+}
 
 impl From<KPattern> for KValue {
     fn from(p: KPattern) -> KValue {
@@ -83,6 +112,13 @@ pub(crate) fn extend_control_entries() {
                     control_method_call(ctx, builder)
                 })),
             );
+        }
+        // Names Rust cannot spell as a method: `#[koto_method]` takes the
+        // function's own identifier, and a raw one (`r#mod`) keeps its prefix.
+        for (alias, method) in [("mod", "modulo")] {
+            if let Some(f) = entries.get(method) {
+                entries.insert(alias, f);
+            }
         }
         // REPL pattern slots (`p`/`q`/`d1`/`p1`/`q1`) registered onto the same
         // shared entries map.

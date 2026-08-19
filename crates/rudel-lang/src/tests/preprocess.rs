@@ -790,12 +790,11 @@ fn a_declaration_moves_above_the_code_that_uses_it() {
 fn line_breaks_koto_cannot_read_are_taken_out() {
     // A nested call spanning lines is only allowed in final position, so one
     // followed by another argument is folded onto a line...
-    assert_eq!(
-        preprocess_strudel("stack(a(\n1),\nb)"),
-        "stack(a( 1),\n  b)"
-    );
-    // ...and the last argument keeps its layout.
-    assert!(preprocess_strudel("stack(b,\na(\n1))").contains("a(\n"));
+    assert_eq!(preprocess_strudel("stack(a(\n1),\nb)"), "stack(a( 1), b)");
+    // ...and the last argument keeps its layout, so long as the list did not
+    // also start on the opening line, which Koto cannot carry either.
+    assert!(preprocess_strudel("stack(\nb,\na(\n1))").contains("a(\n"));
+    assert_eq!(preprocess_strudel("stack(b,\na(\n1))"), "stack(b, a( 1))");
     // A call whose `(` opens the next line is one expression; left split, the
     // parentheses become a tuple.
     assert_eq!(preprocess_strudel("stack\n(a, b)"), "stack(a, b)");

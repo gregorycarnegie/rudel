@@ -374,7 +374,7 @@ kpattern_methods! {
         // pattern already converts to `Value::Pat`, so `fmap(v => …).innerJoin()`
         // — the shape a `register`ed helper is written in — works with no
         // Koto in the query path.
-        inner_join, outer_join, squeeze_join, join,
+        inner_join, outer_join, squeeze_join, join, reset_join, restart_join,
     ],
     i64_arg: [
         iter, iter_back, repeat_cycles,
@@ -454,7 +454,11 @@ kpattern_methods! {
         euclid_legato_rot => kpattern_euclid_legato_rot,
         #[koto_method]
         soundfont => kpattern_soundfont,
-        #[koto_method]
+        // `filterHaps` is upstream's own name for it (core/pattern.mjs
+        // defines `filter` as a `register`ed wrapper around the method).
+        #[koto_method(alias = "setContext")]
+        set_context => kpattern_set_context,
+        #[koto_method(alias = "filterHaps")]
         filter => kpattern_filter,
         #[koto_method(alias = "filterValues")]
         filter_values => kpattern_filter_values,
@@ -655,6 +659,7 @@ kpattern_methods! {
     camel_no_arg: [
         toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert,
         innerJoin => inner_join, outerJoin => outer_join, squeezeJoin => squeeze_join,
+        resetJoin => reset_join, restartJoin => restart_join,
     ],
     camel_noarg_fn: [
         someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never,
