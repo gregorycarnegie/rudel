@@ -6,6 +6,7 @@ use super::{
 };
 use eframe::egui;
 use rudel_core::{Frac, Hap, Value, value_to_midi};
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 /// Blocks kept for `smear`, and the draw time they were last added at.
@@ -80,7 +81,10 @@ pub(super) fn paint_pianoroll(
         haps.retain(|hap| hap_is_active(hap, time));
     }
 
-    let mut values: Vec<RollValue> = haps.iter().map(|hap| pianoroll_value(hap)).collect();
+    // One value per hap, kept alongside them: the draw loop needs each hap's own
+    // value, and `values` below is sorted and deduped into the slot table.
+    let hap_values: Vec<RollValue> = haps.iter().map(|hap| pianoroll_value(hap)).collect();
+    let mut values = hap_values.clone();
     values.sort_by(roll_value_cmp);
     values.dedup_by(|a, b| a == b);
 
@@ -103,12 +107,11 @@ pub(super) fn paint_pianoroll(
         options.playhead as f32
     };
 
-    for hap in haps {
+    for (hap, value) in haps.iter().zip(&hap_values) {
         let Some(whole) = hap.whole else {
             continue;
         };
-        let value = pianoroll_value(hap);
-        let Some(value_index) = roll_value_index(&values, &value, options.fold, min_midi, max_midi)
+        let Some(value_index) = roll_value_index(&values, value, options.fold, min_midi, max_midi)
         else {
             continue;
         };
@@ -334,8 +337,19 @@ fn roll_value_index(
 }
 
 pub(super) fn pianoroll_value(hap: &Hap) -> RollValue {
-    let mut controls = rudel_core::to_control_map(&hap.value);
-    rudel_core::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());
+    // `to_control_map` clones the hap's whole control map, and this runs per hap
+    // per frame. Only transposing needs it owned, and `apply_transpose_controls`
+    // no-ops without one of these two controls — so borrow in the common case.
+    let mut controls = match &hap.value {
+        Value::Map(map) => Cow::Borrowed(map),
+        other => Cow::Owned(rudel_core::to_control_map(other)),
+    };
+    if controls.contains_key("mtranspose") || controls.contains_key("ctranspose") {
+        rudel_core::tonal::apply_transpose_controls(
+            controls.to_mut(),
+            hap.context.scale.as_deref(),
+        );
+    }
     if let Some(freq) = controls.get("freq").and_then(Value::as_f64) {
         return RollValue::Number(rudel_core::freq_to_midi(freq));
     }

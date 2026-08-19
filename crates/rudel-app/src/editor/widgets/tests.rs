@@ -183,9 +183,17 @@ fn pianoroll_value_matches_strudel_value_priority() {
         Value::Str("bd".to_string()),
     )])));
 
+    // Transposing is the one case that needs the control map owned; everything
+    // else reads it borrowed, so this is what catches the borrow being kept.
+    let transposed = hap(Value::Map(ValueMap::from([
+        ("note".to_string(), Value::Str("c4".to_string())),
+        ("ctranspose".to_string(), Value::F64(3.0)),
+    ])));
+
     assert_eq!(pianoroll_value(&freq), RollValue::Number(69.0));
     assert_eq!(pianoroll_value(&note), RollValue::Number(60.0));
     assert_eq!(pianoroll_value(&sound), RollValue::Text("_bd".to_string()));
+    assert_eq!(pianoroll_value(&transposed), RollValue::Number(63.0));
 }
 
 #[test]
