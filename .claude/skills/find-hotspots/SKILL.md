@@ -93,6 +93,17 @@ length; percentages are safer.
   bare filename, so without that samply looks in the cwd and resolves nothing.
 - **Inlined callees are attributed to the caller.** A "missing" function in a
   release build was almost certainly inlined; look for its caller.
+- **`samply record` can wedge for a while.** After a `samply record` is
+  force-killed, further recordings may hang at startup — even
+  `samply record -- cmd /c ver` — producing nothing on stdout or stderr. No
+  stale ETW session shows up (`logman query -ets`, `xperf -stop`) and it is not
+  the sandbox; it cleared by itself after ~20 minutes, no reboot. Let a
+  recording finish on its own (quit the app through the driver) rather than
+  killing it, and probe with `samply record --save-only -o probe.json.gz --
+  cmd /c ver` before blaming your build.
+- **Numbers from the first run after a build are not a baseline.** A first
+  measurement here came out 3x slower than the same binary measured minutes
+  later. Always take before/after back to back, and repeat the baseline once.
 - **The UI thread is usually the bottleneck, not the DSP.** In the run above,
   `rudel.exe` (UI) burned 80% of the CPU and `cpal_wasapi_out` (audio) 9%, and
   the whole self-time top ten was egui widget bookkeeping. Confirm which thread

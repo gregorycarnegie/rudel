@@ -28,6 +28,11 @@ const FFT_SIZE: usize = PARTITION * 2;
 /// inner loop.
 const LANES: usize = 8;
 
+/// The Nyquist bin. A real signal's spectrum is conjugate-symmetric about it,
+/// so the partition sum only has to run this far. A multiple of [`LANES`], so
+/// the vectorized loop still has no scalar remainder.
+const HALF_SPECTRUM: usize = FFT_SIZE / 2;
+
 /// A stereo impulse response, at the engine's sample rate.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImpulseResponse {
@@ -309,11 +314,16 @@ impl ConvChannel {
         // room at 48kHz has ~140 partitions of 2048 bins. The bins are
         // independent, so it vectorizes exactly — `FFT_SIZE` is a multiple of
         // the lane count, leaving no scalar remainder.
+        //
+        // Only the lower half is summed: the input frame and the IR are both
+        // real, so their spectra are conjugate-symmetric, and so is the
+        // product. The upper half is mirrored in below instead of being
+        // multiplied out again, which halves the loop above.
         self.acc_re.fill(0.0);
         self.acc_im.fill(0.0);
         for (p, (hr, hi)) in self.ir_spectra.iter().enumerate() {
             let (xr, xi) = &self.in_spectra[(self.head + n - p % n) % n];
-            for k in (0..FFT_SIZE).step_by(LANES) {
+            for k in (0..=HALF_SPECTRUM).step_by(LANES) {
                 let hr8 = f32x8::from(&hr[k..k + LANES]);
                 let hi8 = f32x8::from(&hi[k..k + LANES]);
                 let xr8 = f32x8::from(&xr[k..k + LANES]);
@@ -323,6 +333,13 @@ impl ConvChannel {
                 self.acc_re[k..k + LANES].copy_from_slice(&re.to_array());
                 self.acc_im[k..k + LANES].copy_from_slice(&im.to_array());
             }
+        }
+
+        // Y[N-k] = conj(Y[k]); the loop above computed bins 0..=N/2 (plus a few
+        // past it, which this overwrites with the same values).
+        for k in 1..HALF_SPECTRUM {
+            self.acc_re[FFT_SIZE - k] = self.acc_re[k];
+            self.acc_im[FFT_SIZE - k] = -self.acc_im[k];
         }
 
         self.re.copy_from_slice(&self.acc_re);

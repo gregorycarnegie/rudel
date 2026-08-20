@@ -34,3 +34,7 @@ harness = false
 [[bench]]
 name = "voice"
 harness = false
+
+[[bench]]
+name = "convolver"
+harness = false
