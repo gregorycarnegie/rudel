@@ -1753,17 +1753,28 @@ pub(super) fn rewrite_arrow_functions(src: &str) -> String {
 }
 
 pub(super) fn rewrite_const_declarations(src: &str) -> String {
+    // `code_mask` blanks string and comment bodies but keeps every newline, so
+    // its lines stay aligned with the source's byte for byte.
+    let mask = code_mask(src);
+    let mask = String::from_utf8_lossy(&mask);
     src.lines()
-        .map(|line| {
+        .zip(mask.lines())
+        .map(|(line, masked)| {
             let indent_len = line.len() - line.trim_start().len();
             let (indent, rest) = line.split_at(indent_len);
             // `let` is a Koto keyword too, but for a *typed* binding
             // (`let x: Number = 1`), so a JS `let parts = {…}` parses as one
             // and the map that follows is read as the type annotation.
-            match ["const ", "let ", "var "]
-                .iter()
-                .find_map(|kw| rest.strip_prefix(kw))
-            {
+            //
+            // Only when it is *code*, though. All three keywords are ordinary
+            // words inside a string, and all three are WGSL, so a shader body
+            // written across several lines hits this pass on nearly every one
+            // of them — stripping there produced `a = 1.0;` from `let a = 1.0;`
+            // and a shader that would not compile.
+            match ["const ", "let ", "var "].iter().find_map(|kw| {
+                let is_code = masked.get(indent_len..).is_some_and(|m| m.starts_with(*kw));
+                is_code.then(|| rest.strip_prefix(*kw)).flatten()
+            }) {
                 Some(stripped) => split_declarations(indent, stripped),
                 None => line.to_string(),
             }
@@ -3391,6 +3402,25 @@ mod tests {
         assert_eq!(rewrite_block_bodies("> {"), "> {");
         assert_eq!(rewrite_ternaries("> {"), "> {");
         assert_eq!(condition_start(&code_mask("> a ? b : c"), 4), 0);
+    }
+
+    #[test]
+    fn a_declaration_keyword_inside_a_string_is_left_alone() {
+        // `let`/`const`/`var` are all WGSL as well as JS, so a shader body
+        // written across several lines meets this pass on nearly every line.
+        // Stripping there turns `let a = 1.0;` into `a = 1.0;`, and the shader
+        // then fails to compile against a line the user never wrote.
+        let src = "s(\"bd\").shader({ code: '
+let a = 1.0;
+var b = 2.0;
+const c = 3.0;
+' })";
+        assert_eq!(rewrite_const_declarations(src), src);
+
+        // Real declarations outside a string still lose their keyword.
+        assert_eq!(rewrite_const_declarations("let x = 1"), "x = 1");
+        assert_eq!(rewrite_const_declarations("  const y = 2"), "  y = 2");
+        assert_eq!(rewrite_const_declarations("var z = 3"), "z = 3");
     }
 
     #[test]

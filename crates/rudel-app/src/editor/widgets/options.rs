@@ -197,7 +197,7 @@ pub(super) fn option_f32(
     option_f64(options, key).map(|value| value as f32)
 }
 
-fn option_str<'a>(
+pub(super) fn option_str<'a>(
     options: &'a BTreeMap<String, rudel_lang::WidgetOption>,
     key: &str,
 ) -> Option<&'a str> {

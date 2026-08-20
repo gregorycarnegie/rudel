@@ -60,7 +60,9 @@ Rudel's native Rust drawing code, not user-supplied callbacks.
 
 **Intentional limitation.** Rudel does **not** run arbitrary user painter
 callbacks (`Pattern.draw(ctx => …)`, `onPaint`) and does not maintain a global
-full-screen draw context. By design the Koto VM is never invoked from the
+full-screen draw context. (The `_shader` widget below is not an exception: the
+user supplies WGSL that runs on the GPU, never a Koto callback on the query
+path.) By design the Koto VM is never invoked from the
 real-time/draw query path, so a pattern cannot register a Koto closure that runs
 every animation frame. Only the built-in inline visualisers are available. The
 full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
@@ -350,8 +352,29 @@ session rather than on every re-evaluation.
 fragment-shader engine, and lets patterns drive its uniforms. It is fundamentally
 a browser WebGL integration with its own JavaScript DSL. Rudel is a native egui
 application with no embedded JavaScript/WebGL video-synth engine, so Hydra is
-**intentionally unsupported**. There is no native equivalent surface and no plan
-to embed a shader video synth; use Hydra in Strudel's web REPL if you need it.
+**intentionally unsupported**. Its DSL (`osc().kaleid().out()`), its shader
+graph, and `initHydra`/`H`/`clearHydra` are not ported; use Hydra in Strudel's
+web REPL if you need them.
+
+**Rudel does have a native shader surface**, though it is not Hydra. The
+`_shader` widget (`shader`) paints a user-written WGSL fragment body into an
+inline widget through the wgpu render callback egui already runs on
+(`crates/rudel-app/src/editor/widgets/shader.rs`). The body is wrapped in a
+fixed prelude giving it `uv` (0..1 across the widget, y down) and a `u` uniform
+block carrying `res`, `time` (cycles), `gain`, `note` and `voices` from the
+pattern's sounding events:
+
+```koto
+s("bd*4").shader({ code: '
+  let d = length(uv - vec2<f32>(0.5, 0.5));
+  return vec4<f32>(u.gain * (1.0 - d), 0.1, d, 1.0);
+' })
+```
+
+Write the body in **single quotes** — double-quoted strings are mini-notation.
+The WGSL is parsed and validated by `naga` before it reaches wgpu, so a typo
+draws its message in the widget rather than aborting the process; the reported
+line number counts the body, not the prelude.
 
 ### Device motion / orientation (`@strudel/motion`) — intentionally unsupported
 

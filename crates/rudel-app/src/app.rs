@@ -304,6 +304,17 @@ pub(crate) fn run() -> eframe::Result {
         native_options,
         Box::new(|cc| {
             crate::theme::apply(&cc.egui_ctx);
+            // Shader widgets compile their pipelines against the window's
+            // format, and only the creation context knows it.
+            if let Some(render_state) = &cc.wgpu_render_state {
+                render_state
+                    .renderer
+                    .write()
+                    .callback_resources
+                    .insert(crate::editor::ShaderStore::new(
+                        render_state.target_format,
+                    ));
+            }
             Ok(Box::new(RudelApp::new()))
         }),
     )

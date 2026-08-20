@@ -3404,6 +3404,7 @@ dependencies = [
  "arboard",
  "eframe",
  "egui_kittest",
+ "naga",
  "rudel-audio",
  "rudel-core",
  "rudel-lang",

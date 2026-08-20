@@ -153,6 +153,27 @@ fn public_visualizer_names_rewrite_to_inline_widget() {
 }
 
 #[test]
+fn a_shader_body_survives_its_newlines_and_commas() {
+    // A WGSL body is a multi-line single-quoted string full of top-level-looking
+    // commas. Single quotes keep it out of mini-notation; the option scanner has
+    // to keep it out of its own comma split, and hand it back byte for byte --
+    // including the leading newline, which the reported error line counts from.
+    let body = "
+let a = 1.0;
+return vec4<f32>(a, 0.5, 0.0, 1.0);
+";
+    let script = format!("s(\"bd*4\").shader({{ code: '{body}' }})");
+    let result = preprocess_strudel_with_meta(&script);
+    assert_eq!(result.widgets.len(), 1);
+    assert_eq!(result.widgets[0].widget_type, "_shader");
+    assert_eq!(
+        result.widgets[0].options.get("code"),
+        Some(&crate::WidgetOption::String(body.to_string())),
+        "the shader body reached the widget changed"
+    );
+}
+
+#[test]
 fn slider_drags_reach_already_evaluated_patterns() {
     // The editor's slider drag calls `set_slider_value` without re-evaluating;
     // the playing pattern's signal closure must read the new value on its next

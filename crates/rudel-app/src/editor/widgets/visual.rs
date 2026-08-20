@@ -6,6 +6,7 @@ use super::{
     pianoroll::paint_pianoroll,
     pitchwheel::paint_pitchwheel,
     query::{hap_is_active, in_window, widget_haps},
+    shader::paint_shader,
     spiral::paint_spiral,
     style::{WidgetDrawColors, event_color},
 };
@@ -87,6 +88,16 @@ pub(super) fn paint_pattern_widget(
                 .filter(|hap| hap_is_active(hap, time))
                 .collect::<Vec<_>>();
             paint_claviature(ui, rect, &haps, colors, options);
+            true
+        }
+        "_shader" => {
+            let window = DrawWindow::around(time);
+            let cycles = cycles(window);
+            let haps = in_window(&cycles, window)
+                .into_iter()
+                .filter(|hap| hap_is_active(hap, time))
+                .collect::<Vec<_>>();
+            paint_shader(ui, rect, widget, &haps, time, colors);
             true
         }
         "_scope" => {
