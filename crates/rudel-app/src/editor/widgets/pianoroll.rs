@@ -1,12 +1,11 @@
 use super::{
     options::VisualWidgetOptions,
     query::hap_is_active,
-    style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
+    style::{WidgetDrawColors, color_with_alpha, controls, event_alpha, event_color},
     values::value_short,
 };
 use eframe::egui;
 use rudel_core::{Frac, Hap, Value, value_to_midi};
-use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 /// Blocks kept for `smear`, and the draw time they were last added at.
@@ -337,19 +336,7 @@ fn roll_value_index(
 }
 
 pub(super) fn pianoroll_value(hap: &Hap) -> RollValue {
-    // `to_control_map` clones the hap's whole control map, and this runs per hap
-    // per frame. Only transposing needs it owned, and `apply_transpose_controls`
-    // no-ops without one of these two controls — so borrow in the common case.
-    let mut controls = match &hap.value {
-        Value::Map(map) => Cow::Borrowed(map),
-        other => Cow::Owned(rudel_core::to_control_map(other)),
-    };
-    if controls.contains_key("mtranspose") || controls.contains_key("ctranspose") {
-        rudel_core::tonal::apply_transpose_controls(
-            controls.to_mut(),
-            hap.context.scale.as_deref(),
-        );
-    }
+    let controls = controls(hap);
     if let Some(freq) = controls.get("freq").and_then(Value::as_f64) {
         return RollValue::Number(rudel_core::freq_to_midi(freq));
     }

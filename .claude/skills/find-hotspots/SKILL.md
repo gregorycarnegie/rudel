@@ -93,14 +93,27 @@ length; percentages are safer.
   bare filename, so without that samply looks in the cwd and resolves nothing.
 - **Inlined callees are attributed to the caller.** A "missing" function in a
   release build was almost certainly inlined; look for its caller.
-- **`samply record` can wedge for a while.** After a `samply record` is
-  force-killed, further recordings may hang at startup — even
-  `samply record -- cmd /c ver` — producing nothing on stdout or stderr. No
-  stale ETW session shows up (`logman query -ets`, `xperf -stop`) and it is not
-  the sandbox; it cleared by itself after ~20 minutes, no reboot. Let a
-  recording finish on its own (quit the app through the driver) rather than
-  killing it, and probe with `samply record --save-only -o probe.json.gz --
-  cmd /c ver` before blaming your build.
+- **Under samply, the app can take a minute to appear** — longer than the
+  driver's patience — when the binary was just relinked. Wait for the process
+  before driving it, rather than sleeping a fixed 10s:
+
+  ```powershell
+  $deadline = (Get-Date).AddSeconds(90)
+  while ((Get-Date) -lt $deadline -and -not (Get-Process rudel -ErrorAction SilentlyContinue)) { Start-Sleep 3 }
+  ```
+
+- **`samply record` wedges if a recording is orphaned.** When a record dies
+  without its child (driver timed out, samply gave up, something was killed),
+  every later `samply record` hangs at startup or fails with `The handle is
+  invalid` — even `samply record -- cmd /c ver`. No stale ETW session is
+  visible (`logman query -ets`, `xperf -stop`, `wpr -status` are all clean).
+  The fix is to kill **both** leftovers and retry:
+
+  ```powershell
+  Stop-Process -Name samply,rudel -Force -ErrorAction SilentlyContinue
+  samply record --save-only -o probe.json.gz -- cmd /c ver   # should print the Windows version
+  ```
+
 - **Numbers from the first run after a build are not a baseline.** A first
   measurement here came out 3x slower than the same binary measured minutes
   later. Always take before/after back to back, and repeat the baseline once.

@@ -1,6 +1,6 @@
 use super::{
     options::VisualWidgetOptions,
-    style::{WidgetDrawColors, color_with_alpha, event_alpha, event_color},
+    style::{WidgetDrawColors, color_with_alpha, control, controls, event_alpha, event_color},
 };
 use eframe::egui;
 use rudel_core::{Hap, Value, value_to_midi};
@@ -25,20 +25,17 @@ pub(super) fn paint_pitchwheel(
     // `edoScale` tags each hap with the scale it came from, so the ring follows
     // the pattern instead of the widget default — upstream reads
     // `haps[0].value.{edo,root,degreeIndexes,intLabels}` the same way.
-    let scale = haps
-        .first()
-        .map(|hap| rudel_core::to_control_map(&hap.value));
-    let field = |key: &str| scale.as_ref().and_then(|m| m.get(key).cloned());
+    let field = |key: &str| haps.first().and_then(|hap| control(hap, key));
     let root = field("root")
-        .and_then(|v| control_frequency(&v))
+        .and_then(control_frequency)
         .unwrap_or_else(|| rudel_core::midi_to_freq(36.0));
     let edo = field("edo")
         .and_then(|v| v.as_f64())
         .map(|edo| edo.round() as i64)
         .filter(|edo| *edo > 0)
         .unwrap_or(options.edo);
-    let degree_indexes = field("degreeIndexes").and_then(|v| number_list(&v));
-    let int_labels = field("intLabels").and_then(|v| string_list(&v));
+    let degree_indexes = field("degreeIndexes").and_then(number_list);
+    let int_labels = field("intLabels").and_then(string_list);
 
     if options.circle {
         painter.circle_stroke(
@@ -178,8 +175,7 @@ pub(super) fn degree_label(
 }
 
 pub(super) fn hap_frequency(hap: &Hap) -> Option<f64> {
-    let mut controls = rudel_core::to_control_map(&hap.value);
-    rudel_core::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());
+    let controls = controls(hap);
     if let Some(freq) = controls.get("freq").and_then(Value::as_f64) {
         return Some(freq);
     }
