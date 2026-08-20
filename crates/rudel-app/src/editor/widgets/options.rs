@@ -63,7 +63,8 @@ pub(super) struct VisualWidgetOptions {
     pub(super) steady: f32,
     pub(super) colorize_spiral_inactive: bool,
     pub(super) fade: bool,
-    /// Draw the spiral as a per-pixel SDF instead of stroked polylines.
+    /// Draw the spiral as a per-pixel SDF rather than stroked polylines.
+    /// On by default; `gpu: false` asks for the tessellated painter back.
     pub(super) gpu: bool,
     pub(super) active_color: Option<egui::Color32>,
     pub(super) inactive_color: Option<egui::Color32>,
@@ -138,7 +139,7 @@ impl VisualWidgetOptions {
             steady: option_f32(options, "steady").unwrap_or(1.0),
             colorize_spiral_inactive: option_bool(options, "colorizeInactive").unwrap_or(false),
             fade: option_bool(options, "fade").unwrap_or(true),
-            gpu: option_bool(options, "gpu").unwrap_or(false),
+            gpu: option_bool(options, "gpu").unwrap_or(true),
             active_color: option_color(options, "active")
                 .or_else(|| option_color(options, "activeColor"))
                 .or_else(|| option_color(options, "color")),
@@ -266,6 +267,20 @@ mod tests {
         };
         assert_eq!(size("_spiral"), 20.0);
         assert_eq!(size("_pianoroll"), 100.0);
+    }
+
+    #[test]
+    fn the_spiral_reaches_for_the_gpu_unless_told_not_to() {
+        let gpu = |options: &[(&str, rudel_lang::WidgetOption)]| {
+            VisualWidgetOptions::from_widget(&widget("_spiral", options)).gpu
+        };
+        // The SDF painter has no seams between haps, so it is what a spiral
+        // gets by default.
+        assert!(gpu(&[]));
+        // `gpu: false` asks for the tessellated painter back -- the escape
+        // hatch if a machine renders the shader badly.
+        assert!(!gpu(&[("gpu", rudel_lang::WidgetOption::Bool(false))]));
+        assert!(gpu(&[("gpu", rudel_lang::WidgetOption::Bool(true))]));
     }
 
     #[test]

@@ -14,7 +14,10 @@ use eframe::egui;
 const LOG_LINES_SHOWN: usize = 512;
 
 impl eframe::App for RudelApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // The GPU widget painters keep their resources in the wgpu renderer, so
+        // without that backend they would draw nothing at all.
+        let gpu_available = frame.wgpu_render_state().is_some();
         pump_input_bus(ui.ctx());
         self.poll_font_requests();
         self.poll_sample_requests();
@@ -52,7 +55,7 @@ impl eframe::App for RudelApp {
         self.errors_panel(ui);
         self.console_panel(ui);
         self.reference_panel(ui);
-        self.editor_panel(ui, &active_spans);
+        self.editor_panel(ui, &active_spans, gpu_available);
 
         // Clock-in: follow the incoming MIDI clock tempo (4 beats per cycle).
         if self.clock_sync {
@@ -440,7 +443,7 @@ impl RudelApp {
             });
     }
 
-    fn editor_panel(&mut self, ui: &mut egui::Ui, active_spans: &[FlashSpan]) {
+    fn editor_panel(&mut self, ui: &mut egui::Ui, active_spans: &[FlashSpan], gpu_available: bool) {
         // Theme the whole editor region to its own theme (not the host/system
         // theme) so the background, text and TextEdit all share one color and the
         // editor fills its panel seamlessly — no contrasting box with light
@@ -479,6 +482,7 @@ impl RudelApp {
                                 pattern_generation: self.pattern_generation,
                                 playback_position_cycles,
                                 scope_taps: self.engine.as_ref().map(|e| e.scope_taps()),
+                                gpu_available,
                                 sliders: &sliders,
                                 widgets: &widgets,
                                 widget_host: &mut self.widget_host,

@@ -20,6 +20,11 @@ pub(crate) struct WidgetPaintInput<'a> {
     /// The engine's analyzer taps for scope/fscope/spectrum widgets (`None`
     /// when no audio device is running — those widgets then draw empty).
     pub(crate) taps: Option<&'a ScopeTaps>,
+    /// Whether this frame is being rendered through the wgpu backend. A GPU
+    /// painter draws nothing without it — its pipeline and buffers live in that
+    /// renderer's callback resources — so a widget that prefers one falls back
+    /// to its CPU painter instead of coming out blank.
+    pub(crate) gpu_available: bool,
 }
 
 pub(crate) fn draw_widget_hosts(

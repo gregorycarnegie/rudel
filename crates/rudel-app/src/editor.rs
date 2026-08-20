@@ -58,6 +58,9 @@ pub(crate) struct CodeEditorInput<'a> {
     pub(crate) playback_position_cycles: Option<f64>,
     /// The engine's analyzer taps for the scope/fscope/spectrum widgets.
     pub(crate) scope_taps: Option<&'a rudel_audio::ScopeTaps>,
+    /// Whether the wgpu backend is running; see
+    /// [`WidgetPaintInput::gpu_available`].
+    pub(crate) gpu_available: bool,
     pub(crate) sliders: &'a [SliderDecoration],
     pub(crate) widgets: &'a [WidgetDecoration],
     pub(crate) widget_host: &'a mut WidgetHostState,
@@ -80,6 +83,7 @@ pub(crate) fn code_editor(
         pattern_generation,
         playback_position_cycles,
         scope_taps,
+        gpu_available,
         sliders,
         widgets,
         widget_host,
@@ -420,6 +424,7 @@ pub(crate) fn code_editor(
             time_cycles: playback_position_cycles,
             draw_theme,
             taps: scope_taps,
+            gpu_available,
         },
     );
     let slider_update = draw_slider_hosts(

@@ -64,23 +64,28 @@ full-screen draw context. (The `_shader` widget below is not an exception: the
 user supplies WGSL that runs on the GPU, never a Koto callback on the query
 path.)
 
-### `spiral({gpu: true})` — the same spiral, drawn as an SDF
+### `spiral` — drawn as an SDF, not as strokes
 
-Strudel's `spiral` strokes one canvas polyline per hap, and Rudel's default
-painter matches it. Adjacent haps then meet butt-end to butt-end with ends that
-are not parallel, so one side of every boundary overlaps — and because hap
-colours are translucent under the default `fade`, that overlap composites twice
-and reads as a bright radial seam — while the other side leaves a sliver of
-background. The seam is inherent to stroking and does not go away at a finer
-sampling rate.
+Strudel's `spiral` strokes one canvas polyline per hap. Adjacent haps then meet
+butt-end to butt-end with ends that are not parallel, so one side of every
+boundary overlaps — and because hap colours are translucent under the default
+`fade`, that overlap composites twice and reads as a bright radial seam — while
+the other side leaves a sliver of background. The seam is inherent to stroking
+and does not go away at a finer sampling rate.
 
-`gpu: true` evaluates the same bands per pixel instead
+Rudel evaluates the same bands per pixel instead
 (`crates/rudel-app/src/editor/widgets/spiral_gpu.rs`): a pixel's polar
 coordinates invert straight back to a spiral angle, so coverage is exact and the
-only soft edge is one pixel of deliberate anti-aliasing. Both painters take
-their bands from the same `spiral_bands`, so colour, fade and geometry are
-identical — only the seams differ. It is opt-in; the default stays faithful to
-upstream. By design the Koto VM is never invoked from the
+only soft edge is one pixel of deliberate anti-aliasing. This is the **default**
+— the one place Rudel's spiral deliberately looks better than upstream's rather
+than the same.
+
+Both painters take their bands from the same `spiral_bands`, so colour, fade and
+geometry are identical and only the seams differ: rendering a pattern each way
+gives the same colour histogram, with more band pixels and no seam pixels on the
+GPU side. `spiral({gpu: false})` asks for the tessellated painter back, and it
+is also used automatically when the wgpu backend is not running, since the SDF
+painter's pipeline and buffers live in that renderer. By design the Koto VM is never invoked from the
 real-time/draw query path, so a pattern cannot register a Koto closure that runs
 every animation frame. Only the built-in inline visualisers are available. The
 full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
