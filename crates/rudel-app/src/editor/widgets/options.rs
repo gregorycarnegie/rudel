@@ -63,6 +63,8 @@ pub(super) struct VisualWidgetOptions {
     pub(super) steady: f32,
     pub(super) colorize_spiral_inactive: bool,
     pub(super) fade: bool,
+    /// Draw the spiral as a per-pixel SDF instead of stroked polylines.
+    pub(super) gpu: bool,
     pub(super) active_color: Option<egui::Color32>,
     pub(super) inactive_color: Option<egui::Color32>,
     pub(super) playhead_color: Option<egui::Color32>,
@@ -136,6 +138,7 @@ impl VisualWidgetOptions {
             steady: option_f32(options, "steady").unwrap_or(1.0),
             colorize_spiral_inactive: option_bool(options, "colorizeInactive").unwrap_or(false),
             fade: option_bool(options, "fade").unwrap_or(true),
+            gpu: option_bool(options, "gpu").unwrap_or(false),
             active_color: option_color(options, "active")
                 .or_else(|| option_color(options, "activeColor"))
                 .or_else(|| option_color(options, "color")),

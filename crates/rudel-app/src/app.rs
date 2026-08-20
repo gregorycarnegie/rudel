@@ -307,13 +307,14 @@ pub(crate) fn run() -> eframe::Result {
             // Shader widgets compile their pipelines against the window's
             // format, and only the creation context knows it.
             if let Some(render_state) = &cc.wgpu_render_state {
-                render_state
-                    .renderer
-                    .write()
+                let format = render_state.target_format;
+                let mut renderer = render_state.renderer.write();
+                renderer
                     .callback_resources
-                    .insert(crate::editor::ShaderStore::new(
-                        render_state.target_format,
-                    ));
+                    .insert(crate::editor::ShaderStore::new(format));
+                renderer
+                    .callback_resources
+                    .insert(crate::editor::SpiralStore::new(format));
             }
             Ok(Box::new(RudelApp::new()))
         }),

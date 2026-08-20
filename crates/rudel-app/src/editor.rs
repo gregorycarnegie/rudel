@@ -31,7 +31,7 @@ use menu::{MenuChoice, editor_context_menu};
 use settings::{EditorSettings, apply_editor_style};
 use sliders::{SliderHostUpdate, SliderLayout, draw_slider_hosts};
 use text::{byte_index_at_char, char_slice};
-pub(crate) use widgets::{ShaderStore, mark_color};
+pub(crate) use widgets::{ShaderStore, SpiralStore, mark_color};
 use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts};
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";

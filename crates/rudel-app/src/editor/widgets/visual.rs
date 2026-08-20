@@ -8,6 +8,7 @@ use super::{
     query::{hap_is_active, in_window, widget_haps},
     shader::paint_shader,
     spiral::paint_spiral,
+    spiral_gpu::paint_spiral_gpu,
     style::{WidgetDrawColors, event_color},
 };
 use crate::editor::decorations::WidgetDecoration;
@@ -77,7 +78,11 @@ pub(super) fn paint_pattern_widget(
             let window = DrawWindow::around(time);
             let cycles = cycles(window);
             let haps = in_window(&cycles, window);
-            paint_spiral(ui, rect, &haps, time, colors, options);
+            if options.gpu {
+                paint_spiral_gpu(ui, rect, &widget.id, &haps, time, colors, options);
+            } else {
+                paint_spiral(ui, rect, &haps, time, colors, options);
+            }
             true
         }
         "_claviature" => {

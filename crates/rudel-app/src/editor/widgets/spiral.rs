@@ -6,26 +6,49 @@ use super::{
 use eframe::egui;
 use rudel_core::Hap;
 
-pub(super) fn paint_spiral(
-    ui: &egui::Ui,
-    rect: egui::Rect,
+/// The spiral geometry every band on it shares.
+///
+/// `rotate` and the bands' angles are *unstretched*; [`spiral_point`] applies
+/// `stretch` to both. Radius is `margin * angle * stretch`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct SpiralGeometry {
+    pub(super) margin: f32,
+    pub(super) rotate: f32,
+    pub(super) stretch: f32,
+}
+
+/// One band drawn along the spiral — a hap, or the playhead.
+///
+/// `color` already carries the hap's fade and gain alpha, so both painters draw
+/// the same thing and neither can drift from the other.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct SpiralBand {
+    pub(super) from: f32,
+    pub(super) to: f32,
+    pub(super) thickness: f32,
+    pub(super) color: egui::Color32,
+}
+
+/// The bands a spiral widget draws this frame, in paint order: the haps as they
+/// were queried, then the playhead on top.
+pub(super) fn spiral_bands(
     haps: &[&Hap],
     time: f64,
     colors: WidgetDrawColors,
     options: VisualWidgetOptions,
-) {
-    // Clip to the widget, the way a canvas clips: with `overscan` (and any
-    // note that began before the window) a hap's geometry can extend past
-    // the rect, and an unclipped painter would draw it over the editor.
-    let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
+) -> (SpiralGeometry, Vec<SpiralBand>) {
     let size = options.spiral_size;
     let stretch = options.stretch;
-    let margin = size / stretch;
     let thickness = options.spiral_thickness.unwrap_or(size / 2.0);
     let inset = options.inset;
-    let rotate = options.steady * time as f32;
     let fade_span = DRAW_LOOKBEHIND.abs() as f32;
+    let geometry = SpiralGeometry {
+        margin: size / stretch,
+        rotate: options.steady * time as f32,
+        stretch,
+    };
 
+    let mut bands = Vec::with_capacity(haps.len() + 1);
     for hap in haps {
         let Some(whole) = hap.whole else {
             continue;
@@ -50,36 +73,52 @@ pub(super) fn paint_spiral(
         } else {
             1.0
         };
+        bands.push(SpiralBand {
+            from,
+            to,
+            thickness,
+            color: color_with_alpha(base, opacity * event_alpha(hap)),
+        });
+    }
+
+    bands.push(SpiralBand {
+        from: inset - options.playhead_length,
+        to: inset,
+        thickness: options.playhead_thickness.unwrap_or(thickness),
+        color: options.playhead_color.unwrap_or(colors.foreground),
+    });
+    (geometry, bands)
+}
+
+pub(super) fn paint_spiral(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    haps: &[&Hap],
+    time: f64,
+    colors: WidgetDrawColors,
+    options: VisualWidgetOptions,
+) {
+    // Clip to the widget, the way a canvas clips: with `overscan` (and any
+    // note that began before the window) a hap's geometry can extend past
+    // the rect, and an unclipped painter would draw it over the editor.
+    let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
+    let (geometry, bands) = spiral_bands(haps, time, colors, options);
+    for band in bands {
         paint_spiral_segment(
             &painter,
             rect.center(),
             SpiralSegment {
-                from,
-                to,
-                margin,
-                rotate,
-                stretch,
-                thickness,
-                color: color_with_alpha(base, opacity * event_alpha(hap)),
+                from: band.from,
+                to: band.to,
+                margin: geometry.margin,
+                rotate: geometry.rotate,
+                stretch: geometry.stretch,
+                thickness: band.thickness,
+                color: band.color,
                 cap: options.spiral_cap,
             },
         );
     }
-
-    paint_spiral_segment(
-        &painter,
-        rect.center(),
-        SpiralSegment {
-            from: inset - options.playhead_length,
-            to: inset,
-            margin,
-            rotate,
-            stretch,
-            thickness: options.playhead_thickness.unwrap_or(thickness),
-            color: options.playhead_color.unwrap_or(colors.foreground),
-            cap: options.spiral_cap,
-        },
-    );
 }
 
 #[derive(Clone, Copy)]
