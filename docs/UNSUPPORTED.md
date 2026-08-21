@@ -443,25 +443,29 @@ Only outputs a script gave a chain are allocated; the rest bind a shared 1×1
 texture and read as the empty buffers they are
 (`crates/rudel-app/src/editor/widgets/hydra_gpu.rs`).
 
+`render: 'all'` tiles all four instead, which is hydra's `render()` with no
+argument — same column-major order (o0 top-left, o1 bottom-left, o2 top-right,
+o3 bottom-right), ported from its `renderAll` shader.
+
+**The loader is accepted and ignored.** `initHydra(…)` fetches hydra-synth from
+a CDN upstream and `clearHydra()` tears its canvas down; there is nothing here
+to fetch or tear down, so both are no-ops and a pattern copied from Strudel
+still runs.
+
 **What is missing.**
 
 | Not ported | Why |
 | --- | --- |
-| `render()` with no argument | upstream tiles all four outputs into one canvas; `render` here names a single buffer |
+| `sum` | broken upstream, not a porting decision. Hydra generates `vec4 sum(vec4 _c0, vec4 scale)` from a body that reads an undefined `s` and returns a float from a `vec4` function — two hard GLSL errors, so it cannot compile there either |
+| `H(pattern)` | samples a pattern once per animation frame to drive a uniform. A chain here compiles once per evaluation, so its parameters are constants for that evaluation's life. Accepted and ignored, with a line in the console |
 | `s0`–`s3` | webcam, video, screen capture |
-| `sum` | its GLSL body closes the function and opens a second overload, and returns a float where the composer expects a `vec4` |
-| `initHydra`, `H`, `clearHydra` | the browser loader; there is nothing to load |
 
 `hydra::UNIMPLEMENTED` carries the list in code, and the parity test fails if
 hydra grows a function that is neither implemented nor listed there.
 
-**Numeric parameters are numbers.** Upstream accepts a function for any input
-(`H(pattern)` is one), called per frame. Rudel compiles the chain at evaluation
-time, so a parameter is a constant for the life of that evaluation — the same
-limitation the draw runtime above carries, and for the same reason.
+### `shader` — raw WGSL, no chain
 
-**Rudel does have a native shader surface**, though it is not Hydra. The
-`_shader` widget (`shader`) paints a user-written WGSL fragment body into an
+Separate from hydra and lower level: the `_shader` widget (`shader`) paints a user-written WGSL fragment body into an
 inline widget through the wgpu render callback egui already runs on
 (`crates/rudel-app/src/editor/widgets/shader.rs`). The body is wrapped in a
 fixed prelude giving it `uv` (0..1 across the widget, y down) and a `u` uniform

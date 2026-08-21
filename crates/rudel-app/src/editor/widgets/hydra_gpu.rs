@@ -53,6 +53,50 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// All four buffers at once, as hydra's `render()` with no argument draws them.
+///
+/// Ported from hydra-synth's `renderAll` fragment shader. Its quadrant map is
+/// column-major — `quad = floor(st).x * 2 + floor(st).y`, so o0 is top-left, o1
+/// bottom-left, o2 top-right, o3 bottom-right — and its `st.x +=` / `st.y +=`
+/// lines are dropped here because they only ever add whole numbers immediately
+/// before a `fract`, which cannot change the result.
+const BLIT_GRID: &str = r#"
+@group(0) @binding(0) var t0: texture_2d<f32>;
+@group(0) @binding(1) var t1: texture_2d<f32>;
+@group(0) @binding(2) var t2: texture_2d<f32>;
+@group(0) @binding(3) var t3: texture_2d<f32>;
+@group(0) @binding(4) var samp: sampler;
+
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
+    let x = f32(i32(index) / 2) * 4.0 - 1.0;
+    let y = f32(i32(index) & 1) * 4.0 - 1.0;
+    var out: VsOut;
+    out.pos = vec4<f32>(x, y, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5 + 0.5, 0.5 - y * 0.5);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let st = in.uv * 2.0;
+    let cell = vec2<i32>(floor(st));
+    let uv = fract(st);
+    let c0 = textureSample(t0, samp, uv);
+    let c1 = textureSample(t1, samp, uv);
+    let c2 = textureSample(t2, samp, uv);
+    let c3 = textureSample(t3, samp, uv);
+    let left = select(c0, c1, cell.y == 1);
+    let right = select(c2, c3, cell.y == 1);
+    return select(left, right, cell.x == 1);
+}
+"#;
+
 const UNIFORM_SIZE: u64 = 32;
 
 /// The uniform block hydra's generated preamble declares.
@@ -85,6 +129,15 @@ impl Uniforms {
     }
 }
 
+/// What the widget displays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Render {
+    /// One buffer, filling the rect.
+    One(usize),
+    /// All four, tiled — hydra's `render()` with no argument.
+    Grid,
+}
+
 /// One output buffer with a chain bound to it.
 struct Output {
     pipeline: wgpu::RenderPipeline,
@@ -99,7 +152,9 @@ struct Surface {
     hash: u64,
     size: (u32, u32),
     outputs: [Option<Output>; 4],
-    render: usize,
+    render: Render,
+    /// Only built when the widget is showing the grid.
+    grid_bind: Option<[wgpu::BindGroup; 2]>,
     uniforms: wgpu::Buffer,
     /// `chain_bind[i]` binds every output's `views[1 - i]` — the set written
     /// last frame. One per parity, shared by all four chains, because they all
@@ -117,6 +172,7 @@ pub(crate) struct HydraStore {
     format: wgpu::TextureFormat,
     chain_layout: Option<wgpu::BindGroupLayout>,
     blit: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
+    grid: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
     sampler: Option<wgpu::Sampler>,
     /// Stands in for an output nothing was bound to. Every chain binds all four
     /// buffers whether or not it reads them, and an unused one should read as
@@ -131,6 +187,7 @@ impl HydraStore {
             format,
             chain_layout: None,
             blit: None,
+            grid: None,
             sampler: None,
             empty: None,
             surfaces: HashMap::new(),
@@ -215,6 +272,32 @@ impl HydraStore {
                     source: wgpu::ShaderSource::Wgsl(BLIT.into()),
                 });
                 let pipeline = render_pipeline(device, "rudel-hydra-blit", &module, &layout, format);
+                (pipeline, layout)
+            })
+            .clone()
+    }
+}
+
+impl HydraStore {
+    fn grid(&mut self, device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+        let format = self.format;
+        self.grid
+            .get_or_insert_with(|| {
+                let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("rudel-hydra-grid-layout"),
+                    entries: &[
+                        texture_entry(0, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(1, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(2, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(3, wgpu::ShaderStages::FRAGMENT),
+                        sampler_entry(4, wgpu::ShaderStages::FRAGMENT),
+                    ],
+                });
+                let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("rudel-hydra-grid"),
+                    source: wgpu::ShaderSource::Wgsl(BLIT_GRID.into()),
+                });
+                let pipeline = render_pipeline(device, "rudel-hydra-grid", &module, &layout, format);
                 (pipeline, layout)
             })
             .clone()
@@ -405,11 +488,51 @@ fn build_surface(
         })
     });
 
+    // The grid samples this frame's set, so it pairs with the write parity the
+    // way the single-output blit does.
+    let grid_bind = (call.render == Render::Grid).then(|| {
+        let (_, grid_layout) = store.grid(device);
+        std::array::from_fn(|parity| {
+            let view = |index: usize| {
+                outputs[index]
+                    .as_ref()
+                    .map_or(&empty, |output| &output.views[parity])
+            };
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rudel-hydra-grid-bind"),
+                layout: &grid_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view(0)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(view(1)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(view(2)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(view(3)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            })
+        })
+    });
+
     Surface {
         hash: call.hash,
         size: call.size,
         outputs,
         render: call.render,
+        grid_bind,
         uniforms,
         chain_bind,
         write: 0,
@@ -420,7 +543,7 @@ fn build_surface(
 struct HydraCallback {
     id: String,
     sources: [Option<String>; 4],
-    render: usize,
+    render: Render,
     hash: u64,
     size: (u32, u32),
     uniforms: Uniforms,
@@ -496,14 +619,27 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
         let Some(store) = resources.get::<HydraStore>() else {
             return;
         };
-        let (Some((blit, _)), Some(surface)) = (&store.blit, store.surfaces.get(&self.id)) else {
+        let Some(surface) = store.surfaces.get(&self.id) else {
             return;
         };
-        let Some(shown) = surface.outputs[surface.render].as_ref() else {
-            return;
-        };
-        pass.set_pipeline(blit);
-        pass.set_bind_group(0, &shown.blit_bind[surface.write], &[]);
+        match surface.render {
+            Render::Grid => {
+                let (Some((grid, _)), Some(binds)) = (&store.grid, &surface.grid_bind) else {
+                    return;
+                };
+                pass.set_pipeline(grid);
+                pass.set_bind_group(0, &binds[surface.write], &[]);
+            }
+            Render::One(index) => {
+                let (Some((blit, _)), Some(shown)) =
+                    (&store.blit, surface.outputs[index].as_ref())
+                else {
+                    return;
+                };
+                pass.set_pipeline(blit);
+                pass.set_bind_group(0, &shown.blit_bind[surface.write], &[]);
+            }
+        }
         pass.draw(0..3, 0..1);
     }
 }
@@ -512,7 +648,7 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
 ///
 /// `chain` is `o0` under its single-output name, so the one-chain form keeps
 /// working unchanged.
-fn chains(widget: &WidgetDecoration) -> ([Option<String>; 4], usize) {
+fn chains(widget: &WidgetDecoration) -> ([Option<String>; 4], Render) {
     let read = |key: &str| super::options::option_str(&widget.options, key).map(str::to_string);
     let sources = [
         read("o0").or_else(|| read("chain")),
@@ -520,9 +656,16 @@ fn chains(widget: &WidgetDecoration) -> ([Option<String>; 4], usize) {
         read("o2"),
         read("o3"),
     ];
-    let render = super::options::option_f32(&widget.options, "render")
-        .unwrap_or(0.0)
-        .clamp(0.0, 3.0) as usize;
+    // `render: 'all'` is hydra's `render()` with no argument; a number names
+    // one buffer, as `render(o2)` does.
+    let render = match read("render").as_deref() {
+        Some("all") => Render::Grid,
+        _ => Render::One(
+            super::options::option_f32(&widget.options, "render")
+                .unwrap_or(0.0)
+                .clamp(0.0, 3.0) as usize,
+        ),
+    };
     (sources, render)
 }
 
@@ -546,12 +689,14 @@ pub(super) fn paint_hydra_gpu(
         return;
     }
     // A widget showing an output nothing was bound to would just be black, and
-    // silently so; say which one instead.
-    if sources[render].is_none() {
+    // silently so; say which one instead. The grid shows whatever is there.
+    if let Render::One(index) = render
+        && sources[index].is_none()
+    {
         super::shader::paint_error(
             ui,
             rect,
-            &format!("hydra: render: {render} has no chain"),
+            &format!("hydra: render: {index} has no chain"),
             colors,
         );
         return;
@@ -600,10 +745,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_blit_shader_is_valid_wgsl() {
-        // Nothing compiles this until a hydra widget is on screen with a GPU
+    fn the_blit_shaders_are_valid_wgsl() {
+        // Nothing compiles these until a hydra widget is on screen with a GPU
         // present, so a typo would otherwise reach a user before a test.
         super::super::shader::check(BLIT).expect("the blit shader compiles");
+        super::super::shader::check(BLIT_GRID).expect("the grid shader compiles");
     }
 
     #[test]

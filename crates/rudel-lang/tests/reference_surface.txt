@@ -120,6 +120,7 @@ chunkback
 chunkbackinto
 chunkinto
 clamp
+clearHydra
 clearScope
 clip
 coarse
@@ -590,7 +591,6 @@ hsl
 hsla
 hurry
 hush
-hydra
 i
 imag
 inhabit
