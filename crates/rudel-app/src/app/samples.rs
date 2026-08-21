@@ -515,7 +515,8 @@ mod tests {
         // Headless is the state a user hits when audio failed to start. Each
         // of these has to say which subsystem it wanted rather than dropping
         // the request silently.
-        let cases: Vec<(&str, fn(&mut RudelApp))> = vec![
+        type Case = (&'static str, fn(&mut RudelApp));
+        let cases: Vec<Case> = vec![
             ("no audio engine to load samples into", |a| {
                 a.queue_sample_source("x".to_string())
             }),
