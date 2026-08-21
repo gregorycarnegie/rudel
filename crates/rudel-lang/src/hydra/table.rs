@@ -204,14 +204,40 @@ pub(super) static FUNCTIONS: &[HydraFn] = &[
         wgsl: "return vec4<f32>(_st, sin(hu.time * speed), 1.0);",
     },
     HydraFn {
+        name: "src",
+        ty: FnType::Src,
+        // Upstream types this `sampler2D` and passes an output object; here an
+        // output is its index, so `src(o0)` is `src(0.0)`.
+        inputs: &[f("tex", 0.0)],
+        helpers: &[],
+        // All four are sampled and then selected, rather than branching on the
+        // index: `textureSample` is only legal in uniform control flow, and
+        // four samples is cheaper than reasoning about whether a generated
+        // branch qualifies.
+        //
+        // Every buffer read is the *previous* frame, which is what upstream
+        // does too -- `format-arguments.js` binds `output.getTexture()`, the
+        // fbo that is not currently being drawn into. So `src(o0)` inside o0's
+        // own chain is `prev()`, upstream and here alike, and no buffer is ever
+        // sampled while it is a render target.
+        wgsl: r#"
+    let uv = fract(_st);
+    let c0 = textureSample(hBuf0, hSamp, uv);
+    let c1 = textureSample(hBuf1, hSamp, uv);
+    let c2 = textureSample(hBuf2, hSamp, uv);
+    let c3 = textureSample(hBuf3, hSamp, uv);
+    let i = clamp(tex, 0.0, 3.0);
+    return select(select(c0, c1, i >= 0.5), select(c2, c3, i >= 2.5), i >= 1.5);"#,
+    },
+    HydraFn {
         name: "prev",
         ty: FnType::Src,
         inputs: &[],
         helpers: &[],
-        // Upstream reads `prevBuffer`, the output buffer this chain last drew
-        // into. A Rudel hydra widget has exactly one such buffer, so this is
-        // the widget's own previous frame.
-        wgsl: "return textureSample(hPrevTex, hPrevSampler, fract(_st));",
+        // Never emitted: `fold` rewrites `prev()` into `src(<this output>)`,
+        // because which buffer "previous" means depends on the output being
+        // compiled and a WGSL body cannot know that.
+        wgsl: "",
     },
     HydraFn {
         name: "solid",

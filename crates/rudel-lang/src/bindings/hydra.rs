@@ -95,7 +95,7 @@ macro_rules! hydra_methods {
 
 hydra_methods! {
     // src
-    noise, voronoi, osc, shape, gradient, solid, prev,
+    noise, voronoi, osc, shape, gradient, solid, prev, src,
     // coord
     rotate, scale, pixelate, repeat, repeatX, repeatY, kaleid, scroll, scrollX, scrollY,
     // color
@@ -120,6 +120,11 @@ pub(crate) fn register(prelude: &KMap) {
         hydra_map.add_fn(func.name, move |ctx| {
             Ok(KHydra(Chain::source(start, args(ctx.args()))).into())
         });
+    }
+    // The output buffers, as plain indices: `Hydra.src(Hydra.o1)` reads the
+    // chain bound to the widget's `o1` option, as it stood last frame.
+    for (name, index) in [("o0", 0), ("o1", 1), ("o2", 2), ("o3", 3)] {
+        hydra_map.insert(name, KValue::Number(KNumber::from(index as f64)));
     }
     prelude.insert("Hydra", hydra_map);
 }
@@ -153,12 +158,19 @@ mod tests {
         let Some(KValue::Map(map)) = prelude.get("Hydra") else {
             panic!("no `Hydra` map");
         };
-        for source in ["osc", "noise", "shape", "gradient", "solid", "voronoi", "prev"] {
+        for source in ["osc", "noise", "shape", "gradient", "solid", "voronoi", "prev", "src"] {
             assert!(map.get(source).is_some(), "Hydra.{source} is missing");
         }
         // Lowercase `hydra` is the widget method's top-level form, so the
         // namespace must not be spelled that way or one silently wins.
         assert!(prelude.get("hydra").is_none(), "`hydra` would be shadowed");
+        // The buffer names are indices, so `src` needs no new value type.
+        for (name, index) in [("o0", 0.0), ("o1", 1.0), ("o2", 2.0), ("o3", 3.0)] {
+            let Some(KValue::Number(n)) = map.get(name) else {
+                panic!("Hydra.{name} is missing");
+            };
+            assert_eq!(f64::from(n), index);
+        }
     }
 
     #[test]
@@ -166,6 +178,6 @@ mod tests {
         // The macro list is hand-written; this is the guard that it matches the
         // table. `src`/`prev`/`sum` are the documented gaps.
         let expected = hydra::functions().len();
-        assert_eq!(expected, 50, "table size changed; update hydra_methods!");
+        assert_eq!(expected, 51, "table size changed; update hydra_methods!");
     }
 }

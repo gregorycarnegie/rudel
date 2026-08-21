@@ -93,10 +93,6 @@ pub struct HydraFn {
 /// test, so this list cannot quietly rot.
 pub const UNIMPLEMENTED: &[(&str, &str)] = &[
     (
-        "src",
-        "names an output buffer (o0..o3) or an external source. A widget renders one          chain into one buffer, so `src(o0)` would be `prev()`; o1..o3 and s0..s3 have          nowhere to come from",
-    ),
-    (
         "sum",
         "its GLSL body closes the function and opens a second overload, and it returns a float \
          where the composer expects a vec4",
@@ -188,7 +184,7 @@ fn wgsl_f32(value: f64) -> String {
 /// its indices line up with the user's arguments. The table here is the raw
 /// one, so the *arguments* are offset instead: `add(other, amount)` puts the
 /// other chain at `args[0]` and `amount` at `args[1]`, against `inputs[0]`.
-fn call_args(transform: &Transform, arg_offset: usize, used: &mut Vec<&'static HydraFn>) -> String {
+fn call_args(transform: &Transform, arg_offset: usize, ctx: &mut Ctx) -> String {
     let mut out = String::new();
     for (index, input) in transform.func.inputs.iter().enumerate() {
         out.push_str(", ");
@@ -196,7 +192,7 @@ fn call_args(transform: &Transform, arg_offset: usize, used: &mut Vec<&'static H
             Some(Arg::Number(value)) if value.is_finite() => out.push_str(&wgsl_f32(*value)),
             // hydra lets a generator stand in for a numeric input; it compiles
             // from `st` rather than from the enclosing coordinate.
-            Some(Arg::Chain(chain)) => out.push_str(&fold(chain, "st", used)),
+            Some(Arg::Chain(chain)) => out.push_str(&fold(chain, "st", ctx)),
             // Absent, or a non-finite gap marker standing in for an argument
             // the binding could not read: hydra's own default takes over, which
             // keeps later arguments on the right parameters.
@@ -206,42 +202,64 @@ fn call_args(transform: &Transform, arg_offset: usize, used: &mut Vec<&'static H
     out
 }
 
+/// What the fold carries: the functions it has emitted so far, and which output
+/// buffer this chain is being compiled for (which is what `prev()` means).
+struct Ctx {
+    used: Vec<&'static HydraFn>,
+    output: usize,
+}
+
+impl Ctx {
+    fn use_fn(&mut self, func: &'static HydraFn) {
+        if !self.used.iter().any(|f| f.name == func.name) {
+            self.used.push(func);
+        }
+    }
+}
+
 /// The expression for a chain evaluated at coordinate `uv`.
 ///
 /// This is hydra's `generateGlsl`: a fold that carries a "what does the colour
 /// at `uv` come out as" closure, and rewrites it per transform type.
-fn fold(chain: &Chain, uv: &str, used: &mut Vec<&'static HydraFn>) -> String {
+fn fold(chain: &Chain, uv: &str, ctx: &mut Ctx) -> String {
     let mut frag = String::new();
     for transform in &chain.transforms {
-        if !used.iter().any(|f| f.name == transform.func.name) {
-            used.push(transform.func);
+        // `prev()` is "the buffer this chain draws into, last frame", which is
+        // `src` of the output being compiled — something a fixed WGSL body
+        // cannot express, since it depends on where the chain is bound.
+        if transform.func.name == "prev" {
+            let src = lookup("src").expect("src is in the table");
+            ctx.use_fn(src);
+            frag = format!("h_src({uv}, {}.0)", ctx.output);
+            continue;
         }
+        ctx.use_fn(transform.func);
         let name = transform.func.name;
         frag = match transform.func.ty {
             // A source ignores whatever came before it, exactly as upstream.
-            FnType::Src => format!("h_{name}({uv}{})", call_args(transform, 0, used)),
+            FnType::Src => format!("h_{name}({uv}{})", call_args(transform, 0, ctx)),
             // Coordinate transforms wrap inward: the chain so far is evaluated
             // at the *transformed* coordinate.
             FnType::Coord => {
-                let inner = format!("h_{name}({uv}{})", call_args(transform, 0, used));
-                fold(&chain_before(chain, transform), &inner, used)
+                let inner = format!("h_{name}({uv}{})", call_args(transform, 0, ctx));
+                fold(&chain_before(chain, transform), &inner, ctx)
             }
             // Colour transforms wrap outward, around the colour so far.
-            FnType::Color => format!("h_{name}({frag}{})", call_args(transform, 0, used)),
+            FnType::Color => format!("h_{name}({frag}{})", call_args(transform, 0, ctx)),
             FnType::Combine => {
-                let other = combine_operand(transform, uv, used);
+                let other = combine_operand(transform, uv, ctx);
                 format!(
                     "h_{name}({frag}, {other}{})",
-                    call_args(transform, 1, used)
+                    call_args(transform, 1, ctx)
                 )
             }
             FnType::CombineCoord => {
-                let other = combine_operand(transform, uv, used);
+                let other = combine_operand(transform, uv, ctx);
                 let inner = format!(
                     "h_{name}({uv}, {other}{})",
-                    call_args(transform, 1, used)
+                    call_args(transform, 1, ctx)
                 );
-                fold(&chain_before(chain, transform), &inner, used)
+                fold(&chain_before(chain, transform), &inner, ctx)
             }
         };
     }
@@ -250,9 +268,9 @@ fn fold(chain: &Chain, uv: &str, used: &mut Vec<&'static HydraFn>) -> String {
 
 /// The first argument of a `combine`/`combineCoord`: the other chain, or a bare
 /// number if the script passed one.
-fn combine_operand(transform: &Transform, uv: &str, used: &mut Vec<&'static HydraFn>) -> String {
+fn combine_operand(transform: &Transform, uv: &str, ctx: &mut Ctx) -> String {
     match transform.args.first() {
-        Some(Arg::Chain(chain)) => fold(chain, uv, used),
+        Some(Arg::Chain(chain)) => fold(chain, uv, ctx),
         Some(Arg::Number(value)) => format!("vec4<f32>({})", wgsl_f32(*value)),
         None => "vec4<f32>(0.0)".to_string(),
     }
@@ -290,24 +308,28 @@ fn signature(func: &HydraFn) -> String {
     format!("fn h_{}({params}) -> {returns}", func.name)
 }
 
-/// Compile a chain into a complete WGSL module.
+/// Compile a chain into a complete WGSL module, bound to output buffer
+/// `output` (0-3) — which is what `prev()` in the chain reads.
 ///
 /// The module is self-contained — its own vertex and fragment entry points and
 /// its own uniform block — because a hydra chain needs module-scope helper
 /// functions, which cannot be spliced into the `_shader` widget's body slot.
 /// The uniform layout is deliberately the same one `_shader` uses, so the app
 /// renders both through the same pipeline cache and uniform buffer.
-pub fn compile(chain: &Chain) -> String {
-    let mut used: Vec<&'static HydraFn> = Vec::new();
+pub fn compile(chain: &Chain, output: usize) -> String {
+    let mut ctx = Ctx {
+        used: Vec::new(),
+        output: output.min(3),
+    };
     let frag = if chain.is_empty() {
         // An empty chain is black rather than a compile error: a half-typed
         // chain should not blank the widget with a diagnostic.
         "vec4<f32>(0.0, 0.0, 0.0, 1.0)".to_string()
     } else {
-        fold(chain, "st", &mut used)
+        fold(chain, "st", &mut ctx)
     };
 
-    let mut helpers: Vec<Helper> = used.iter().flat_map(|f| f.helpers.iter().copied()).collect();
+    let mut helpers: Vec<Helper> = ctx.used.iter().flat_map(|f| f.helpers.iter().copied()).collect();
     helpers.sort();
     helpers.dedup();
 
@@ -319,7 +341,7 @@ pub fn compile(chain: &Chain) -> String {
     for helper in helpers {
         out.push_str(helper.wgsl());
     }
-    for func in &used {
+    for func in &ctx.used {
         let _ = write!(out, "\n{} {{{}\n}}\n", signature(func), func.wgsl);
     }
     let _ = write!(out, "{ENTRY_HEAD}    return {frag};\n}}\n");
@@ -337,10 +359,14 @@ struct HydraUniforms {
     voices: f32,
 };
 @group(0) @binding(0) var<uniform> hu: HydraUniforms;
-// The previous frame, for `prev()`. Always bound, so one pipeline layout serves
-// every chain whether or not it feeds back.
-@group(0) @binding(1) var hPrevTex: texture_2d<f32>;
-@group(0) @binding(2) var hPrevSampler: sampler;
+// The four output buffers, as they stood at the end of the previous frame.
+// Always bound, so one pipeline layout serves every chain whether or not it
+// reads a buffer.
+@group(0) @binding(1) var hBuf0: texture_2d<f32>;
+@group(0) @binding(2) var hBuf1: texture_2d<f32>;
+@group(0) @binding(3) var hBuf2: texture_2d<f32>;
+@group(0) @binding(4) var hBuf3: texture_2d<f32>;
+@group(0) @binding(5) var hSamp: sampler;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -375,7 +401,7 @@ mod tests {
     #[test]
     fn a_source_alone_folds_to_one_call_with_its_defaults() {
         let chain = Chain::source(f("osc"), vec![]);
-        let out = compile(&chain);
+        let out = compile(&chain, 0);
         assert!(
             out.contains("return h_osc(st, 60.0, 0.1, 0.0);"),
             "unexpected fold:\n{out}"
@@ -388,7 +414,7 @@ mod tests {
     #[test]
     fn given_arguments_win_over_defaults_and_short_calls_are_padded() {
         let chain = Chain::source(f("osc"), vec![Arg::Number(10.0)]);
-        assert!(compile(&chain).contains("h_osc(st, 10.0, 0.1, 0.0)"));
+        assert!(compile(&chain, 0).contains("h_osc(st, 10.0, 0.1, 0.0)"));
     }
 
     #[test]
@@ -401,7 +427,7 @@ mod tests {
                 f("color"),
                 vec![Arg::Number(1.0), Arg::Number(0.0), Arg::Number(0.0)],
             );
-        let out = compile(&chain);
+        let out = compile(&chain, 0);
         assert!(
             out.contains(
                 "return h_color(h_osc(h_rotate(st, 0.5, 0.0), 10.0, 0.1, 0.0), 1.0, 0.0, 0.0, 1.0);"
@@ -416,7 +442,7 @@ mod tests {
             f("add"),
             vec![Arg::Chain(Chain::source(f("noise"), vec![]))],
         );
-        let out = compile(&chain);
+        let out = compile(&chain, 0);
         assert!(
             out.contains("return h_add(h_osc(st, 60.0, 0.1, 0.0), h_noise(st, 10.0, 0.1), 1.0);"),
             "unexpected fold:\n{out}"
@@ -434,7 +460,7 @@ mod tests {
             f("modulate"),
             vec![Arg::Chain(Chain::source(f("noise"), vec![])), Arg::Number(0.2)],
         );
-        let out = compile(&chain);
+        let out = compile(&chain, 0);
         assert!(
             out.contains(
                 "return h_osc(h_modulate(st, h_noise(st, 10.0, 0.1), 0.2), 60.0, 0.1, 0.0);"
@@ -452,21 +478,24 @@ mod tests {
                 f("mask"),
                 vec![Arg::Chain(Chain::source(f("shape"), vec![]))],
             );
-        let out = compile(&chain);
+        let out = compile(&chain, 0);
         assert_eq!(out.matches("fn _luminance(").count(), 1);
         assert!(!out.contains("fn _rgbToHsv("), "unused helper emitted");
         // A function used twice is only defined once either way.
-        let twice = compile(&Chain::source(f("osc"), vec![]).then(
-            f("add"),
-            vec![Arg::Chain(Chain::source(f("osc"), vec![]))],
-        ));
+        let twice = compile(
+            &Chain::source(f("osc"), vec![]).then(
+                f("add"),
+                vec![Arg::Chain(Chain::source(f("osc"), vec![]))],
+            ),
+            0,
+        );
         assert_eq!(twice.matches("fn h_osc(").count(), 1);
     }
 
     #[test]
     fn an_empty_chain_compiles_to_black_rather_than_an_error() {
         // Half-typed chains reach this on every keystroke.
-        let out = compile(&Chain::default());
+        let out = compile(&Chain::default(), 0);
         assert!(out.contains("return vec4<f32>(0.0, 0.0, 0.0, 1.0);"));
     }
 

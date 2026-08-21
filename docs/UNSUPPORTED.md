@@ -391,7 +391,7 @@ against, so the reference here is **hydra-synth 1.3.29**, pinned into
 `tools/oracle/hydra_golden.json` by `tools/oracle/gen_hydra_oracle.mjs`.
 `crates/rudel-lang/tests/hydra_parity.rs` holds the port to it.
 
-**What works.** 50 of hydra's 52 functions, as a chain that compiles to WGSL and
+**What works.** 51 of hydra's 52 functions, as a chain that compiles to WGSL and
 renders in an inline widget:
 
 ```koto
@@ -415,28 +415,39 @@ alongside `Math` and `Object`. Chained methods keep hydra's own spelling.
 **What is missing.** Everything that needs render-to-texture, which is the whole
 output-buffer half of hydra:
 
-**Feedback works.** A hydra widget owns an output buffer, so `prev()` reads the
-frame before:
+**Four output buffers, and feedback.** A hydra widget owns `o0`–`o3`. A chain
+is bound to one by the option it is written under, `src` reads any of them, and
+`render` picks which is displayed:
 
 ```koto
-s("bd*4").hydra({ chain:
-  Hydra.osc(8, 0.1, 0.9)
-    .rotate(0.2, 0.1)
-    .layer(Hydra.prev().scale(1.02).colorama(0.004).luma(0.05, 0.3))
+s("bd*4").hydra({
+  o0: Hydra.osc(15, 0.1, 0.7).kaleid(4),
+  o1: Hydra.voronoi(10, 0.4).thresh(0.45, 0.1),
+  o2: Hydra.src(Hydra.o0).modulate(Hydra.src(Hydra.o1), 0.35).colorama(0.01),
+  render: 2,
 })
 ```
 
-The widget renders its chain into one of two alternating textures and blits the
-result into its rect, so the chain samples last frame's texture while writing
-this frame's (`crates/rudel-app/src/editor/widgets/hydra_gpu.rs`). Both are the
-window's own format, so a value survives the round trip.
+`chain` is `o0` under its single-output name, so the one-chain form is
+unchanged, and `render` defaults to `0`.
+
+Each output alternates between two textures, so a chain writes one while every
+buffer read comes from the set written last frame — its own via `prev()`,
+another output's via `src(o1)`. That is upstream's rule too:
+`format-arguments.js` binds `output.getTexture()`, the fbo that is *not*
+currently being drawn into, which is why `src(o0)` inside o0's own chain is
+`prev()` there as well. It also means no texture is ever sampled while it is a
+render target, which wgpu rejects outright.
+
+Only outputs a script gave a chain are allocated; the rest bind a shared 1×1
+texture and read as the empty buffers they are
+(`crates/rudel-app/src/editor/widgets/hydra_gpu.rs`).
 
 **What is missing.**
 
 | Not ported | Why |
 | --- | --- |
-| `src` | names a buffer. A widget renders one chain into one buffer, so `src(o0)` would be `prev()`; `o1`–`o3` and `s0`–`s3` have nowhere to come from |
-| `o0`–`o3`, `render()` | multiple outputs; one widget renders one chain |
+| `render()` with no argument | upstream tiles all four outputs into one canvas; `render` here names a single buffer |
 | `s0`–`s3` | webcam, video, screen capture |
 | `sum` | its GLSL body closes the function and opens a second overload, and returns a float where the composer expects a `vec4` |
 | `initHydra`, `H`, `clearHydra` | the browser loader; there is nothing to load |

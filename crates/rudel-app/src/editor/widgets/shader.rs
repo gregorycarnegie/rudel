@@ -358,29 +358,6 @@ pub(super) fn paint_shader(
     paint_wgsl(ui, rect, &widget.id, source, haps, time, colors);
 }
 
-/// The `_hydra` widget: a hydra chain, already compiled to WGSL.
-///
-/// The chain is folded into a shader by `rudel_lang::hydra` during evaluation
-/// and arrives here as a string option, so nothing about hydra reaches the draw
-/// path — this is the same renderer `_shader` uses, handed a generated module
-/// instead of a hand-written body.
-pub(super) fn paint_hydra(
-    ui: &egui::Ui,
-    rect: egui::Rect,
-    widget: &WidgetDecoration,
-    haps: &[&Hap],
-    time: f64,
-    colors: WidgetDrawColors,
-) {
-    let Some(source) = option_str(&widget.options, "chain") else {
-        // `.hydra()` with nothing in it, or an option that was not a chain.
-        paint_error(ui, rect, "hydra: no chain
-.hydra({ chain: osc() })", colors);
-        return;
-    };
-    super::hydra_gpu::paint_hydra_gpu(ui, rect, widget, source.to_string(), haps, time, colors);
-}
-
 /// Render a finished WGSL module into the widget rect.
 ///
 /// Split out from [`paint_shader`] because a hydra chain compiles to a whole
@@ -446,7 +423,7 @@ pub(super) fn paint_wgsl(
     ));
 }
 
-fn paint_error(ui: &egui::Ui, rect: egui::Rect, error: &str, colors: WidgetDrawColors) {
+pub(super) fn paint_error(ui: &egui::Ui, rect: egui::Rect, error: &str, colors: WidgetDrawColors) {
     ui.painter().text(
         rect.left_top() + egui::vec2(8.0, 6.0),
         egui::Align2::LEFT_TOP,

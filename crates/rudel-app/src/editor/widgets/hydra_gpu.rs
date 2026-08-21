@@ -1,14 +1,21 @@
-//! The `_hydra` widget: a compiled hydra chain, rendered through its own
-//! output buffer so `prev()` has a previous frame to read.
+//! The `_hydra` widget: up to four chains, each with its own output buffer.
 //!
 //! `_shader` draws straight into egui's render pass, which is enough for a
-//! chain that only looks at the current frame. Hydra's feedback — `prev()`, and
-//! `src(o0)` upstream — needs the last frame back as a texture, so a hydra
-//! widget renders offscreen first and then blits the result into its rect.
+//! chain that only looks at the current frame. Hydra's feedback needs the last
+//! frame back as a texture, so a hydra widget renders offscreen first and then
+//! blits one buffer into its rect.
 //!
-//! Two textures, alternating: the chain writes one while sampling the other.
-//! Both are the window's own format, so a value survives the round trip and a
-//! chain looks the same here as it would drawn directly.
+//! Each output owns two textures and alternates between them, so a chain writes
+//! one while every buffer read — its own via `prev()`, another output's via
+//! `src(o1)` — comes from the set written last frame. That is upstream's rule
+//! too: `format-arguments.js` binds `output.getTexture()`, the fbo that is
+//! *not* currently being drawn into. It also means no texture is ever sampled
+//! while it is a render target, which wgpu would reject outright.
+//!
+//! Buffers are the window's own format, so a value survives the round trip and
+//! a chain looks the same here as it would drawn directly. Only outputs a
+//! script actually gave a chain are allocated; the rest bind a shared 1x1
+//! texture, which reads as the empty buffer it is.
 
 use super::style::WidgetDrawColors;
 use crate::editor::decorations::WidgetDecoration;
@@ -78,17 +85,26 @@ impl Uniforms {
     }
 }
 
+/// One output buffer with a chain bound to it.
+struct Output {
+    pipeline: wgpu::RenderPipeline,
+    /// The two textures this output alternates between.
+    views: [wgpu::TextureView; 2],
+    /// `blit_bind[i]` samples `views[i]`.
+    blit_bind: [wgpu::BindGroup; 2],
+}
+
 struct Surface {
-    /// The compiled chain this was built for; a different chain rebuilds.
+    /// The chains and render target this was built for; any change rebuilds.
     hash: u64,
     size: (u32, u32),
-    pipeline: wgpu::RenderPipeline,
+    outputs: [Option<Output>; 4],
+    render: usize,
     uniforms: wgpu::Buffer,
-    views: [wgpu::TextureView; 2],
-    /// `chain[i]` writes `views[i]` while sampling `views[1 - i]`.
+    /// `chain_bind[i]` binds every output's `views[1 - i]` — the set written
+    /// last frame. One per parity, shared by all four chains, because they all
+    /// read the same previous-frame set.
     chain_bind: [wgpu::BindGroup; 2],
-    /// `blit[i]` samples `views[i]`.
-    blit_bind: [wgpu::BindGroup; 2],
     write: usize,
     used: Instant,
 }
@@ -102,6 +118,10 @@ pub(crate) struct HydraStore {
     chain_layout: Option<wgpu::BindGroupLayout>,
     blit: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
     sampler: Option<wgpu::Sampler>,
+    /// Stands in for an output nothing was bound to. Every chain binds all four
+    /// buffers whether or not it reads them, and an unused one should read as
+    /// empty rather than cost a full-size texture.
+    empty: Option<wgpu::TextureView>,
     surfaces: HashMap<String, Surface>,
 }
 
@@ -112,6 +132,7 @@ impl HydraStore {
             chain_layout: None,
             blit: None,
             sampler: None,
+            empty: None,
             surfaces: HashMap::new(),
         }
     }
@@ -135,6 +156,31 @@ impl HydraStore {
             .clone()
     }
 
+    fn empty(&mut self, device: &wgpu::Device) -> wgpu::TextureView {
+        let format = self.format;
+        self.empty
+            .get_or_insert_with(|| {
+                device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some("rudel-hydra-empty"),
+                        size: wgpu::Extent3d {
+                            width: 1,
+                            height: 1,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING
+                            | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    })
+                    .create_view(&Default::default())
+            })
+            .clone()
+    }
+
     fn chain_layout(&mut self, device: &wgpu::Device) -> wgpu::BindGroupLayout {
         self.chain_layout
             .get_or_insert_with(|| {
@@ -143,7 +189,10 @@ impl HydraStore {
                     entries: &[
                         uniform_entry(0),
                         texture_entry(1, wgpu::ShaderStages::FRAGMENT),
-                        sampler_entry(2, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(2, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(3, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(4, wgpu::ShaderStages::FRAGMENT),
+                        sampler_entry(5, wgpu::ShaderStages::FRAGMENT),
                     ],
                 })
             })
@@ -249,20 +298,14 @@ fn render_pipeline(
 fn build_surface(
     store: &mut HydraStore,
     device: &wgpu::Device,
-    hash: u64,
-    source: &str,
-    size: (u32, u32),
+    call: &HydraCallback,
 ) -> Surface {
     let format = store.format;
     let layout = store.chain_layout(device);
     let sampler = store.sampler(device);
+    let empty = store.empty(device);
     let (_, blit_layout) = store.blit(device);
 
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("rudel-hydra-chain"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
-    let pipeline = render_pipeline(device, "rudel-hydra-chain", &module, &layout, format);
     let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("rudel-hydra-uniforms"),
         size: UNIFORM_SIZE,
@@ -270,13 +313,13 @@ fn build_surface(
         mapped_at_creation: false,
     });
 
-    let make_view = |index: usize| {
+    let make_view = || {
         device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("rudel-hydra-output"),
                 size: wgpu::Extent3d {
-                    width: size.0,
-                    height: size.1,
+                    width: call.size.0,
+                    height: call.size.1,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -287,14 +330,49 @@ fn build_surface(
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             })
-            .create_view(&wgpu::TextureViewDescriptor {
-                label: Some(if index == 0 { "hydra-a" } else { "hydra-b" }),
-                ..Default::default()
-            })
+            .create_view(&Default::default())
     };
-    let views = [make_view(0), make_view(1)];
 
-    let chain_bind = std::array::from_fn(|i| {
+    let outputs: [Option<Output>; 4] = std::array::from_fn(|index| {
+        let source = call.sources[index].as_deref()?;
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("rudel-hydra-chain"),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        let pipeline = render_pipeline(device, "rudel-hydra-chain", &module, &layout, format);
+        let views = [make_view(), make_view()];
+        let blit_bind = std::array::from_fn(|parity| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rudel-hydra-blit-bind"),
+                layout: &blit_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&views[parity]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            })
+        });
+        Some(Output {
+            pipeline,
+            views,
+            blit_bind,
+        })
+    });
+
+    // While writing parity `w`, every buffer read comes from `1 - w`: the set
+    // the previous frame wrote. One bind group serves all four chains.
+    let chain_bind = std::array::from_fn(|parity| {
+        let read = 1 - parity;
+        let view = |index: usize| {
+            outputs[index]
+                .as_ref()
+                .map_or(&empty, |output| &output.views[read])
+        };
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("rudel-hydra-chain-bind"),
             layout: &layout,
@@ -305,27 +383,22 @@ fn build_surface(
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    // While writing `i`, `prev()` reads the other one.
-                    resource: wgpu::BindingResource::TextureView(&views[1 - i]),
+                    resource: wgpu::BindingResource::TextureView(view(0)),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        })
-    });
-    let blit_bind = std::array::from_fn(|i| {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rudel-hydra-blit-bind"),
-            layout: &blit_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&views[i]),
+                    resource: wgpu::BindingResource::TextureView(view(1)),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 1,
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(view(2)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(view(3)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
@@ -333,13 +406,12 @@ fn build_surface(
     });
 
     Surface {
-        hash,
-        size,
-        pipeline,
+        hash: call.hash,
+        size: call.size,
+        outputs,
+        render: call.render,
         uniforms,
-        views,
         chain_bind,
-        blit_bind,
         write: 0,
         used: Instant::now(),
     }
@@ -347,7 +419,8 @@ fn build_surface(
 
 struct HydraCallback {
     id: String,
-    source: String,
+    sources: [Option<String>; 4],
+    render: usize,
     hash: u64,
     size: (u32, u32),
     uniforms: Uniforms,
@@ -370,7 +443,7 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
             .get(&self.id)
             .is_none_or(|s| s.hash != self.hash || s.size != self.size);
         if stale {
-            let surface = build_surface(store, device, self.hash, &self.source, self.size);
+            let surface = build_surface(store, device, self);
             store.surfaces.insert(self.id.clone(), surface);
             let cutoff = Instant::now() - IDLE_EVICTION;
             store
@@ -386,27 +459,31 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
         surface.write = 1 - surface.write;
         queue.write_buffer(&surface.uniforms, 0, &self.uniforms.bytes());
 
-        // egui has not begun its own pass yet, so the chain's pass can go
+        // egui has not begun its own pass yet, so the chains' passes can go
         // straight into its encoder rather than into a separate submission.
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("rudel-hydra-output"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &surface.views[surface.write],
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(&surface.pipeline);
-        pass.set_bind_group(0, &surface.chain_bind[surface.write], &[]);
-        pass.draw(0..3, 0..1);
+        // One pass per output; they are independent, since every read is of
+        // last frame's set.
+        for output in surface.outputs.iter().flatten() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("rudel-hydra-output"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output.views[surface.write],
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&output.pipeline);
+            pass.set_bind_group(0, &surface.chain_bind[surface.write], &[]);
+            pass.draw(0..3, 0..1);
+        }
         Vec::new()
     }
 
@@ -422,23 +499,67 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
         let (Some((blit, _)), Some(surface)) = (&store.blit, store.surfaces.get(&self.id)) else {
             return;
         };
+        let Some(shown) = surface.outputs[surface.render].as_ref() else {
+            return;
+        };
         pass.set_pipeline(blit);
-        pass.set_bind_group(0, &surface.blit_bind[surface.write], &[]);
+        pass.set_bind_group(0, &shown.blit_bind[surface.write], &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+/// The chains a widget declared, by output, and which output it displays.
+///
+/// `chain` is `o0` under its single-output name, so the one-chain form keeps
+/// working unchanged.
+fn chains(widget: &WidgetDecoration) -> ([Option<String>; 4], usize) {
+    let read = |key: &str| super::options::option_str(&widget.options, key).map(str::to_string);
+    let sources = [
+        read("o0").or_else(|| read("chain")),
+        read("o1"),
+        read("o2"),
+        read("o3"),
+    ];
+    let render = super::options::option_f32(&widget.options, "render")
+        .unwrap_or(0.0)
+        .clamp(0.0, 3.0) as usize;
+    (sources, render)
 }
 
 pub(super) fn paint_hydra_gpu(
     ui: &egui::Ui,
     rect: egui::Rect,
     widget: &WidgetDecoration,
-    source: String,
     haps: &[&Hap],
     time: f64,
-    _colors: WidgetDrawColors,
+    colors: WidgetDrawColors,
 ) {
+    let (sources, render) = chains(widget);
+    if sources.iter().all(Option::is_none) {
+        super::shader::paint_error(
+            ui,
+            rect,
+            "hydra: no chain
+.hydra({ chain: Hydra.osc() })",
+            colors,
+        );
+        return;
+    }
+    // A widget showing an output nothing was bound to would just be black, and
+    // silently so; say which one instead.
+    if sources[render].is_none() {
+        super::shader::paint_error(
+            ui,
+            rect,
+            &format!("hydra: render: {render} has no chain"),
+            colors,
+        );
+        return;
+    }
+
     let mut hasher = DefaultHasher::new();
-    source.hash(&mut hasher);
+    sources.hash(&mut hasher);
+    render.hash(&mut hasher);
     let hash = hasher.finish();
 
     let pixels_per_point = ui.ctx().pixels_per_point();
@@ -459,7 +580,8 @@ pub(super) fn paint_hydra_gpu(
         rect,
         HydraCallback {
             id: widget.id.clone(),
-            source,
+            sources,
+            render,
             hash,
             size,
             uniforms: Uniforms {

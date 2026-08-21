@@ -25,7 +25,7 @@ static WIDGET_OPTIONS: LazyLock<RwLock<HashMap<String, OptionMap>>> =
 /// Convert one evaluated Koto value into a widget option. Mirrors the literal
 /// forms the source scan accepts, so a computed value and a written-out one
 /// land as the same `WidgetOption`.
-fn option_from_koto(value: &KValue) -> Option<WidgetOption> {
+fn option_from_koto(key: &str, value: &KValue) -> Option<WidgetOption> {
     match value {
         KValue::Bool(b) => Some(WidgetOption::Bool(*b)),
         KValue::Number(n) => Some(WidgetOption::Number(f64::from(n))),
@@ -34,11 +34,25 @@ fn option_from_koto(value: &KValue) -> Option<WidgetOption> {
         // compiles to, so the shader is generated once per evaluation rather
         // than once per frame, and the widget host needs to know nothing about
         // hydra beyond "this option is a shader".
+        //
+        // The key decides which output buffer the chain is bound to, because
+        // that is what `prev()` inside it reads. `chain` is `o0` under its
+        // single-output name.
         KValue::Object(o) => o
             .cast::<crate::bindings::hydra::KHydra>()
             .ok()
-            .map(|h| WidgetOption::String(crate::hydra::compile(&h.0))),
+            .map(|h| WidgetOption::String(crate::hydra::compile(&h.0, hydra_output(key)))),
         _ => None,
+    }
+}
+
+/// The output buffer a widget option name binds its chain to.
+fn hydra_output(key: &str) -> usize {
+    match key {
+        "o1" => 1,
+        "o2" => 2,
+        "o3" => 3,
+        _ => 0,
     }
 }
 
@@ -53,7 +67,7 @@ pub(crate) fn options_from_koto(value: &KValue) -> OptionMap {
     map.data()
         .iter()
         .filter_map(|(k, v)| match k.value() {
-            KValue::Str(key) => Some((key.to_string(), option_from_koto(v)?)),
+            KValue::Str(key) => Some((key.to_string(), option_from_koto(key, v)?)),
             _ => None,
         })
         .collect()

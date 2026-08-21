@@ -6,7 +6,8 @@ use super::{
     pianoroll::paint_pianoroll,
     pitchwheel::paint_pitchwheel,
     query::{hap_is_active, in_window, widget_haps},
-    shader::{paint_hydra, paint_shader},
+    hydra_gpu::paint_hydra_gpu,
+    shader::paint_shader,
     spiral::paint_spiral,
     spiral_gpu::paint_spiral_gpu,
     style::{WidgetDrawColors, event_color},
@@ -112,7 +113,7 @@ pub(super) fn paint_pattern_widget(
                 .into_iter()
                 .filter(|hap| hap_is_active(hap, time))
                 .collect::<Vec<_>>();
-            paint_hydra(ui, rect, widget, &haps, time, colors);
+            paint_hydra_gpu(ui, rect, widget, &haps, time, colors);
             true
         }
         "_scope" => {

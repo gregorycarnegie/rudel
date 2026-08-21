@@ -76,6 +76,14 @@ fn implemented_functions_match_the_pinned_signature() {
                 theirs["name"].as_str().expect("input name"),
                 "{name}: input name differs"
             );
+            // `src` is the one non-float input that is ported: upstream types
+            // it `sampler2D` and passes an output object, where an output here
+            // is its index. Everything else has to be a float, or the port is
+            // quietly reinterpreting a parameter.
+            if name == "src" {
+                assert_eq!(theirs["type"].as_str(), Some("sampler2D"));
+                continue;
+            }
             assert_eq!(
                 theirs["type"].as_str(),
                 Some("float"),
@@ -149,7 +157,7 @@ fn check_wgsl(source: &str) -> Result<(), String> {
 fn every_function_compiles_as_wgsl() {
     let mut broken = Vec::new();
     for func in hydra::functions() {
-        let source = hydra::compile(&exercising(func));
+        let source = hydra::compile(&exercising(func), 0);
         if let Err(error) = check_wgsl(&source) {
             broken.push(format!("--- {} ---\n{error}", func.name));
         }
@@ -187,8 +195,29 @@ fn a_long_mixed_chain_compiles() {
                 Arg::Number(0.6),
             ],
         );
-    let source = hydra::compile(&chain);
+    let source = hydra::compile(&chain, 0);
     check_wgsl(&source).unwrap_or_else(|e| panic!("mixed chain does not compile:\n{e}\n{source}"));
+}
+
+#[test]
+fn prev_reads_the_buffer_its_chain_is_bound_to() {
+    // `prev()` means "this output, last frame", so the same chain compiled for
+    // a different output has to read a different buffer. Nothing else in the
+    // module depends on which output it is.
+    let prev = hydra::lookup("prev").expect("prev");
+    for output in 0..4 {
+        let source = hydra::compile(&Chain::source(prev, vec![]), output);
+        assert!(
+            source.contains(&format!("h_src(st, {output}.0)")),
+            "output {output} did not bind to its own buffer:
+{source}"
+        );
+        check_wgsl(&source).unwrap_or_else(|e| panic!("output {output}:
+{e}"));
+    }
+    // Out-of-range clamps rather than emitting a read of a buffer that is not
+    // bound, which would be a compile error in the generated module.
+    assert!(hydra::compile(&Chain::source(prev, vec![]), 9).contains("h_src(st, 3.0)"));
 }
 
 #[test]
