@@ -11,6 +11,86 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-21
+
+Rudel renders through eframe's wgpu backend, and until now nothing used it.
+This release puts the GPU to work: a widget that runs a shader you write, and
+a spiral that no longer has seams.
+
+### Added
+
+- **`shader`, a WGSL fragment body in an inline widget.** `.shader({ code:
+  '…' })` paints into the widget rect through egui's own render pass — no
+  second surface, and egui sets the viewport and scissor from the rect, so a
+  shader cannot draw outside its widget. The body is wrapped in a prelude
+  giving it `uv` (0..1 across the widget, y down) and a `u` uniform block
+  carrying `res`, `time` in cycles, `gain`, `note` and `voices` from the
+  sounding events, so a visual can follow the pattern:
+
+  ```koto
+  s("bd*4").shader({ code: '
+    let d = length(uv - vec2<f32>(0.5, 0.5));
+    return vec4<f32>(u.gain * (1.0 - d), 0.1, d, 1.0);
+  ' })
+  ```
+
+  Write the body in **single quotes** — double-quoted strings are
+  mini-notation, and a WGSL blob is not a pattern.
+
+  The source is parsed and validated by `naga` before wgpu sees it. wgpu's
+  default handler aborts the process on a validation error, which would end a
+  set on a typo; instead the widget draws the message, the offending line, and
+  a line number counted from your body rather than from the prelude you never
+  wrote.
+
+  This is not Hydra and is not a step towards it: there is no video-synth DSL,
+  no shader graph, and no user callback on the query path. See
+  [`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md).
+
+### Changed
+
+- **The spiral is drawn per pixel instead of stroked.** Strudel strokes one
+  canvas polyline per hap, and so did Rudel. Adjacent haps then meet butt-end
+  to butt-end with ends that are not parallel, so one side of every boundary
+  overlaps — and because hap colours are translucent under the default `fade`,
+  that overlap composites twice and reads as a bright radial seam — while the
+  other side leaves a sliver of background. Finer sampling does not help; the
+  seam is inherent to stroking.
+
+  The spiral is now a signed distance field: a pixel's polar coordinates invert
+  straight back to a spiral angle, so coverage is exact and the only soft edge
+  is one pixel of deliberate anti-aliasing. Both painters take their bands from
+  the same code, so colour, fade and geometry are unchanged — rendering a
+  pattern each way gives the same colour histogram, with more band pixels and
+  no seam pixels on the GPU side.
+
+  `spiral({gpu: false})` asks for the old painter back. It is also selected
+  automatically when the wgpu backend is not running, since the SDF painter's
+  pipeline and buffers live in that renderer.
+
+- **The spiral's default surface is 400×400, not 275×275.** Strudel's widget
+  registration takes `size || 275` for the canvas and passes `size / 5` as the
+  radius unit, so at the default `inset: 3` the "now" arc lands at radius 165 —
+  outside the 137.5 a 275 canvas inscribes. The current position, the one thing
+  a spiral most needs to show, was clipped into the corners.
+
+  The geometry is not what moved: `spiral_size` still defaults to 55 and
+  `inset` keeps its documented 3, so a pattern copied from Strudel draws the
+  same spiral at the same radii. Only the canvas under it is bigger. Naming
+  `size` still sets both, as upstream does — `spiral({size: 275})` reproduces
+  the upstream framing, corner-clipped playhead included.
+
+### Fixed
+
+- **`let`, `const` and `var` inside a string literal are left alone.** The
+  declaration-rewriting pass scanned line by line with no idea where strings
+  began, so it stripped the keyword from any line *inside* a string that
+  started with one. All three words are WGSL as well as JavaScript, which is
+  how this surfaced — a multi-line shader body lost a keyword on nearly every
+  line — but it applied to any string in any script. The pass now consults the
+  same string mask its sibling passes already used, so the fix reaches every
+  caller rather than the shader path alone.
+
 ## [0.12.4] — 2026-08-19
 
 Two of 0.12.3's additions were placeholders. They are implementations now, and
