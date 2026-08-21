@@ -1,14 +1,19 @@
 // gen_hydra_oracle.mjs — dump hydra-synth's glsl function table for the rudel
 // parity oracle (crates/rudel-lang/tests/hydra_parity.rs).
 //
-//   cd tools/oracle && npm install --no-save hydra-synth@1.3.29 && node gen_hydra_oracle.mjs
+//   cd tools/oracle && npm install --no-save hydra-synth@1.4.0 && node gen_hydra_oracle.mjs
 //
 // Unlike every other oracle here, this one does not read the vendored Strudel
 // checkout: `@strudel/hydra` is a ~50-line loader that pulls hydra-synth from a
 // CDN at runtime (`await import('https://unpkg.com/hydra-synth')`), so there is
-// no hydra source in the Strudel tree to port against. The version below is the
-// one `strudel/packages/hydra/package.json` declares, pinned here so the Rust
-// side has a fixed reference rather than a moving CDN target.
+// no hydra source in the Strudel tree to port against.
+//
+// Note that URL carries no version, so what a Strudel user actually runs is
+// whatever npm calls latest that day — and `package.json`'s `^1.3.29` allows
+// the same drift. The reference is a moving target by construction. Install the
+// current latest and regenerate; the version lands in the golden and a test
+// asserts it, so a bump is a reviewable change rather than a silent one. 1.4.0
+// altered `shift`'s body against 1.3.29, so this is not hypothetical.
 //
 // Each entry is one hydra function: its name, its composition type, and its
 // inputs with their defaults. `glsl` is the raw GLSL body, kept so a human can

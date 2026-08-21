@@ -390,12 +390,15 @@ pub(super) static FUNCTIONS: &[HydraFn] = &[
         ty: FnType::Color,
         inputs: &[f("r", 0.5), f("g", 0.0), f("b", 0.0), f("a", 0.0)],
         helpers: &[],
+        // 1.4.0 changed this from `c2.r = fract(c2.r + r)`, which wrapped the
+        // result into [0,1), to adding the shift's fractional part and leaving
+        // the result unwrapped. Different output, not a refactor.
         wgsl: r#"
     var c2 = _c0;
-    c2.r = fract(c2.r + r);
-    c2.g = fract(c2.g + g);
-    c2.b = fract(c2.b + b);
-    c2.a = fract(c2.a + a);
+    c2.r = c2.r + fract(r);
+    c2.g = c2.g + fract(g);
+    c2.b = c2.b + fract(b);
+    c2.a = c2.a + fract(a);
     return c2;"#,
     },
     HydraFn {

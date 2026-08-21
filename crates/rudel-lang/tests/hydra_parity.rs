@@ -222,13 +222,16 @@ fn prev_reads_the_buffer_its_chain_is_bound_to() {
 
 #[test]
 fn the_pinned_version_is_recorded() {
-    // If someone regenerates the oracle against a different hydra-synth, the
-    // port is being measured against a moving target and that should be a
-    // deliberate, visible change.
+    // Strudel loads `https://unpkg.com/hydra-synth` with no version in the URL,
+    // so what a user actually runs is whatever is latest that day — the
+    // reference is a moving target by construction. Pinning it here at least
+    // makes the movement a deliberate, reviewable change: 1.4.0 altered
+    // `shift`'s body, and porting 1.3.29's would have been wrong for anyone
+    // running Strudel today.
     let g = golden();
     assert_eq!(
         g["version"].as_str(),
-        Some("1.3.29"),
+        Some("1.4.0"),
         "hydra_golden.json was regenerated against a different hydra-synth"
     );
 }

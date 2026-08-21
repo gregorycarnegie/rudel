@@ -387,9 +387,16 @@ session rather than on every re-evaluation.
 `@strudel/hydra` (`initHydra`, `H`, `clearHydra`) is a ~50-line loader: it makes
 a canvas and `await import`s [hydra-synth](https://hydra.ojack.xyz/) from a CDN
 at runtime. There is no hydra source in the vendored Strudel tree to port
-against, so the reference here is **hydra-synth 1.3.29**, pinned into
+against, so the reference here is **hydra-synth 1.4.0**, pinned into
 `tools/oracle/hydra_golden.json` by `tools/oracle/gen_hydra_oracle.mjs`.
 `crates/rudel-lang/tests/hydra_parity.rs` holds the port to it.
+
+That URL carries no version, and `package.json` asks for `^1.3.29`, so what a
+Strudel user actually runs is whatever npm calls latest that day — the
+reference is a moving target by construction. Pinning it makes the movement
+reviewable rather than silent, and it is not hypothetical: 1.4.0 changed
+`shift` from `c2.r = fract(c2.r + r)`, which wrapped the result into `[0,1)`,
+to `c2.r += fract(r)`, which does not. Rudel follows 1.4.0.
 
 **What works.** 51 of hydra's 52 functions, as a chain that compiles to WGSL and
 renders in an inline widget:
