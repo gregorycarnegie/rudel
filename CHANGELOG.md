@@ -11,6 +11,89 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-21
+
+Hydra, ported. 0.13.0 gave the GPU a shader widget; this release puts a real
+visual language on top of it.
+
+### Added
+
+- **Hydra chains, compiled to WGSL.** 51 of hydra's 52 functions, chained the
+  way they are upstream and rendered in an inline widget:
+
+  ```koto
+  s("bd*4").hydra({ chain: Hydra.osc(20, 0.1, 0.8).kaleid(5).colorama(0.02) })
+  ```
+
+  A chain folds into one fragment shader per evaluation using hydra's own
+  five-way composition rule from `generate-glsl.js`, so `osc().rotate().color()`
+  wraps coordinates inward and colours outward exactly as it does there. The
+  Koto VM is never invoked on the draw path.
+
+- **Four output buffers, `src`, and feedback.** `o0`–`o3` take a chain each,
+  `src` reads any of them, `prev()` reads the one the chain draws into, and
+  `render` picks what is displayed — `render: 'all'` tiles all four, hydra's
+  `render()` with no argument.
+
+  ```koto
+  s("bd*4").hydra({
+    o0: Hydra.osc(15, 0.1, 0.7).kaleid(4),
+    o1: Hydra.voronoi(10, 0.4).thresh(0.45, 0.1),
+    o2: Hydra.src(Hydra.o0).modulate(Hydra.src(Hydra.o1), 0.35).colorama(0.01),
+    render: 2,
+  })
+  ```
+
+  Every buffer read is of the previous frame, which is upstream's rule rather
+  than a concession: `format-arguments.js` binds the fbo that is *not* being
+  drawn into, which is why `src(o0)` inside o0's own chain means `prev()` there
+  too. Reproducing it keeps the four passes independent and means no texture is
+  ever sampled while it is a render target.
+
+- **An oracle for a package that has no vendored source.** `@strudel/hydra` is a
+  loader that fetches hydra-synth from a CDN, so unlike every other feature here
+  there was nothing in the Strudel tree to port against.
+  `tools/oracle/gen_hydra_oracle.mjs` pins hydra-synth's own function table into
+  `hydra_golden.json`, and `crates/rudel-lang/tests/hydra_parity.rs` checks every
+  name, composition type, input name and default against it, then compiles every
+  function through `naga`. That second guard caught a real bug during the port:
+  hydra prepends a `color` input to `combine`/`combineCoord` at registration, so
+  upstream's argument indices run one ahead of the raw table's.
+
+  The CDN URL carries no version and `package.json` asks for `^1.3.29`, so the
+  reference moves by construction. Rudel follows **1.4.0**, which is what a
+  Strudel user gets today — and which changed `shift` from
+  `c2.r = fract(c2.r + r)` (wrapping into `[0,1)`) to `c2.r += fract(r)` (not
+  wrapping). Pinning does not stop the reference moving; it makes the movement
+  reviewable.
+
+- **Source functions live on `Hydra`.** `Hydra.osc(…)`, `Hydra.noise(…)` and so
+  on. Upstream claims those as globals — which is why `clearHydra` has to put
+  `shape` and `speed` back afterwards — but Rudel already has `osc` (the OSC
+  output), `noise` and `shape` (core), and shadowing them would break patterns
+  that never mentioned hydra. Chained methods keep hydra's own spelling.
+
+### Changed
+
+- **`hydra` is a widget method, not a stub.** It used to sit in the
+  "not supported here, ignored" list beside `P5`; it now renders a chain.
+  `initHydra(…)` and `clearHydra()` became silent no-ops rather than logging
+  stubs, so a pattern copied from Strudel runs unchanged — there is no CDN fetch
+  to perform and no canvas to tear down.
+
+### Not ported
+
+`sum` is broken upstream and is left that way: hydra generates
+`vec4 sum(vec4 _c0, vec4 scale)` from a body that reads an undefined `s` and
+returns a float from a `vec4` function. Compiling it confirms the first error;
+either alone is fatal. Hydra only emits a function's GLSL when a chain uses it,
+so this is latent there rather than fatal. A working one here would be invented
+behaviour that diverges from every Strudel install rather than matching one.
+
+`H(pattern)` samples a pattern per animation frame to drive a uniform, which a
+chain compiled once per evaluation has nowhere to put; it is accepted and
+ignored. `s0`–`s3` are webcam, video and screen capture.
+
 ## [0.13.0] — 2026-08-21
 
 Rudel renders through eframe's wgpu backend, and until now nothing used it.
