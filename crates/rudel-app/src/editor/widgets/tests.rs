@@ -114,12 +114,38 @@ fn placement_uses_to_or_from_like_codemirror_widget_range() {
 
 #[test]
 fn default_sizes_follow_strudel_canvas_defaults() {
+    // `_spiral` is the one exception, and has its own test below saying why.
     assert_eq!(default_surface_size("_pianoroll"), egui::vec2(500.0, 60.0));
     assert_eq!(default_surface_size("_scope"), egui::vec2(500.0, 60.0));
-    assert_eq!(default_surface_size("_spiral"), egui::vec2(275.0, 275.0));
     assert_eq!(
         default_surface_size("_pitchwheel"),
         egui::vec2(200.0, 200.0)
+    );
+}
+
+#[test]
+fn the_default_spiral_surface_fits_the_now_arc() {
+    // The one default that deliberately does not follow Strudel's canvas.
+    // Upstream's `_spiral` canvas is 275 with `size` = 275/5 = 55, so `inset: 3`
+    // puts the "now" arc at radius 165 -- past the 137.5 that canvas inscribes,
+    // and the current position ends up clipped into the corners.
+    //
+    // Rudel widens the surface rather than touching the geometry: `inset` keeps
+    // its documented default and `spiral_size` stays 55, so a pattern copied
+    // from Strudel draws the same spiral. Only the canvas is bigger.
+    let options = VisualWidgetOptions::from_widget(&widget_with_options("_spiral", &[]));
+    assert_eq!(options.spiral_size, 55.0, "the geometry must not move");
+    assert_eq!(options.inset, 3.0, "nor may `inset` drift from upstream's");
+
+    let margin = options.spiral_size / options.stretch;
+    let thickness = options
+        .spiral_thickness
+        .unwrap_or(options.spiral_size / 2.0);
+    let now_outer_edge = options.inset * margin + thickness / 2.0;
+    let inscribed = default_surface_size("_spiral").x / 2.0;
+    assert!(
+        inscribed > now_outer_edge,
+        "the now arc reaches {now_outer_edge} but the surface inscribes {inscribed}"
     );
 }
 

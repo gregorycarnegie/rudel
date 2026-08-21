@@ -85,7 +85,21 @@ geometry are identical and only the seams differ: rendering a pattern each way
 gives the same colour histogram, with more band pixels and no seam pixels on the
 GPU side. `spiral({gpu: false})` asks for the tessellated painter back, and it
 is also used automatically when the wgpu backend is not running, since the SDF
-painter's pipeline and buffers live in that renderer. By design the Koto VM is never invoked from the
+painter's pipeline and buffers live in that renderer.
+
+**The default surface is 400×400, not upstream's 275×275.** Strudel's `_spiral`
+widget registration (`packages/codemirror/widget.mjs`) takes `size || 275` for
+the canvas and passes `size / 5` as the spiral's radius unit, so at the default
+`inset: 3` the "now" arc lands at radius `3 × 55 = 165` — outside the `137.5`
+a 275 canvas inscribes. Upstream therefore clips the current position, the one
+thing a spiral most needs to show, into the canvas corners.
+
+Rudel widens the surface instead of touching the geometry. `spiral_size` still
+defaults to `55` and `inset` keeps its documented `3`, so a pattern copied from
+Strudel draws the same spiral at the same radii; only the canvas it is drawn on
+is bigger, and the current position fits on it. Naming `size` explicitly still
+sets both, exactly as upstream does — `spiral({size: 275})` reproduces the
+upstream framing, corner-clipped "now" included. By design the Koto VM is never invoked from the
 real-time/draw query path, so a pattern cannot register a Koto closure that runs
 every animation frame. Only the built-in inline visualisers are available. The
 full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
