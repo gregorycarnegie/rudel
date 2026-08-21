@@ -273,15 +273,17 @@ impl Voice {
         let mut acc_r = zero;
         for (((pchunk, rchunk), glc), grc) in self
             .super_phases
-            .chunks_exact_mut(SUPER_LANES)
-            .zip(self.super_incr_ratio.chunks_exact(SUPER_LANES))
-            .zip(self.super_gain_l.chunks_exact(SUPER_LANES))
-            .zip(self.super_gain_r.chunks_exact(SUPER_LANES))
+            .as_chunks_mut::<SUPER_LANES>()
+            .0
+            .iter_mut()
+            .zip(self.super_incr_ratio.as_chunks::<SUPER_LANES>().0)
+            .zip(self.super_gain_l.as_chunks::<SUPER_LANES>().0)
+            .zip(self.super_gain_r.as_chunks::<SUPER_LANES>().0)
         {
-            let p = f32x8::from(<[f32; SUPER_LANES]>::try_from(&*pchunk).unwrap());
-            let r = f32x8::from(<[f32; SUPER_LANES]>::try_from(rchunk).unwrap());
-            let gl = f32x8::from(<[f32; SUPER_LANES]>::try_from(glc).unwrap());
-            let gr = f32x8::from(<[f32; SUPER_LANES]>::try_from(grc).unwrap());
+            let p = f32x8::from(*pchunk);
+            let r = f32x8::from(*rchunk);
+            let gl = f32x8::from(*glc);
+            let gr = f32x8::from(*grc);
             let dt = base_over_sr * r;
             // polyBLEP: smooth the saw's wrap discontinuity inside the dt-wide
             // windows at both cycle edges (the worklet's `sawblep`). Padded
@@ -303,7 +305,7 @@ impl Voice {
             // `phase − floor(phase)` (the increment is non-negative, so this
             // matches `rem_euclid(1.0)`).
             let np = p + dt;
-            pchunk.copy_from_slice(&(np - np.floor()).to_array());
+            *pchunk = (np - np.floor()).to_array();
         }
         let norm = 1.0 / (self.params.unison.max(1) as f32).sqrt();
         (acc_l.reduce_add() * norm, acc_r.reduce_add() * norm)

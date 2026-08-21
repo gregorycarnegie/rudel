@@ -124,11 +124,11 @@ pub(crate) fn build_additive(
     // Fill the table eight slots at a time: each lane is a distinct phase `t`,
     // and for every harmonic we evaluate `r·cos(ang) + i·sin(ang)` across all
     // eight lanes with one vectorized `sin_cos`. `ADDITIVE_SIZE` is a multiple
-    // of the lane count, so `chunks_exact_mut` leaves no scalar remainder.
+    // of the lane count, so `as_chunks_mut` leaves no scalar remainder.
     let mut table = vec![0.0f32; ADDITIVE_SIZE];
     let inv_size = 1.0 / ADDITIVE_SIZE as f32;
     let tau = f32x8::splat(TAU);
-    for (chunk, slots) in table.chunks_exact_mut(8).enumerate() {
+    for (chunk, slots) in table.as_chunks_mut::<8>().0.iter_mut().enumerate() {
         let base = chunk * 8;
         let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| {
             (base + l) as f32 * inv_size
@@ -139,7 +139,7 @@ pub(crate) fn build_additive(
             let (sin, cos) = ang.sin_cos();
             acc += f32x8::splat(r) * cos + f32x8::splat(i) * sin;
         }
-        slots.copy_from_slice(&acc.to_array());
+        *slots = acc.to_array();
     }
     // Normalize to peak 1 (Web Audio normalizes PeriodicWave by default).
     let peak = table.iter().fold(0.0f32, |m, &x| m.max(x.abs()));

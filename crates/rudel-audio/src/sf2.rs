@@ -162,8 +162,10 @@ impl Tables {
         walk_chunks(&bytes[12..], &mut |id, data| match id {
             b"smpl" => {
                 t.smpl = data
-                    .chunks_exact(2)
-                    .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| i16::from_le_bytes(*c))
                     .collect();
             }
             b"phdr" => t.presets = read_headers(data, 38, 24),
@@ -203,26 +205,32 @@ fn read_headers(data: &[u8], record: usize, bag_offset: usize) -> Vec<Header> {
 
 /// Read a `pbag`/`ibag` table: each record's generator start index.
 fn read_bags(data: &[u8]) -> Vec<usize> {
-    data.chunks_exact(4)
-        .filter_map(|rec| Some(u16::from_le_bytes(rec[0..2].try_into().ok()?) as usize))
+    data.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|rec| u16::from_le_bytes([rec[0], rec[1]]) as usize)
         .collect()
 }
 
 /// Read a `pgen`/`igen` table of `(operator, amount)` pairs.
 fn read_gens(data: &[u8]) -> Generators {
-    data.chunks_exact(4)
-        .filter_map(|rec| {
-            Some((
-                u16::from_le_bytes(rec[0..2].try_into().ok()?),
-                u16::from_le_bytes(rec[2..4].try_into().ok()?),
-            ))
+    data.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|rec| {
+            (
+                u16::from_le_bytes([rec[0], rec[1]]),
+                u16::from_le_bytes([rec[2], rec[3]]),
+            )
         })
         .collect()
 }
 
 /// Read the `shdr` sample-header table.
 fn read_sample_headers(data: &[u8]) -> Vec<SampleHeader> {
-    data.chunks_exact(46)
+    data.as_chunks::<46>()
+        .0
+        .iter()
         .filter_map(|rec| {
             let mut r = Reader::new(rec);
             r.name(20)?;
