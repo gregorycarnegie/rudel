@@ -16,6 +16,7 @@ pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
     "_claviature",
     "_fscope",
     "_shader",
+    "_hydra",
     // Public (non-underscore) visualizer names render the same inline widget as
     // their `_`-prefixed variants. `canonical_widget_type` maps them back to the
     // `_`-prefixed type the painter/host key on. `tscope` is Strudel's alias
@@ -31,6 +32,7 @@ pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
     "wordfall",
     "claviature",
     "shader",
+    "hydra",
 ];
 
 /// Normalize a matched widget method name to the `_`-prefixed widget type that
@@ -48,6 +50,7 @@ fn canonical_widget_type(method: &str) -> &'static str {
         "wordfall" | "_wordfall" => "_wordfall",
         "claviature" | "_claviature" => "_claviature",
         "shader" | "_shader" => "_shader",
+        "hydra" | "_hydra" => "_hydra",
         _ => "_pianoroll",
     }
 }
@@ -192,6 +195,7 @@ fn koto_widget_method(widget_type: &str) -> &'static str {
         "_wordfall" => "rudel_widget_wordfall",
         "_claviature" => "rudel_widget_claviature",
         "_shader" => "rudel_widget_shader",
+        "_hydra" => "rudel_widget_hydra",
         _ => "rudel_widget",
     }
 }

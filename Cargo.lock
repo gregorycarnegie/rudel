@@ -3458,6 +3458,7 @@ name = "rudel-lang"
 version = "0.13.0"
 dependencies = [
  "koto",
+ "naga",
  "proptest",
  "rudel-core",
  "rudel-mini",

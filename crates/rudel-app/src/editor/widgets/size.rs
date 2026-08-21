@@ -17,7 +17,7 @@ pub(super) fn default_surface_size(widget_type: &str) -> egui::Vec2 {
         // option still sets both, the way `_spiral`'s widget registration does
         // upstream.
         "_spiral" => egui::vec2(400.0, 400.0),
-        "_pitchwheel" | "_spectrum" | "_shader" => egui::vec2(200.0, 200.0),
+        "_pitchwheel" | "_spectrum" | "_shader" | "_hydra" => egui::vec2(200.0, 200.0),
         "_wordfall" => egui::vec2(500.0, 120.0),
         "_claviature" => egui::vec2(500.0, 100.0),
         _ => egui::vec2(500.0, 60.0),

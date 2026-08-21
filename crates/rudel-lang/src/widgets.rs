@@ -30,6 +30,14 @@ fn option_from_koto(value: &KValue) -> Option<WidgetOption> {
         KValue::Bool(b) => Some(WidgetOption::Bool(*b)),
         KValue::Number(n) => Some(WidgetOption::Number(f64::from(n))),
         KValue::Str(s) => Some(WidgetOption::String(s.to_string())),
+        // A hydra chain arrives as an object and leaves as the WGSL it
+        // compiles to, so the shader is generated once per evaluation rather
+        // than once per frame, and the widget host needs to know nothing about
+        // hydra beyond "this option is a shader".
+        KValue::Object(o) => o
+            .cast::<crate::bindings::hydra::KHydra>()
+            .ok()
+            .map(|h| WidgetOption::String(crate::hydra::compile(&h.0))),
         _ => None,
     }
 }

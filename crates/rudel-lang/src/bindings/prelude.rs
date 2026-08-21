@@ -201,6 +201,8 @@ pub(crate) fn register(prelude: &KMap) {
     // The JS builtins helper functions call on plain values (`Array.isArray`,
     // `arr.map`, `s.endsWith`).
     super::js::register_js_builtins(prelude);
+    // `osc`, `noise`, `shape`, ... — the hydra sources that start a chain.
+    super::hydra::register(prelude);
     // `Pattern`, `Hap`, `Fraction`, `TimeSpan` — the engine's own vocabulary,
     // plus the standalone forms of the transforms that take a span.
     super::pattern::register_engine_fns(prelude);

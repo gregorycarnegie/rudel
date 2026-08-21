@@ -382,16 +382,56 @@ session rather than on every re-evaluation.
 
 ## External integrations and inputs
 
-### Hydra (`@strudel/hydra`) — intentionally unsupported
+### Hydra (`@strudel/hydra`) — the chain DSL is ported; the runtime is not
 
-`@strudel/hydra` (`initHydra`, `H`, `clearHydra`) embeds the
-[Hydra](https://hydra.ojack.xyz/) live-coding video synth, a WebGL/`regl`-based
-fragment-shader engine, and lets patterns drive its uniforms. It is fundamentally
-a browser WebGL integration with its own JavaScript DSL. Rudel is a native egui
-application with no embedded JavaScript/WebGL video-synth engine, so Hydra is
-**intentionally unsupported**. Its DSL (`osc().kaleid().out()`), its shader
-graph, and `initHydra`/`H`/`clearHydra` are not ported; use Hydra in Strudel's
-web REPL if you need them.
+`@strudel/hydra` (`initHydra`, `H`, `clearHydra`) is a ~50-line loader: it makes
+a canvas and `await import`s [hydra-synth](https://hydra.ojack.xyz/) from a CDN
+at runtime. There is no hydra source in the vendored Strudel tree to port
+against, so the reference here is **hydra-synth 1.3.29**, pinned into
+`tools/oracle/hydra_golden.json` by `tools/oracle/gen_hydra_oracle.mjs`.
+`crates/rudel-lang/tests/hydra_parity.rs` holds the port to it.
+
+**What works.** 49 of hydra's 52 functions, as a chain that compiles to WGSL and
+renders in an inline widget:
+
+```koto
+s("bd*4").hydra({ chain: Hydra.osc(20, 0.1, 0.8).kaleid(5).colorama(0.02) })
+```
+
+The chain is folded into a shader once per evaluation — hydra's own five-way
+composition rule from `generate-glsl.js`, ported — so the Koto VM never runs on
+the draw path. Every function's WGSL is checked by `naga` in a test, and every
+signature (name, composition type, input names, input defaults) is compared
+against the pinned table, so a chain written for hydra means the same thing
+here.
+
+**Sources live on `Hydra`, not on the globals.** Upstream puts `osc`, `noise`
+and `shape` in global scope, which is why `clearHydra` has to put `shape` and
+`speed` *back* afterwards. Rudel already has all three — `osc` is the OSC
+output, `noise` and `shape` are core — so taking them would break patterns that
+never mentioned hydra. They are `Hydra.osc(…)`, `Hydra.noise(…)` and so on,
+alongside `Math` and `Object`. Chained methods keep hydra's own spelling.
+
+**What is missing.** Everything that needs render-to-texture, which is the whole
+output-buffer half of hydra:
+
+| Not ported | Why |
+| --- | --- |
+| `src`, `prev` | sample an output buffer or the previous frame; need offscreen targets and ping-pong |
+| `o0`–`o3`, `render()` | multiple outputs; one widget renders one chain |
+| `s0`–`s3` | webcam, video, screen capture |
+| `sum` | its GLSL body closes the function and opens a second overload, and returns a float where the composer expects a `vec4` |
+| `initHydra`, `H`, `clearHydra` | the browser loader; there is nothing to load |
+
+Feedback (`src(o0)`) is the notable casualty, and it is what most "how did they
+do that" hydra patches are built on. `hydra::UNIMPLEMENTED` carries the list in
+code, and the parity test fails if hydra grows a function that is neither
+implemented nor listed there.
+
+**Numeric parameters are numbers.** Upstream accepts a function for any input
+(`H(pattern)` is one), called per frame. Rudel compiles the chain at evaluation
+time, so a parameter is a constant for the life of that evaluation — the same
+limitation the draw runtime above carries, and for the same reason.
 
 **Rudel does have a native shader surface**, though it is not Hydra. The
 `_shader` widget (`shader`) paints a user-written WGSL fragment body into an

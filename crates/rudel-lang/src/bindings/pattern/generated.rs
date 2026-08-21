@@ -544,6 +544,8 @@ kpattern_methods! {
         _claviature => kpattern_visual_widget,
         #[koto_method(alias = "shader")]
         _shader => kpattern_visual_widget,
+        #[koto_method(alias = "hydra")]
+        _hydra => kpattern_visual_widget,
         #[koto_method]
         rudel_widget_pianoroll => kpattern_visual_widget,
         #[koto_method]
@@ -562,6 +564,8 @@ kpattern_methods! {
         rudel_widget_claviature => kpattern_visual_widget,
         #[koto_method]
         rudel_widget_shader => kpattern_visual_widget,
+        #[koto_method]
+        rudel_widget_hydra => kpattern_visual_widget,
         #[koto_method]
         rudel_widget_fscope => kpattern_visual_widget,
         #[koto_method(alias = "loopAtCps", alias = "loopatcps")]

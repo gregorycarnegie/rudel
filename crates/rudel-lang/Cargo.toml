@@ -20,6 +20,10 @@ serde_json.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# Validates the WGSL the hydra port generates. Already in the tree as wgpu's
+# shader front-end; used here so a mistranslated body fails a test rather than
+# a GPU.
+naga = { version = "30.0.0", features = ["wgsl-in"] }
 
 [[bench]]
 name = "patterns"

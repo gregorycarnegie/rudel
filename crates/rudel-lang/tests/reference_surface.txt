@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1044 methods=1138 controls=668
+# functions=1045 methods=1140 controls=668
 
 [functions]
 Array
@@ -11,6 +11,7 @@ FXrelease
 Fraction
 H
 Hap
+Hydra
 Math
 Number
 Object
@@ -1055,6 +1056,7 @@ FXrel
 FXrelease
 _claviature
 _fscope
+_hydra
 _pianoroll
 _pitchwheel
 _punchcard
@@ -1663,6 +1665,7 @@ hsl
 hsla
 hurry
 hush
+hydra
 i
 imag
 inhabit

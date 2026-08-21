@@ -18,6 +18,8 @@ use std::{
 };
 
 use bindings::{apply_pattern_transforms, function_names, method_names, register, reset_slots};
+pub mod hydra;
+
 use preprocess::{preprocess_strudel_with_meta, preprocess_strudel_with_meta_in_range};
 use samples::register_samples;
 

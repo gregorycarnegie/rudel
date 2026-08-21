@@ -351,11 +351,51 @@ pub(super) fn paint_shader(
     time: f64,
     colors: WidgetDrawColors,
 ) {
-    let id = widget.id.as_str();
     // Read straight off the decoration rather than through
     // `VisualWidgetOptions`: the body is a `String`, and that struct is `Copy`
     // so every painter can pass it around by value.
     let source = assemble(option_str(&widget.options, "code").unwrap_or_default());
+    paint_wgsl(ui, rect, &widget.id, source, haps, time, colors);
+}
+
+/// The `_hydra` widget: a hydra chain, already compiled to WGSL.
+///
+/// The chain is folded into a shader by `rudel_lang::hydra` during evaluation
+/// and arrives here as a string option, so nothing about hydra reaches the draw
+/// path — this is the same renderer `_shader` uses, handed a generated module
+/// instead of a hand-written body.
+pub(super) fn paint_hydra(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    widget: &WidgetDecoration,
+    haps: &[&Hap],
+    time: f64,
+    colors: WidgetDrawColors,
+) {
+    let Some(source) = option_str(&widget.options, "chain") else {
+        // `.hydra()` with nothing in it, or an option that was not a chain.
+        paint_error(ui, rect, "hydra: no chain
+.hydra({ chain: osc() })", colors);
+        return;
+    };
+    paint_wgsl(ui, rect, &widget.id, source.to_string(), haps, time, colors);
+}
+
+/// Render a finished WGSL module into the widget rect.
+///
+/// Split out from [`paint_shader`] because a hydra chain compiles to a whole
+/// module rather than to a body, so it cannot go through [`assemble`] — but
+/// everything downstream of that (the compile check, the uniforms, the pipeline
+/// cache) is the same for both.
+pub(super) fn paint_wgsl(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    id: &str,
+    source: String,
+    haps: &[&Hap],
+    time: f64,
+    colors: WidgetDrawColors,
+) {
     let hash = hash_of(&source);
     let cache_id = egui::Id::new(("rudel-shader-check", id));
     let checked = || CachedCheck {

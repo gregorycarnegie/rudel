@@ -1,3 +1,4 @@
+pub(crate) mod hydra;
 mod js;
 mod pattern;
 mod prelude;
