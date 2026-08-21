@@ -456,7 +456,7 @@ still runs.
 
 | Not ported | Why |
 | --- | --- |
-| `sum` | broken upstream, not a porting decision. Hydra generates `vec4 sum(vec4 _c0, vec4 scale)` from a body that reads an undefined `s` and returns a float from a `vec4` function — two hard GLSL errors, so it cannot compile there either |
+| `sum` | broken upstream, not a porting decision. Hydra generates `vec4 sum(vec4 _c0, vec4 scale)` from a body that reads an undefined `s` and returns a float from a `vec4` function — two hard GLSL errors. Hydra only emits a function's GLSL when a chain uses it, so this is latent rather than fatal: hydra runs fine until something calls `.sum()`, and then that output's shader fails to compile there too |
 | `H(pattern)` | samples a pattern once per animation frame to drive a uniform. A chain here compiles once per evaluation, so its parameters are constants for that evaluation's life. Accepted and ignored, with a line in the console |
 | `s0`–`s3` | webcam, video, screen capture |
 
