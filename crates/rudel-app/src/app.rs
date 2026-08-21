@@ -315,6 +315,9 @@ pub(crate) fn run() -> eframe::Result {
                 renderer
                     .callback_resources
                     .insert(crate::editor::SpiralStore::new(format));
+                renderer
+                    .callback_resources
+                    .insert(crate::editor::HydraStore::new(format));
             }
             Ok(Box::new(RudelApp::new()))
         }),

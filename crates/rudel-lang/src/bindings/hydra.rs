@@ -95,7 +95,7 @@ macro_rules! hydra_methods {
 
 hydra_methods! {
     // src
-    noise, voronoi, osc, shape, gradient, solid,
+    noise, voronoi, osc, shape, gradient, solid, prev,
     // coord
     rotate, scale, pixelate, repeat, repeatX, repeatY, kaleid, scroll, scrollX, scrollY,
     // color
@@ -153,7 +153,7 @@ mod tests {
         let Some(KValue::Map(map)) = prelude.get("Hydra") else {
             panic!("no `Hydra` map");
         };
-        for source in ["osc", "noise", "shape", "gradient", "solid", "voronoi"] {
+        for source in ["osc", "noise", "shape", "gradient", "solid", "voronoi", "prev"] {
             assert!(map.get(source).is_some(), "Hydra.{source} is missing");
         }
         // Lowercase `hydra` is the widget method's top-level form, so the
@@ -166,6 +166,6 @@ mod tests {
         // The macro list is hand-written; this is the guard that it matches the
         // table. `src`/`prev`/`sum` are the documented gaps.
         let expected = hydra::functions().len();
-        assert_eq!(expected, 49, "table size changed; update hydra_methods!");
+        assert_eq!(expected, 50, "table size changed; update hydra_methods!");
     }
 }

@@ -94,11 +94,7 @@ pub struct HydraFn {
 pub const UNIMPLEMENTED: &[(&str, &str)] = &[
     (
         "src",
-        "samples another output buffer (o0..o3) or an external source; needs render-to-texture",
-    ),
-    (
-        "prev",
-        "samples the previous frame; needs render-to-texture with ping-pong buffers",
+        "names an output buffer (o0..o3) or an external source. A widget renders one          chain into one buffer, so `src(o0)` would be `prev()`; o1..o3 and s0..s3 have          nowhere to come from",
     ),
     (
         "sum",
@@ -341,6 +337,10 @@ struct HydraUniforms {
     voices: f32,
 };
 @group(0) @binding(0) var<uniform> hu: HydraUniforms;
+// The previous frame, for `prev()`. Always bound, so one pipeline layout serves
+// every chain whether or not it feeds back.
+@group(0) @binding(1) var hPrevTex: texture_2d<f32>;
+@group(0) @binding(2) var hPrevSampler: sampler;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,

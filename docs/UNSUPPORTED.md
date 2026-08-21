@@ -60,9 +60,16 @@ Rudel's native Rust drawing code, not user-supplied callbacks.
 
 **Intentional limitation.** Rudel does **not** run arbitrary user painter
 callbacks (`Pattern.draw(ctx => …)`, `onPaint`) and does not maintain a global
-full-screen draw context. (The `_shader` widget below is not an exception: the
-user supplies WGSL that runs on the GPU, never a Koto callback on the query
-path.)
+full-screen draw context. (The `_shader` and `_hydra` widgets below are not
+exceptions: the user supplies WGSL, or a hydra chain that compiles to WGSL, and
+it runs on the GPU — never a Koto callback on the query path.) By design the Koto VM is never invoked from the
+real-time/draw query path, so a pattern cannot register a Koto closure that runs
+every animation frame. Only the built-in inline visualisers are available. The
+full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
+lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
+`cleanupDraw`/`cleanupDrawContext` lifecycle are not ported; the inline widget
+host re-queries the pattern each frame instead of keeping painter-side hap
+memory.
 
 ### `spiral` — drawn as an SDF, not as strokes
 
@@ -99,14 +106,7 @@ defaults to `55` and `inset` keeps its documented `3`, so a pattern copied from
 Strudel draws the same spiral at the same radii; only the canvas it is drawn on
 is bigger, and the current position fits on it. Naming `size` explicitly still
 sets both, exactly as upstream does — `spiral({size: 275})` reproduces the
-upstream framing, corner-clipped "now" included. By design the Koto VM is never invoked from the
-real-time/draw query path, so a pattern cannot register a Koto closure that runs
-every animation frame. Only the built-in inline visualisers are available. The
-full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
-lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
-`cleanupDraw`/`cleanupDrawContext` lifecycle are not ported; the inline widget
-host re-queries the pattern each frame instead of keeping painter-side hap
-memory.
+upstream framing, corner-clipped "now" included.
 
 **The event-annotation controls around the draw runtime are implemented.**
 `label` (a multi-control, so `label("bd:BD!")` also sets `activeLabel`) and
@@ -391,7 +391,7 @@ against, so the reference here is **hydra-synth 1.3.29**, pinned into
 `tools/oracle/hydra_golden.json` by `tools/oracle/gen_hydra_oracle.mjs`.
 `crates/rudel-lang/tests/hydra_parity.rs` holds the port to it.
 
-**What works.** 49 of hydra's 52 functions, as a chain that compiles to WGSL and
+**What works.** 50 of hydra's 52 functions, as a chain that compiles to WGSL and
 renders in an inline widget:
 
 ```koto
@@ -415,18 +415,34 @@ alongside `Math` and `Object`. Chained methods keep hydra's own spelling.
 **What is missing.** Everything that needs render-to-texture, which is the whole
 output-buffer half of hydra:
 
+**Feedback works.** A hydra widget owns an output buffer, so `prev()` reads the
+frame before:
+
+```koto
+s("bd*4").hydra({ chain:
+  Hydra.osc(8, 0.1, 0.9)
+    .rotate(0.2, 0.1)
+    .layer(Hydra.prev().scale(1.02).colorama(0.004).luma(0.05, 0.3))
+})
+```
+
+The widget renders its chain into one of two alternating textures and blits the
+result into its rect, so the chain samples last frame's texture while writing
+this frame's (`crates/rudel-app/src/editor/widgets/hydra_gpu.rs`). Both are the
+window's own format, so a value survives the round trip.
+
+**What is missing.**
+
 | Not ported | Why |
 | --- | --- |
-| `src`, `prev` | sample an output buffer or the previous frame; need offscreen targets and ping-pong |
+| `src` | names a buffer. A widget renders one chain into one buffer, so `src(o0)` would be `prev()`; `o1`–`o3` and `s0`–`s3` have nowhere to come from |
 | `o0`–`o3`, `render()` | multiple outputs; one widget renders one chain |
 | `s0`–`s3` | webcam, video, screen capture |
 | `sum` | its GLSL body closes the function and opens a second overload, and returns a float where the composer expects a `vec4` |
 | `initHydra`, `H`, `clearHydra` | the browser loader; there is nothing to load |
 
-Feedback (`src(o0)`) is the notable casualty, and it is what most "how did they
-do that" hydra patches are built on. `hydra::UNIMPLEMENTED` carries the list in
-code, and the parity test fails if hydra grows a function that is neither
-implemented nor listed there.
+`hydra::UNIMPLEMENTED` carries the list in code, and the parity test fails if
+hydra grows a function that is neither implemented nor listed there.
 
 **Numeric parameters are numbers.** Upstream accepts a function for any input
 (`H(pattern)` is one), called per frame. Rudel compiles the chain at evaluation

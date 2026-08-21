@@ -132,7 +132,7 @@ fn _noise(v: vec3<f32>) -> f32 {
 
 /// Every hydra function Rudel implements, in the order hydra declares them.
 ///
-/// `src`, `prev` and `sum` are absent on purpose; see `hydra::UNIMPLEMENTED`.
+/// `src` and `sum` are absent on purpose; see `hydra::UNIMPLEMENTED`.
 pub(super) static FUNCTIONS: &[HydraFn] = &[
     // ---- src ---------------------------------------------------------------
     HydraFn {
@@ -202,6 +202,16 @@ pub(super) static FUNCTIONS: &[HydraFn] = &[
         inputs: &[f("speed", 0.0)],
         helpers: &[],
         wgsl: "return vec4<f32>(_st, sin(hu.time * speed), 1.0);",
+    },
+    HydraFn {
+        name: "prev",
+        ty: FnType::Src,
+        inputs: &[],
+        helpers: &[],
+        // Upstream reads `prevBuffer`, the output buffer this chain last drew
+        // into. A Rudel hydra widget has exactly one such buffer, so this is
+        // the widget's own previous frame.
+        wgsl: "return textureSample(hPrevTex, hPrevSampler, fract(_st));",
     },
     HydraFn {
         name: "solid",

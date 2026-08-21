@@ -378,7 +378,7 @@ pub(super) fn paint_hydra(
 .hydra({ chain: osc() })", colors);
         return;
     };
-    paint_wgsl(ui, rect, &widget.id, source.to_string(), haps, time, colors);
+    super::hydra_gpu::paint_hydra_gpu(ui, rect, widget, source.to_string(), haps, time, colors);
 }
 
 /// Render a finished WGSL module into the widget rect.
