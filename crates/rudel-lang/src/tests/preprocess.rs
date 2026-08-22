@@ -905,3 +905,15 @@ fn appending_a_string_with_plus_equals_becomes_an_assignment() {
         "s = 'a'\ns = rudel_concat(s, 'b')\npure(s)"
     );
 }
+
+#[test]
+fn a_bare_silence_statement_is_called() {
+    // Upstream's `silence` is the pattern, not a factory, and a scratch pad ends
+    // with the bare word to go quiet.
+    assert_eq!(preprocess_strudel("s(\"bd\")\nsilence"), "s(m(\"bd\", 3))\nsilence()");
+    let pat = eval("s(\"bd\")\nsilence").expect("eval");
+    assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+    // Only when it is the whole statement, and only when it is code.
+    assert_eq!(preprocess_strudel("silence.fast(2)"), "silence.fast(2)");
+    assert!(preprocess_strudel(r#"s("silence")"#).contains(r#"m("silence""#));
+}

@@ -10,7 +10,7 @@ use mini::annotate_mini_offsets;
 pub(crate) use mondo::looks_like_mondo;
 use mondo::rewrite_mondo_templates;
 use syntax::{
-    close_expression_gaps, flatten_non_final_groups, hoist_leading_commas,
+    call_bare_silence, close_expression_gaps, flatten_non_final_groups, hoist_leading_commas,
     indent_dot_continuations, join_dangling_operators, normalize_unicode_blanks,
     order_declarations, quote_map_keys, rename_ignored_identifiers, rename_koto_keywords,
     rewrite_alignment_getters, rewrite_arrow_functions, rewrite_block_bodies,
@@ -87,6 +87,7 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = close_expression_gaps(&script);
     let script = rewrite_for_loops(&script);
     let script = indent_dot_continuations(&script);
+    let script = call_bare_silence(&script);
     let script = order_declarations(&script);
     let script = rewrite_labels(&script);
     // Mirror the transpiler's empty-body fallback: an empty (or fully

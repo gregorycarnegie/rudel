@@ -1988,6 +1988,29 @@ pub(super) fn rewrite_const_declarations(src: &str) -> String {
         .join("\n")
 }
 
+/// Call a `silence` written on its own.
+///
+/// Upstream exports the silent *pattern*, not a factory, so a tune ends a
+/// scratch pad with the bare word to go quiet — 39 of the 8004 in the corpus do.
+/// Here it is a function, and a script whose last statement is the bare name
+/// hands back the function itself ("script did not return a pattern (got
+/// Function)"). Calling it is what the name meant either way.
+pub(super) fn call_bare_silence(src: &str) -> String {
+    let mask = code_mask(src);
+    let mask = String::from_utf8_lossy(&mask);
+    src.lines()
+        .zip(mask.lines())
+        .map(|(line, masked)| {
+            if masked.trim() != "silence" {
+                return line.to_string();
+            }
+            let indent = &line[..line.len() - line.trim_start().len()];
+            format!("{indent}silence()")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Rewrite a `+=` that appends a string into the assignment Koto takes:
 ///
 /// ```text
