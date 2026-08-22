@@ -98,6 +98,28 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
         }
         Ok(KValue::Map(map))
     });
+    // JSON's numbers are all one type, so every one becomes a Koto float — the
+    // same thing `Number(...)` hands back, and what the arithmetic downstream
+    // of a parsed table expects.
+    fn json_to_koto(value: &serde_json::Value) -> KValue {
+        use serde_json::Value as Json;
+        match value {
+            Json::Null => KValue::Null,
+            Json::Bool(b) => KValue::Bool(*b),
+            Json::Number(n) => n.as_f64().map_or(KValue::Null, |f| KValue::Number(f.into())),
+            Json::String(s) => KValue::Str(s.as_str().into()),
+            Json::Array(items) => KValue::List(KList::with_data(
+                items.iter().map(json_to_koto).collect::<Vec<_>>().into(),
+            )),
+            Json::Object(fields) => {
+                let map = KMap::default();
+                for (key, value) in fields {
+                    map.insert(key.as_str(), json_to_koto(value));
+                }
+                KValue::Map(map)
+            }
+        }
+    }
     // `Object.entries(map)`: the pairs as a list of `[key, value]`, the
     // inverse of `fromEntries` above.
     object.add_fn("entries", |ctx| {
@@ -118,6 +140,21 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
         Ok(KValue::List(KList::with_data(pairs.into())))
     });
     prelude.insert("Object", object);
+    // `JSON.parse(text)`: the object graph as Koto maps and lists. Songs embed a
+    // lookup table — a pixel font, a chord book — as one JSON string literal and
+    // read it back at the top of the script. `stringify` has no such use and is
+    // not here.
+    let json = KMap::default();
+    json.add_fn("parse", |ctx| {
+        let Some(KValue::Str(text)) = ctx.args().first() else {
+            return runtime_error!("JSON.parse expects a string");
+        };
+        match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(value) => Ok(json_to_koto(&value)),
+            Err(e) => runtime_error!("JSON.parse: {e}"),
+        }
+    });
+    prelude.insert("JSON", json);
     // Backs the preprocessor's `typeof` rewrite. Koto's own `type` answers with
     // its names (`String`, `Map`), and a script compares against JavaScript's.
     prelude.add_fn("rudel_typeof", |ctx| {
@@ -135,6 +172,10 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
     // `String(x)` / `Number(x)`: JavaScript's conversions, used to do arithmetic
     // on the numeric part of a note name and put it back together.
     prelude.add_fn("String", |ctx| Ok(js_string(ctx.args().first()).into()));
+    // `Boolean(x)`: the same conversion as a value. Songs pass it by name —
+    // `lines.filter(Boolean)` is the idiom for dropping the empty strings a
+    // `split` leaves at the ends.
+    prelude.add_fn("Boolean", |ctx| Ok(js_truthy(ctx.args().first()).into()));
     // Backs the preprocessor's rewrite of `+` around a string literal. JS folds
     // an additive chain left to right, adding while both sides are numbers and
     // concatenating from the first string on.
@@ -247,6 +288,16 @@ fn register_list(list: &KMap) {
             (instance, args) => unexpected_args_after_instance(expected, instance, args),
         }
     });
+    /// Whether a callback declares a second parameter — the index a JS-style
+    /// `map` would pass. A native function's arity is not visible, so it is
+    /// given both and left to ignore what it does not want.
+    fn wants_args(f: &KValue, n: u8) -> bool {
+        match f {
+            KValue::Function(f) => f.expected_arg_count() >= n,
+            _ => true,
+        }
+    }
+
     // `arr.map((value, index) => ...)`: a new list, with the index passed as
     // JS does. Koto's `each` yields values only and returns an iterator.
     // `flatMap` is the same, with one level of the result flattened away.
@@ -258,21 +309,22 @@ fn register_list(list: &KMap) {
                     let source = l.data().clone();
                     let f = f.clone();
                     let mut out = Vec::with_capacity(source.len());
+                    // Koto is strict about arity, and most callbacks written in
+                    // the wild ignore the index, so the call is trimmed to what
+                    // this one declares rather than made and retried. A retry is
+                    // not free: it would take the error path on *every* entry,
+                    // and a VM that has raised a few dozen of them stops
+                    // recovering — a 94-entry table failed where a 59-entry one
+                    // did not.
+                    let with_index = wants_args(&f, 2);
                     for (i, value) in source.iter().enumerate() {
                         let args = [value.clone(), KValue::Number(KNumber::from(i as i64))];
-                        // Koto is strict about arity, so a callback that ignores
-                        // the index has to be retried with one argument. If that
-                        // fails too the two-argument error is the one worth
-                        // reporting — the retry's "insufficient arguments" only
-                        // describes the retry.
-                        let mapped =
-                            match ctx.vm.call_function(f.clone(), CallArgs::Separate(&args)) {
-                                Ok(value) => value,
-                                Err(err) => ctx
-                                    .vm
-                                    .call_function(f.clone(), value.clone())
-                                    .map_err(|_| err)?,
-                            };
+                        let call = if with_index {
+                            CallArgs::Separate(&args)
+                        } else {
+                            CallArgs::Single(value.clone())
+                        };
+                        let mapped = ctx.vm.call_function(f.clone(), call)?;
                         match (flatten, &mapped) {
                             (true, KValue::List(inner)) => {
                                 out.extend(inner.data().iter().cloned());
@@ -316,13 +368,50 @@ fn register_list(list: &KMap) {
                 let f = f.clone();
                 let mut out = Vec::new();
                 for value in source.iter() {
-                    // JS keeps whatever is truthy; `null` and `false` are not.
+                    // JS keeps whatever the predicate answers truthily, which
+                    // rules out zero and the empty string as well as `false`.
                     let keep = ctx.vm.call_function(f.clone(), value.clone())?;
-                    if !matches!(keep, KValue::Null | KValue::Bool(false)) {
+                    if js_truthy(Some(&keep)) {
                         out.push(value.clone());
                     }
                 }
                 Ok(KValue::List(KList::with_data(out.into())))
+            }
+            (instance, args) => unexpected_args_after_instance(expected, instance, args),
+        }
+    });
+    // `arr.reduce(f, seed?)`: fold left, in JS's argument order
+    // `(acc, value, index)`. Songs build a `timeCat` argument list this way —
+    // one entry per word, carrying a running total. Koto's `fold` takes the seed
+    // first and has no index, so neither reads as JS.
+    list.add_fn("reduce", |ctx| {
+        let expected = "|List, |Any, Any| -> Any, Any?|";
+        match ctx.instance_and_args(|v| matches!(v, KValue::List(_)), expected)? {
+            (KValue::List(l), [f, seed @ ..]) if f.is_callable() => {
+                let source = l.data().clone();
+                let f = f.clone();
+                let with_index = wants_args(&f, 3);
+                let mut items = source.iter().enumerate();
+                // Without a seed the first entry is it. JS throws on an empty
+                // list with no seed; `null` is what the rest of this module
+                // answers when there is nothing to give.
+                let mut acc = match seed.first() {
+                    Some(seed) => seed.clone(),
+                    None => match items.next() {
+                        Some((_, first)) => first.clone(),
+                        None => return Ok(KValue::Null),
+                    },
+                };
+                for (i, value) in items {
+                    let args = [
+                        acc,
+                        value.clone(),
+                        KValue::Number(KNumber::from(i as i64)),
+                    ];
+                    let args = if with_index { &args[..] } else { &args[..2] };
+                    acc = ctx.vm.call_function(f.clone(), CallArgs::Separate(args))?;
+                }
+                Ok(acc)
             }
             (instance, args) => unexpected_args_after_instance(expected, instance, args),
         }
@@ -379,6 +468,18 @@ fn js_int32(x: f64) -> i32 {
     } else {
         wrapped
     }) as i32
+}
+
+/// JavaScript's truthiness: everything counts but `null`, `false`, zero and the
+/// empty string. A missing argument is `undefined`, which is false too.
+fn js_truthy(value: Option<&KValue>) -> bool {
+    match value {
+        None | Some(KValue::Null) => false,
+        Some(KValue::Bool(b)) => *b,
+        Some(KValue::Number(n)) => f64::from(n) != 0.0,
+        Some(KValue::Str(s)) => !s.is_empty(),
+        _ => true,
+    }
 }
 
 /// JavaScript's `String(x)`.

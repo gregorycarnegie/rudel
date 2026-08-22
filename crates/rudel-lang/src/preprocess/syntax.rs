@@ -732,6 +732,9 @@ fn koto_statement(stmt: &str, tail: bool) -> String {
 struct BlockBody {
     from: usize,
     head: String,
+    /// The body is an expression — a lambda — rather than something it binds to
+    /// a name, so it can be parenthesised when a further argument follows it.
+    lambda: bool,
     open: usize,
     close: usize,
 }
@@ -750,6 +753,25 @@ fn ident_start(src: &str, end: usize) -> usize {
         .map_or(0, |(i, c)| i + c.len_utf8())
 }
 
+/// Where an arrow function's parameter list begins, given the `=` of its `=>`:
+/// the matching `(` of a parenthesised list, or the start of a bare identifier.
+fn arrow_params_start(src: &str, mask: &[u8], eq: usize) -> usize {
+    let Some(end) = last_code_before(mask, eq) else {
+        return eq;
+    };
+    if mask[end] != b')' {
+        return ident_start(src, end + 1);
+    }
+    let mut depth = 0i32;
+    (0..=end)
+        .rev()
+        .find(|&i| {
+            depth -= bracket_delta(mask[i]);
+            mask[i] == b'(' && depth == 0
+        })
+        .unwrap_or(eq)
+}
+
 /// The first `{ ... }` that is a *function body* — either an arrow's, or a
 /// `function` declaration's. Object literals and Koto maps have neither an `=>`
 /// nor a `function` header in front of them and are skipped.
@@ -766,9 +788,14 @@ fn find_block_body(src: &str, mask: &[u8]) -> Option<BlockBody> {
         // `... => { body }`. The parameters to the left of the `=>` are left
         // for `rewrite_arrow_functions`, which now sees an expression body.
         if mask[prev] == b'>' && prev > 0 && mask[prev - 1] == b'=' {
+            // The head is reproduced verbatim so the parameters and the `=>`
+            // survive for `rewrite_arrow_functions`; naming `from` further left
+            // is what lets a wrapping `(` go in front of them.
+            let from = arrow_params_start(src, mask, prev - 1);
             return Some(BlockBody {
-                from: open,
-                head: String::new(),
+                from,
+                head: src[from..open].to_string(),
+                lambda: true,
                 open,
                 close: matching_brace(mask, open)?,
             });
@@ -808,6 +835,7 @@ fn find_block_body(src: &str, mask: &[u8]) -> Option<BlockBody> {
         return Some(BlockBody {
             from,
             head,
+            lambda: name.is_empty(),
             open,
             close: matching_brace(mask, open)?,
         });
@@ -880,7 +908,20 @@ pub(super) fn rewrite_block_bodies(src: &str) -> String {
         } else {
             rest.trim_start_matches([' ', '\t'])
         };
-        current = format!("{}{}{}{rest}", &current[..block.from], block.head, rendered,);
+        // Koto ends a lambda at the end of its indented block, so a further
+        // argument after the body — `reduce(|acc, x| <block>, [])` — would read
+        // as part of the body. Parenthesising the lambda ends it explicitly.
+        let (open_paren, close_paren) = if block.lambda && rest.starts_with(',') {
+            ("(", ")")
+        } else {
+            ("", "")
+        };
+        current = format!(
+            "{}{open_paren}{}{}{close_paren}{rest}",
+            &current[..block.from],
+            block.head,
+            rendered,
+        );
     }
     current
 }
@@ -1789,6 +1830,16 @@ pub(super) fn rewrite_const_declarations(src: &str) -> String {
 /// target for assignment"). Only commas outside brackets separate declarations;
 /// the ones inside a value's own list or map stay put.
 fn split_declarations(indent: &str, rest: &str) -> String {
+    // A `;` separates whole statements rather than further declarators, so the
+    // next one restates the keyword: `var a = 1; var b = 2`. Dropping it again
+    // is what makes the second statement a binding instead of a lookup of `var`.
+    fn undeclare(part: &str) -> &str {
+        let part = part.trim();
+        ["const ", "let ", "var "]
+            .iter()
+            .find_map(|kw| part.strip_prefix(*kw))
+            .unwrap_or(part)
+    }
     let mask = code_mask(rest);
     let mut depth = 0i32;
     let mut out = String::with_capacity(rest.len());
@@ -1797,15 +1848,15 @@ fn split_declarations(indent: &str, rest: &str) -> String {
         let delta = bracket_delta(byte);
         if delta != 0 {
             depth += delta;
-        } else if depth == 0 && byte == b',' {
+        } else if depth == 0 && (byte == b',' || byte == b';') {
             out.push_str(indent);
-            out.push_str(rest[start..i].trim());
+            out.push_str(undeclare(&rest[start..i]));
             out.push('\n');
             start = i + 1;
         }
     }
     out.push_str(indent);
-    out.push_str(rest[start..].trim_start());
+    out.push_str(undeclare(&rest[start..]));
     out
 }
 
@@ -1823,11 +1874,47 @@ fn normalize_string_literal(literal: &str) -> String {
     if quote != '`' && !content.contains('{') && !content.contains('}') {
         return literal.to_string();
     }
+    let content = unescape_js(content);
     let mut hashes = "#".to_string();
     while content.contains(&format!("'{}", hashes)) {
         hashes.push('#');
     }
     format!("r{hashes}'{content}'{hashes}")
+}
+
+/// Apply the backslash escapes JS would have, because the raw string this is
+/// headed for applies none — the value has to be the text the script meant
+/// rather than its spelling. A song embedding a JSON table writes `\"` for a
+/// quote inside it, and left alone that reaches the parser as `\\"`.
+fn unescape_js(content: &str) -> String {
+    if !content.contains('\\') {
+        return content.to_string();
+    }
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('0') => out.push('\0'),
+            // A codepoint escape has a body this does not walk, so it is left
+            // spelled as it was rather than half-decoded.
+            Some(c @ ('u' | 'x')) => {
+                out.push('\\');
+                out.push(c);
+            }
+            // Everything else — `\\`, `\'`, `\"`, `\/` — stands for the
+            // character itself; an unknown escape is not an error in JS.
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 pub(super) fn rewrite_string_method_chains(src: &str) -> String {

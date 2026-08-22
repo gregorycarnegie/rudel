@@ -107,6 +107,13 @@ fn javascript_conversions_match_javascript() {
     // `String` of either a string or a number round-trips through `Number`.
     assert_eq!(one("pure(Number(String(4)))"), vec![Value::Int(4)]);
     assert_eq!(one("pure(Number(String('4')))"), vec![Value::Int(4)]);
+    // `filter(Boolean)` is the idiom for dropping what a `split` left empty.
+    assert_eq!(
+        one("pure(['a', '', 'b'].filter(Boolean).length)"),
+        vec![Value::Int(2)]
+    );
+    assert_eq!(one("pure(Boolean(0))"), vec![Value::Bool(false)]);
+    assert_eq!(one("pure(Boolean('x'))"), vec![Value::Bool(true)]);
     assert_eq!(one("pure(rudel_typeof('a'))"), vec!["string".into()]);
     assert_eq!(one("pure(rudel_typeof(1))"), vec!["number".into()]);
 }
@@ -130,6 +137,77 @@ fn object_from_entries_takes_lists_or_tuples_at_either_level() {
     assert_eq!(
         one("pure(Object.fromEntries([[1, 5]]).contains_key('1'))"),
         vec![Value::Bool(true)]
+    );
+}
+
+#[test]
+fn map_over_a_long_list_takes_a_one_parameter_callback() {
+    // `map` passes JS's `(value, index)`, and a callback that declares only the
+    // value used to be *called* with both and retried on the arity error. Every
+    // entry took that error path, and past a few dozen the VM stopped recovering
+    // from them: a 94-entry table failed where a 59-entry one worked. Long
+    // enough here to be past that.
+    let list = (0..100).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let one = |script: &str| values(&eval(script).expect("eval"), 0, 1);
+    assert_eq!(
+        one(&format!("pure([{list}].map((v) => v + 1)[99])")),
+        vec![Value::Int(100)]
+    );
+    // The two-parameter form still gets its index.
+    assert_eq!(
+        one(&format!("pure([{list}].map((v, i) => i)[99])")),
+        vec![Value::Int(99)]
+    );
+}
+
+#[test]
+fn reduce_folds_left_in_javascripts_argument_order() {
+    let one = |script: &str| values(&eval(script).expect("eval"), 0, 1);
+    // Seeded, and the seed is the accumulator's starting type.
+    assert_eq!(
+        one("pure([1, 2, 3].reduce((a, v) => a + v, 10))"),
+        vec![Value::Int(16)]
+    );
+    // Unseeded: the first entry is the seed, so nothing is folded onto itself.
+    assert_eq!(
+        one("pure([1, 2, 3].reduce((a, v) => a + v))"),
+        vec![Value::Int(6)]
+    );
+    // The index is JS's third argument, and only reaches a callback that asks.
+    assert_eq!(
+        one("pure([5, 5, 5].reduce((a, v, i) => a + i, 0))"),
+        vec![Value::Int(3)]
+    );
+    // A block body with a further argument after it — the shape that made the
+    // preprocessor parenthesise the lambda.
+    assert_eq!(
+        one("pure([1, 2].reduce((a, v) => { a.push(v); return a }, []).length)"),
+        vec![Value::Int(2)]
+    );
+}
+
+#[test]
+fn json_parse_reads_an_embedded_table_back_as_maps_and_lists() {
+    let one = |script: &str| values(&eval(script).expect("eval"), 0, 1);
+    // The shape songs use: a table keyed by character, read out by key.
+    assert_eq!(
+        one(r#"pure(JSON.parse('{"a": [1, 2], "b": "bd"}').b)"#),
+        vec!["bd".into()]
+    );
+    // Nested lists index as lists, and JSON numbers arrive as numbers.
+    assert_eq!(
+        one(r#"pure(JSON.parse('{"a": [1, 2]}').a[1] + 1)"#),
+        vec![Value::Int(3)]
+    );
+    // Malformed JSON is a script bug, and says so rather than passing silently.
+    assert!(eval("pure(JSON.parse('{oops'))").is_err());
+    // A brace-carrying literal becomes a Koto *raw* string, which applies no
+    // escapes of its own — so the escapes JS would have applied are resolved on
+    // the way in. A table keyed by `"` is written `\\"` in the JS source: the
+    // literal collapses that to the `\"` the JSON parser then needs.
+    assert_eq!(
+        one(r#"pure(JSON.parse('{"\\"": "quote"}').get('"'))"#),
+        vec!["quote".into()]
     );
 }
 

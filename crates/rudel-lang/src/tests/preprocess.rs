@@ -695,6 +695,17 @@ fn a_block_bodied_arrow_becomes_an_indented_koto_block() {
         preprocess_strudel("function arr(p, l) { return [l, p] }"),
         "arr = |p, l|\n  [l, p]"
     );
+    // A further argument after the body — `reduce(fn, seed)` — has to close the
+    // lambda with a bracket, or Koto reads the `, []` as part of the block.
+    assert_eq!(
+        preprocess_strudel("xs.reduce((a, x) => { a.push(x); return a }, [])"),
+        "xs.reduce((|a, x|\n  a.push(x)\n  a\n), [])"
+    );
+    // The anonymous `function` spelling of the same shape.
+    assert_eq!(
+        preprocess_strudel("xs.reduce(function (a, x) { return a }, [])"),
+        "xs.reduce((|a, x|\n  a\n), [])"
+    );
 }
 
 #[test]
@@ -723,6 +734,12 @@ fn js_object_and_declaration_forms_become_koto_ones() {
     assert_eq!(
         preprocess_strudel("x = {0: a, 1: b}"),
         "x = {'0': a, '1': b}"
+    );
+    // Two declarations on one line: the keyword is dropped from both, not just
+    // the one that opens the line.
+    assert_eq!(
+        preprocess_strudel("var a = 1; var b = 2"),
+        "a = 1\nb = 2"
     );
     // Spread has no Koto syntax, so it becomes a merge call.
     assert_eq!(
@@ -848,3 +865,5 @@ fn widget_options_coerce_between_their_three_shapes() {
     assert_eq!(Number(2.0).as_str(), None);
     assert_eq!(Bool(true).as_str(), None);
 }
+
+
