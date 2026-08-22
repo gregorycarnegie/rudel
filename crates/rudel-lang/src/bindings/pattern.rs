@@ -260,14 +260,17 @@ fn register_method(name: &str, func: KValue, patternify: bool) {
             // Upstream's `register` patternifies its arguments: a pattern passed
             // where a value is expected is sampled per cycle rather than handed
             // to the callback whole (`arg.fmap(v => fn(v, pat)).innerJoin()`).
-            // A mini-notation literal carries its own source text and is a value
-            // here, as it is everywhere else in the bindings, so only a real
-            // pattern expression triggers this.
+            // Except for its pure fast path, which hands the leading arguments
+            // over as plain values when every one of them is a `pure` — so what
+            // decides is whether the argument *has structure*, not whether it
+            // was written as a mini literal. `m("c3")` is one steady value and
+            // stays a value; `m("<c3 e3>")` is a cycle-alternation and gets
+            // sampled, which is what a helper doing `noteToMidi(arg)` needs.
             let patterned = patternify
                 .then(|| {
                     args[..args.len() - 1].iter().position(|arg| {
                         matches!(arg, KValue::Object(o) if o.is_a::<KPattern>()
-                            && o.cast::<KPattern>().is_ok_and(|p| p.0.source.is_none()))
+                            && o.cast::<KPattern>().is_ok_and(|p| p.0.pure_value.is_none()))
                     })
                 })
                 .flatten();

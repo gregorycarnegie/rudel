@@ -548,6 +548,41 @@ fn set_gain_curve_installs_the_curve_it_was_given() {
 }
 
 #[test]
+fn register_patternifies_a_structured_argument_but_not_a_pure_one() {
+    // Upstream's `register` hands the leading arguments over as plain values
+    // when every one is a `pure`, and samples them per cycle otherwise. So a
+    // one-atom mini literal reaches the callback whole and a cycle-alternation
+    // arrives one value at a time — which is what a helper that does arithmetic
+    // on its argument needs.
+    let notes = |script: &str, cycle: i64| {
+        let pat = eval(script).unwrap_or_else(|e| panic!("{script}: {e}"));
+        values(&pat, cycle, cycle + 1)
+            .iter()
+            .filter_map(|v| match v {
+                Value::Map(m) => m.get("note").cloned(),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let sampled = r#"
+register('seen', (x, pat) => pat.note(x))
+note("c3").seen("<60 62>")
+"#;
+    assert_eq!(notes(sampled, 0), vec![Value::Int(60)]);
+    assert_eq!(notes(sampled, 1), vec![Value::Int(62)]);
+
+    // `register(name, fn, false)` opts out: the helper works on the argument
+    // pattern itself, so it is handed that rather than a sample of it — here
+    // both alternatives land inside one cycle.
+    let whole = r#"
+register('both', (x, pat) => pat.fast(2).note(x.fast(2)), false)
+note("c3").both("<60 62>")
+"#;
+    assert_eq!(notes(whole, 0), vec![Value::Int(60), Value::Int(62)]);
+}
+
+#[test]
 fn javascript_string_arithmetic_and_the_methods_that_go_with_it() {
     // `register('mask' + n, …)` is how the binary-mask helper going round
     // strudel.cc names its methods, and Koto's `+` refuses a string and a

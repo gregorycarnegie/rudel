@@ -584,7 +584,15 @@ pub(crate) fn register(prelude: &KMap) {
         let Some(name) = name else {
             return koto::runtime::runtime_error!("register(name, fn): name must be a string");
         };
-        super::pattern::register_pattern_method(&name, func.clone());
+        // `register(name, fn, patternify = true)`. A helper that says `false`
+        // does its own `reify`/join on the argument and would be handed a
+        // per-cycle sample instead of the pattern it means to work on.
+        match args.get(2) {
+            Some(KValue::Bool(false)) => {
+                super::pattern::register_prototype_method(&name, func.clone());
+            }
+            _ => super::pattern::register_pattern_method(&name, func.clone()),
+        }
         Ok(func)
     });
     // `Pattern.prototype.name = function …`, as the preprocessor rewrites it.
