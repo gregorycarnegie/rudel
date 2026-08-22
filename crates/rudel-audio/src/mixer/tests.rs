@@ -2493,3 +2493,28 @@ fn max_polyphony_fades_out_the_oldest_voices() {
     mixer.render_block(&mut rest);
     assert_eq!(mixer.active_len(), CAP + 4, "no cap, no choking");
 }
+
+#[test]
+fn dough_plays_its_pattern_as_bytebeat() {
+    // `dough(code)` compiles the script's own JavaScript into an AudioWorklet,
+    // which needs a JS engine at sample rate. What that code always is, in the
+    // wild, is a bytebeat player reading the hap's `s` value, so `.dough()`
+    // hands that value to the `bytebeat` voice instead — see `Pattern::dough`.
+    let expr = "t>>6^t&t>>9^t>>12";
+    let doughed = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(expr.into()))).dough();
+    // The same thing spelled out, which is what it has to be equivalent to.
+    let spelled = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("bytebeat".into())))
+        .ctrl("byteBeatExpression", rudel_core::Value::Str(expr.into()));
+
+    let level = rms(&render_pattern(&doughed, 1.0, 0.5));
+    assert!(level > 0.0, "a doughed bytebeat should make a sound");
+    assert_eq!(
+        level,
+        rms(&render_pattern(&spelled, 1.0, 0.5)),
+        "`.dough()` should render as the bytebeat voice"
+    );
+    // Without it the expression is just a sound name, which resolves to the
+    // fallback voice and plays something else entirely.
+    let raw = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(expr.into())));
+    assert_ne!(rms(&render_pattern(&raw, 1.0, 0.5)), level);
+}

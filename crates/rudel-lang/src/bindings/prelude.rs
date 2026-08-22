@@ -770,6 +770,20 @@ pub(crate) fn register(prelude: &KMap) {
             Ok(KValue::Null)
         });
     }
+    // ``dough`…` ``: compile the given JavaScript into an AudioWorklet and run
+    // its `dsp(t)` at sample rate (superdough/dspworklet.mjs). That needs a JS
+    // engine on the audio thread, so the code is accepted and not run — and the
+    // pattern it was installed for still plays, because `.dough()` renders the
+    // bytebeat these worklets are always built to play. See `Pattern::dough`
+    // for what that covers and what it does not.
+    prelude.add_fn("dough", |_| {
+        rudel_core::log_line(
+            "dough: the DSP worklet needs a JS engine and is not run here; \
+             `.dough()` plays its pattern as bytebeat"
+                .to_string(),
+        );
+        Ok(KValue::Null)
+    });
     let console = KMap::new();
     for level in ["log", "info", "warn", "error", "debug"] {
         console.add_fn(level, |ctx| {

@@ -35,13 +35,44 @@ pub struct Pattern {
 }
 
 impl Pattern {
-    /// `dough`: play this pattern through the audio output.
+    /// `dough`: play this pattern through the DSP worklet a `dough(code)` call
+    /// installed (`webaudio.mjs`: `this.onTrigger(doughTrigger, 1)`, which posts
+    /// each hap's value to it).
     ///
-    /// Upstream attaches an `onTrigger`, because a Strudel pattern is inert
-    /// until something is listening; rudel's scheduler already routes whatever
-    /// a script returns, so the pattern comes back unchanged.
+    /// That worklet is compiled from the script's own JavaScript and runs at
+    /// sample rate, which needs a JS engine on the audio thread — rudel has
+    /// none. What the code *is*, in every use of this in the wild, is a bytebeat
+    /// player built out of the hap's own `s` value:
+    ///
+    /// ```text
+    /// await dough`
+    ///   let f
+    ///   let trigger = (value) => { f = Function('t', 'return ' + value.s) }
+    ///   let dsp = (t) => { t *= 44000; return ((f(t) & 255) / 127.5 - 1) / 4 }
+    /// `
+    /// s('t>>6^t&t>>9^t>>12').dough()
+    /// ```
+    ///
+    /// So the `s` value is moved to `byteBeatExpression` and handed to the
+    /// `bytebeat` voice, which is that same expression language under that same
+    /// `(x & 255) / 127.5 - 1` scaling, already ported in `rudel-dsp`.
+    ///
+    /// ponytail: an interpretation, not a port — worklet code doing something
+    /// other than bytebeat gets bytebeat anyway. Playing it properly needs a JS
+    /// engine per sample; short of that this is the nearest rudel can get, and
+    /// the alternative is reading the expression as a sample name and finding
+    /// no such sample.
     pub fn dough(&self) -> Pattern {
-        self.clone()
+        self.with_value(|value| {
+            let Value::Map(mut map) = value else {
+                return value;
+            };
+            if let Some(expr @ Value::Str(_)) = map.shift_remove("s") {
+                map.insert("byteBeatExpression".to_string(), expr);
+                map.insert("s".to_string(), Value::Str("bytebeat".to_string()));
+            }
+            Value::Map(map)
+        })
     }
 
     pub fn new<F>(query: F) -> Pattern
