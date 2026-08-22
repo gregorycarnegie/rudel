@@ -3461,6 +3461,7 @@ dependencies = [
  "naga",
  "proptest",
  "rudel-core",
+ "rudel-dsp",
  "rudel-mini",
  "serde_json",
 ]

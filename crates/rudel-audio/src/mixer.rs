@@ -459,15 +459,29 @@ impl Mixer {
                 if let Some(b) = ev.send.bus {
                     self.signal_buses.entry(b).or_default();
                 }
+                let mut voice = ev.spec.into_chained_voice(
+                    self.sample_rate,
+                    &ev.fx_chain,
+                    ev.fx,
+                    &ev.mods,
+                );
+                // A `K(...)` graph wraps everything else, as upstream's
+                // `chain.connect(workletNode)` puts it at the end of the
+                // chain: `audioin()` inside the graph reads what the voice
+                // would otherwise have played.
+                if let Some(w) = ev.worklet {
+                    voice = Box::new(rudel_dsp::KabelVoice::new(
+                        w.program,
+                        voice,
+                        self.sample_rate,
+                        w.freq,
+                        w.inputs,
+                        w.gate_end,
+                        w.end,
+                    ));
+                }
                 self.active.push(ActiveVoice {
-                    voice: ev
-                        .spec
-                        .into_chained_voice(
-                            self.sample_rate,
-                            &ev.fx_chain,
-                            ev.fx,
-                            &ev.mods,
-                        ),
+                    voice,
                     tags: ev.tags,
                     cut: ev.cut,
                     send: ev.send,

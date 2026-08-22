@@ -71,9 +71,14 @@ enum Node {
     Num(f64),
     /// The sample counter `t`.
     T,
-    /// A `Math` constant, or any identifier we do not know (JS yields a function
-    /// object there, which coerces to 0 through the bitwise ops that use it).
+    /// A `Math` constant.
     Const(f64),
+    /// Any other identifier. `bytebeat` expressions have none, but the
+    /// kabelsalat nodes that share this evaluator do — `raw` reads `$input`
+    /// and `time` — so the name is kept and resolved against the environment.
+    /// One that is not bound is a bare global reference in upstream, i.e. a
+    /// function object: NaN in arithmetic, 0 through `|0`/`>>0`.
+    Ident(String),
     Unary(char, Box<Node>),
     Bin(Op, Box<Node>, Box<Node>),
     Cond(Box<Node>, Box<Node>, Box<Node>),
@@ -190,17 +195,27 @@ impl ByteBeatExpr {
 
     /// Evaluate at sample counter `t`.
     pub fn eval(&self, t: f64) -> f64 {
-        eval(&self.root, t)
+        self.eval_with(t, &[])
+    }
+
+    /// Evaluate with extra named values in scope. An identifier `vars` does not
+    /// name is NaN, as an unbound global is upstream.
+    pub fn eval_with(&self, t: f64, vars: &[(&str, f64)]) -> f64 {
+        eval(&self.root, t, vars)
     }
 }
 
-fn eval(node: &Node, t: f64) -> f64 {
+fn eval(node: &Node, t: f64, vars: &[(&str, f64)]) -> f64 {
     match node {
         Node::Num(v) => *v,
         Node::T => t,
         Node::Const(v) => *v,
+        Node::Ident(name) => vars
+            .iter()
+            .find(|(key, _)| key == name)
+            .map_or(f64::NAN, |(_, value)| *value),
         Node::Unary(op, inner) => {
-            let v = eval(inner, t);
+            let v = eval(inner, t, vars);
             match op {
                 '-' => -v,
                 '~' => !to_int32(v) as f64,
@@ -215,31 +230,31 @@ fn eval(node: &Node, t: f64) -> f64 {
             }
         }
         Node::Cond(c, a, b) => {
-            if truthy(eval(c, t)) {
-                eval(a, t)
+            if truthy(eval(c, t, vars)) {
+                eval(a, t, vars)
             } else {
-                eval(b, t)
+                eval(b, t, vars)
             }
         }
         Node::Call(f, args) => {
-            let vals: Vec<f64> = args.iter().map(|a| eval(a, t)).collect();
+            let vals: Vec<f64> = args.iter().map(|a| eval(a, t, vars)).collect();
             f.eval(&vals)
         }
         Node::Bin(op, l, r) => {
             // `&&`/`||` short-circuit and yield an operand, not a boolean.
             match op {
                 Op::And => {
-                    let a = eval(l, t);
-                    return if truthy(a) { eval(r, t) } else { a };
+                    let a = eval(l, t, vars);
+                    return if truthy(a) { eval(r, t, vars) } else { a };
                 }
                 Op::Or => {
-                    let a = eval(l, t);
-                    return if truthy(a) { a } else { eval(r, t) };
+                    let a = eval(l, t, vars);
+                    return if truthy(a) { a } else { eval(r, t, vars) };
                 }
                 _ => {}
             }
-            let a = eval(l, t);
-            let b = eval(r, t);
+            let a = eval(l, t, vars);
+            let b = eval(r, t, vars);
             match op {
                 Op::Add => a + b,
                 Op::Sub => a - b,
@@ -512,9 +527,7 @@ impl<'a> Parser<'a> {
             "LN2" => Node::Const(std::f64::consts::LN_2),
             "LN10" => Node::Const(std::f64::consts::LN_10),
             "SQRT2" => Node::Const(std::f64::consts::SQRT_2),
-            // Anything else is a bare `Math`/global reference in upstream, which
-            // is a function object: NaN in arithmetic, 0 through `|0`/`>>0`.
-            _ => Node::Const(f64::NAN),
+            other => Node::Ident(other.to_string()),
         })
     }
 }

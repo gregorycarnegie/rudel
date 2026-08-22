@@ -1,3 +1,4 @@
+mod kabelsalat;
 mod labels;
 mod mini;
 mod mondo;
@@ -5,6 +6,7 @@ mod scanner;
 mod syntax;
 mod widgets;
 
+use kabelsalat::scope_kabelsalat_calls;
 use labels::rewrite_labels;
 use mini::annotate_mini_offsets;
 pub(crate) use mondo::looks_like_mondo;
@@ -53,6 +55,10 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let (script, _spans) = annotate_mini_offsets(&script, node_offset, &anchors);
     let script = strip_comments(&script);
     let script = normalize_unicode_blanks(&script);
+    // `K(...)` before anything renames identifiers: the pass matches
+    // kabelsalat's own spellings, and qualifying them puts the results behind a
+    // `.`, where `rename_koto_keywords` already knows to leave them alone.
+    let script = scope_kabelsalat_calls(&script);
     let script = rename_koto_keywords(&script);
     let script = rename_ignored_identifiers(&script);
     let script = rewrite_tagged_templates(&script);

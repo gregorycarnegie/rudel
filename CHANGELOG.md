@@ -11,6 +11,99 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+Kabelsalat, ported.
+
+`K(...)` was listed as not portable in 0.15.0, on the grounds that it "needs a
+JS engine per sample, as `dough` does". That was wrong, and the reason is worth
+recording: the per-sample JavaScript superdough runs is *generated*.
+Kabelsalat's compiler (`core/compiler.js`) topologically sorts the graph and
+emits an instruction list, and the JavaScript is one of two pluggable back ends
+beside a C one (`lib/src/lang/{js,c}.js`). Rudel is now a third — it emits
+nothing and interprets the list directly, so no JavaScript runs at sample rate
+and the graph is compiled once per evaluation rather than once per hap.
+
+### Added
+
+- **`K(...)`: kabelsalat graphs, compiled to a register program.**
+  `@kabelsalat/lib` 0.4.1, written the way a patch is actually written:
+
+  ```koto
+  s("bd*4").K(audioin().lpf(sine(2).range(.2, .7)).mul(sGate.perc(.2)))
+  ```
+
+  73 node types, 26 ugens ported from `ugens.js`/`synth.js`, and the module
+  macros (`perc`, `ad`, `ar`, `lpf`, `hpf`, `rangex`, `pan`, `mix`, `fork`, the
+  `q*` filter family). Multichannel expansion works, so `sine([220, 330])` is
+  genuinely two oscillators, and so does feedback — `x => x.delay(.2).mul(.8)`
+  builds a cyclic graph whose loop reads a register one sample old, which is the
+  mechanism upstream relies on too.
+
+  A graph wraps whatever the hap would otherwise have played, as upstream's
+  `chain.connect(workletNode)` does: `audioin()` reads that voice, so `K(...)`
+  is an insert effect when a patch uses it and a synth when it does not.
+
+- **Bare kabelsalat names inside `K(...)`.** `sine`, `saw`, `noise`, `time`,
+  `range`, `clock` and `delay` all already mean something else in Strudel.
+  Upstream never evaluates the expression where it is written — its transpiler
+  stringifies it for superdough to evaluate in kabelsalat's own scope. Rudel
+  evaluates it in place, so a preprocessor pass qualifies the names instead
+  (`crates/rudel-lang/src/preprocess/kabelsalat.rs`). Only kabelsalat's own
+  names, only in call position, only inside `K(...)`: a method call is already
+  unambiguous, and a name the table does not have is left alone so a patch can
+  still reach an outer variable for a cutoff.
+
+- **Patterns inside a graph, sampled per hap.** `K(sine(S("220 440")).out())` is
+  two events a cycle — the graph is fixed, so the structure comes from the
+  pattern. Upstream lifts these out of the source text as `pat[i]` placeholders
+  and splices the values back before compiling; here any pattern reaching an
+  inlet becomes a `pat` node, which covers `S(...)` and mini-notation with one
+  rule. `sFreq` and `sGate` are nodes for the same reason.
+
+- **A kabelsalat oracle.** `tools/oracle/gen_kabelsalat_oracle.mjs` replays
+  `GenericProcessor`'s own loop against the real library and dumps 38 patches —
+  the graph and 64 stereo frames each. `kabelsalat_parity` checks both; all 38
+  agree node for node and sample for sample. It found four bugs before this
+  shipped: `n(69)` wiring its argument as an inlet instead of *being* the value
+  (so `midinote()` read 0 and every note came out at 8Hz), `argmin`/`argmax`
+  breaking ties towards the first index where upstream's reduce takes the last,
+  f32 phase accumulation drifting inside 64 samples, and `ad`/`pan` building the
+  right sound from the wrong graph.
+
+- **`bytebeat`, `floatbeat` and `raw`**, on the expression evaluator the
+  `bytebeat` synth already carried — no JavaScript engine needed. These cannot
+  run upstream at all: their compile step emits `const ${name} = ...` where
+  `name` is a register expression, so the generated source reads
+  `const r[3] = ...` and the whole graph dies on a SyntaxError.
+
+### Fixed
+
+- **`ByteBeatExpr` resolves identifiers**, so an expression can name values
+  other than `t`. Unknown names are still NaN, as an unbound global is in
+  JavaScript; `raw` uses this for `$input` and `time`.
+
+### Changed
+
+- **Oscillator phase accumulates in `f64`**, as a JavaScript number does. In
+  `f32` it drifted measurably within 64 samples and audibly over a long note.
+  Affects `bytebeat`'s siblings not at all, but `pulse` at an exact submultiple
+  of the sample rate now lands on the boundary the way upstream does.
+
+- **`NoteEvent` carries a `worklet` field**, and `rudel-dsp` gained
+  `KabelProgram`/`KabelVoice`. Breaking for anything constructing a `NoteEvent`
+  directly.
+
+### Not ported
+
+The MIDI nodes (`midin`, `midifreq`, `midigate`, `midivel`, `midicc`, `cc`) read
+a live input device, and `scope`/`split` post buffers to a UI that does not
+exist here; all pass their input through, which is upstream's own
+`fallbackType`. `noise`, `pink`, `brown` and `dust` call `Math.random()`
+upstream, so a patch sounds different every time it is played — rudel seeds a
+generator per node instead, which means those four are the one place the numbers
+cannot match. `worklet(src, ...)`, the string-taking form the transpiler emits,
+is still missing: it expects source *text* evaluated at play time, and `K(...)`
+needs no such thing.
+
 ## [0.15.0] — 2026-08-22
 
 A parity campaign, measured rather than guessed. Running all 8004 patterns

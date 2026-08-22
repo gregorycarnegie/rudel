@@ -12,6 +12,7 @@ mod envelope;
 pub mod fft;
 mod filter;
 mod fm;
+mod kabelsalat;
 mod modulator;
 mod oscillator;
 mod params;
@@ -33,6 +34,7 @@ pub use envelope::{Adsr, adsr_value, adsr_values};
 pub use fft::Fft;
 pub use filter::{FilterModel, FilterParams, FilterSet, FilterStageVoice, Ladder, VoiceFilters};
 pub use fm::{FmOp, FmSpec};
+pub use kabelsalat::{KabelProgram, KabelVoice};
 pub use modulator::{
     EnvConfig, Lfo, LfoConfig, ModBank, ModContext, ModEnv, ModOwner, ModSpec, ModSpecs, ModTarget,
     waveshape,

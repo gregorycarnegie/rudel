@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 618 | 613 | 5 | 0 | 0 |
+| `core` | 618 | 614 | 4 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **655** | **54** | **0** | **0** |
+| **Total** | **709** | **656** | **53** | **0** | **0** |
 
 ## `codemirror`
 
@@ -43,7 +43,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `FXr` | implemented |  |
 | `FXrel` | implemented |  |
 | `FXrelease` | implemented |  |
-| `K` | intentional | unsupported package |
+| `K` | implemented |  |
 | `accelerate` | implemented |  |
 | `activeLabel` | implemented |  |
 | `ad` | implemented |  |

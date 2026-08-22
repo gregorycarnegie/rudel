@@ -1,4 +1,5 @@
 pub(crate) mod hydra;
+pub(crate) mod kabelsalat;
 mod js;
 mod pattern;
 mod prelude;

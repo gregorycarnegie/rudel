@@ -7,12 +7,43 @@ use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
     BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, ModContext, ModSpecs,
     OrbitSend, PostFx,
-    Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
+    KabelProgram, Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
 
 // Re-exported for back-compat; the canonical version lives in rudel-core.
 pub use rudel_core::to_control_map;
+
+/// superdough's `getFrequencyFromValue`: `freq` wins, then `note`, then `n`
+/// read as a note number.
+fn worklet_freq(map: &rudel_core::ValueMap) -> f32 {
+    map.get("freq")
+        .and_then(|v| v.as_f64())
+        .map(|f| f as f32)
+        .or_else(|| map.get("note").and_then(rudel_dsp::note_to_freq))
+        .or_else(|| map.get("n").and_then(rudel_dsp::note_to_freq))
+        .unwrap_or(440.0)
+}
+
+/// A compiled kabelsalat graph, with the per-hap values it reads.
+///
+/// upstream splices these into the source text before compiling it —
+/// `sFreq` becomes the note's frequency and `sGate` a control that falls when
+/// the hap ends — so the graph is recompiled for every hap. Here the program
+/// is compiled once, at evaluation, and only these three numbers change.
+pub struct WorkletSpec {
+    /// The instruction list, one register per node.
+    pub program: KabelProgram,
+    /// `sFreq`: the hap's frequency, by superdough's `getFrequencyFromValue`.
+    pub freq: f32,
+    /// When `sGate` falls, in seconds from the voice's start.
+    pub gate_end: f32,
+    /// When the voice stops rendering, leaving room for a release tail.
+    pub end: f32,
+    /// Values for the patterns written inside the graph, in the order their
+    /// `pat` nodes index them. Sampled once, for this hap.
+    pub inputs: Vec<f32>,
+}
 
 /// A note to be played at `onset_seconds` (in the audio clock's timeline).
 pub struct NoteEvent {
@@ -25,6 +56,9 @@ pub struct NoteEvent {
     /// `FX(...)` stages, nearest the source first, each the same rack as `fx`
     /// and applied before it. Empty for a voice that named no chain.
     pub fx_chain: Vec<FxStage>,
+    /// A `K(...)` kabelsalat graph wrapped around this voice. `None` for a hap
+    /// that named no graph, which is nearly all of them.
+    pub worklet: Option<WorkletSpec>,
     /// Which orbit bus this voice feeds, how much it sends to that orbit's
     /// reverb/delay, and the settings the orbit itself should take on.
     pub send: OrbitSend,
@@ -336,6 +370,29 @@ pub fn collect_events_at(
                     .collect(),
                 _ => Vec::new(),
             };
+            let worklet = ev.controls.get("worklet").and_then(|value| {
+                let duration = ev.duration_seconds as f32;
+                // superdough ends the worklet at `endWithRelease`, so an
+                // envelope inside the graph has somewhere to decay into.
+                let release = ev
+                    .controls
+                    .get("release")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.1) as f32;
+                Some(WorkletSpec {
+                    program: KabelProgram::from_value(value)?,
+                    freq: worklet_freq(&ev.controls),
+                    gate_end: duration,
+                    end: duration + release,
+                    inputs: match ev.controls.get("workletInputs") {
+                        Some(rudel_core::Value::List(items)) => items
+                            .iter()
+                            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                            .collect(),
+                        _ => Vec::new(),
+                    },
+                })
+            });
             // A modulator's relative `depth` scales the target control's own
             // value, so the sources are resolved against the built voice.
             let ctx = ModContext {
@@ -360,6 +417,7 @@ pub fn collect_events_at(
                 spec,
                 fx,
                 fx_chain,
+                worklet,
                 mods,
                 send,
                 duck: Duck::from_controls(&ev.controls),

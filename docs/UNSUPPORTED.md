@@ -313,6 +313,60 @@ gets the outer one twice. Everything that is an insert — `crush`, `shape`,
 `distort`, `coarse`, `vowel`, `tremolo`, `phaser`, `transient`, `compressor`,
 `stretch`, `postgain`, and the filters — is per stage.
 
+### `K(...)` kabelsalat graphs — everything but the live-input nodes
+
+`K(saw(110).lpf(sine(1).range(.3,.8)).out())` works, written exactly as a
+kabelsalat patch is written. [Kabelsalat](https://kabel.salat.dev/) is a
+modular-synth language with its own compiler; `@kabelsalat/lib` 0.4.1 is ported
+in `crates/rudel-lang/src/kabelsalat.rs` (the graph and the compiler) and
+`crates/rudel-dsp/src/kabelsalat.rs` (the interpreter and the ugens).
+
+Rudel takes a different route to the same sound. Upstream's transpiler
+stringifies the `K(...)` expression, superdough evaluates that text in
+kabelsalat's own scope, compiles the graph to JavaScript, and an AudioWorklet
+runs `new Function(src)` once per sample. Here the expression is evaluated in
+place — the preprocessor qualifies the bare names so the two vocabularies stop
+colliding (`crates/rudel-lang/src/preprocess/kabelsalat.rs`) — and the compiled
+graph travels to the audio thread as an instruction list, interpreted rather
+than generated. Where upstream's compiler has a JavaScript back end and a C one
+(`lib/src/lang/{js,c}.js`), rudel is a third in the same slot.
+
+`tools/oracle/gen_kabelsalat_oracle.mjs` runs 38 patches through the real
+kabelsalat and `crates/rudel-lang/tests/kabelsalat_parity.rs` checks both the
+node list and the samples against them, so the port is pinned rather than
+asserted.
+
+**Not ported: the MIDI nodes.** `midin`, `midifreq`, `midigate`, `midivel`,
+`midicc` and `cc` read a live input device. A `K(...)` graph here is built per
+hap inside a voice, which is not a place a MIDI stream reaches; a patch using
+one still plays, with those nodes passing their input through (upstream's own
+`fallbackType = "thru"`). `scope` and `split`, which post buffers back to a UI
+that does not exist here, do the same.
+
+**Deliberately different: the noise sources.** `noise`, `pink`, `brown` and
+`dust` call `Math.random()` upstream, so a patch sounds different every time it
+is played. Rudel seeds a generator per node instead, so it does not — which
+means those four are the one place the numbers cannot match, and the oracle
+leaves them out. `rng` (`lcgnoise`) is deterministic on both sides and is
+checked.
+
+**Ahead of upstream: the coded nodes.** `bytebeat`, `floatbeat` and `raw` work
+here, on the expression evaluator the `bytebeat` synth already carries. They
+cannot work upstream at all: their compile step emits `const ${name} = ...`
+where `name` is a register expression, so the generated source reads
+`const r[3] = ...` and the *whole graph* dies on a SyntaxError. There is
+nothing to pin them against until that is fixed.
+
+**Mirrored bug: `floatbeat` is a `bytebeat`.** Upstream builds it as
+`new Node("bytebeat", code)` while registering the float reading under the name
+`floatbeat`, and the compiler looks schemas up by type — so the float reading is
+unreachable and a floatbeat is heard as a bytebeat. Rudel does the same, on the
+grounds that parity beats correctness here.
+
+**`worklet(src, ...)` is still unsupported.** That is the string-taking form
+Strudel's transpiler emits, and it expects source *text* to be evaluated at play
+time. `K(...)` needs no such thing, so only the spelling is missing.
+
 ### Soundfonts — supported, but General MIDI fetches over the network
 
 Both of Strudel's soundfont paths work.

@@ -203,6 +203,8 @@ pub(crate) fn register(prelude: &KMap) {
     super::js::register_js_builtins(prelude);
     // `osc`, `noise`, `shape`, ... — the hydra sources that start a chain.
     super::hydra::register(prelude);
+    // `Kabel.sine(220).out()` — the kabelsalat node DSL behind `K(...)`.
+    super::kabelsalat::register(prelude);
     // `Pattern`, `Hap`, `Fraction`, `TimeSpan` — the engine's own vocabulary,
     // plus the standalone forms of the transforms that take a span.
     super::pattern::register_engine_fns(prelude);

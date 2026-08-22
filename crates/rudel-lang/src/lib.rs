@@ -19,6 +19,7 @@ use std::{
 
 use bindings::{apply_pattern_transforms, function_names, method_names, register, reset_slots};
 pub mod hydra;
+pub mod kabelsalat;
 
 use preprocess::{preprocess_strudel_with_meta, preprocess_strudel_with_meta_in_range};
 use samples::register_samples;
@@ -210,6 +211,10 @@ fn eval_result_with_preprocessor(
     reset_slots();
     triggers::reset_hooks();
     widgets::reset_options();
+    // The kabelsalat arena is append-only while a script builds its graphs, so
+    // it has to be dropped between runs or a long REPL session accumulates
+    // every node it ever built.
+    kabelsalat::reset();
     let chunk = koto.compile(&script).map_err(|e| mondo_hint(original, e))?;
     let result = koto.run(chunk).map_err(|e| e.to_string())?;
     // Fold in the options the widget calls actually evaluated to. The source

@@ -24,6 +24,9 @@ proptest.workspace = true
 # shader front-end; used here so a mistranslated body fails a test rather than
 # a GPU.
 naga = { version = "30.0.0", features = ["wgsl-in"] }
+# Runs the compiled kabelsalat graphs in `kabelsalat_parity`. Test-only, and the
+# dependency points one way — rudel-dsp never reaches back for rudel-lang.
+rudel-dsp = { path = "../rudel-dsp" }
 
 [[bench]]
 name = "patterns"

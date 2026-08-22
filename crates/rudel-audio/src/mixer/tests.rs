@@ -59,6 +59,7 @@ fn tagged_voices_feed_their_widget_tap_only() {
             10.0,
         ))),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend::default(),
@@ -751,6 +752,7 @@ fn cut_group_chokes_the_previous_voice() {
             10.0,
         ))),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: Some(1),
         send: OrbitSend::default(),
@@ -795,6 +797,7 @@ fn block_render_matches_frame_render_across_onsets() {
             10.0,
         ))),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend::default(),
@@ -1018,6 +1021,7 @@ fn routed_event(send: OrbitSend) -> NoteEvent {
             ..Default::default()
         })),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send,
@@ -1383,6 +1387,7 @@ fn a_choked_voice_is_routed_through_the_same_sends() {
                 ..Default::default()
             })),
             fx_chain: Vec::new(),
+        worklet: None,
             fx: rudel_dsp::PostFx::default(),
             cut: Some(2),
             send: OrbitSend {
@@ -1468,6 +1473,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
             filters: Default::default(),
         }),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend {
@@ -1508,6 +1514,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
             filters: Default::default(),
         }),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend {
@@ -1548,6 +1555,7 @@ fn render_choked(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
             ..Default::default()
         })),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: Some(9),
         send: OrbitSend {
@@ -2444,6 +2452,7 @@ fn a_centred_voice_stays_centred_through_a_signal_bus() {
             filters: Default::default(),
         }),
         fx_chain: Vec::new(),
+        worklet: None,
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend {
@@ -2563,4 +2572,71 @@ fn an_fx_chain_applies_its_stages_in_order() {
     let a = saw().fx(&[stage("distort", 4.0), stage("cutoff", 400.0)]);
     let b = saw().fx(&[stage("cutoff", 400.0), stage("distort", 4.0)]);
     assert_ne!(level(&a), level(&b), "stage order should change the result");
+}
+
+#[test]
+fn a_kabelsalat_graph_plays_as_the_voice_it_wraps() {
+    use rudel_core::Value;
+
+    // The program `rudel-lang`'s compiler emits for `audioin().mul(g).out()`,
+    // written out here so this test pins the control-map contract between the
+    // two crates as well as the wiring.
+    let graph = |gain: f64| {
+        let list = |items: Vec<Value>| Value::List(items);
+        let mut map = rudel_core::ValueMap::new();
+        map.insert(
+            "types".to_string(),
+            list(["audioin", "n", "mul"].map(|t| Value::Str(t.into())).to_vec()),
+        );
+        map.insert(
+            "values".to_string(),
+            list(vec![Value::Null, Value::F64(gain), Value::Null]),
+        );
+        map.insert(
+            "ins".to_string(),
+            list(vec![
+                list(Vec::new()),
+                list(Vec::new()),
+                list(vec![Value::Int(0), Value::Int(1)]),
+            ]),
+        );
+        map.insert(
+            "outs".to_string(),
+            list(vec![
+                list(vec![Value::Int(2), Value::Int(0)]),
+                list(vec![Value::Int(2), Value::Int(1)]),
+            ]),
+        );
+        Value::Map(map)
+    };
+    let saw = || {
+        rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(57))
+    };
+    let level = |p: &Pattern| rms(&render_pattern(p, 1.0, 0.5));
+
+    // `audioin()` reads the voice the graph is wrapped around, so halving it
+    // has to halve what comes out — this is `K(...)` used as an insert effect.
+    let plain = level(&saw());
+    let halved = level(&saw().ctrl("worklet", graph(0.5)));
+    assert!(plain > 0.0, "the bare voice should be audible");
+    assert!(
+        (halved / plain - 0.5).abs() < 0.05,
+        "a graph scaling audioin by 0.5 should halve the level ({plain} -> {halved})"
+    );
+
+    // A graph that does not touch `audioin` replaces the voice rather than
+    // colouring it, which is what makes `K(...)` usable as a synth.
+    let mut silent = rudel_core::ValueMap::new();
+    silent.insert("types".to_string(), Value::List(vec![Value::Str("n".into())]));
+    silent.insert("values".to_string(), Value::List(vec![Value::F64(0.0)]));
+    silent.insert("ins".to_string(), Value::List(vec![Value::List(Vec::new())]));
+    silent.insert(
+        "outs".to_string(),
+        Value::List(vec![Value::List(vec![Value::Int(0), Value::Int(0)])]),
+    );
+    assert_eq!(
+        level(&saw().ctrl("worklet", Value::Map(silent))),
+        0.0,
+        "a graph that ignores audioin should not leak the voice under it"
+    );
 }
