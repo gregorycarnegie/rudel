@@ -11,6 +11,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-08-22
+
 Kabelsalat, ported.
 
 `K(...)` was listed as not portable in 0.15.0, on the grounds that it "needs a
