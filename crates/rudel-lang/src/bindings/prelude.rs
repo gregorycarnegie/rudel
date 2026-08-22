@@ -647,12 +647,24 @@ pub(crate) fn register(prelude: &KMap) {
         }
         Ok(KPattern(rudel_core::silence()).into())
     });
-    // `mini(x)` / `m(x)` parse mini-notation, which `arg_to_pattern` already
-    // does for every pattern-typed argument (mini/mini.mjs `mini`).
-    prelude.add_fn(
-        "mini",
-        |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()),
-    );
+    // `mini(...strings)`: each argument parsed as mini-notation, laid out across
+    // the cycle (mini/mini.mjs). A bare string reaching an ordinary pattern
+    // argument is deliberately *not* mini -- see `arg_to_pattern` -- but this
+    // call is the parser itself, and it is how a tune plays a mini string it
+    // built at runtime, which is the only way it can be parsed at all.
+    prelude.add_fn("mini", |ctx| {
+        let pats: Vec<Pattern> = ctx
+            .args()
+            .iter()
+            .map(|arg| match arg_to_raw_str(arg) {
+                Some(text) => rudel_mini::parse_with_offset(&text, 0)
+                    .unwrap_or_else(|_| rudel_core::silence())
+                    .with_source(text),
+                None => arg_to_pattern(arg),
+            })
+            .collect();
+        Ok(KPattern(rudel_core::fastcat(&pats)).into())
+    });
     // The list-valued additive-synthesis controls, as standalone factories to
     // match their method forms.
     for (name, key) in [("partials", "partials"), ("phases", "phases")] {

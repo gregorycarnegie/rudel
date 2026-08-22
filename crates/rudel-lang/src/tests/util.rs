@@ -212,6 +212,27 @@ fn json_parse_reads_an_embedded_table_back_as_maps_and_lists() {
 }
 
 #[test]
+fn mini_parses_its_argument_even_when_the_string_was_built_at_runtime() {
+    // A bare string reaching an ordinary pattern argument is deliberately not
+    // mini-notation, matching upstream. `mini(...)` *is* the parser, though, and
+    // is the only way a string a tune assembled at runtime can be played --
+    // through a single-quoted literal the transpiler never wraps, or one built
+    // a piece at a time in a loop.
+    let haps = |script: &str| {
+        eval(script)
+            .expect("eval")
+            .query_arc(Frac::zero(), Frac::one())
+            .len()
+    };
+    assert_eq!(haps("note(mini('48 49 50'))"), 3);
+    assert_eq!(haps("let s = '48 49'\nnote(mini(s))"), 2);
+    // Variadic, and the arguments share the cycle (upstream sequences them).
+    assert_eq!(haps("note(mini('48 49', '50 51'))"), 4);
+    // A non-string argument still passes through as a pattern.
+    assert_eq!(haps("note(mini(60))"), 1);
+}
+
+#[test]
 fn install_mini_makes_rust_side_strings_parse_as_mini_notation() {
     // The host calls this once at startup so that a `&str` handed to a core
     // combinator is mini-notation rather than a one-hap literal. The hook is
