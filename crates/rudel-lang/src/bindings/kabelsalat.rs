@@ -445,12 +445,43 @@ pub(crate) fn register(prelude: &KMap) {
     );
 
     prelude.insert("Kabel", map);
+    // `K(graph)` on its own is a control pattern, to be combined like any
+    // other.
     prelude.add_fn("K", |ctx| {
         let Some(value) = ctx.args().first() else {
             return runtime_error!("K: expected a kabelsalat expression");
         };
         Ok(KPattern(compile_arg(value)).into())
     });
+    // `pat.K(graph)` sets the control on a pattern, which is the form a tune
+    // actually uses — upstream's transpiler rewrites it to `pat.worklet(...)`.
+    // The graph is fixed once, so the pattern keeps its own structure.
+    if let Some(entries) = KPattern(rudel_core::silence()).entries() {
+        entries.insert(
+            "K",
+            KValue::NativeFunction(KNativeFunction::new(|ctx| {
+                let (this, rest) = pattern_and_args(ctx)?;
+                let Some(value) = rest.first() else {
+                    return runtime_error!("K: expected a kabelsalat expression");
+                };
+                Ok(KPattern(this.set(compile_arg(value))).into())
+            })),
+        );
+    }
+}
+
+/// The receiving pattern and the remaining arguments of `pat.K(...)`.
+fn pattern_and_args(
+    ctx: &mut koto::runtime::CallContext,
+) -> KotoResult<(rudel_core::Pattern, Vec<KValue>)> {
+    use koto::runtime::{ErrorKind, runtime_error};
+    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
+        (KValue::Object(o), rest) => match o.cast::<KPattern>() {
+            Ok(p) => Ok((p.0.clone(), rest.to_vec())),
+            Err(_) => runtime_error!(ErrorKind::UnexpectedError),
+        },
+        _ => runtime_error!(ErrorKind::UnexpectedError),
+    }
 }
 
 /// `.out()` with no argument is stereo, as kabelsalat's `[0, 1]` default.

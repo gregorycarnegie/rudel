@@ -40,7 +40,9 @@ and the graph is compiled once per evaluation rather than once per hap.
 
   A graph wraps whatever the hap would otherwise have played, as upstream's
   `chain.connect(workletNode)` does: `audioin()` reads that voice, so `K(...)`
-  is an insert effect when a patch uses it and a synth when it does not.
+  is an insert effect when a patch uses it and a synth when it does not. Both
+  spellings work — `K(graph)` as a control pattern of its own, and
+  `pat.K(graph)` as a method, which is the one a tune reaches for.
 
 - **Bare kabelsalat names inside `K(...)`.** `sine`, `saw`, `noise`, `time`,
   `range`, `clock` and `delay` all already mean something else in Strudel.

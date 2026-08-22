@@ -1,5 +1,4 @@
 {
-  "K#0": "unsupported: `K(...)`/`worklet` is the kabelsalat audio-worklet DSL (docs/UNSUPPORTED.md).",
   "K#1": "unsupported: `K(...)`/`worklet` is the kabelsalat audio-worklet DSL (docs/UNSUPPORTED.md).",
   "absoluteOrientationAlpha#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
   "absoluteOrientationBeta#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
