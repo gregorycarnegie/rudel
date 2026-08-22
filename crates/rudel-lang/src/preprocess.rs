@@ -14,10 +14,10 @@ use syntax::{
     indent_dot_continuations, join_dangling_operators, normalize_unicode_blanks,
     order_declarations, quote_map_keys, rename_ignored_identifiers, rename_koto_keywords,
     rewrite_alignment_getters, rewrite_arrow_functions, rewrite_block_bodies,
-    rewrite_const_declarations, rewrite_exponentiation, rewrite_leading_dot_numbers,
+    rewrite_const_declarations, rewrite_exponentiation, rewrite_for_loops, rewrite_leading_dot_numbers,
     rewrite_length_property, rewrite_logical_operators, rewrite_object_spreads,
     rewrite_prototype_methods, rewrite_shift_operators, rewrite_spread_calls,
-    rewrite_strict_equality, rewrite_string_concatenation, rewrite_string_method_chains,
+    rewrite_strict_equality, rewrite_string_append, rewrite_string_concatenation, rewrite_string_method_chains,
     rewrite_tagged_templates, rewrite_ternaries, rewrite_typeof, rewrite_value_property,
     strip_await, strip_comments, strip_new, strip_trailing_semicolons, tighten_call_parens,
     tighten_member_dots,
@@ -67,6 +67,7 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = strip_trailing_semicolons(&script);
     let script = join_dangling_operators(&script);
     let script = rewrite_string_concatenation(&script);
+    let script = rewrite_string_append(&script);
     let script = rewrite_prototype_methods(&script);
     let script = strip_new(&script);
     let script = rewrite_ternaries(&script);
@@ -84,6 +85,7 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = flatten_non_final_groups(&script);
     let script = hoist_leading_commas(&script);
     let script = close_expression_gaps(&script);
+    let script = rewrite_for_loops(&script);
     let script = indent_dot_continuations(&script);
     let script = order_declarations(&script);
     let script = rewrite_labels(&script);

@@ -867,3 +867,41 @@ fn widget_options_coerce_between_their_three_shapes() {
 }
 
 
+
+
+#[test]
+fn a_c_style_for_loop_becomes_a_while_loop() {
+    // The counter's declaration is mid-line, where the declaration pass never
+    // sees it, and `i++` has no Koto spelling.
+    assert_eq!(
+        preprocess_strudel("for (let i = 0; i < 3; i++) {\n  t += i\n}"),
+        "i = 0\nwhile i < 3\n  t += i\n  i += 1"
+    );
+    // `for (x of xs)` is a different construct and is left for Koto's own.
+    assert!(preprocess_strudel("for (x in xs)\n  f(x)").starts_with("for (x in xs)"));
+    // Running it end to end: the loop counts, and the mini string it builds a
+    // piece at a time plays as three notes rather than one.
+    let script = "let melo = '['\nfor (let i = 0; i < 3; i++) {\n  melo += ' ' + (48+i)\n}\nmelo += ']'\nnote(mini(melo))";
+    let pat = eval(script).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 3);
+    // And inside a function body, where the block is already indented.
+    let script = "function f(n) {\n  let t = 0\n  for (let i = 0; i < n; i++) {\n    t += i\n  }\n  return t\n}\npure(f(4))";
+    assert_eq!(values(&eval(script).expect("eval"), 0, 1), vec![Value::Int(6)]);
+}
+
+#[test]
+fn appending_a_string_with_plus_equals_becomes_an_assignment() {
+    // Koto has no `+=` for strings at all.
+    assert_eq!(
+        preprocess_strudel("melo += ' x'"),
+        "melo = rudel_concat(melo, ' x')"
+    );
+    // Numbers keep their arithmetic: no literal, no concatenation.
+    assert_eq!(preprocess_strudel("total += n"), "total += n");
+    // A statement that reads the name it assigns is an update, so the
+    // declaration sort must not lift it above the line that first bound it.
+    assert_eq!(
+        preprocess_strudel("let s = 'a'\ns += 'b'\npure(s)"),
+        "s = 'a'\ns = rudel_concat(s, 'b')\npure(s)"
+    );
+}

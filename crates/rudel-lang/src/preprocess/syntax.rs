@@ -843,6 +843,170 @@ fn find_block_body(src: &str, mask: &[u8]) -> Option<BlockBody> {
     None
 }
 
+/// Rewrite JavaScript's C-style `for` into the `while` Koto has:
+///
+/// ```text
+/// for (let i = 0; i < 8; i++) {        i = 0
+///   melo += i                     ->   while i < 8
+/// }                                      melo += i
+///                                        i += 1
+/// ```
+///
+/// The counter is left in the enclosing scope, which is where `var` put it and
+/// close enough to `let` for a loop that has already finished. Only the braced
+/// form is handled: a one-statement body without braces does not appear in the
+/// wild, and `for (x of xs)` is a different construct that Koto spells the same
+/// way it reads.
+///
+/// Runs after the passes that reason a line at a time: the body becomes an
+/// indented block, and `rewrite_block_bodies` re-splitting one of those on its
+/// newlines would flatten the loop straight back out.
+///
+/// ponytail: one loop per pass, repeated, like the block-body rewrite above it.
+pub(super) fn rewrite_for_loops(src: &str) -> String {
+    let mut current = src.to_string();
+    for _ in 0..src.matches("for").count() {
+        let mask = code_mask(&current);
+        let Some(loop_) = find_for_loop(&mask) else {
+            break;
+        };
+        let line_start = current[..loop_.from].rfind('\n').map_or(0, |i| i + 1);
+        let indent = " ".repeat(
+            current[line_start..loop_.from]
+                .chars()
+                .take_while(|c| *c == ' ' || *c == '\t')
+                .count(),
+        );
+        let pad = format!("{indent}{}", " ".repeat(CONTINUATION_INDENT));
+        let header = &current[loop_.header_open + 1..loop_.header_close];
+        let mut clauses = split_top_level(header, b';');
+        clauses.resize(3, String::new());
+        // `let i = 0` here is mid-line, where the declaration pass -- which
+        // reads line starts -- never sees it.
+        let init = ["const ", "let ", "var "]
+            .iter()
+            .find_map(|kw| clauses[0].trim().strip_prefix(*kw))
+            .unwrap_or(clauses[0].trim())
+            .to_string();
+        let cond = clauses[1].trim();
+        let step = increment_to_assignment(clauses[2].trim());
+        // The body keeps its own shape — an arrow function inside it is already
+        // an indented Koto block by now — so only its common indent is traded
+        // for the loop's.
+        let body = &current[loop_.body_open + 1..loop_.body_close];
+        let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+        let common = lines
+            .iter()
+            .map(|l| l.len() - l.trim_start().len())
+            .min()
+            .unwrap_or(0);
+
+        let mut out = String::new();
+        if !init.is_empty() {
+            out.push_str(&format!("{indent}{init}\n"));
+        }
+        // A missing condition is JavaScript's `for (;;)`, an infinite loop.
+        out.push_str(&format!(
+            "{indent}while {}\n",
+            if cond.is_empty() { "true" } else { cond }
+        ));
+        for line in lines {
+            out.push_str(&format!("{pad}{}\n", &line[common.min(line.len())..]));
+        }
+        if let Some(step) = step {
+            out.push_str(&format!("{pad}{step}\n"));
+        }
+        // `out` already ends the line, so the newline after the closing `}` is
+        // dropped rather than left to open a blank one — a blank line inside an
+        // indented block ends it early.
+        let rest = current[loop_.body_close + 1..].trim_start_matches([' ', '\t']);
+        let rest = rest.strip_prefix('\n').unwrap_or(rest);
+        current = format!("{}{out}{rest}", &current[..line_start]);
+    }
+    current
+}
+
+/// The header and body spans of the first C-style `for (…;…;…) { … }`.
+struct ForLoop {
+    from: usize,
+    header_open: usize,
+    header_close: usize,
+    body_open: usize,
+    body_close: usize,
+}
+
+fn find_for_loop(mask: &[u8]) -> Option<ForLoop> {
+    let mut at = 0usize;
+    while let Some(rel) = mask[at..].windows(3).position(|w| w == b"for") {
+        let from = at + rel;
+        at = from + 3;
+        // A whole word, not the tail of `before` or the head of `format`.
+        if from > 0 && is_ident_char(mask[from - 1] as char) {
+            continue;
+        }
+        let header_open = mask[at..].iter().position(|b| !b.is_ascii_whitespace())? + at;
+        if mask[header_open] != b'(' {
+            continue;
+        }
+        let Some(header_close) = matching_delimiter(mask, header_open, b'(', b')') else {
+            continue;
+        };
+        // `for (x of xs)` has no `;` clauses and is left for Koto's own `for`.
+        if !mask[header_open..header_close].contains(&b';') {
+            continue;
+        }
+        let body_open = mask[header_close + 1..]
+            .iter()
+            .position(|b| !b.is_ascii_whitespace())?
+            + header_close
+            + 1;
+        if mask[body_open] != b'{' {
+            continue;
+        }
+        return Some(ForLoop {
+            from,
+            header_open,
+            header_close,
+            body_open,
+            body_close: matching_brace(mask, body_open)?,
+        });
+    }
+    None
+}
+
+/// Split on a separator that is not inside brackets.
+fn split_top_level(src: &str, separator: u8) -> Vec<String> {
+    let mask = code_mask(src);
+    let mut depth = 0i32;
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    for (i, &byte) in mask.iter().enumerate() {
+        let delta = bracket_delta(byte);
+        if delta != 0 {
+            depth += delta;
+        } else if depth == 0 && byte == separator {
+            parts.push(src[start..i].to_string());
+            start = i + 1;
+        }
+    }
+    parts.push(src[start..].to_string());
+    parts
+}
+
+/// `i++` / `i--` as the assignment Koto spells, and nothing else changed. An
+/// empty step is JavaScript's `for (…;…;)` and yields no statement at all.
+fn increment_to_assignment(step: &str) -> Option<String> {
+    if step.is_empty() {
+        return None;
+    }
+    for (suffix, op) in [("++", "+= 1"), ("--", "-= 1")] {
+        if let Some(name) = step.strip_suffix(suffix) {
+            return Some(format!("{} {op}", name.trim()));
+        }
+    }
+    Some(step.to_string())
+}
+
 /// Rewrite JavaScript function bodies written as a brace block into Koto's
 /// indented blocks:
 ///
@@ -1824,6 +1988,45 @@ pub(super) fn rewrite_const_declarations(src: &str) -> String {
         .join("\n")
 }
 
+/// Rewrite a `+=` that appends a string into the assignment Koto takes:
+///
+/// ```text
+/// melo += ' ' + (48 + i)   ->   melo = rudel_concat(melo, ' ' + (48 + i))
+/// ```
+///
+/// Koto has no `+=` for strings at all ("unable to perform operation '+=' with
+/// 'String' and 'String'"), and building a mini-notation string a piece at a
+/// time in a loop is the reason a tune writes a loop in the first place.
+///
+/// Same rule as [`rewrite_string_concatenation`], which has already folded the
+/// right-hand side: only an operand list with a string literal somewhere in it
+/// is a concatenation, so a numeric `total += n` is left as arithmetic. The
+/// left side has to be a plain name — `rudel_concat` names it twice, and an
+/// index or a call there would be evaluated twice with it.
+pub(super) fn rewrite_string_append(src: &str) -> String {
+    let mask = code_mask(src);
+    let mask = String::from_utf8_lossy(&mask);
+    src.lines()
+        .zip(mask.lines())
+        .map(|(line, masked)| {
+            let Some(at) = masked.find("+=") else {
+                return line.to_string();
+            };
+            let name = line[..at].trim();
+            if name.is_empty() || !name.chars().all(is_ident_char) {
+                return line.to_string();
+            }
+            let rhs = line[at + 2..].trim();
+            if !chunks(rhs).iter().any(|&(kind, ..)| kind == Chunk::Str) {
+                return line.to_string();
+            }
+            let indent = &line[..line.len() - line.trim_start().len()];
+            format!("{indent}{name} = rudel_concat({name}, {rhs})")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Break one JS declaration of several names — `const sk = 80, sh = silence` —
 /// into a line per name. Koto has no comma-separated binding, and reads the
 /// second name as another assignment target for the first value ("expected
@@ -2509,6 +2712,17 @@ pub(super) fn order_declarations(src: &str) -> String {
                 rest = &word[len..];
             }
         }
+        // A statement that reads the name it assigns is updating it, not
+        // declaring it — `melo = rudel_concat(melo, ']')`, what a `+=` becomes.
+        // Hoisting one above the line that first bound the name moves the read
+        // to where there is nothing to read.
+        if defines
+            .last()
+            .and_then(Option::as_ref)
+            .is_some_and(|name| names.iter().filter(|n| *n == name).count() > 1)
+        {
+            *defines.last_mut().expect("just pushed") = None;
+        }
         uses.push(names);
     }
 
@@ -2885,6 +3099,25 @@ pub(super) fn indent_dot_continuations(src: &str) -> String {
                     if last == '|' {
                         block = Some((depth, line_col));
                     }
+                }
+                // So does a `while` header, and unlike everything else here it
+                // can be at the top level: the loop body is an indented block,
+                // and that indentation is the only thing marking it. Without
+                // this the flattening below reads it as JavaScript's
+                // indent-to-taste and pulls the body out of the loop.
+                //
+                // Only when nothing else is open. A loop written inside a
+                // function body is already covered by that block, and one
+                // `block` is tracked, so claiming it here would end at the loop
+                // and leave the rest of the body looking top-level.
+                let line = &out[out.rfind('\n').map_or(0, |i| i + 1)..];
+                if block.is_none()
+                    && line
+                        .trim_start()
+                        .strip_prefix("while")
+                        .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+                {
+                    block = Some((depth, line_col));
                 }
                 last_significant = None;
             } else if !c.is_whitespace() {
