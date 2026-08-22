@@ -58,6 +58,7 @@ fn tagged_voices_feed_their_widget_tap_only() {
             &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
             10.0,
         ))),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend::default(),
@@ -749,6 +750,7 @@ fn cut_group_chokes_the_previous_voice() {
             &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
             10.0,
         ))),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: Some(1),
         send: OrbitSend::default(),
@@ -792,6 +794,7 @@ fn block_render_matches_frame_render_across_onsets() {
             &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
             10.0,
         ))),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend::default(),
@@ -1014,6 +1017,7 @@ fn routed_event(send: OrbitSend) -> NoteEvent {
             },
             ..Default::default()
         })),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send,
@@ -1378,6 +1382,7 @@ fn a_choked_voice_is_routed_through_the_same_sends() {
                 duration: 0.001,
                 ..Default::default()
             })),
+            fx_chain: Vec::new(),
             fx: rudel_dsp::PostFx::default(),
             cut: Some(2),
             send: OrbitSend {
@@ -1462,6 +1467,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
             pan: 0.5,
             filters: Default::default(),
         }),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend {
@@ -1501,6 +1507,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
             pan: 0.5,
             filters: Default::default(),
         }),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend {
@@ -1540,6 +1547,7 @@ fn render_choked(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
             gain: 0.0,
             ..Default::default()
         })),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: Some(9),
         send: OrbitSend {
@@ -2435,6 +2443,7 @@ fn a_centred_voice_stays_centred_through_a_signal_bus() {
             pan: 0.5,
             filters: Default::default(),
         }),
+        fx_chain: Vec::new(),
         fx: rudel_dsp::PostFx::default(),
         cut: None,
         send: OrbitSend {
@@ -2517,4 +2526,41 @@ fn dough_plays_its_pattern_as_bytebeat() {
     // fallback voice and plays something else entirely.
     let raw = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(expr.into())));
     assert_ne!(rms(&render_pattern(&raw, 1.0, 0.5)), level);
+}
+
+#[test]
+fn an_fx_chain_applies_its_stages_in_order() {
+    let saw = || rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+        .note(rudel_core::Value::Int(57));
+    let stage = |name: &'static str, v: f64| {
+        rudel_core::pure(rudel_core::Value::Null).ctrl(name, rudel_core::Value::F64(v))
+    };
+    let level = |p: &Pattern| rms(&render_pattern(p, 1.0, 0.5));
+
+    // A stage is heard at all.
+    let plain = saw();
+    let crushed = saw().fx(&[stage("crush", 2.0)]);
+    assert_ne!(level(&crushed), level(&plain), "an FX stage should be heard");
+
+    // One stage alone is the same rack the voice's own controls drive, so it
+    // has to match the effect named directly.
+    assert_eq!(
+        level(&crushed),
+        level(&saw().ctrl("crush", rudel_core::Value::F64(2.0))),
+        "a single stage should match the effect applied directly"
+    );
+
+    // Filters reach a stage too — upstream's own example is `.FX(lpf(500))`.
+    let filtered = saw().fx(&[stage("cutoff", 300.0)]);
+    assert!(
+        level(&filtered) < level(&plain) * 0.9,
+        "a filter in a stage should cut the signal ({} -> {})",
+        level(&plain),
+        level(&filtered)
+    );
+
+    // Order matters: distortion before a filter is not the same as after it.
+    let a = saw().fx(&[stage("distort", 4.0), stage("cutoff", 400.0)]);
+    let b = saw().fx(&[stage("cutoff", 400.0), stage("distort", 4.0)]);
+    assert_ne!(level(&a), level(&b), "stage order should change the result");
 }

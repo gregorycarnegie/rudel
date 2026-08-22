@@ -261,6 +261,14 @@ pub struct FilterSet {
     pub bp: FilterParams,
 }
 
+impl FilterSet {
+    /// Whether any slot is enabled, i.e. whether building the bank would do
+    /// anything at all.
+    pub fn is_active(&self) -> bool {
+        self.lp.freq.is_some() || self.hp.freq.is_some() || self.bp.freq.is_some()
+    }
+}
+
 impl Default for FilterSet {
     fn default() -> FilterSet {
         FilterSet {
@@ -520,6 +528,62 @@ impl VoiceFilter {
             }
             FilterCore::Ladder(l) => l.process(x),
         }
+    }
+}
+
+/// A voice wrapped in a filter bank, for one stage of an `FX(...)` chain.
+///
+/// Every voice builds its own filters from its own controls, so a filter named
+/// inside a chain stage — `.FX(lpf(500).lpe(4).lpa(1))`, which is upstream's own
+/// example — has no voice of its own to live on. This gives it one.
+///
+/// The stage's own note length drives the filter envelope, the same value the
+/// wrapped voice was built with.
+pub struct FilterStageVoice {
+    inner: Box<dyn crate::voice::VoiceLike>,
+    filters: VoiceFilters,
+    mods: ModBank,
+    sample_rate: f32,
+    duration: f32,
+    t: f32,
+    dt: f32,
+}
+
+impl FilterStageVoice {
+    pub fn new(
+        inner: Box<dyn crate::voice::VoiceLike>,
+        set: &FilterSet,
+        sample_rate: f32,
+        duration: f32,
+    ) -> FilterStageVoice {
+        FilterStageVoice {
+            inner,
+            filters: VoiceFilters::new(set, sample_rate, true),
+            mods: ModBank::default(),
+            sample_rate,
+            duration,
+            t: 0.0,
+            dt: 1.0 / sample_rate,
+        }
+    }
+}
+
+impl crate::voice::VoiceLike for FilterStageVoice {
+    fn tick(&mut self) -> (f32, f32) {
+        let (l, r) = self.inner.tick();
+        let (l, r) =
+            self.filters
+                .process_stereo(l, r, self.t, self.duration, self.sample_rate, &self.mods);
+        self.t += self.dt;
+        (l, r)
+    }
+
+    fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {
+        self.inner.set_bus_input(bus, left, right);
+    }
+
+    fn is_done(&self) -> bool {
+        self.inner.is_done()
     }
 }
 

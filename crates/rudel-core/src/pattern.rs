@@ -35,6 +35,45 @@ pub struct Pattern {
 }
 
 impl Pattern {
+    /// `FX(fx1, fx2, …)`: put this pattern through a chain of effects, each one
+    /// a *pattern of controls* rather than a value.
+    ///
+    /// ```text
+    /// s("bd*4").FX(coarse(4), lpf(500)).FX(distort(1))
+    /// ```
+    ///
+    /// The stages accumulate under an `FX` key, in the order they are named and
+    /// across repeated calls, which is the order the audio side applies them
+    /// in — the pattern's own controls last, so what is written outside the
+    /// chain is heard after it.
+    ///
+    /// Structure comes from this pattern (`appLeft`): a stage whose controls are
+    /// themselves patterned is sampled by the events already here rather than
+    /// adding events of its own.
+    pub fn fx(&self, effects: &[Pattern]) -> Pattern {
+        self.with_value(|value| {
+            Value::func(move |staged| {
+                let Value::Map(mut map) = value.clone() else {
+                    return value.clone();
+                };
+                // Each stage arrives as one control map; `parray` has already
+                // packed the whole chain into a list.
+                let staged = match staged {
+                    Value::List(stages) => stages,
+                    other => vec![other],
+                };
+                let mut chain = match map.shift_remove("FX") {
+                    Some(Value::List(existing)) => existing,
+                    _ => Vec::new(),
+                };
+                chain.extend(staged);
+                map.insert("FX".to_string(), Value::List(chain));
+                Value::Map(map)
+            })
+        })
+        .app_left(&parray(effects))
+    }
+
     /// `dough`: play this pattern through the DSP worklet a `dough(code)` call
     /// installed (`webaudio.mjs`: `this.onTrigger(doughTrigger, 1)`, which posts
     /// each hap's value to it).

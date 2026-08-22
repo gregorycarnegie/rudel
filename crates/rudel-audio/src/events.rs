@@ -5,7 +5,8 @@
 use crate::{clock::Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, ModContext, ModSpecs, OrbitSend, PostFx,
+    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, ModContext, ModSpecs,
+    OrbitSend, PostFx,
     Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
@@ -21,6 +22,9 @@ pub struct NoteEvent {
     pub spec: VoiceSpec,
     /// Per-voice post-effects (crush/shape/distort/coarse/postgain).
     pub fx: PostFx,
+    /// `FX(...)` stages, nearest the source first, each the same rack as `fx`
+    /// and applied before it. Empty for a voice that named no chain.
+    pub fx_chain: Vec<FxStage>,
     /// Which orbit bus this voice feeds, how much it sends to that orbit's
     /// reverb/delay, and the settings the orbit itself should take on.
     pub send: OrbitSend,
@@ -321,6 +325,17 @@ pub fn collect_events_at(
                 ev.onset_cycle,
             );
             let fx = PostFx::from_controls(&ev.controls);
+            // `FX(...)` stages arrive as a list of control maps under `FX`.
+            let fx_chain = match ev.controls.get("FX") {
+                Some(rudel_core::Value::List(stages)) => stages
+                    .iter()
+                    .filter_map(|stage| match stage {
+                        rudel_core::Value::Map(map) => Some(FxStage::from_controls(map, ev.duration_seconds as f32)),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
             // A modulator's relative `depth` scales the target control's own
             // value, so the sources are resolved against the built voice.
             let ctx = ModContext {
@@ -344,6 +359,7 @@ pub fn collect_events_at(
                 onset_seconds: clock.seconds_at(ev.onset_cycle),
                 spec,
                 fx,
+                fx_chain,
                 mods,
                 send,
                 duck: Duck::from_controls(&ev.controls),

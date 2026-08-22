@@ -454,6 +454,33 @@ mod step_alignment_tests {
         );
     }
 
+    /// The `FX` chain accumulates in the order the stages are named, across
+    /// repeated calls, with the pattern's own controls staying outside it.
+    #[test]
+    fn fx_stages_accumulate_in_order() {
+        use crate::controls::{coarse, crush, gain};
+        let stage = |f: fn(Pattern) -> Pattern, v: i64| f(pure(Value::Int(v)));
+        let pat = s(pure(Value::Str("bd".into())))
+            .fx(&[stage(coarse, 4), stage(crush, 8)])
+            .fx(&[stage(gain, 2)]);
+        let Value::Map(map) = onsets(&pat)[0].2.clone() else {
+            panic!("expected a control map")
+        };
+        let Some(Value::List(chain)) = map.get("FX") else {
+            panic!("expected an FX chain, got {map:?}")
+        };
+        let key = |v: &Value| match v {
+            Value::Map(m) => m.keys().next().cloned().unwrap_or_default(),
+            other => panic!("expected a control map, got {other:?}"),
+        };
+        assert_eq!(
+            chain.iter().map(key).collect::<Vec<_>>(),
+            ["coarse", "crush", "gain"]
+        );
+        // The pattern's own controls are not swallowed into the chain.
+        assert_eq!(map.get("s"), Some(&Value::Str("bd".into())));
+    }
+
     /// `parray` curries one packer per input, so the count it is built with has
     /// to shrink by exactly one per applied pattern — off by one and the list
     /// closes early (a `Func` leaks into the output) or never closes at all.

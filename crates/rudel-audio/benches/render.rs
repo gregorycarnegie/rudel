@@ -39,6 +39,7 @@ fn note_event_with_room(room: f32) -> NoteEvent {
     NoteEvent {
         onset_seconds: 0.0,
         spec: VoiceSpec::Synth(Box::new(params)),
+        fx_chain: Vec::new(),
         fx: PostFx {
             crush: Some(8.0),
             shape: Some(0.4),

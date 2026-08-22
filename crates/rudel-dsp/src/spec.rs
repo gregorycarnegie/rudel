@@ -2,7 +2,7 @@ use crate::{
     bus::{BusParams, BusVoice},
     bytebeat::{ByteBeatParams, ByteBeatVoice},
     drum::{DrumParams, DrumVoice},
-    filter::FilterSet,
+    filter::{FilterSet, FilterStageVoice},
     modulator::{ModOwner, ModSpec, ModSpecs, ModTarget},
     params::VoiceParams,
     postfx::{PostFx, PostFxVoice},
@@ -11,6 +11,27 @@ use crate::{
     voice::VoiceLike,
     zzfx::{ZzfxParams, ZzfxVoice},
 };
+
+/// One stage of an `FX(...)` chain: the same effects a voice takes from its own
+/// controls, read off the stage's control map instead.
+#[derive(Clone, Default)]
+pub struct FxStage {
+    pub fx: PostFx,
+    pub filters: FilterSet,
+    /// The note's length, which drives this stage's filter envelope — the same
+    /// value the voice under it was built with.
+    pub duration: f32,
+}
+
+impl FxStage {
+    pub fn from_controls(map: &rudel_core::ValueMap, duration: f32) -> FxStage {
+        FxStage {
+            fx: PostFx::from_controls(map),
+            filters: FilterSet::from_controls(map),
+            duration,
+        }
+    }
+}
 
 pub enum VoiceSpec {
     Synth(Box<VoiceParams>),
@@ -54,8 +75,47 @@ impl VoiceSpec {
         fx: PostFx,
         mods: &ModSpecs,
     ) -> Box<dyn VoiceLike> {
+        self.into_chained_voice(sample_rate, &[], fx, mods)
+    }
+
+    /// Build the voice under an `FX(…)` chain: each stage is another rack of
+    /// effects, applied in turn before `fx`.
+    ///
+    /// That is what upstream does with the list — `FX = [...FX, value]` and then
+    /// one pass of the post-effects section per entry (superdough.mjs), the
+    /// hap's own controls last. Here each pass is another wrapper around the one
+    /// before it, so `chain[0]` sits nearest the source and `fx` ends up
+    /// outermost, which is the order `.FX(a).FX(b)` reads in.
+    ///
+    /// ponytail: insert effects only. A stage's own `delay`/`room` sends and its
+    /// `lfo`/`env` modulators stay with the main controls, because both are
+    /// resolved once per event, outside the voice — upstream indexes them per
+    /// stage with `fxi`. Give the stages their own `OrbitSend` if a tune ever
+    /// wants a different delay in two places at once.
+    pub fn into_chained_voice(
+        self,
+        sample_rate: f32,
+        chain: &[FxStage],
+        fx: PostFx,
+        mods: &ModSpecs,
+    ) -> Box<dyn VoiceLike> {
         let post = mods.for_owner(ModOwner::PostFx);
-        let voice = self.into_voice_with_mods(sample_rate, mods.for_owner(ModOwner::Voice));
+        let mut voice = self.into_voice_with_mods(sample_rate, mods.for_owner(ModOwner::Voice));
+        for stage in chain {
+            // Filters first, then the post-fx rack: the order the two sit in
+            // within a single voice, so a stage behaves like one.
+            if stage.filters.is_active() {
+                voice = Box::new(FilterStageVoice::new(
+                    voice,
+                    &stage.filters,
+                    sample_rate,
+                    stage.duration,
+                ));
+            }
+            if stage.fx.is_active() {
+                voice = Box::new(PostFxVoice::new(voice, stage.fx, sample_rate));
+            }
+        }
         if fx.is_active() || !post.is_empty() {
             Box::new(PostFxVoice::with_mods(voice, fx, sample_rate, post))
         } else {

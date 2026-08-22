@@ -430,6 +430,8 @@ kpattern_methods! {
         fmap => kpattern_fmap,
         #[koto_method]
         tour => kpattern_tour,
+        #[koto_method(alias = "FX", alias = "fx")]
+        FX => kpattern_fx,
         #[koto_method]
         s_tour => kpattern_tour,
         #[koto_method(alias = "arpWith")]

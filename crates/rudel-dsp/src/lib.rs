@@ -31,7 +31,7 @@ pub use convolver::{Convolver, ImpulseResponse, adjust_length, generate_reverb_i
 pub use drum::{DrumKind, DrumParams, DrumVoice};
 pub use envelope::{Adsr, adsr_value, adsr_values};
 pub use fft::Fft;
-pub use filter::{FilterModel, FilterParams, FilterSet, Ladder, VoiceFilters};
+pub use filter::{FilterModel, FilterParams, FilterSet, FilterStageVoice, Ladder, VoiceFilters};
 pub use fm::{FmOp, FmSpec};
 pub use modulator::{
     EnvConfig, Lfo, LfoConfig, ModBank, ModContext, ModEnv, ModOwner, ModSpec, ModSpecs, ModTarget,
@@ -42,7 +42,7 @@ pub use params::VoiceParams;
 pub use pitch::{PitchMod, mtof, note_to_freq};
 pub use postfx::{DistortAlgo, PostFx, PostFxVoice, TransientShaper, Vowel};
 pub use sampler::{Sample, SamplerParams, SamplerVoice};
-pub use spec::VoiceSpec;
+pub use spec::{FxStage, VoiceSpec};
 pub use synth::Voice;
 pub use vocoder::{PhaseVocoder, StretchStage};
 pub use voice::VoiceLike;

@@ -57,11 +57,10 @@
     },
     "unsupported_package": {
       "status": "unsupported",
-      "reason": "Browser-only / alternative-engine features and config setters with no native analog: the kabelsalat worklet (K/worklet) and the FX effect-chain graph. Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs). Nor is `speak`, which now drives the platform speech synthesiser (crates/rudel-app/src/speech.rs), or `addVoicings`, which registers a dictionary at runtime (crates/rudel-core/src/voicing.rs).",
+      "reason": "Browser-only / alternative-engine features and config setters with no native analog: the kabelsalat worklet (K/worklet), which is an external modular-synth DSL compiled to worklet source. `FX` is no longer here: the chain is insert effects around the voice (crates/rudel-dsp/src/spec.rs `into_chained_voice`). Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs). Nor is `speak`, which now drives the platform speech synthesiser (crates/rudel-app/src/speech.rs), or `addVoicings`, which registers a dictionary at runtime (crates/rudel-core/src/voicing.rs).",
       "names": [
         "K",
-        "worklet",
-        "FX"
+        "worklet"
       ]
     },
     "doc_artifact": {

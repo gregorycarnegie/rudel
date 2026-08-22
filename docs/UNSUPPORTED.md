@@ -290,8 +290,28 @@ senders, and sees a partly-filled bus.
 the per-voice filters and the post-effects alike.
 
 Not implemented: **`subControl`** (pointing a modulator at another modulator's
-parameters) is ignored; and **`fxi`** (which link of an `FX` chain to target) is
-moot while `FX` itself is unported.
+parameters) is ignored, and so is **`fxi`** (which link of an `FX` chain a
+modulator targets) — see the `FX` section below for what a chain stage does and
+does not carry.
+
+### `FX` chains — insert effects only
+
+`.FX(fx1, fx2, ...)` works. Upstream builds the chain by running its
+post-effects section once per entry, with the pattern's own controls appended
+last (`FX = [...FX, value]`, superdough.mjs); here each entry becomes another
+wrapper around the voice, so `chain[0]` sits nearest the source and the
+pattern's own controls are heard last. Repeated `.FX(...)` calls extend the
+chain rather than replacing it, and a stage carries filters as well as the
+post-effect rack, so upstream's own `.FX(lpf(500).lpe(4).lpa(1).lpd(2))` example
+does what it says.
+
+What a stage does **not** carry is anything resolved outside the voice: its own
+`delay`/`room` sends, its own `lfo`/`env` modulators (upstream indexes those per
+stage with `fxi`), and its own `gain`/`velocity`. Those stay with the pattern's
+main controls, so a chain that asks for two different delay times in two places
+gets the outer one twice. Everything that is an insert — `crush`, `shape`,
+`distort`, `coarse`, `vowel`, `tremolo`, `phaser`, `transient`, `compressor`,
+`stretch`, `postgain`, and the filters — is per stage.
 
 ### Soundfonts — supported, but General MIDI fetches over the network
 

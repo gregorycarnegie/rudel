@@ -81,6 +81,15 @@ pub(super) fn kpattern_tour(ctx: MethodContext<KPattern>) -> KotoResult<KValue> 
     Ok(KPattern::wrap(pat.tour(&many)))
 }
 
+/// `pat.FX(fx1, fx2, ...)`: put the pattern through a chain of effects, each a
+/// pattern of controls. Repeated calls extend the chain rather than replacing
+/// it, and the pattern's own controls are heard after all of them.
+pub(super) fn kpattern_fx(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
+    let pat = ctx.instance()?.0.clone();
+    let stages: Vec<Pattern> = ctx.args.iter().map(arg_to_pattern).collect();
+    Ok(KPattern::wrap(pat.fx(&stages)))
+}
+
 /// `pat.loopAtCps(factor, cps)`: like `loopAt` but with an explicit cps
 /// (deprecated in Strudel; kept for parity).
 pub(super) fn kpattern_loop_at_cps(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {

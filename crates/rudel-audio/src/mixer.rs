@@ -462,7 +462,12 @@ impl Mixer {
                 self.active.push(ActiveVoice {
                     voice: ev
                         .spec
-                        .into_modulated_voice(self.sample_rate, ev.fx, &ev.mods),
+                        .into_chained_voice(
+                            self.sample_rate,
+                            &ev.fx_chain,
+                            ev.fx,
+                            &ev.mods,
+                        ),
                     tags: ev.tags,
                     cut: ev.cut,
                     send: ev.send,

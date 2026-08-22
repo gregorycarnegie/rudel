@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 618 | 612 | 6 | 0 | 0 |
+| `core` | 618 | 613 | 5 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -25,7 +25,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 | `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **654** | **55** | **0** | **0** |
+| **Total** | **709** | **655** | **54** | **0** | **0** |
 
 ## `codemirror`
 
@@ -39,7 +39,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 
 | Name | Status | Note |
 | --- | --- | --- |
-| `FX` | intentional | unsupported package |
+| `FX` | implemented |  |
 | `FXr` | implemented |  |
 | `FXrel` | implemented |  |
 | `FXrelease` | implemented |  |
