@@ -11,6 +11,122 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-08-22
+
+A parity campaign, measured rather than guessed. Running all 8004 patterns
+shared on strudel.cc through both engines and crossing the results isolates the
+ones that work *there* and fail *here* — 111 of them at the start, 88 now. Most
+of what follows was found that way, and each fix was re-measured against the
+whole corpus before the next.
+
+Two numbers moved, and only one of them is the obvious one. The square counts
+whether a pattern evaluates; it cannot see a pattern that still evaluates and
+now plays something else. Exact hap-count agreement with Strudel, over the
+patterns both engines run, went **1773 → 1786** — and one change scored *better*
+on the square while moving 61 working patterns away from Strudel's output. It
+was reverted and done properly.
+
+### Added
+
+- **`FX` effect chains.** `.FX(fx1, fx2, …)` puts a pattern through a chain of
+  effects, each a pattern of controls, with repeated calls extending the chain:
+
+  ```koto
+  s("bd*4").FX(coarse(4)).FX(lpf(500).lpe(4).lpa(1).lpd(2)).FX(distort(1))
+  ```
+
+  Upstream builds this by running its post-effects section once per entry with
+  the pattern's own controls appended last; here each entry becomes another
+  wrapper around the voice, so the first stage sits nearest the source and the
+  pattern's own controls are heard last. A stage carries filters as well as the
+  post-effect rack, which is what upstream's own `lpf` example needs. It does
+  not carry a stage's `delay`/`room` sends, `lfo`/`env` modulators or `gain` —
+  those are resolved once per event, outside the voice. See
+  [`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md).
+
+- **`dough`, played as the bytebeat it always is.** ``dough`…` `` compiles the
+  script's own JavaScript into an AudioWorklet running at sample rate, which
+  needs a JS engine on the audio thread. What that code *is*, in every use of it
+  in the wild, is a bytebeat player reading the hap's `s` value — so `.dough()`
+  moves that value to `byteBeatExpression` and plays it through the bytebeat
+  voice Rudel already ports. An interpretation rather than a port, and marked as
+  one: worklet code doing something else gets bytebeat anyway. The alternative
+  was not silence but the expression read as a sound name, playing something
+  unrelated.
+
+- **`JSON.parse`, `Boolean`, and `Array.prototype.reduce`.** Songs embed a
+  lookup table — a pixel font, a chord book — as one JSON string literal;
+  `lines.filter(Boolean)` is the idiom for dropping what a `split` left empty;
+  and `reduce` builds a `timeCat` argument list carrying a running total.
+
+- **JavaScript's counting loop.** `for (let i = 0; i < 50; i++) { … }` has no
+  Koto spelling and becomes a `while`. With it, `+=` on a string — which Koto
+  has no operator for at all — since building a mini-notation string a step at a
+  time is what the loop is usually for.
+
+### Fixed
+
+- **`mini` did not parse its argument.** It was wired to the conversion that
+  deliberately does *not* read a bare string as mini-notation. That rule is
+  right for an ordinary pattern argument and wrong for `mini`, which is the
+  parser: `mini('48 49 50')` was one hap of literal text instead of three notes.
+  It evaluated, so the square never showed it — three corpus tunes were playing
+  8 haps where Strudel gives 400.
+
+- **`map` never recovered from an arity error.** It called the callback with
+  JS's `(value, index)` and retried with one argument on failure, so a
+  one-parameter callback took the error path on *every* element — and past a few
+  dozen of those the VM stopped recovering. A 94-entry table failed where a
+  59-entry one worked. It now reads the callback's declared arity and calls it
+  correctly the first time.
+
+- **`register` ignored its `patternify` argument**, and decided what to
+  patternify by whether an argument was written as a mini literal rather than by
+  whether it has structure. Upstream keys that on its pure fast path, which
+  Rudel already mirrors as `Pattern::pure_value`. A helper doing arithmetic on
+  its argument was handed the source text: `noteToMidi: not a note:
+  "<d5 <g5!2 g4>>/2"`.
+
+- **A block-bodied lambda with an argument after it.** `reduce((a, x) => { …;
+  return a }, [])` — Koto ends a lambda at the end of its indented block, so the
+  `, []` was read as part of the body. The error pointed eight lines below
+  anything wrong. This was the largest single bucket in the corpus.
+
+- **JavaScript escapes in a brace-carrying literal.** Such a literal becomes a
+  Koto *raw* string, which applies no escapes, so a JSON table's `\"` reached
+  the parser as `\\"`.
+
+- **Two declarations on one line.** `var a = 1; var b = 2` dropped only the
+  keyword that opened the line, and looked up a variable named `var`.
+
+- **The declaration sort hoisted an update.** `melo = rudel_concat(melo, ']')`
+  reads the name it assigns; lifting it above the line that first bound the name
+  moved the read to where there was nothing to read.
+
+- **A bare `silence` statement.** Upstream exports the silent *pattern*, not a
+  factory, so a scratch pad ends with the bare word to go quiet — 39 of the 8004
+  corpus patterns do. Here it returned the function itself.
+
+### Changed
+
+- **`filter` uses JavaScript's truthiness.** It kept `0` and `""`, which JS does
+  not. `filter(Boolean)` depends on this.
+
+- **`mini(x)` and `.dough()` produce different patterns** than in 0.14.0, per
+  the two entries above. Both were wrong before; a pattern relying on the old
+  behaviour will sound different.
+
+- **`NoteEvent` carries an `fx_chain` field** and `VoiceSpec` gained
+  `into_chained_voice`, for the `FX` work. Breaking for anything constructing a
+  `NoteEvent` directly.
+
+### Not ported
+
+`K` is [Kabelsalat](https://kabel.salat.dev/), an external modular-synth DSL
+with its own graph compiler targeting a worklet; `worklet` runs that compiled
+source. Both need a JS engine per sample, as `dough` does, and porting the
+language is a project rather than a feature.
+
 ## [0.14.0] — 2026-08-21
 
 Hydra, ported. 0.13.0 gave the GPU a shader widget; this release puts a real
