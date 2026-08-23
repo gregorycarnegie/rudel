@@ -11,6 +11,21 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- **`naga` is declared once**, in `[workspace.dependencies]`. Both `rudel-app`
+  (validating a widget's shader before wgpu can abort the process over a typo)
+  and `rudel-lang` (checking the hydra port's output in tests) were pinning it
+  separately. It was the only dependency declared in more than one crate.
+
+- **Internal crate dependencies carry no `version` requirement**, reversing
+  half of what 0.17.0 did. Centralising them in `[workspace.dependencies]` was
+  worth it; the `version` on each was only ever there to satisfy `cargo
+  package`, which strips the `path` and refuses a dependency without one. Rudel
+  ships binaries and is not published to crates.io, so that was seven more
+  literals to bump on every release for a command nobody runs. `cargo package
+  --workspace` does not succeed here any more, by choice.
+
 ## [0.18.0] — 2026-08-23
 
 ### Added

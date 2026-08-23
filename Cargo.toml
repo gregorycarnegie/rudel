@@ -12,13 +12,20 @@ repository = "https://github.com/gregorycarnegie/rudel"
 rust-version = "1.96"
 
 [workspace.dependencies]
-rudel-core = { path = "crates/rudel-core", version = "0.18.0" }
-rudel-dsp = { path = "crates/rudel-dsp", version = "0.18.0" }
-rudel-lang = { path = "crates/rudel-lang", version = "0.18.0" }
-rudel-midi = { path = "crates/rudel-midi", version = "0.18.0" }
-rudel-mini = { path = "crates/rudel-mini", version = "0.18.0" }
-rudel-osc = { path = "crates/rudel-osc", version = "0.18.0" }
-rudel-audio = { path = "crates/rudel-audio", version = "0.18.0" }
+# Path only, deliberately. A `version` here would not be the one the members
+# inherit from `[workspace.package]` above — it is the *requirement* a published
+# crate carries for its siblings, which `cargo package` demands because it
+# strips the `path`. Rudel ships binaries, not crates: it is not on crates.io
+# and has no plans to be, so that requirement would be seven more literals to
+# bump on every release in exchange for a command nobody runs. `cargo package
+# --workspace` therefore does not succeed here, and is not meant to.
+rudel-core = { path = "crates/rudel-core" }
+rudel-dsp = { path = "crates/rudel-dsp" }
+rudel-lang = { path = "crates/rudel-lang" }
+rudel-midi = { path = "crates/rudel-midi" }
+rudel-mini = { path = "crates/rudel-mini" }
+rudel-osc = { path = "crates/rudel-osc" }
+rudel-audio = { path = "crates/rudel-audio" }
 wide = "1.6.1"
 indexmap = "2.14.0"
 num-rational = "0.4.2"
@@ -26,6 +33,11 @@ num-integer = "0.1.47"
 num-traits = "0.2.19"
 phf = { version = "0.14.0", features = ["macros"] }
 proptest = "1.11.0"
+# wgpu's own shader front-end, already in the tree through it. Two crates parse
+# WGSL with it — `rudel-app` validates a widget's shader before wgpu can abort
+# the process over it, `rudel-lang` checks the hydra port's output in tests — so
+# the version lives here to keep them from drifting apart.
+naga = { version = "30.0.1", features = ["wgsl-in"] }
 # `float_roundtrip`: serde_json's default float parser can land one ulp off the
 # correctly-rounded value, which is enough to flip a golden comparison against
 # JS-produced numbers (it did, on the bytebeat oracle).
