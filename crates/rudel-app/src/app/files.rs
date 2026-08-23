@@ -176,9 +176,12 @@ impl RudelApp {
     /// actually changes: a viewport command every frame asks for a repaint
     /// every frame, which spins the UI at full rate forever.
     pub(super) fn sync_window_title(&mut self, ctx: &egui::Context) {
+        // A trailing `*` is the usual editor marker for a buffer that is not
+        // on disk — the same state the Open/close warning asks about.
+        let unsaved = if self.is_dirty() { " *" } else { "" };
         let title = match &self.file_path {
-            Some(p) => format!("rudel — {}", file_label(Some(p))),
-            None => "rudel".to_string(),
+            Some(p) => format!("rudel — {}{unsaved}", file_label(Some(p))),
+            None => format!("rudel{unsaved}"),
         };
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -275,6 +278,14 @@ mod tests {
         let ctx = egui::Context::default();
         app.sync_window_title(&ctx);
         assert_eq!(app.window_title, "rudel — beat.js");
+
+        // ...and marks it while the buffer is not what the file holds.
+        app.code = "s(\"bd\")".to_string();
+        app.sync_window_title(&ctx);
+        assert_eq!(app.window_title, "rudel — beat.js *");
+        app.saved_code = app.code.clone();
+        app.sync_window_title(&ctx);
+        assert_eq!(app.window_title, "rudel — beat.js", "saving clears it");
     }
 
     #[test]

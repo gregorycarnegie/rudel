@@ -18,7 +18,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
   naming the file. The comparison is against the file's own contents, so a
   buffer restored from the autosave on the next launch is still "unsaved" if it
   was never written — the warning survives a restart, which is exactly when the
-  edits are easiest to lose.
+  edits are easiest to lose. The window title carries the same state: a
+  trailing `*` next to the file name while the buffer differs from it.
 
 ### Fixed
 
