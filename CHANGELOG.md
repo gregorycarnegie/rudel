@@ -11,6 +11,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-08-23
+
 ### Changed
 
 - **`naga` is declared once**, in `[workspace.dependencies]`. Both `rudel-app`
