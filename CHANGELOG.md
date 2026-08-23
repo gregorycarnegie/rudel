@@ -11,6 +11,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-08-23
+
 ### Added
 
 - **Record the output to WAV, FLAC, MP3, Ogg Vorbis or Opus.** A `⏺ Rec` button
