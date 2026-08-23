@@ -11,6 +11,7 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-08-23
 
 Files, and the two clocks that were wrong.
 
