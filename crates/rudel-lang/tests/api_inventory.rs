@@ -121,6 +121,24 @@ fn render() -> String {
          defined in more than one Strudel package is listed under each.\n\n",
     );
 
+    // The Note column carries the allowlist *category*, which on its own reads
+    // like a verdict — `dracula` under "editor theme" looks unbuilt when the
+    // theme is in fact a native `EditorTheme`, just not a name a pattern can
+    // call. The allowlist already explains each category; render it.
+    out.push_str("## Allowlist categories\n\n");
+    out.push_str(
+        "A row that is not `implemented` carries the allowlist category it falls under in its \
+         Note. What each one means, from `tools/oracle/reference_allowlist.json`:\n\n",
+    );
+    for (category, entry) in allowlist["categories"].as_object().unwrap() {
+        out.push_str(&format!(
+            "- **{}** — {}\n",
+            category.replace('_', " "),
+            entry["reason"].as_str().unwrap_or_default(),
+        ));
+    }
+    out.push('\n');
+
     // Summary table.
     out.push_str("## Summary\n\n");
     out.push_str("| Package | Names | Implemented | Intentional | Deferred | Unaccounted |\n");

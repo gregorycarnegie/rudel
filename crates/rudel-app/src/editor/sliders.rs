@@ -88,16 +88,20 @@ pub(crate) fn draw_slider_hosts(
                 // Fill the covered part of the rail with the caret accent so the
                 // slider reads at a glance (like Strudel's range input).
                 ui.visuals_mut().selection.bg_fill = draw_theme.caret;
-                ui.add_sized(
+                let response = ui.add_sized(
                     rect.size(),
                     egui::Slider::new(&mut value, min..=max)
                         .step_by(step)
                         .trailing_fill(true)
                         .show_value(false),
-                )
+                );
+                let scrolled =
+                    crate::scroll::scroll_adjust(ui, &response, &mut value, min..=max, step);
+                (response, scrolled)
             });
 
-        if area.inner.changed()
+        let (response, scrolled) = area.inner;
+        if (response.changed() || scrolled)
             && let Some(update) = apply_slider_drag_value(code, slider, value, step)
         {
             ui.ctx().request_repaint();

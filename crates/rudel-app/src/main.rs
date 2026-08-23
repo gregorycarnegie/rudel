@@ -7,6 +7,7 @@
 mod app;
 mod editor;
 mod reference;
+mod scroll;
 mod speech;
 mod theme;
 mod volume;

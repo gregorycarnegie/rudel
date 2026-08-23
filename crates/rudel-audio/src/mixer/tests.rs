@@ -29,6 +29,7 @@ fn test_mixer_with_volume(rx: Receiver<NoteEvent>, volume: Arc<AtomicU64>) -> Mi
         taps: Arc::new(ScopeTaps::new()),
         tag_bufs: HashMap::new(),
         csound: Default::default(),
+        recorder: Default::default(),
     }
 }
 
@@ -2653,4 +2654,38 @@ fn a_kabelsalat_graph_plays_as_the_voice_it_wraps() {
         0.0,
         "a graph that ignores audioin should not leak the voice under it"
     );
+}
+
+#[test]
+fn an_armed_recorder_gets_the_frames_the_callback_rendered() {
+    // The `record` tests cover the WAV file; this covers the wiring — that
+    // `render_block` hands the master mix over, and that an idle recorder
+    // stays idle.
+    let dir = std::env::temp_dir().join(format!("rudel-mixhook-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("hook.wav");
+
+    let (_tx, rx) = mpsc::channel::<NoteEvent>();
+    let mut mixer = test_mixer(rx);
+    let recorder = mixer.recorder.clone();
+
+    // Nothing armed: rendering must not write a file at all.
+    let mut out = [(0.0f32, 0.0f32); 32];
+    mixer.render_block(&mut out);
+    assert!(!path.exists(), "an idle recorder writes nothing");
+
+    recorder.start(&path, 44_100.0).unwrap();
+    mixer.render_block(&mut out);
+    mixer.render_block(&mut out);
+    recorder.stop().unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    // Two blocks of 32 stereo frames at 2 bytes a sample, after the header.
+    assert_eq!(
+        bytes.len(),
+        44 + 2 * 32 * 2 * 2,
+        "both blocks reached the file"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
 }

@@ -60,11 +60,13 @@ public class RudelWin {
 [RudelWin]::SetProcessDPIAware() | Out-Null
 
 # Toolbar buttons in egui *logical* points, measured from the window's top-left.
-# Scaled by the window's DPI at click time.
+# Scaled by the window's DPI at click time. Open/Save/Rec sit to the left of
+# Play, so anything added there shifts these -- re-measure from a screenshot if
+# a click starts landing on the wrong control.
 $Buttons = @{
-    Play   = @(125, 47)
-    Eval   = @(190, 47)
-    Editor = @(200, 150)
+    Play   = @(319, 47)
+    Eval   = @(385, 47)
+    Editor = @(200, 260)
 }
 
 function Get-RudelWindow {
@@ -133,6 +135,15 @@ if ($Play) { Invoke-RudelButton Play; "play" }
 if ($Stop) { Invoke-RudelButton Play; "stop" }   # same button toggles
 
 if ($PSBoundParameters.ContainsKey('Eval')) {
+    # -Eval replaces the whole editor buffer, and eframe autosaves that buffer
+    # over whatever was in it. Anything the user had open and had not saved to
+    # a file is gone otherwise, so keep a copy first.
+    $store = Join-Path $env:APPDATA 'rudel\data\app.ron'
+    if (Test-Path -LiteralPath $store) {
+        $backup = Join-Path $env:TEMP ('rudel-app-{0:yyyyMMdd-HHmmss}.ron' -f (Get-Date))
+        Copy-Item -LiteralPath $store -Destination $backup
+        "buffer backed up to $backup"
+    }
     # Paste rather than type: the editor auto-pairs brackets and quotes, so
     # SendKeys-ing source text produces mangled code.
     Set-Clipboard -Value $Eval

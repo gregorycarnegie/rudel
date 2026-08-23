@@ -340,6 +340,8 @@ struct Mixer {
     tag_bufs: HashMap<String, Vec<f32>>,
     /// Csound, when a script has asked for it.
     csound: SharedCsound,
+    /// Master-output recorder; idle unless a take is running.
+    recorder: crate::record::SharedRecorder,
 }
 
 impl Mixer {
@@ -389,6 +391,9 @@ impl Mixer {
             );
             offset += sub_len;
         }
+        // One handoff per callback, after every sub-block has been mixed,
+        // so a take is the master output exactly as the device hears it.
+        self.recorder.push(out);
         self.played.store(self.sample_clock, Ordering::Relaxed);
     }
 
@@ -682,6 +687,8 @@ impl OfflineMixer {
             taps: Arc::new(ScopeTaps::new()),
             tag_bufs: HashMap::new(),
             csound: SharedCsound::default(),
+            // Never armed: an offline render is already a file.
+            recorder: Default::default(),
         };
         OfflineMixer { tx, mixer }
     }

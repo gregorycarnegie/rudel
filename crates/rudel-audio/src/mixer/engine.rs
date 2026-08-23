@@ -37,6 +37,8 @@ pub struct Engine {
     taps: Arc<ScopeTaps>,
     /// Csound, created the first time a script calls `loadCsound`/`loadOrc`.
     csound: SharedCsound,
+    /// Master-output recorder, shared with the audio callback.
+    recorder: Arc<crate::Recorder>,
 }
 
 impl Engine {
@@ -64,6 +66,7 @@ impl Engine {
         store_f64(&volume, DEFAULT_MASTER_VOLUME);
         let taps = Arc::new(ScopeTaps::new());
         let csound = SharedCsound::default();
+        let recorder: Arc<crate::Recorder> = Default::default();
 
         let mut mixer = Mixer {
             rx,
@@ -79,6 +82,7 @@ impl Engine {
             taps: taps.clone(),
             tag_bufs: HashMap::new(),
             csound: csound.clone(),
+            recorder: recorder.clone(),
         };
 
         // Owned by the callback so the per-callback render buffer is reused
@@ -133,7 +137,25 @@ impl Engine {
             sample_rate,
             taps,
             csound,
+            recorder,
         })
+    }
+
+    /// Start recording the master output to `path` as a WAV file. Fails if a
+    /// take is already running or the file cannot be created.
+    pub fn start_recording(&self, path: impl AsRef<std::path::Path>) -> Result<(), String> {
+        self.recorder.start(path, self.sample_rate)
+    }
+
+    /// End the take and close the file, returning the path written (`None` if
+    /// nothing was recording).
+    pub fn stop_recording(&self) -> Result<Option<std::path::PathBuf>, String> {
+        self.recorder.stop()
+    }
+
+    /// Whether a take is running.
+    pub fn is_recording(&self) -> bool {
+        self.recorder.is_recording()
     }
 
     /// Compile Csound orchestra code, starting Csound on first use

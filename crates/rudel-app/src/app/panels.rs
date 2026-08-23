@@ -162,6 +162,31 @@ impl RudelApp {
                 {
                     self.save_file();
                 }
+                // Recording is a file action, so it sits with Open and Save
+                // rather than with the transport.
+                let recording = self.is_recording();
+                let record_button = if recording {
+                    egui::Button::new(
+                        egui::RichText::new("⏺ Stop")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(crate::theme::STOP)
+                } else {
+                    egui::Button::new("⏺ Rec")
+                };
+                if ui
+                    .add(record_button)
+                    .on_hover_text(if recording {
+                        "Finish the recording"
+                    } else {
+                        "Record the audio output — WAV, FLAC, MP3, Ogg Vorbis or Opus, \
+                         chosen by the file extension"
+                    })
+                    .clicked()
+                {
+                    self.toggle_recording();
+                }
                 ui.separator();
                 // Play is the one action a live coder reaches for blind: filled
                 // accent while stopped, red while playing.
@@ -215,9 +240,9 @@ impl RudelApp {
                 ui.separator();
                 ui.label("cps");
                 let mut cps = self.cps;
-                if ui
-                    .add(egui::Slider::new(&mut cps, 0.1..=2.0).fixed_decimals(2))
-                    .changed()
+                let response = ui.add(egui::Slider::new(&mut cps, 0.1..=2.0).fixed_decimals(2));
+                if response.changed()
+                    | crate::scroll::scroll_adjust(ui, &response, &mut cps, 0.1..=2.0, 0.01)
                 {
                     self.set_cps(cps);
                 }
@@ -630,11 +655,15 @@ impl RudelApp {
                             }
                         });
 
-                    ui.add(
+                    let mut size = self.editor_settings.font_size as f64;
+                    let response = ui.add(
                         egui::Slider::new(&mut self.editor_settings.font_size, 11.0..=32.0)
                             .text("size")
                             .step_by(1.0),
                     );
+                    if crate::scroll::scroll_adjust(ui, &response, &mut size, 11.0..=32.0, 1.0) {
+                        self.editor_settings.font_size = size as f32;
+                    }
                 });
             });
     }

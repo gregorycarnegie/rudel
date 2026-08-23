@@ -18,6 +18,20 @@ pub(crate) fn vlc_volume_slider(ui: &mut egui::Ui, volume_percent: &mut f32) -> 
         response.mark_changed();
     }
 
+    // Whole percent is the finest this is worth moving; the wheel's actual
+    // increment comes from the range (see `scroll_adjust`).
+    let mut percent = *volume_percent as f64;
+    if crate::scroll::scroll_adjust(
+        ui,
+        &response,
+        &mut percent,
+        0.0..=MAX_VOLUME_PERCENT as f64,
+        1.0,
+    ) {
+        *volume_percent = percent as f32;
+        response.mark_changed();
+    }
+
     let painter = ui.painter_at(rect);
     draw_speaker_icon(
         &painter,

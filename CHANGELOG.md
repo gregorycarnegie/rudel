@@ -11,6 +11,71 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **Record the output to WAV, FLAC, MP3, Ogg Vorbis or Opus.** A `⏺ Rec` button
+  next to Open/Save picks a destination; the extension picks the format. The
+  master mix is captured at the device's own sample rate and streamed to disk by
+  a writer thread rather than buffered, so a take is bounded by the file system
+  and not by memory. Only the audio output is captured; MIDI and OSC send
+  events, not sound.
+
+  The lossy and lossless formats go through each codec's own reference library —
+  LAME, libFLAC, libvorbis and libopus — built from vendored source, so there is
+  nothing to install to play a rudel recording anywhere. WAV is the exception:
+  a 44-byte header and raw PCM is less code than a dependency.
+
+  Two consequences worth knowing. `cmake` must now be on `PATH` to build the
+  workspace, because that is how `libopus`'s crate builds it (see
+  CONTRIBUTING.md; Visual Studio ships one). And Opus encodes only at
+  8/12/16/24/48 kHz — on a device running at 44.1 kHz, starting an `.opus` take
+  says so rather than writing a file that plays at the wrong speed. Every other
+  format takes the device rate as it finds it.
+
+- **The wheel drives every slider.** Hovering a slider and scrolling moves it:
+  the transport `cps`, the editor font size, the inline `slider(...)` controls
+  in the code, and the volume slider. One notch is a hundredth of the slider's
+  *range*, not of its own step, so every slider takes the same amount of
+  scrolling end to end however wide it is — `cps` would otherwise have needed
+  190 notches and an inline `slider(300, 2000)` a thousand. A slider with
+  coarser stops than that (the font size, 11..32 by 1) keeps them. The wheel
+  event is consumed while hovered, so a slider inside the editor adjusts rather
+  than scrolling the view out from under the pointer.
+
+  This reads the raw wheel events rather than egui's `smooth_scroll_delta`.
+  The smoothed value is spread over several frames and rudel only repaints on
+  input while the transport is stopped, so the ramp was cut off partway and
+  most of every notch was dropped — measured at about a sixth of the scroll
+  arriving.
+
+### Changed
+
+- **Pattern files are `.js`, not `.koto`.** Patterns are written as Strudel
+  JavaScript — the preprocessor turns them into Koto — and the corpora they
+  come from are directories of `.js`. Open/Save filter and default accordingly.
+
+- **Dependencies updated**: `rfd` 0.15 → 0.17, `pest`/`pest_derive` 2.8 → 2.9,
+  `symphonia` 0.6.0 → 0.6.1, `cpal` 0.18.1 → 0.18.2, `naga` 30.0.0 → 30.0.1.
+  Nothing in the tree declares a `rust-version` above the workspace's own 1.96.
+
+- **CI checks the MSRV it publishes.** The workspace has declared
+  `rust-version = "1.96"` for some time with nothing verifying it, so a
+  dependency bump could raise the real floor silently. There is now a job that
+  reads the version out of `Cargo.toml` and runs `cargo check` on exactly that
+  toolchain. Both workflows also name `cmake` and the autotools among their
+  Linux packages: the hosted images carry them, but the recorder's codec
+  libraries build from vendored C and a change to those images should fail at
+  the install step rather than inside a build script.
+
+### Fixed
+
+- **`dracula` no longer reads as unimplemented in the API inventory.** The Note
+  column carried the raw allowlist category ("editor theme"), which under an
+  `intentional` status looks like a verdict; the theme is in fact a native
+  `EditorTheme` and selectable in the editor settings, it is just not a name a
+  pattern can call. `docs/API_INVENTORY.md` now renders each category's
+  recorded reason, which says so — for all four categories, not just this one.
+
 ## [0.17.0] — 2026-08-23
 
 Files, and the two clocks that were wrong.

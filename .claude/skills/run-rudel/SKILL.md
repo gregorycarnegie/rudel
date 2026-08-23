@@ -112,6 +112,14 @@ exposed surface changed more than intended.
 - **`FindWindow(null, "rudel")` returns `IntPtr.Zero`.** Get the handle from
   `Get-Process rudel | Where MainWindowHandle -ne 0` instead.
 
+- **`-Eval` destroys whatever was in the editor.** It selects all and pastes,
+  and eframe autosaves that buffer to `%APPDATA%\rudel\data\app.ron` — so a
+  pattern the user had open and had not saved to a file is gone, not just off
+  screen. The driver copies `app.ron` to `%TEMP%\rudel-app-<timestamp>.ron`
+  before pasting and prints where; restore from there rather than
+  reconstructing from a screenshot. Prefer launching fresh over `-Eval` against
+  an app someone was using.
+
 - **Paste source, never type it.** The editor auto-pairs brackets and quotes,
   so `SendKeys`-ing `s("bd*4")` produces mangled code. The driver uses
   `Set-Clipboard` + `Ctrl+V`.
