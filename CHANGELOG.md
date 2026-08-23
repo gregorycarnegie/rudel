@@ -11,6 +11,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-08-23
+
 ### Added
 
 - **Unsaved edits are not thrown away without asking.** Opening another file or
