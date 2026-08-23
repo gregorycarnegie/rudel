@@ -408,6 +408,82 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
+    /// Decode an Ogg Opus file back to a mono mixdown, and report the strength
+    /// of `freq` in it against the overall rms. `opus-rs` decodes what it
+    /// encodes, so this is what a take sounds like without a C decoder.
+    fn opus_tone(bytes: &[u8], rate: u32, freq: f32) -> (f32, f32) {
+        let mut reader = ogg::PacketReader::new(std::io::Cursor::new(bytes.to_vec()));
+        let mut decoder = opus_rs::OpusDecoder::new(rate as i32, 2).unwrap();
+        let mut buf = vec![0.0f32; rate as usize / 50 * 2];
+        let mut pcm: Vec<f32> = Vec::new();
+        let mut packet = 0;
+        while let Some(p) = reader.read_packet().unwrap() {
+            packet += 1;
+            if packet <= 2 {
+                continue; // OpusHead, OpusTags
+            }
+            let frames = decoder
+                .decode(&p.data, rate as usize / 50, &mut buf)
+                .unwrap();
+            pcm.extend(buf[..frames * 2].chunks(2).map(|f| (f[0] + f[1]) / 2.0));
+        }
+        let (mut re, mut im) = (0.0f32, 0.0f32);
+        for (n, &s) in pcm.iter().enumerate() {
+            let w = std::f32::consts::TAU * freq * n as f32 / rate as f32;
+            re += s * w.cos();
+            im += s * w.sin();
+        }
+        let n = pcm.len() as f32;
+        let rms = (pcm.iter().map(|s| s * s).sum::<f32>() / n).sqrt();
+        (2.0 * re.hypot(im) / n, rms)
+    }
+
+    #[test]
+    fn an_opus_take_decodes_back_to_the_tone_it_was_given() {
+        // Opus is lossy, so this is the closest thing to the exactness FLAC
+        // gets: the tone has to come back at roughly the amplitude it went in
+        // with, and nothing else with it. It is the check that caught `opus-rs`
+        // encoding noise at 24 kHz, which is why that rate is not offered.
+        //
+        // 12 kHz is missing because `opus-rs`'s *decoder* is wrong there, not
+        // its encoder: a 12 kHz take decodes correctly through libopus, and
+        // through this one as inflated noise. Encoding is all rudel does, so
+        // the rate stays — it just cannot check itself without a C decoder.
+        for rate in [8_000u32, 16_000, 48_000] {
+            let path = temp_dir().join(format!("tone-{rate}.opus"));
+            let rec = Recorder::default();
+            rec.start(&path, rate as f32).unwrap();
+            let tone: Vec<(f32, f32)> = (0..rate)
+                .map(|i| {
+                    let t = i as f32 / rate as f32;
+                    let s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.4;
+                    (s, s)
+                })
+                .collect();
+            for chunk in tone.chunks(1024) {
+                rec.push(chunk);
+            }
+            rec.stop().unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+
+            let (tone_440, rms) = opus_tone(&bytes, rate, 440.0);
+            let (off, _) = opus_tone(&bytes, rate, 900.0);
+            assert!(
+                (0.25..0.55).contains(&tone_440),
+                "{rate} Hz: 440 Hz came back at {tone_440}, not the 0.4 it went in at"
+            );
+            assert!(
+                off < tone_440 / 4.0,
+                "{rate} Hz: {off} at 900 Hz is not a tone the take contained"
+            );
+            assert!(
+                (0.15..0.6).contains(&rms),
+                "{rate} Hz: rms {rms} is not a 0.4 sine"
+            );
+            std::fs::remove_file(&path).ok();
+        }
+    }
+
     #[test]
     fn opus_refuses_a_rate_it_cannot_encode() {
         // 44.1 kHz is not an Opus rate and resampling is out of scope, so this
@@ -418,6 +494,12 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("44100"), "name the offending rate: {err}");
         assert!(!rec.is_recording());
+        // 24 kHz *is* an Opus rate, but `opus-rs` encodes noise at it, so it is
+        // refused the same way rather than writing a file that is not audio.
+        let err = rec
+            .start(temp_dir().join("broken-rate.opus"), 24_000.0)
+            .unwrap_err();
+        assert!(err.contains("24000"), "name the offending rate: {err}");
         // The other formats take it happily.
         assert_eq!(&take("rate.flac", 44_100)[0..4], b"fLaC");
     }

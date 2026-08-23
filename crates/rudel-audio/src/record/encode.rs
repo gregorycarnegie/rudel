@@ -1,10 +1,10 @@
 //! Output formats for a recording.
 //!
-//! One [`Encoder`] per format. The lossy ones wrap the codec's own reference
-//! library — LAME, libvorbis, libopus — rather than a reimplementation; FLAC
-//! is lossless, so `flacenc`'s pure-Rust encoder can be checked sample for
-//! sample against a decoder and is one less C build. WAV is the other
-//! exception: a 44-byte header and raw PCM is less code than a dependency.
+//! One [`Encoder`] per format. MP3 and Vorbis wrap the codec's own reference
+//! library — LAME, libvorbis — rather than a reimplementation; FLAC and Opus
+//! use pure-Rust encoders (`flacenc`, `opus-rs`, the latter a port of libopus
+//! itself). WAV is the other exception: a 44-byte header and raw PCM is less
+//! code than a dependency.
 //!
 //! Every encoder streams: the writer thread hands it one block at a time and
 //! it writes through to the file, so a take is bounded by the file system
@@ -441,7 +441,8 @@ impl Encoder for Vorbis {
 /// libopus. Unlike the others this one carries no container of its own, so the
 /// packets are muxed into Ogg here, per RFC 7845.
 struct Opus {
-    encoder: opus::Encoder,
+    encoder: opus_rs::OpusEncoder,
+    sample_rate: u32,
     writer: ogg::PacketWriter<'static, BufWriter<File>>,
     serial: u32,
     /// Interleaved samples not yet making up a whole frame.
@@ -454,18 +455,28 @@ struct Opus {
     packet: Vec<u8>,
 }
 
-/// libopus' own encoder delay at 48 kHz. The `opus` crate does not expose
-/// `OPUS_GET_LOOKAHEAD`, and this is the value libopus reports for every mode
-/// it selects here.
+/// The encoder's own delay at 48 kHz: what libopus reports for every mode it
+/// selects here, and `opus-rs` is a port of it with the same delay
+/// compensation. Neither exposes `OPUS_GET_LOOKAHEAD`.
 ///
 // ponytail: hard-coded rather than queried. Getting it wrong only shifts the
 // start of the file by a couple of milliseconds; expose the CTL upstream (or
 // bind it directly) if that ever matters.
 const OPUS_PRE_SKIP: u16 = 312;
 
-/// The rates libopus accepts. A recording at any other rate would need
+/// Stereo music, roughly what libopus chose on its own before the encoder
+/// became `opus-rs`, which defaults to a speech rate instead.
+const OPUS_BITRATE: i32 = 96_000;
+
+/// The rates rudel encodes Opus at. A recording at any other rate would need
 /// resampling, which is a bigger dependency than the codec.
-const OPUS_RATES: [u32; 5] = [8_000, 12_000, 16_000, 24_000, 48_000];
+///
+/// Opus itself also allows 24 kHz, but `opus-rs` 0.1.32 encodes noise there —
+/// a tone written at 24 kHz comes back from libopus (and from `opus-rs`'s own
+/// decoder) as full-scale garbage, while every other rate round-trips within a
+/// percent of the source amplitude. No sound card runs at 24 kHz, so it is
+/// simply not offered rather than worked around; try it again on an upgrade.
+const OPUS_RATES: [u32; 4] = [8_000, 12_000, 16_000, 48_000];
 
 /// Opus counts granule positions at 48 kHz whatever it was fed.
 fn to_48k(samples: u64, sample_rate: u32) -> u64 {
@@ -481,12 +492,15 @@ impl Opus {
                 OPUS_RATES.map(|r| r.to_string()).join("/"),
             ));
         }
-        let encoder = opus::Encoder::new(
-            sample_rate,
-            opus::Channels::Stereo,
-            opus::Application::Audio,
+        let mut encoder = opus_rs::OpusEncoder::new(
+            sample_rate as i32,
+            CHANNELS as usize,
+            opus_rs::Application::Audio,
         )
-        .map_err(|e| format!("libopus init: {e}"))?;
+        .map_err(|e| format!("opus init: {e}"))?;
+        // opus-rs defaults to 64 kbps, which is a speech rate; libopus used to
+        // pick about 100 kbps by itself for 48 kHz stereo music, so name one.
+        encoder.bitrate_bps = OPUS_BITRATE;
 
         let mut opus = Opus {
             encoder,
@@ -495,7 +509,8 @@ impl Opus {
             // file actually matters, and there is one stream here.
             serial: std::process::id(),
             pending: Vec::new(),
-            // 20 ms, the size libopus is tuned around.
+            sample_rate,
+            // 20 ms, the size Opus is tuned around.
             frame: sample_rate as usize / 50,
             granule: 0,
             packet: vec![0u8; 4000], // over the largest packet Opus emits
@@ -544,8 +559,8 @@ impl Opus {
         let samples = self.frame * CHANNELS as usize;
         let written = self
             .encoder
-            .encode_float(&self.pending[..samples], &mut self.packet)
-            .map_err(|e| format!("libopus encode: {e}"))?;
+            .encode(&self.pending[..samples], self.frame, &mut self.packet)
+            .map_err(|e| format!("opus encode: {e}"))?;
         self.pending.drain(..samples);
         self.granule += to_48k(self.frame as u64, sample_rate);
         let data = self.packet[..written].to_vec();
@@ -565,7 +580,7 @@ impl Opus {
 
 impl Encoder for Opus {
     fn write(&mut self, block: &[f32]) -> Result<(), String> {
-        let sample_rate = self.encoder.get_sample_rate().unwrap_or(48_000);
+        let sample_rate = self.sample_rate;
         self.pending.extend_from_slice(block);
         while self.pending.len() >= self.frame * CHANNELS as usize {
             self.encode_frame(false, sample_rate, None)?;
@@ -574,7 +589,7 @@ impl Encoder for Opus {
     }
 
     fn finish(mut self: Box<Self>) -> Result<(), String> {
-        let sample_rate = self.encoder.get_sample_rate().unwrap_or(48_000);
+        let sample_rate = self.sample_rate;
         // Opus only emits whole frames, so the tail is padded out with silence.
         // The granule position stops at the real length, so a decoder trims it
         // — stamped directly rather than by adding the frame and subtracting

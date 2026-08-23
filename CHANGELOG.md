@@ -7,6 +7,7 @@ breaking changes.
 This file starts at 0.7.0. Earlier history is in the git log.
 
 [flacenc]: https://github.com/yotarok/flacenc-rs
+[`opus-rs`]: https://github.com/restsend/opus-rs
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
@@ -35,6 +36,20 @@ This file starts at 0.7.0. Earlier history is in the git log.
   whose note actually started are kept.
 
 ### Changed
+
+- **Opus recording is pure Rust, and no longer offers 24 kHz.** `opus`/
+  `audiopus_sys` are replaced by [`opus-rs`], a port of libopus 1.6. With FLAC
+  already moved, that takes the last CMake user out of the tree: `cargo tree -i
+  cmake` returns nothing, the release workflow's policy override is gone, and
+  building rudel needs no CMake at all.
+
+  The output was checked against libopus itself before the binding was dropped:
+  a tone recorded through `opus-rs` decodes in libopus at the amplitude it went
+  in with, and with nothing else in it, at 8, 12, 16 and 48 kHz — but **not at
+  24 kHz**, where this encoder writes noise. So 24 kHz is refused now, like
+  44.1 kHz already was; no sound card runs at it, and a take that cannot be
+  played is worse than a take that was never started. A recorded tone is
+  decoded and measured in the test suite now, which is what caught it.
 
 - **FLAC recording is pure Rust.** `flac-bound`/`libflac-sys` are replaced by
   [`flacenc`], which removes libFLAC's vendored C build from the tree — one of

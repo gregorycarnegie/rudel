@@ -11,17 +11,9 @@ Rudel uses Rust edition 2024 and the workspace `rust-version` is `1.96`.
 cargo test --workspace
 ```
 
-**`cmake` must be on `PATH`.** The recorder encodes through the codecs' own
-reference libraries, and `libopus` is the one whose crate builds it with CMake
-(LAME and libvorbis build with `cc` alone; FLAC is pure Rust). CI runners ship one;
-so does Visual Studio, at
-
-```
-C:\Program Files (x86)\Microsoft Visual Studio\<year>\<edition>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
-```
-
-which is not on `PATH` by default. Everything but Opus builds without it, but
-the workspace does not, so put it on `PATH` rather than working around it.
+No CMake, and nothing to install for the codecs: LAME and libvorbis build from
+vendored C with `cc` alone (autotools on Linux, which the runner images carry),
+and FLAC and Opus are pure Rust.
 
 For the native app, release mode is recommended because it runs the real-time
 audio path:

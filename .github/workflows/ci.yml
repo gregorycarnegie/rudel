@@ -26,11 +26,11 @@ jobs:
       # System libraries for the GUI (`eframe`/egui) and audio (`cpal`/ALSA)
       # crates so the whole workspace builds on Linux.
       #
-      # The build *tools* at the end are for the recorder's codec libraries,
-      # which are compiled from vendored C: libopus needs cmake, LAME's crate
-      # drives autotools. Both are on the hosted runner image already; they are
-      # named here so a change to that image fails at this step with a clear
-      # message rather than deep inside a build script.
+      # The build *tools* at the end are for the recorder's codec libraries
+      # that are still compiled from vendored C: LAME's crate drives autotools.
+      # They are on the hosted runner image already; they are named here so a
+      # change to that image fails at this step with a clear message rather
+      # than deep inside a build script.
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -39,7 +39,7 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libgtk-3-dev \
-            cmake autoconf automake libtool
+            autoconf automake libtool
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -78,7 +78,7 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libgtk-3-dev \
-            cmake autoconf automake libtool
+            autoconf automake libtool
 
       - name: Read the workspace rust-version
         id: msrv
