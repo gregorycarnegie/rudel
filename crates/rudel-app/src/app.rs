@@ -55,6 +55,9 @@ pub(crate) struct RudelApp {
     engine: Option<Engine>,
     audio_error: Option<String>,
     code: String,
+    /// The buffer as it last was on disk (or as it started, with no file yet).
+    /// Anything else in `code` is an unsaved edit; see `RudelApp::is_dirty`.
+    saved_code: String,
     /// The file the buffer came from, when Open or Save named one.
     /// `None` is an unsaved scratch buffer (still autosaved by eframe).
     file_path: Option<PathBuf>,
@@ -176,6 +179,7 @@ impl RudelApp {
             engine: None,
             audio_error: None,
             code: DEFAULT_CODE.to_string(),
+            saved_code: DEFAULT_CODE.to_string(),
             file_path: None,
             window_title: String::new(),
             eval_error: None,
@@ -340,6 +344,14 @@ pub(crate) fn run() -> eframe::Result {
                     .get_string(panels::SAVED_PATH_KEY)
                     .as_deref()
                     .and_then(files::restore_path);
+                // A restored buffer only counts as saved if it still matches
+                // the file it came from: edits that were never written stay
+                // unsaved across a restart, and still warn before being lost.
+                app.saved_code = app
+                    .file_path
+                    .as_deref()
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                    .unwrap_or_else(|| app.code.clone());
             }
             Ok(Box::new(app))
         }),

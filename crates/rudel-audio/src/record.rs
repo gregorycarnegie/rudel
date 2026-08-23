@@ -14,8 +14,8 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc::{self, Receiver, SyncSender, TrySendError},
     },
     thread::JoinHandle,
 };
@@ -33,15 +33,29 @@ pub struct Recorder {
     /// `try_lock`ed by the audio thread, like the Csound handle: the only other
     /// holder is a start/stop on the UI thread, and waiting for that would drop
     /// a buffer.
-    tx: Mutex<Option<Sender<Vec<f32>>>>,
+    tx: Mutex<Option<SyncSender<Vec<f32>>>>,
     /// The writer thread and where it is writing, owned by the control side.
     writer: Mutex<Option<Take>>,
+    /// Blocks the audio thread had to throw away because the encoder fell
+    /// behind. Reported by [`Recorder::dropped_blocks`] so a glitched take is
+    /// visible rather than silent.
+    dropped: AtomicUsize,
 }
+
+/// Blocks the writer thread may fall behind by before the audio thread starts
+/// dropping them.
+const QUEUE: usize = 256;
 
 impl Recorder {
     /// Whether a take is running.
     pub fn is_recording(&self) -> bool {
         self.armed.load(Ordering::Relaxed)
+    }
+
+    /// How many blocks the last (or running) take dropped because the encoder
+    /// could not keep up; anything but zero means a gap in the file.
+    pub fn dropped_blocks(&self) -> usize {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     /// The file the current take is being written to.
@@ -68,11 +82,15 @@ impl Recorder {
             return Err("already recording".to_string());
         }
 
-        let (tx, rx) = mpsc::channel::<Vec<f32>>();
+        // Bounded: if the disk stalls, blocks are dropped rather than queued
+        // until the process runs out of memory. `QUEUE` blocks is seconds of
+        // audio at any sane block size.
+        self.dropped.store(0, Ordering::Relaxed);
+        let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(QUEUE);
         // The encoders are built on the writer thread — several of them wrap a
         // C handle that is not `Send` — so the thread reports back whether it
         // opened before `start` returns.
-        let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
+        let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), String>>(1);
         let rate = sample_rate.max(1.0) as u32;
         let on_thread = path.clone();
         let handle = std::thread::spawn(move || run(format, on_thread, rate, rx, ready_tx));
@@ -130,7 +148,11 @@ impl Recorder {
             block.push(l);
             block.push(r);
         }
-        let _ = tx.send(block);
+        // Never block the audio thread: a full queue means the encoder is not
+        // keeping up, and a drop-out in the take beats one in the output.
+        if let Err(TrySendError::Full(_)) = tx.try_send(block) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -141,7 +163,7 @@ fn run(
     path: PathBuf,
     sample_rate: u32,
     rx: Receiver<Vec<f32>>,
-    ready: Sender<Result<(), String>>,
+    ready: SyncSender<Result<(), String>>,
 ) -> Result<(), String> {
     let mut encoder = match format.open(&path, sample_rate) {
         Ok(encoder) => {
@@ -157,6 +179,16 @@ fn run(
         encoder.write(&block)?;
     }
     encoder.finish()
+}
+
+impl Drop for Recorder {
+    /// A take that is still running when the app closes still has to be
+    /// finalised — several of the containers only get their lengths and
+    /// trailing pages written by `finish`, so a dropped recorder that never
+    /// joined its writer leaves an unplayable file.
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
 }
 
 /// Shared handle type used by the mixer and the engine.
@@ -277,7 +309,7 @@ mod tests {
     fn every_format_decodes_back_to_the_second_of_audio_it_was_given() {
         // symphonia reads WAV, FLAC, MP3 and Vorbis; it has no Opus decoder,
         // which is checked by its container instead below.
-        for name in ["tone.wav", "tone.flac", "tone.mp3", "tone.ogg"] {
+        for name in ["decode.wav", "decode.flac", "decode.mp3", "decode.ogg"] {
             let (rate, seconds, rms) = decoded(&take(name, 48_000));
             assert_eq!(rate, 48_000.0, "{name} decoded at the wrong rate");
             assert!(
@@ -354,6 +386,46 @@ mod tests {
             44_100 * 4
         );
         assert_eq!(u16::from_le_bytes(h[32..34].try_into().unwrap()), 4);
+    }
+
+    #[test]
+    fn a_take_dropped_without_a_stop_is_still_finalised() {
+        // Closing the app mid-recording drops the recorder; if that does not
+        // join the writer thread the container never gets its lengths patched
+        // and the file will not decode.
+        // Five seconds through a codec that does real work: at the drop the
+        // writer thread still has a backlog, so the file is only whole if the
+        // drop waited for it.
+        let path = temp_dir().join("dropped.mp3");
+        {
+            let rec = Recorder::default();
+            rec.start(&path, 48_000.0).unwrap();
+            for chunk in tone(48_000, 5).chunks(1024) {
+                rec.push(chunk);
+            }
+            assert_eq!(rec.dropped_blocks(), 0, "the queue should have held");
+        }
+        let (rate, seconds, rms) = decoded(&std::fs::read(&path).unwrap());
+        assert_eq!(rate, 48_000.0);
+        assert!(
+            (seconds - 5.0).abs() < 0.2,
+            "{seconds}s, not the five given"
+        );
+        assert!((0.1..0.5).contains(&rms), "rms {rms}: not the tone");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_take_the_encoder_keeps_up_with_drops_nothing() {
+        let path = temp_dir().join("kept-up.wav");
+        let rec = Recorder::default();
+        rec.start(&path, 48_000.0).unwrap();
+        for chunk in tone(48_000, 1).chunks(1024) {
+            rec.push(chunk);
+        }
+        rec.stop().unwrap();
+        assert_eq!(rec.dropped_blocks(), 0, "a WAV encoder cannot fall behind");
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]

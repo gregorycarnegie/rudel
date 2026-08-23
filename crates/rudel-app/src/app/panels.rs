@@ -34,6 +34,15 @@ impl eframe::App for RudelApp {
         // The GPU widget painters keep their resources in the wgpu renderer, so
         // without that backend they would draw nothing at all.
         let gpu_available = frame.wgpu_render_state().is_some();
+        // The window's close button, Alt+F4 and the like all arrive here as a
+        // close request; take it back if the buffer has edits the user says
+        // they do not want to lose.
+        if ui.ctx().input(|i| i.viewport().close_requested())
+            && !self.confirm_discard("Close rudel")
+        {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         pump_input_bus(ui.ctx());
         self.poll_font_requests();
         self.poll_sample_requests();

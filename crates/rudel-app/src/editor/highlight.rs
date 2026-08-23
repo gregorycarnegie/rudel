@@ -131,20 +131,22 @@ pub(super) fn highlighted_editor_job(
                 format.line_height = Some(row_height);
             }
         }
-        // Reserve horizontal space for an inline slider: widen the advance of
-        // the glyph just before the value literal (the `(` of `slider(`) so a
-        // gap opens between it and the still-visible value, and the slider is
-        // drawn in that gap — next to its value, like Strudel's widget.
+        // Reserve horizontal space for an inline slider: epaint adds
+        // `extra_letter_spacing` *before* every glyph of a section (its first
+        // one included, mid-line), so the gap rides on the first character of
+        // the value literal. Hanging it on the preceding `(` opened the gap
+        // before that bracket instead of after it, so the slider drew over
+        // `slider` rather than inside the call, like Strudel's widget.
         if let Some(&(_, _, gap)) = reservations
             .sliders
             .iter()
-            .find(|&&(from, _, _)| end == from && start < end)
+            .find(|&&(from, _, _)| start == from && start < end)
         {
-            let split = piece.char_indices().next_back().map_or(0, |(i, _)| i);
+            let split = piece.char_indices().nth(1).map_or(piece.len(), |(i, _)| i);
             let mut gap_format = format.clone();
             gap_format.extra_letter_spacing = gap;
-            job.append(&piece[..split], 0.0, format);
-            job.append(&piece[split..], 0.0, gap_format);
+            job.append(&piece[..split], 0.0, gap_format);
+            job.append(&piece[split..], 0.0, format);
         } else {
             job.append(piece, 0.0, format);
         }
@@ -511,10 +513,11 @@ mod tests {
     }
 
     #[test]
-    fn a_slider_gap_opens_on_the_glyph_before_its_literal() {
-        // The layouter widens the advance of the character immediately before
-        // the value literal, so the slider has somewhere to sit. The gap must
-        // land on *that* glyph and nowhere else.
+    fn a_slider_gap_opens_between_the_bracket_and_its_literal() {
+        // The gap has to open *after* the `(` of `slider(`, so the control sits
+        // inside the call next to its value. epaint applies a section's
+        // `extra_letter_spacing` before each of its glyphs, so the gap belongs
+        // to the literal's first character, not to the bracket before it.
         let code = "slider(0.5)";
         let brackets: [(usize, usize); 0] = [];
         let job_with = |sliders: &[(usize, usize, f32)]| {
@@ -532,7 +535,7 @@ mod tests {
                 },
             )
         };
-        // The literal `0.5` starts at byte 7, so the gap belongs to byte 6.
+        // The literal `0.5` starts at byte 7, so the gap belongs to byte 7.
         let job = job_with(&[(7, 10, 40.0)]);
         let widened: Vec<_> = job
             .sections
@@ -540,7 +543,29 @@ mod tests {
             .filter(|s| s.format.extra_letter_spacing != 0.0)
             .map(|s| job.text[s.byte_range.start.0..s.byte_range.end.0].to_string())
             .collect();
-        assert_eq!(widened, vec!["(".to_string()], "{:?}", job.text);
+        assert_eq!(widened, vec!["0".to_string()], "{:?}", job.text);
+
+        // And it really moves the glyphs: the bracket stays put and only the
+        // literal after it is pushed right by the reserved width.
+        let ctx = egui::Context::default();
+        let mut first_pass = ctx.run_ui(Default::default(), |_| {});
+        first_pass.textures_delta.clear();
+        let x_of = |job: egui::text::LayoutJob, index: usize| {
+            let galley = ctx.fonts_mut(|fonts| fonts.layout_job(job));
+            galley
+                .pos_from_cursor(egui::text::CCursor::new(index))
+                .min
+                .x
+        };
+        let (plain_bracket, plain_value) = (x_of(job_with(&[]), 6), x_of(job_with(&[]), 7));
+        assert!(
+            (x_of(job_with(&[(7, 10, 40.0)]), 6) - plain_bracket).abs() < 1e-3,
+            "the `(` must not move"
+        );
+        assert!(
+            (x_of(job_with(&[(7, 10, 40.0)]), 7) - (plain_value + 40.0)).abs() < 1e-3,
+            "the literal must be pushed right by the reserved gap"
+        );
 
         // With no reservation nothing is widened at all.
         assert!(

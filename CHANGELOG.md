@@ -11,6 +11,48 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **Unsaved edits are not thrown away without asking.** Opening another file or
+  closing the window while the buffer differs from what is on disk asks first,
+  naming the file. The comparison is against the file's own contents, so a
+  buffer restored from the autosave on the next launch is still "unsaved" if it
+  was never written — the warning survives a restart, which is exactly when the
+  edits are easiest to lose.
+
+### Fixed
+
+- **A tempo change no longer leaves MIDI notes stuck on.** Changing `cps`
+  re-anchors the clock and re-queries the window, which dropped everything
+  still queued at the old rate — including the note-offs of notes already
+  sounding. Nothing re-queried those, because the notes they end were scheduled
+  before the change, so the note played until something else happened to
+  retrigger it. Queued note-offs now survive the change at their original time,
+  which is the duration the note was actually started with.
+
+- **A take that is running when the app closes is still finalised.** Dropping
+  the recorder now stops it and waits for the writer thread, so the container
+  gets its lengths and trailing pages written. Without that, closing mid-take
+  left a file that would not decode.
+
+- **A stalled disk drops blocks instead of memory.** The audio thread handed
+  blocks to the writer over an unbounded channel, which grows without limit if
+  the encoder cannot keep up. The queue now holds a few seconds and the audio
+  thread drops what will not fit rather than blocking or queuing forever;
+  dropped blocks are counted, so a glitched take is knowable rather than
+  silent.
+
+- **An inline `slider(...)` is drawn inside its call.** `epaint` applies a
+  section's letter spacing *before* each of its glyphs, so hanging the reserved
+  gap on the `(` opened it in front of the bracket and the control drew over
+  the word `slider`. The gap belongs to the value literal's first character.
+
+- **Sounding keys on the claviature are visible in both themes.** They were
+  filled with the theme foreground, which is near-white in a dark theme:
+  invisible on a white key, and indistinguishable from an unpressed white key
+  on a black one. A pressed key with no `color` control now gets its own
+  accent; `color` still overrides it.
+
 ## [0.18.1] — 2026-08-23
 
 ### Changed

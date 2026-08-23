@@ -1,5 +1,5 @@
 use crate::{
-    CLOCK, CONTINUE, START, STOP,
+    CLOCK, CONTINUE, NOTE_OFF, START, STOP,
     note::reset_messages,
     schedule::{MpeState, TimedMidi, schedule_window_with_state},
 };
@@ -173,11 +173,17 @@ fn run_scheduler<S: MidiSink>(
             // scheduled (silence until the clock catches up) and a faster one
             // jumps it forward (a burst of events at once).
             clock.set_cps(now, cps_set);
-            // Everything still queued was timed at the old rate.
+            // Everything still queued was timed at the old rate, so it is
+            // dropped and re-queried — except the note-offs, which belong to
+            // notes that are already sounding. Dropping those leaves them
+            // stuck on, and nothing re-queries them: the notes they end were
+            // scheduled before the change.
             // ponytail: `mpe_state`'s channel reservations keep their old-rate
             // end times for one window; give it a rebase if that ever audibly
             // steals a channel.
-            pending.retain(|m| m.at_seconds <= now);
+            pending.retain(|m| {
+                m.at_seconds <= now || m.data.first().is_some_and(|s| s & 0xF0 == NOTE_OFF)
+            });
             scheduled_cycle = clock.cycle_at(now);
         }
         let cps_now = clock.cps();

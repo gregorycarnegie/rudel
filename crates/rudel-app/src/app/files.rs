@@ -37,8 +37,33 @@ fn pattern_dialog(start: Option<&Path>) -> rfd::FileDialog {
 }
 
 impl RudelApp {
+    /// Whether the buffer differs from what is on disk (or, with no file yet,
+    /// from what it started as).
+    pub(super) fn is_dirty(&self) -> bool {
+        self.code != self.saved_code
+    }
+
+    /// Ask before throwing edits away. `what` completes "... anyway?".
+    /// `true` means go ahead.
+    pub(super) fn confirm_discard(&self, what: &str) -> bool {
+        !self.is_dirty()
+            || rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Warning)
+                .set_title("Unsaved changes")
+                .set_description(format!(
+                    "{} has changes that are not saved. {what} anyway?",
+                    file_label(self.file_path.as_deref())
+                ))
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show()
+                == rfd::MessageDialogResult::Yes
+    }
+
     /// Pick a file and load it into the editor.
     pub(super) fn open_file(&mut self) {
+        if !self.confirm_discard("Open another file") {
+            return;
+        }
         let Some(path) = pattern_dialog(self.file_path.as_deref()).pick_file() else {
             return; // cancelled
         };
@@ -49,6 +74,7 @@ impl RudelApp {
     pub(super) fn load_path(&mut self, path: &Path) {
         match std::fs::read_to_string(path) {
             Ok(text) => {
+                self.saved_code = text.clone();
                 self.code = text;
                 self.file_path = Some(path.to_path_buf());
                 self.io_error = None;
@@ -86,6 +112,7 @@ impl RudelApp {
     fn write_to(&mut self, path: &Path) {
         match std::fs::write(path, &self.code) {
             Ok(()) => {
+                self.saved_code = self.code.clone();
                 self.file_path = Some(path.to_path_buf());
                 self.io_error = None;
                 self.status = format!("saved {}", file_label(Some(path)));
@@ -207,6 +234,37 @@ mod tests {
         assert_eq!(app.code, "keep me");
         assert!(app.io_error.is_some(), "a missing file should report");
         assert_eq!(app.file_path, None, "and must not become the current file");
+    }
+
+    #[test]
+    fn the_buffer_is_dirty_only_between_a_change_and_the_next_write() {
+        let dir = std::env::temp_dir().join(format!("rudel-dirty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pattern.js");
+
+        let mut app = RudelApp::headless();
+        assert!(!app.is_dirty(), "an untouched buffer is not dirty");
+        app.code = "s(\"bd\")".to_string();
+        assert!(app.is_dirty(), "a typed-in change is dirty");
+        app.write_to(&path);
+        assert!(!app.is_dirty(), "saving cleans it");
+        app.code = "s(\"sd\")".to_string();
+        app.load_path(&path);
+        assert!(!app.is_dirty(), "opening a file cleans it");
+        // A read that fails leaves the buffer — and so its dirtiness — alone.
+        app.code = "s(\"hh\")".to_string();
+        app.load_path(Path::new("no/such/rudel/pattern.js"));
+        assert!(app.is_dirty(), "a failed open must not pretend it saved");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_clean_buffer_needs_no_confirmation() {
+        // The dialog itself is modal and cannot run headless; what is testable
+        // is that a clean buffer never reaches it.
+        let app = RudelApp::headless();
+        assert!(app.confirm_discard("Quit"), "no dialog, straight through");
     }
 
     #[test]

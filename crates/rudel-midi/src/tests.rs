@@ -830,6 +830,38 @@ impl Recorder {
             .filter(|m| m[0] & 0xF0 == NOTE_ON)
             .count()
     }
+
+    fn note_offs(&self) -> usize {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m[0] & 0xF0 == NOTE_OFF)
+            .count()
+    }
+}
+
+#[test]
+fn a_tempo_change_still_ends_the_notes_it_already_started() {
+    // A cps change re-queries the window, so everything queued at the old rate
+    // is thrown away — but the note-offs of notes that are already sounding
+    // have no second chance to be scheduled, and dropping them left the notes
+    // stuck on.
+    let rec = Recorder::default();
+    // cps 1: one c3 per second, so its note-off sits ~1s out in the queue.
+    let engine = MidiEngine::start(rec.clone(), note(pure(Value::Str("c3".into()))), 1.0);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(rec.note_ons(), 1, "the note should have started");
+    // Silence as well, so the only note-off that can arrive is the queued one.
+    engine.set_pattern(silence());
+    engine.set_cps(4.0);
+    std::thread::sleep(Duration::from_millis(1200));
+    engine.stop();
+    assert_eq!(
+        rec.note_offs(),
+        1,
+        "the tempo change left the sounding note stuck on"
+    );
 }
 
 #[test]

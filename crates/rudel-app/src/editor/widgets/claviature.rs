@@ -13,6 +13,11 @@ use rudel_core::Hap;
 const LOW_MIDI: i32 = 36;
 const HIGH_MIDI: i32 = 84;
 
+/// Fill for a sounding key with no `color` control. The theme foreground is
+/// near-white in a dark theme, which is invisible on a white key and reads as
+/// a white key on a black one, so pressed keys get their own accent instead.
+const PRESSED: egui::Color32 = egui::Color32::from_rgb(70, 130, 180); // steelblue
+
 pub(super) fn paint_claviature(
     ui: &egui::Ui,
     rect: egui::Rect,
@@ -38,7 +43,7 @@ pub(super) fn paint_claviature(
         .iter()
         .filter_map(|hap| {
             let midi = hap_midi(hap)?;
-            let color = color_with_alpha(event_color(hap, colors.foreground), event_alpha(hap));
+            let color = color_with_alpha(event_color(hap, PRESSED), event_alpha(hap));
             Some((midi, color))
         })
         .collect();
