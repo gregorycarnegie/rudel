@@ -6,6 +6,7 @@ breaking changes.
 
 This file starts at 0.7.0. Earlier history is in the git log.
 
+[flacenc]: https://github.com/yotarok/flacenc-rs
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
@@ -34,6 +35,16 @@ This file starts at 0.7.0. Earlier history is in the git log.
   whose note actually started are kept.
 
 ### Changed
+
+- **FLAC recording is pure Rust.** `flac-bound`/`libflac-sys` are replaced by
+  [`flacenc`], which removes libFLAC's vendored C build from the tree — one of
+  the two crates that made `cmake` a build requirement (`libopus` is the other,
+  so it is still needed). The crate's one-call API encodes a whole stream in
+  memory; rudel drives its frame-level API instead, writing each frame through
+  to the file and patching `STREAMINFO` at the end, so a take stays bounded by
+  the file system as before. Being lossless, the swap is checked exactly: a
+  take through FLAC decodes to the same samples as the same take through WAV.
+  It encodes at about 190x realtime, between Vorbis and Opus.
 
 - **A recording that dropped blocks says so.** The status line after a take
   names how many the audio thread had to throw away because the encoder could

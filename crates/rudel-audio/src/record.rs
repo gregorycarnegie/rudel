@@ -326,6 +326,25 @@ mod tests {
     }
 
     #[test]
+    fn a_flac_take_decodes_to_exactly_the_samples_the_wav_holds() {
+        // FLAC is lossless, so "did the pure-Rust encoder get it right" is a
+        // question with an exact answer: the same second of audio through the
+        // WAV path (a header and raw PCM) and through `flacenc` has to come
+        // back from the decoder sample for sample identical, same length and
+        // same rate. Anything wrong with the frames, the block sizes or the
+        // STREAMINFO totals shows up here.
+        let wav = crate::samples::decode_bytes(&take("lossless.wav", 48_000)).unwrap();
+        let flac = crate::samples::decode_bytes(&take("lossless.flac", 48_000)).unwrap();
+        assert_eq!(flac.sample_rate, wav.sample_rate);
+        assert_eq!(
+            flac.data.len(),
+            wav.data.len(),
+            "the take is a different length through FLAC"
+        );
+        assert_eq!(flac.data, wav.data, "FLAC is supposed to be lossless");
+    }
+
+    #[test]
     fn every_format_writes_a_file_its_own_decoder_recognises() {
         // A second of tone through each encoder, checked by magic bytes and by
         // being smaller than the PCM it came from (or, for WAV, exactly it).
@@ -336,7 +355,7 @@ mod tests {
         assert_eq!(wav.len(), 44 + pcm, "WAV is the PCM plus a header");
 
         let flac = take("tone.flac", 48_000);
-        assert_eq!(&flac[0..4], b"fLaC", "libFLAC's stream marker");
+        assert_eq!(&flac[0..4], b"fLaC", "the FLAC stream marker");
         assert!(flac.len() < pcm, "lossless should still beat raw PCM");
 
         let mp3 = take("tone.mp3", 48_000);

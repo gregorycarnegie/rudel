@@ -1,9 +1,10 @@
 //! Output formats for a recording.
 //!
-//! One [`Encoder`] per format, each wrapping the codec's own reference
-//! library — LAME, libFLAC, libvorbis and libopus — rather than a
-//! reimplementation. WAV is the exception: a 44-byte header and raw PCM is
-//! less code than a dependency.
+//! One [`Encoder`] per format. The lossy ones wrap the codec's own reference
+//! library — LAME, libvorbis, libopus — rather than a reimplementation; FLAC
+//! is lossless, so `flacenc`'s pure-Rust encoder can be checked sample for
+//! sample against a decoder and is one less C build. WAV is the other
+//! exception: a 44-byte header and raw PCM is less code than a dependency.
 //!
 //! Every encoder streams: the writer thread hands it one block at a time and
 //! it writes through to the file, so a take is bounded by the file system
@@ -20,6 +21,9 @@ use std::{
 /// Stereo throughout: the mixer's master output is a stereo pair.
 const CHANNELS: u16 = 2;
 
+/// Every format here is fed 16-bit samples; `to_i16` is the only quantisation.
+const BITS: u16 = 16;
+
 /// What a recording is written as, chosen by the file name's extension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
@@ -27,7 +31,7 @@ pub enum Format {
     Wav,
     /// MP3, via LAME.
     Mp3,
-    /// FLAC, lossless, via libFLAC.
+    /// FLAC, lossless, via `flacenc`.
     Flac,
     /// Ogg Vorbis, via libvorbis.
     Vorbis,
@@ -107,7 +111,6 @@ const MAX_WAV_DATA: u32 = u32::MAX - 36;
 
 /// The 44-byte canonical WAV header for 16-bit stereo PCM.
 pub(super) fn wav_header(sample_rate: u32, data_len: u32) -> [u8; 44] {
-    const BITS: u16 = 16;
     let block_align = CHANNELS * BITS / 8;
     let byte_rate = sample_rate * block_align as u32;
     let mut h = [0u8; 44];
@@ -241,52 +244,137 @@ impl Encoder for Mp3 {
 
 // ---------------------------------------------------------------- FLAC
 
-/// libFLAC. Lossless, so the 16-bit conversion is the only thing lost.
+/// The reference encoder's default block size, which `flacenc` is tuned for.
+const FLAC_BLOCK: usize = 4096;
+
+/// `flacenc`, in pure Rust. Lossless, so the 16-bit conversion is the only
+/// thing lost.
+///
+/// The crate's one-call API encodes a whole `Stream` in memory; this drives it
+/// a frame at a time instead, writing each one through to the file and keeping
+/// only the header, so a take stays bounded by the file system like every
+/// other encoder here. The header is rewritten at the end, once the totals it
+/// describes are known — the same seek-and-patch `Wav` does.
 struct Flac {
-    encoder: Option<flac_bound::FlacEncoder<'static>>,
-    buf: Vec<i32>,
+    out: BufWriter<File>,
+    config: flacenc::error::Verified<flacenc::config::Encoder>,
+    /// Never has a frame added to it: it is here for the `STREAMINFO` block,
+    /// which is what the header is.
+    stream: flacenc::component::Stream,
+    framebuf: flacenc::source::FrameBuf,
+    /// Counts samples and hashes them for `STREAMINFO`'s MD5.
+    context: flacenc::source::Context,
+    /// Interleaved samples not yet part of a whole frame.
+    pending: Vec<i32>,
+    sink: flacenc::bitsink::MemSink<u8>,
+    /// Smallest and largest frame written, for `STREAMINFO`.
+    frame_sizes: Option<(usize, usize)>,
 }
 
 impl Flac {
     fn open(path: &Path, sample_rate: u32) -> Result<Flac, String> {
-        let encoder = flac_bound::FlacEncoder::new()
-            .ok_or("libFLAC is out of memory")?
-            .channels(CHANNELS as u32)
-            .bits_per_sample(16)
-            .sample_rate(sample_rate)
-            // 5 is libFLAC's own default: the knee of the size/speed curve.
-            .compression_level(5)
-            .init_file(&path)
-            .map_err(|e| format!("libFLAC init: {e:?}"))?;
-        Ok(Flac {
-            encoder: Some(encoder),
-            buf: Vec::new(),
-        })
+        use flacenc::error::Verify;
+        let config = flacenc::config::Encoder::default()
+            .into_verified()
+            .map_err(|(_, e)| format!("flac config: {e}"))?;
+        let mut stream =
+            flacenc::component::Stream::new(sample_rate as usize, CHANNELS as usize, BITS as usize)
+                .map_err(|e| format!("flac stream: {e}"))?;
+        // Fixed block size, like the reference encoder: the final frame may
+        // still be shorter, which its own header says.
+        stream
+            .stream_info_mut()
+            .set_block_sizes(FLAC_BLOCK, FLAC_BLOCK)
+            .map_err(|e| format!("flac block size: {e}"))?;
+
+        let mut flac = Flac {
+            out: create(path)?,
+            config,
+            stream,
+            framebuf: flacenc::source::FrameBuf::with_size(CHANNELS as usize, FLAC_BLOCK)
+                .map_err(|e| format!("flac buffer: {e}"))?,
+            context: flacenc::source::Context::new(BITS as usize, CHANNELS as usize),
+            pending: Vec::new(),
+            sink: flacenc::bitsink::MemSink::new(),
+            frame_sizes: None,
+        };
+        // A placeholder of exactly the size the real one will be.
+        let header = flac.header_bytes()?;
+        flac.out.write_all(&header).map_err(|e| e.to_string())?;
+        Ok(flac)
+    }
+
+    /// `fLaC` plus the `STREAMINFO` block, as the file starts and ends with.
+    fn header_bytes(&mut self) -> Result<Vec<u8>, String> {
+        use flacenc::component::BitRepr;
+        self.sink.clear();
+        self.stream
+            .write(&mut self.sink)
+            .map_err(|e| format!("flac header: {e}"))?;
+        Ok(self.sink.as_slice().to_vec())
+    }
+
+    /// Encode the first `samples` interleaved values of `pending` as one frame.
+    fn encode_frame(&mut self, samples: usize) -> Result<(), String> {
+        use flacenc::{component::BitRepr, source::Fill};
+        (&mut self.framebuf, &mut self.context)
+            .fill_interleaved(&self.pending[..samples])
+            .map_err(|e| format!("flac fill: {e}"))?;
+        let number = self.context.current_frame_number().unwrap_or(0);
+        let frame = flacenc::encode_fixed_size_frame(
+            &self.config,
+            &self.framebuf,
+            number,
+            self.stream.stream_info(),
+        )
+        .map_err(|e| format!("flac encode: {e}"))?;
+
+        self.sink.clear();
+        frame
+            .write(&mut self.sink)
+            .map_err(|e| format!("flac frame: {e}"))?;
+        let bytes = self.sink.as_slice();
+        self.out.write_all(bytes).map_err(|e| e.to_string())?;
+
+        let (min, max) = self.frame_sizes.unwrap_or((usize::MAX, 0));
+        self.frame_sizes = Some((min.min(bytes.len()), max.max(bytes.len())));
+        self.pending.drain(..samples);
+        Ok(())
     }
 }
 
 impl Encoder for Flac {
     fn write(&mut self, block: &[f32]) -> Result<(), String> {
-        let Some(encoder) = self.encoder.as_mut() else {
-            return Ok(());
-        };
-        self.buf.clear();
-        self.buf.extend(block.iter().map(|&s| to_i16(s) as i32));
-        encoder
-            .process_interleaved(&self.buf, (block.len() / CHANNELS as usize) as u32)
-            .map_err(|()| "libFLAC encode failed".to_string())
+        self.pending.extend(block.iter().map(|&s| to_i16(s) as i32));
+        let frame = FLAC_BLOCK * CHANNELS as usize;
+        while self.pending.len() >= frame {
+            self.encode_frame(frame)?;
+        }
+        Ok(())
     }
 
     fn finish(mut self: Box<Self>) -> Result<(), String> {
-        match self.encoder.take() {
-            // `finish` hands the encoder back on failure; there is nothing
-            // useful left to do with it.
-            Some(encoder) => encoder
-                .finish()
-                .map(|_| ())
-                .map_err(|_| "libFLAC failed to close the stream".to_string()),
-            None => Ok(()),
+        // Unlike Opus, FLAC's last frame may be short, so the tail needs no
+        // padding — only a frame of its own.
+        if !self.pending.is_empty() {
+            let tail = self.pending.len();
+            self.encode_frame(tail)?;
         }
+        let (min, max) = self.frame_sizes.unwrap_or((0, 0));
+        let (total, md5) = (self.context.total_samples(), self.context.md5_digest());
+        let info = self.stream.stream_info_mut();
+        info.set_frame_sizes(min.min(max), max)
+            .map_err(|e| format!("flac frame sizes: {e}"))?;
+        info.set_total_samples(total);
+        info.set_md5_digest(&md5);
+
+        // Now the header describes what follows it, put it where it belongs.
+        let header = self.header_bytes()?;
+        self.out
+            .seek(SeekFrom::Start(0))
+            .map_err(|e| e.to_string())?;
+        self.out.write_all(&header).map_err(|e| e.to_string())?;
+        self.out.flush().map_err(|e| e.to_string())
     }
 }
 

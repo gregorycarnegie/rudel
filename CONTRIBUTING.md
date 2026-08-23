@@ -13,7 +13,7 @@ cargo test --workspace
 
 **`cmake` must be on `PATH`.** The recorder encodes through the codecs' own
 reference libraries, and `libopus` is the one whose crate builds it with CMake
-(LAME, libFLAC and libvorbis all build with `cc` alone). CI runners ship one;
+(LAME and libvorbis build with `cc` alone; FLAC is pure Rust). CI runners ship one;
 so does Visual Studio, at
 
 ```

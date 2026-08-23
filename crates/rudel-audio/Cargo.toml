@@ -25,7 +25,7 @@ mp3lame-encoder = "0.2.5"
 vorbis_rs = "0.5.6"
 opus = "0.3.1"
 ogg = "0.9.2"
-flac-bound = { version = "0.5.0", default-features = false, features = ["libflac-noogg"] }
+flacenc = { version = "0.5.1", default-features = false }
 
 [dev-dependencies]
 rudel-mini.workspace = true
