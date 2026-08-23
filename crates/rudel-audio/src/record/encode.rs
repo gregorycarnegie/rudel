@@ -101,6 +101,10 @@ struct Wav {
     data_len: u32,
 }
 
+/// The largest data chunk whose 36-bytes-larger RIFF size still fits in the
+/// `u32` the format writes it in.
+const MAX_WAV_DATA: u32 = u32::MAX - 36;
+
 /// The 44-byte canonical WAV header for 16-bit stereo PCM.
 pub(super) fn wav_header(sample_rate: u32, data_len: u32) -> [u8; 44] {
     const BITS: u16 = 16;
@@ -109,7 +113,7 @@ pub(super) fn wav_header(sample_rate: u32, data_len: u32) -> [u8; 44] {
     let mut h = [0u8; 44];
     h[0..4].copy_from_slice(b"RIFF");
     // Everything after this field: the 36 remaining header bytes plus the data.
-    h[4..8].copy_from_slice(&(36 + data_len).to_le_bytes());
+    h[4..8].copy_from_slice(&data_len.saturating_add(36).to_le_bytes());
     h[8..12].copy_from_slice(b"WAVE");
     h[12..16].copy_from_slice(b"fmt ");
     h[16..20].copy_from_slice(&16u32.to_le_bytes()); // PCM fmt chunk size
@@ -142,8 +146,10 @@ impl Encoder for Wav {
     fn write(&mut self, block: &[f32]) -> Result<(), String> {
         for &sample in block {
             // A WAV's sizes are 32-bit; past 4 GiB the file stops growing
-            // rather than being corrupted by a wrapped length.
-            let Some(next) = self.data_len.checked_add(2) else {
+            // rather than being corrupted by a wrapped length. The ceiling is
+            // the *RIFF* size, 36 bytes more than the data — about six hours
+            // of 48 kHz stereo, which is a take long enough to reach it.
+            let Some(next) = self.data_len.checked_add(2).filter(|&n| n <= MAX_WAV_DATA) else {
                 return Ok(());
             };
             self.out
@@ -438,8 +444,15 @@ impl Opus {
             .map_err(|e| format!("ogg write: {e}"))
     }
 
-    /// Encode exactly one frame from the front of `pending`.
-    fn encode_frame(&mut self, last: bool, sample_rate: u32) -> Result<(), String> {
+    /// Encode exactly one frame from the front of `pending`. `end_granule`
+    /// overrides the position stamped on the packet, for the final frame whose
+    /// tail is padding the decoder has to trim.
+    fn encode_frame(
+        &mut self,
+        last: bool,
+        sample_rate: u32,
+        end_granule: Option<u64>,
+    ) -> Result<(), String> {
         let samples = self.frame * CHANNELS as usize;
         let written = self
             .encoder
@@ -455,7 +468,7 @@ impl Opus {
         };
         // The granule position is what the decoder should have produced by the
         // end of this packet, pre-skip included.
-        let granule = self.granule + OPUS_PRE_SKIP as u64;
+        let granule = end_granule.unwrap_or(self.granule) + OPUS_PRE_SKIP as u64;
         self.writer
             .write_packet(data, self.serial, end, granule)
             .map_err(|e| format!("ogg write: {e}"))
@@ -467,7 +480,7 @@ impl Encoder for Opus {
         let sample_rate = self.encoder.get_sample_rate().unwrap_or(48_000);
         self.pending.extend_from_slice(block);
         while self.pending.len() >= self.frame * CHANNELS as usize {
-            self.encode_frame(false, sample_rate)?;
+            self.encode_frame(false, sample_rate, None)?;
         }
         Ok(())
     }
@@ -475,15 +488,48 @@ impl Encoder for Opus {
     fn finish(mut self: Box<Self>) -> Result<(), String> {
         let sample_rate = self.encoder.get_sample_rate().unwrap_or(48_000);
         // Opus only emits whole frames, so the tail is padded out with silence.
-        // The granule position stops at the real length, so a decoder trims it.
+        // The granule position stops at the real length, so a decoder trims it
+        // — stamped directly rather than by adding the frame and subtracting
+        // it back, which went below zero on a take shorter than one frame.
         let real = self.pending.len() / CHANNELS as usize;
         self.pending.resize(self.frame * CHANNELS as usize, 0.0);
-        self.granule += to_48k(real as u64, sample_rate);
-        self.granule -= to_48k(self.frame as u64, sample_rate);
-        self.encode_frame(true, sample_rate)?;
+        let end = self.granule + to_48k(real as u64, sample_rate);
+        self.encode_frame(true, sample_rate, Some(end))?;
         self.writer
             .inner_mut()
             .flush()
             .map_err(|e| format!("ogg flush: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wav_stops_growing_before_its_riff_size_wraps() {
+        // ~6 hours of 48 kHz stereo reaches the 32-bit ceiling. The data chunk
+        // used to be capped there but the RIFF size, 36 bytes larger, was not.
+        let path = std::env::temp_dir().join(format!("rudel-wav-cap-{}.wav", std::process::id()));
+        let mut wav = Wav::open(&path, 48_000).unwrap();
+        wav.data_len = MAX_WAV_DATA - 2;
+        // Four samples, of which only the first still fits.
+        wav.write(&[0.0; 4]).unwrap();
+        assert_eq!(wav.data_len, MAX_WAV_DATA, "the cap is the RIFF ceiling");
+        Box::new(wav).finish().unwrap();
+
+        let h = wav_header(48_000, MAX_WAV_DATA);
+        assert_eq!(
+            u32::from_le_bytes(h[4..8].try_into().unwrap()),
+            u32::MAX,
+            "the largest data chunk is exactly the largest RIFF size"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_header_asked_for_an_impossible_length_saturates_rather_than_wrapping() {
+        let h = wav_header(48_000, u32::MAX);
+        assert_eq!(u32::from_le_bytes(h[4..8].try_into().unwrap()), u32::MAX);
     }
 }

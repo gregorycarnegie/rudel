@@ -153,6 +153,13 @@ impl Engine {
         self.recorder.stop()
     }
 
+    /// How many blocks the last (or running) take had to drop because the
+    /// encoder could not keep up with the audio thread; anything but zero is a
+    /// gap in the file.
+    pub fn dropped_blocks(&self) -> usize {
+        self.recorder.dropped_blocks()
+    }
+
     /// Whether a take is running.
     pub fn is_recording(&self) -> bool {
         self.recorder.is_recording()

@@ -11,6 +11,34 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An Opus take shorter than one 20 ms frame no longer panics the writer
+  thread.** The final packet's granule position was computed by adding a whole
+  frame and subtracting it back off, which goes below zero when no whole frame
+  was ever encoded — a debug build panicked, a release build wrote a nonsense
+  position. The real length is stamped on the packet directly now. A take with
+  no audio at all writes its headers and closes cleanly too.
+
+- **A WAV take stops growing before its RIFF size wraps.** The data chunk was
+  capped at the 32-bit ceiling but the RIFF size, which is 36 bytes larger,
+  was not: at about six hours of 48 kHz stereo the header arithmetic overflowed
+  instead. The cap is the RIFF size now, so a take that long ends with a file
+  that still describes itself correctly.
+
+- **A tempo change no longer sends note-offs for notes that never sounded.**
+  0.19.0 kept every queued note-off across a `cps` change to stop notes
+  hanging; the lookahead has usually queued the *next* note's on and off too,
+  and re-querying means that note never plays — so its off would arrive later
+  and cut short whatever the new schedule had put at that pitch. Only offs
+  whose note actually started are kept.
+
+### Changed
+
+- **A recording that dropped blocks says so.** The status line after a take
+  names how many the audio thread had to throw away because the encoder could
+  not keep up, rather than reporting a gap-free-looking success.
+
 ## [0.19.0] — 2026-08-23
 
 ### Added

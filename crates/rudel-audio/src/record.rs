@@ -361,6 +361,35 @@ mod tests {
     }
 
     #[test]
+    fn a_take_shorter_than_one_opus_frame_still_closes_the_stream() {
+        // Opus encodes 20 ms frames; a take shorter than one has nothing but a
+        // padded final frame, and the granule position of that frame used to be
+        // computed by adding a whole frame and subtracting it back — which goes
+        // below zero when no whole frame was ever encoded.
+        let path = temp_dir().join("blip.opus");
+        let rec = Recorder::default();
+        rec.start(&path, 48_000.0).unwrap();
+        rec.push(&[(0.5, -0.5); 100]); // ~2 ms, a twentieth of a frame
+        assert_eq!(rec.stop().unwrap().as_deref(), Some(path.as_path()));
+
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[0..4], b"OggS");
+        assert!(bytes[28..].starts_with(b"OpusHead"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_take_with_no_audio_at_all_still_writes_a_readable_file() {
+        let path = temp_dir().join("empty.opus");
+        let rec = Recorder::default();
+        rec.start(&path, 48_000.0).unwrap();
+        rec.stop().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes[28..].starts_with(b"OpusHead"), "headers at least");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
     fn opus_refuses_a_rate_it_cannot_encode() {
         // 44.1 kHz is not an Opus rate and resampling is out of scope, so this
         // has to say so rather than write a file that plays at the wrong speed.

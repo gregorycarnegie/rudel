@@ -1,5 +1,5 @@
 use crate::{
-    CLOCK, CONTINUE, NOTE_OFF, START, STOP,
+    CLOCK, CONTINUE, NOTE_OFF, NOTE_ON, START, STOP,
     note::reset_messages,
     schedule::{MpeState, TimedMidi, schedule_window_with_state},
 };
@@ -153,6 +153,17 @@ impl Drop for MidiEngine {
 
 const LOOKAHEAD: f64 = 0.1;
 
+/// Whether `m` is a channel message of kind `status` (`NOTE_ON`, `NOTE_OFF`).
+fn status_is(m: &TimedMidi, status: u8) -> bool {
+    m.data.first().is_some_and(|s| s & 0xF0 == status)
+}
+
+/// The (channel, note) a note message is about, which is what pairs an off
+/// with the on it ends.
+fn voice(m: &TimedMidi) -> Option<[u8; 2]> {
+    Some([m.data.first()? & 0x0F, *m.data.get(1)?])
+}
+
 fn run_scheduler<S: MidiSink>(
     mut sink: S,
     pattern: Arc<RwLock<Pattern>>,
@@ -181,8 +192,18 @@ fn run_scheduler<S: MidiSink>(
             // ponytail: `mpe_state`'s channel reservations keep their old-rate
             // end times for one window; give it a rebase if that ever audibly
             // steals a channel.
+            // ...but only the ones whose note actually started: a note-off
+            // still paired with a queued note-on would land on whatever the
+            // new schedule puts at that pitch instead, cutting it short. The
+            // note it was for never sounded, so nothing is left hanging.
+            let unplayed: Vec<[u8; 2]> = pending
+                .iter()
+                .filter(|m| m.at_seconds > now && status_is(m, NOTE_ON))
+                .filter_map(voice)
+                .collect();
             pending.retain(|m| {
-                m.at_seconds <= now || m.data.first().is_some_and(|s| s & 0xF0 == NOTE_OFF)
+                m.at_seconds <= now
+                    || (status_is(m, NOTE_OFF) && !voice(m).is_some_and(|v| unplayed.contains(&v)))
             });
             scheduled_cycle = clock.cycle_at(now);
         }

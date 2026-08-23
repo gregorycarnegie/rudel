@@ -135,8 +135,15 @@ impl RudelApp {
         if engine.is_recording() {
             match engine.stop_recording() {
                 Ok(Some(path)) => {
+                    // A take the encoder could not keep up with has gaps in it;
+                    // say so rather than let it look like a clean recording.
+                    let dropped = engine.dropped_blocks();
                     self.io_error = None;
-                    self.status = format!("recorded {}", file_label(Some(&path)));
+                    let name = file_label(Some(&path));
+                    self.status = match dropped {
+                        0 => format!("recorded {name}"),
+                        n => format!("recorded {name} — {n} blocks dropped, the disk fell behind"),
+                    };
                 }
                 Ok(None) => {}
                 Err(e) => self.io_error = Some(format!("recording: {e}")),

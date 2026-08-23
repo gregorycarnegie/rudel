@@ -895,6 +895,31 @@ fn slowing_the_tempo_does_not_stall_the_scheduler() {
 }
 
 #[test]
+fn a_tempo_change_sends_no_note_off_for_a_note_that_never_sounded() {
+    // Keeping every queued note-off is too much: the lookahead has already
+    // queued the *next* note's on and off, and that off — fired after the
+    // change, for a note the re-query means never plays — lands on whatever
+    // the new schedule puts at that pitch instead. However the timing falls,
+    // the invariant is that nothing is ended that never started.
+    let rec = Recorder::default();
+    let engine = MidiEngine::start(
+        rec.clone(),
+        note(sequence(
+            &["c3", "c3", "c3", "c3"].map(|n| pure(Value::Str(n.into()))),
+        )),
+        4.0, // 16 notes a second: the 0.1s lookahead always has one queued
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    engine.set_pattern(silence());
+    engine.set_cps(0.25);
+    std::thread::sleep(Duration::from_millis(400));
+    engine.stop();
+    let (ons, offs) = (rec.note_ons(), rec.note_offs());
+    assert!(ons > 0, "the pattern should have played");
+    assert!(offs <= ons, "{offs} note-offs for {ons} notes that started");
+}
+
+#[test]
 fn the_engine_thread_plays_the_pattern_it_is_given() {
     // cps 2, four steps: eight note-ons a second. Two cycles of slack keeps
     // the assertion away from the scheduler's 5ms tick and 0.1s lookahead.
