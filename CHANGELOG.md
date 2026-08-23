@@ -61,6 +61,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
   take through FLAC decodes to the same samples as the same take through WAV.
   It encodes at about 190x realtime, between Vorbis and Opus.
 
+- **The recording dialog lists the formats separately.** It offered one
+  combined `Audio (*.wav;*.flac;*.mp3;*.ogg;*.opus)` filter, so the only way to
+  pick a format was to type its extension. Each format now has its own entry
+  under that one, and choosing it in the file-type list is what sets the
+  extension — which is still what the encoder follows.
+
 - **A recording that dropped blocks says so.** The status line after a take
   names how many the audio thread had to throw away because the encoder could
   not keep up, rather than reporting a gap-free-looking success.

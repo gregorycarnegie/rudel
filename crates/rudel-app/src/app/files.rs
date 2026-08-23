@@ -20,10 +20,12 @@ const AUDIO_EXTENSION: &str = "wav";
 // ponytail: `rfd`'s dialogs are modal and block the UI thread while they are
 // open. Audio, MIDI and OSC all run on their own threads, so the sound keeps
 // going; only repainting stops. Move to the async dialogs if that ever matters.
-fn dialog(start: Option<&Path>, label: &str, extensions: &[&str]) -> rfd::FileDialog {
-    let d = rfd::FileDialog::new()
-        .add_filter(label, extensions)
-        .add_filter("All files", &["*"]);
+fn dialog(start: Option<&Path>, filters: &[(&str, &[&str])]) -> rfd::FileDialog {
+    let mut d = rfd::FileDialog::new();
+    for (label, extensions) in filters {
+        d = d.add_filter(*label, extensions);
+    }
+    let d = d.add_filter("All files", &["*"]);
     // Reopen where the current file lives, not wherever the OS last was.
     match start.and_then(Path::parent) {
         Some(dir) => d.set_directory(dir),
@@ -33,7 +35,28 @@ fn dialog(start: Option<&Path>, label: &str, extensions: &[&str]) -> rfd::FileDi
 
 /// The pattern dialog: Open, Save and Save As.
 fn pattern_dialog(start: Option<&Path>) -> rfd::FileDialog {
-    dialog(start, "Pattern", &[EXTENSION])
+    dialog(start, &[("Pattern", &[EXTENSION])])
+}
+
+/// The recording dialog: every format together, then one filter each, so the
+/// file-type list is what picks the format — choosing FLAC in it renames
+/// `take.wav` to `take.flac`, and that extension is what the encoder follows.
+/// Labels are derived from the extensions themselves, so a new format shows up
+/// here by existing.
+fn audio_dialog(start: Option<&Path>) -> rfd::FileDialog {
+    let every: Vec<&str> = rudel_audio::record::Format::EXTENSIONS.to_vec();
+    let labels: Vec<String> = every
+        .iter()
+        .map(|e| format!("{} audio", e.to_uppercase()))
+        .collect();
+    let mut filters: Vec<(&str, &[&str])> = vec![("Audio", &every)];
+    filters.extend(
+        labels
+            .iter()
+            .zip(&every)
+            .map(|(label, ext)| (label.as_str(), std::slice::from_ref(ext))),
+    );
+    dialog(start, &filters)
 }
 
 impl RudelApp {
@@ -157,13 +180,10 @@ impl RudelApp {
             .and_then(|p| p.file_stem())
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "rudel-take".to_string());
-        let Some(path) = dialog(
-            self.file_path.as_deref(),
-            "Audio",
-            &rudel_audio::record::Format::EXTENSIONS,
-        )
-        .set_file_name(format!("{stem}.{AUDIO_EXTENSION}"))
-        .save_file() else {
+        let Some(path) = audio_dialog(self.file_path.as_deref())
+            .set_file_name(format!("{stem}.{AUDIO_EXTENSION}"))
+            .save_file()
+        else {
             return; // cancelled
         };
         let path = match path.extension() {
