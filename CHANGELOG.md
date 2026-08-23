@@ -56,6 +56,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
   on a black one. A pressed key with no `color` control now gets its own
   accent; `color` still overrides it.
 
+- **The release builds run at all.** The hosted Windows and macOS images now
+  ship CMake 4, which removed support for `cmake_minimum_required` below 3.5 —
+  the vendored opus that `audiopus_sys` builds asks for 3.1, so both jobs died
+  in the build script. The release workflow sets
+  `CMAKE_POLICY_VERSION_MINIMUM=3.5`, which is the escape hatch CMake's own
+  error points at. Linux was never affected: its cmake comes from apt.
+
 ## [0.18.1] — 2026-08-23
 
 ### Changed

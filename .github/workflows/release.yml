@@ -12,6 +12,14 @@ on:
 permissions:
   contents: write
 
+# The hosted Windows and macOS images ship CMake 4, which dropped support for
+# `cmake_minimum_required(VERSION <3.5)` — and the vendored opus `audiopus_sys`
+# builds still asks for 3.1, so configuring it fails outright. This is the
+# escape hatch CMake's own error message points at. Linux is unaffected: its
+# cmake comes from apt, not the image. Drop this when audiopus_sys updates.
+env:
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
 jobs:
   build:
     name: ${{ matrix.target }}
