@@ -1213,10 +1213,7 @@ mod tests {
         // Quoted or bare, the ends of a `..` are literals and the quotes are
         // not part of them.
         assert_eq!(compile("note c .. e").unwrap(), "\"c .. e\".note()");
-        assert_eq!(
-            compile("note \"c\" .. \"e\"").unwrap(),
-            "\"c .. e\".note()"
-        );
+        assert_eq!(compile("note \"c\" .. \"e\"").unwrap(), "\"c .. e\".note()");
     }
 
     #[test]

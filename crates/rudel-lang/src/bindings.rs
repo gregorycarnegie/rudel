@@ -1,6 +1,6 @@
 pub(crate) mod hydra;
-pub(crate) mod kabelsalat;
 mod js;
+pub(crate) mod kabelsalat;
 mod pattern;
 mod prelude;
 mod routing;

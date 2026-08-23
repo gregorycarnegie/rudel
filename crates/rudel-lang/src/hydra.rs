@@ -91,13 +91,11 @@ pub struct HydraFn {
 
 /// Hydra functions Rudel does not implement, and why. Checked by the parity
 /// test, so this list cannot quietly rot.
-pub const UNIMPLEMENTED: &[(&str, &str)] = &[
-    (
-        "sum",
-        "its GLSL body closes the function and opens a second overload, and it returns a float \
+pub const UNIMPLEMENTED: &[(&str, &str)] = &[(
+    "sum",
+    "its GLSL body closes the function and opens a second overload, and it returns a float \
          where the composer expects a vec4",
-    ),
-];
+)];
 
 /// Every implemented function.
 pub fn functions() -> &'static [HydraFn] {
@@ -248,17 +246,11 @@ fn fold(chain: &Chain, uv: &str, ctx: &mut Ctx) -> String {
             FnType::Color => format!("h_{name}({frag}{})", call_args(transform, 0, ctx)),
             FnType::Combine => {
                 let other = combine_operand(transform, uv, ctx);
-                format!(
-                    "h_{name}({frag}, {other}{})",
-                    call_args(transform, 1, ctx)
-                )
+                format!("h_{name}({frag}, {other}{})", call_args(transform, 1, ctx))
             }
             FnType::CombineCoord => {
                 let other = combine_operand(transform, uv, ctx);
-                let inner = format!(
-                    "h_{name}({uv}, {other}{})",
-                    call_args(transform, 1, ctx)
-                );
+                let inner = format!("h_{name}({uv}, {other}{})", call_args(transform, 1, ctx));
                 fold(&chain_before(chain, transform), &inner, ctx)
             }
         };
@@ -329,7 +321,11 @@ pub fn compile(chain: &Chain, output: usize) -> String {
         fold(chain, "st", &mut ctx)
     };
 
-    let mut helpers: Vec<Helper> = ctx.used.iter().flat_map(|f| f.helpers.iter().copied()).collect();
+    let mut helpers: Vec<Helper> = ctx
+        .used
+        .iter()
+        .flat_map(|f| f.helpers.iter().copied())
+        .collect();
     helpers.sort();
     helpers.dedup();
 
@@ -458,7 +454,10 @@ mod tests {
         // before the modulate is evaluated at that warped coordinate.
         let chain = Chain::source(f("osc"), vec![]).then(
             f("modulate"),
-            vec![Arg::Chain(Chain::source(f("noise"), vec![])), Arg::Number(0.2)],
+            vec![
+                Arg::Chain(Chain::source(f("noise"), vec![])),
+                Arg::Number(0.2),
+            ],
         );
         let out = compile(&chain, 0);
         assert!(
@@ -483,10 +482,8 @@ mod tests {
         assert!(!out.contains("fn _rgbToHsv("), "unused helper emitted");
         // A function used twice is only defined once either way.
         let twice = compile(
-            &Chain::source(f("osc"), vec![]).then(
-                f("add"),
-                vec![Arg::Chain(Chain::source(f("osc"), vec![]))],
-            ),
+            &Chain::source(f("osc"), vec![])
+                .then(f("add"), vec![Arg::Chain(Chain::source(f("osc"), vec![]))]),
             0,
         );
         assert_eq!(twice.matches("fn h_osc(").count(), 1);

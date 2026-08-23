@@ -326,9 +326,8 @@ impl RudelApp {
             return;
         }
         let requested = device.clone();
-        let handle = std::thread::spawn(move || {
-            rudel_midi::MidiIn::connect(requested_port(&requested))
-        });
+        let handle =
+            std::thread::spawn(move || rudel_midi::MidiIn::connect(requested_port(&requested)));
         self.script_midi_in_pending.push((device, handle));
     }
 
@@ -468,7 +467,8 @@ mod tests {
         // The startup banks: not something the user asked for, so a failure
         // must not open the error bar or turn the status red.
         let mut app = app();
-        app.sample_jobs.push(done("a", true, Err("offline".to_string())));
+        app.sample_jobs
+            .push(done("a", true, Err("offline".to_string())));
         app.poll_sample_jobs(&egui::Context::default());
         assert_eq!(app.io_error, None);
         assert_eq!(app.log_lines, vec!["a label: offline".to_string()]);
@@ -524,8 +524,12 @@ mod tests {
                 a.queue_sample_map("{}".to_string(), "b".to_string())
             }),
             ("no audio engine to run Csound in", |a| {
-                a.queue_csound(false, "instr 1
-endin".to_string())
+                a.queue_csound(
+                    false,
+                    "instr 1
+endin"
+                        .to_string(),
+                )
             }),
             ("no audio engine to load wavetables into", |a| {
                 a.queue_tables("x".to_string(), 256)
@@ -601,7 +605,8 @@ endin".to_string())
         while !handle.is_finished() {
             std::thread::yield_now();
         }
-        app.script_midi_in_pending.push(("nope".to_string(), handle));
+        app.script_midi_in_pending
+            .push(("nope".to_string(), handle));
         assert!(
             !app.poll_script_midi_inputs(),
             "nothing is still in flight once the only open has finished"
@@ -648,7 +653,8 @@ endin".to_string())
         while !handle.is_finished() {
             std::thread::yield_now();
         }
-        app.script_midi_in_pending.push(("nope".to_string(), handle));
+        app.script_midi_in_pending
+            .push(("nope".to_string(), handle));
         assert!(!app.poll_script_midi_inputs());
         assert_eq!(
             app.io_error.as_deref(),

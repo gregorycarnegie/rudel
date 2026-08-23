@@ -8,8 +8,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rudel-core = { path = "../rudel-core" }
-rudel-mini = { path = "../rudel-mini" }
+rudel-core.workspace = true
+rudel-mini.workspace = true
 # `arc` rather than koto's default `rc`: a Koto value has to be able to cross
 # threads, because a script's own function can end up inside a pattern and
 # patterns are queried from the scheduler and the UI at the same time. The two
@@ -26,7 +26,7 @@ proptest.workspace = true
 naga = { version = "30.0.0", features = ["wgsl-in"] }
 # Runs the compiled kabelsalat graphs in `kabelsalat_parity`. Test-only, and the
 # dependency points one way — rudel-dsp never reaches back for rudel-lang.
-rudel-dsp = { path = "../rudel-dsp" }
+rudel-dsp.workspace = true
 
 [[bench]]
 name = "patterns"

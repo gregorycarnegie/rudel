@@ -21,7 +21,10 @@ const FRAMES: usize = 48_000 * 2;
 
 fn main() {
     println!("convolution reverb, {SAMPLE_RATE} Hz\n");
-    println!("{:>8}  {:>10}  {:>12}  {:>10}", "decay", "ns/frame", "partitions", "realtime");
+    println!(
+        "{:>8}  {:>10}  {:>12}  {:>10}",
+        "decay", "ns/frame", "partitions", "realtime"
+    );
     for &decay in DECAYS {
         let ir = generate_reverb_ir(SAMPLE_RATE, decay, 0.0, 0.0, 0.0);
         let partitions = ir.left.len().div_ceil(1024);
@@ -50,6 +53,9 @@ fn main() {
 
         let ns = elapsed.as_secs_f64() * 1e9 / FRAMES as f64;
         let realtime = ns * f64::from(SAMPLE_RATE) / 1e9;
-        println!("{decay:>7.1}s  {ns:>10.1}  {partitions:>12}  {:>9.1}%", realtime * 100.0);
+        println!(
+            "{decay:>7.1}s  {ns:>10.1}  {partitions:>12}  {:>9.1}%",
+            realtime * 100.0
+        );
     }
 }

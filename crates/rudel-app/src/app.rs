@@ -1,3 +1,4 @@
+mod files;
 mod panels;
 mod routing;
 mod samples;
@@ -20,6 +21,7 @@ use rudel_midi::{MidiEngine, MidiIn, MidiOut};
 use rudel_osc::OscEngine;
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     thread::JoinHandle,
     time::Instant,
 };
@@ -53,6 +55,11 @@ pub(crate) struct RudelApp {
     engine: Option<Engine>,
     audio_error: Option<String>,
     code: String,
+    /// The file the buffer came from, when Open or Save named one.
+    /// `None` is an unsaved scratch buffer (still autosaved by eframe).
+    file_path: Option<PathBuf>,
+    /// Last title pushed to the window, so it is only pushed on a change.
+    window_title: String,
     eval_error: Option<String>,
     status: String,
     cps: f64,
@@ -169,6 +176,8 @@ impl RudelApp {
             engine: None,
             audio_error: None,
             code: DEFAULT_CODE.to_string(),
+            file_path: None,
+            window_title: String::new(),
             eval_error: None,
             status: "ready".to_string(),
             cps: 0.5,
@@ -319,7 +328,20 @@ pub(crate) fn run() -> eframe::Result {
                     .callback_resources
                     .insert(crate::editor::HydraStore::new(format));
             }
-            Ok(Box::new(RudelApp::new()))
+            let mut app = RudelApp::new();
+            // Restore the last autosaved buffer, so closing the window (or
+            // losing it) does not lose what was typed, plus the file it came
+            // from so Ctrl+S still knows where to write.
+            if let Some(storage) = cc.storage {
+                if let Some(code) = storage.get_string(panels::SAVED_CODE_KEY) {
+                    app.code = code;
+                }
+                app.file_path = storage
+                    .get_string(panels::SAVED_PATH_KEY)
+                    .as_deref()
+                    .and_then(files::restore_path);
+            }
+            Ok(Box::new(app))
         }),
     )
 }

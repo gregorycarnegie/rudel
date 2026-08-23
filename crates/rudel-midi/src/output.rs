@@ -4,7 +4,7 @@ use crate::{
     schedule::{MpeState, TimedMidi, schedule_window_with_state},
 };
 use midir::{MidiOutput, MidiOutputConnection};
-use rudel_core::Pattern;
+use rudel_core::{Clock, Pattern};
 use std::{
     sync::{
         Arc, Mutex, RwLock,
@@ -160,22 +160,48 @@ fn run_scheduler<S: MidiSink>(
     running: Arc<AtomicBool>,
 ) {
     let start = Instant::now();
+    let mut clock = Clock::new(*cps.lock().unwrap());
     let mut scheduled_cycle = 0.0_f64;
     let mut pending: Vec<TimedMidi> = Vec::new();
     let mut mpe_state = MpeState::new();
     while running.load(Ordering::Relaxed) {
-        let cps_now = *cps.lock().unwrap();
+        let cps_set = *cps.lock().unwrap();
         let now = start.elapsed().as_secs_f64();
-        let target_cycle = (now + LOOKAHEAD) * cps_now;
+        if cps_set != clock.cps() {
+            // Re-anchor rather than rescale from the origin: without this a
+            // slower cps pushes the target cycle *behind* what is already
+            // scheduled (silence until the clock catches up) and a faster one
+            // jumps it forward (a burst of events at once).
+            clock.set_cps(now, cps_set);
+            // Everything still queued was timed at the old rate.
+            // ponytail: `mpe_state`'s channel reservations keep their old-rate
+            // end times for one window; give it a rebase if that ever audibly
+            // steals a channel.
+            pending.retain(|m| m.at_seconds <= now);
+            scheduled_cycle = clock.cycle_at(now);
+        }
+        let cps_now = clock.cps();
+        let target_cycle = clock.cycle_at(now + LOOKAHEAD);
         if target_cycle > scheduled_cycle {
             let pat = pattern.read().unwrap().clone();
-            pending.extend(schedule_window_with_state(
-                &pat,
-                cps_now,
-                scheduled_cycle,
-                target_cycle,
-                &mut mpe_state,
-            ));
+            // `schedule_window_with_state` times events as `cycle / cps`, i.e.
+            // from the origin; shifting by the anchor's origin time puts them
+            // back on this thread's `start` clock.
+            let shift = clock.seconds_at(0.0);
+            pending.extend(
+                schedule_window_with_state(
+                    &pat,
+                    cps_now,
+                    scheduled_cycle,
+                    target_cycle,
+                    &mut mpe_state,
+                )
+                .into_iter()
+                .map(|mut m| {
+                    m.at_seconds += shift;
+                    m
+                }),
+            );
             pending.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
             scheduled_cycle = target_cycle;
         }

@@ -117,7 +117,10 @@ mod tests {
         assert!(!ranges_overlap((2, 4), (0, 2)), "and the other way round");
         assert!(ranges_overlap((0, 3), (2, 4)), "sharing a character");
         assert!(ranges_overlap((0, 5), (1, 2)), "one inside the other");
-        assert!(!ranges_overlap((0, 0), (0, 1)), "an empty range overlaps nothing");
+        assert!(
+            !ranges_overlap((0, 0), (0, 1)),
+            "an empty range overlaps nothing"
+        );
     }
 
     #[test]

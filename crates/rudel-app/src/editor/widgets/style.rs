@@ -49,7 +49,10 @@ pub(super) fn controls(hap: &Hap) -> Cow<'_, ValueMap> {
         other => Cow::Owned(rudel_core::to_control_map(other)),
     };
     if controls.contains_key("mtranspose") || controls.contains_key("ctranspose") {
-        rudel_core::tonal::apply_transpose_controls(controls.to_mut(), hap.context.scale.as_deref());
+        rudel_core::tonal::apply_transpose_controls(
+            controls.to_mut(),
+            hap.context.scale.as_deref(),
+        );
     }
     controls
 }

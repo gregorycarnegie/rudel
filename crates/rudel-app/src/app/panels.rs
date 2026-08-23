@@ -10,10 +10,26 @@ use crate::{
 };
 use eframe::egui;
 
+/// Storage key for the persisted editor buffer.
+pub(super) const SAVED_CODE_KEY: &str = "code";
+
+/// Storage key for the file that buffer belongs to.
+pub(super) const SAVED_PATH_KEY: &str = "code_path";
+
 /// How many `log`/`logValues` lines the console keeps.
 const LOG_LINES_SHOWN: usize = 512;
 
 impl eframe::App for RudelApp {
+    /// eframe calls this on its autosave timer and on exit; the editor buffer
+    /// is the only thing here the user typed, so it is the only thing kept.
+    /// Restored in [`crate::app::run`].
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(SAVED_CODE_KEY, self.code.clone());
+        if let Some(path) = &self.file_path {
+            storage.set_string(SAVED_PATH_KEY, path.to_string_lossy().into_owned());
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // The GPU widget painters keep their resources in the wgpu renderer, so
         // without that backend they would draw nothing at all.
@@ -37,6 +53,24 @@ impl eframe::App for RudelApp {
                     i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Period),
                 )
             });
+        // File keys, read in the same pass. Ctrl+S with no file yet falls
+        // through to Save As, so there is no way to "save" into nowhere.
+        let (open_shortcut, save_shortcut, save_as_shortcut) = ui.ctx().input(|i| {
+            (
+                i.modifiers.command && i.key_pressed(egui::Key::O),
+                i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::S),
+                i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::S),
+            )
+        });
+        if open_shortcut {
+            self.open_file();
+        }
+        if save_as_shortcut {
+            self.save_file_as();
+        } else if save_shortcut {
+            self.save_file();
+        }
+
         if eval_shortcut {
             self.primary_eval();
         }
@@ -49,6 +83,7 @@ impl eframe::App for RudelApp {
             self.hush();
         }
 
+        self.sync_window_title(ui.ctx());
         self.fire_trigger_hooks();
         let active_spans = self.active_editor_spans();
         self.transport_panel(ui);
@@ -81,10 +116,34 @@ impl eframe::App for RudelApp {
 }
 
 impl RudelApp {
+    /// Right-aligned status text with a colored state light: green playing,
+    /// red on an error, grey otherwise.
+    fn status_light(&self, ui: &mut egui::Ui) {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if self.audio_error.is_some() {
+                ui.colored_label(crate::theme::ACCENT, "no audio");
+            }
+            let light = if self.eval_error.is_some() || self.io_error.is_some() {
+                crate::theme::STOP
+            } else if self.playing {
+                crate::theme::GO
+            } else {
+                egui::Color32::from_gray(90)
+            };
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+            ui.painter().circle_filled(rect.center(), 4.0, light);
+            ui.weak(&self.status);
+        });
+    }
+
     fn transport_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("transport").show(ui, |ui| {
             ui.add_space(3.0);
-            ui.horizontal(|ui| {
+            // Wrapped, not plain horizontal: at a narrow window (or with the
+            // MIDI/OSC port field showing) these controls are wider than the
+            // row, and an overflowing horizontal draws its tail on top of
+            // whatever is right-aligned in the same row.
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
                     egui::RichText::new("rudel")
                         .monospace()
@@ -92,6 +151,17 @@ impl RudelApp {
                         .strong()
                         .color(crate::theme::ACCENT),
                 );
+                ui.separator();
+                if ui.button("Open").on_hover_text("Ctrl+O").clicked() {
+                    self.open_file();
+                }
+                if ui
+                    .button("Save")
+                    .on_hover_text("Ctrl+S · Ctrl+Shift+S for Save As")
+                    .clicked()
+                {
+                    self.save_file();
+                }
                 ui.separator();
                 // Play is the one action a live coder reaches for blind: filled
                 // accent while stopped, red while playing.
@@ -190,80 +260,80 @@ impl RudelApp {
                     }
                     Output::Audio => {}
                 }
-                // Right edge: status text with a colored state light.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.weak(&self.status);
-                    let light = if self.eval_error.is_some() || self.io_error.is_some() {
-                        crate::theme::STOP
-                    } else if self.playing {
-                        crate::theme::GO
-                    } else {
-                        egui::Color32::from_gray(90)
-                    };
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                    ui.painter().circle_filled(rect.center(), 4.0, light);
-                    if self.audio_error.is_some() {
-                        ui.colored_label(crate::theme::ACCENT, "no audio");
-                    }
-                });
             });
 
             // Occasional setup lives out of the way: one collapsed row instead
-            // of two always-visible ones.
+            // of two always-visible ones. The status light rides on the same
+            // row, right-aligned — the controls row above is full, and this one
+            // holds a single short label.
             let io_summary = io_summary(
                 self.sample_names.len(),
                 self.midi_in.is_some(),
                 self.midi_in_pending.is_some(),
             );
-            egui::CollapsingHeader::new(io_summary)
-                .id_salt("io_section")
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("samples");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.sample_dir)
-                                .hint_text("folder, strudel.json, URL, or github:user/repo")
-                                .desired_width(360.0),
-                        );
-                        if ui.button("Load samples").clicked() {
-                            self.load_samples();
-                        }
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("midi in");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.midi_in_port)
-                                .hint_text("first")
-                                .desired_width(90.0),
-                        );
-                        let connected = self.midi_in.is_some();
-                        let connecting = self.midi_in_pending.is_some();
-                        let label = if connecting {
-                            "Connecting…"
-                        } else if connected {
-                            "Reconnect"
-                        } else {
-                            "Connect"
-                        };
-                        if ui
-                            .add_enabled(!connecting, egui::Button::new(label))
-                            .clicked()
-                        {
-                            self.connect_input();
-                        }
-                        if connected && ui.button("Disconnect").clicked() {
-                            self.midi_in = None;
-                        }
-                        ui.checkbox(&mut self.clock_sync, "clock→cps");
-                        if let Some(bpm) = self.midi_in.as_ref().and_then(|i| i.bpm()) {
-                            ui.weak(format!("{bpm:.0} bpm"));
-                        }
-                        ui.weak("→ ccin(n)");
-                    });
+            // `CollapsingState` rather than `CollapsingHeader` so the status
+            // light can share the header row; the cost is that only the arrow
+            // toggles, so the label is made clickable to match.
+            let mut toggle = false;
+            let mut header = egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                ui.make_persistent_id("io_section"),
+                false,
+            )
+            .show_header(ui, |ui| {
+                toggle = ui
+                    .add(egui::Label::new(io_summary).sense(egui::Sense::click()))
+                    .clicked();
+                self.status_light(ui);
+            });
+            if toggle {
+                header.toggle();
+            }
+            header.body(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("samples");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.sample_dir)
+                            .hint_text("folder, strudel.json, URL, or github:user/repo")
+                            .desired_width(360.0),
+                    );
+                    if ui.button("Load samples").clicked() {
+                        self.load_samples();
+                    }
                 });
+
+                ui.horizontal(|ui| {
+                    ui.label("midi in");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.midi_in_port)
+                            .hint_text("first")
+                            .desired_width(90.0),
+                    );
+                    let connected = self.midi_in.is_some();
+                    let connecting = self.midi_in_pending.is_some();
+                    let label = if connecting {
+                        "Connecting…"
+                    } else if connected {
+                        "Reconnect"
+                    } else {
+                        "Connect"
+                    };
+                    if ui
+                        .add_enabled(!connecting, egui::Button::new(label))
+                        .clicked()
+                    {
+                        self.connect_input();
+                    }
+                    if connected && ui.button("Disconnect").clicked() {
+                        self.midi_in = None;
+                    }
+                    ui.checkbox(&mut self.clock_sync, "clock→cps");
+                    if let Some(bpm) = self.midi_in.as_ref().and_then(|i| i.bpm()) {
+                        ui.weak(format!("{bpm:.0} bpm"));
+                    }
+                    ui.weak("→ ccin(n)");
+                });
+            });
             ui.add_space(2.0);
         });
     }
@@ -361,7 +431,7 @@ impl RudelApp {
                 ui.colored_label(crate::theme::STOP, e);
             } else {
                 ui.weak(
-                    "Ctrl+Enter eval · Ctrl+Shift+Enter block · Ctrl+. hush · Ctrl+Shift+. panic · Ctrl+/ comment",
+                    "Ctrl+Enter eval · Ctrl+Shift+Enter block · Ctrl+. hush · Ctrl+Shift+. panic · Ctrl+/ comment · Ctrl+O open · Ctrl+S save",
                 );
             }
         });

@@ -459,12 +459,9 @@ impl Mixer {
                 if let Some(b) = ev.send.bus {
                     self.signal_buses.entry(b).or_default();
                 }
-                let mut voice = ev.spec.into_chained_voice(
-                    self.sample_rate,
-                    &ev.fx_chain,
-                    ev.fx,
-                    &ev.mods,
-                );
+                let mut voice =
+                    ev.spec
+                        .into_chained_voice(self.sample_rate, &ev.fx_chain, ev.fx, &ev.mods);
                 // A `K(...)` graph wraps everything else, as upstream's
                 // `chain.connect(workletNode)` puts it at the end of the
                 // chain: `audioin()` inside the graph reads what the voice
@@ -752,12 +749,19 @@ fn build_reverb(sample_rate: f32, cfg: &ReverbConfig) -> Convolver {
 }
 
 /// Writes rendered mixer output frames into a target slice buffer for cpal playback.
-fn write_frames<T>(data: &mut [T], channels: usize, mixer: &mut Mixer)
+///
+/// The whole callback is rendered as one [`Mixer::render_block`] into `buf` —
+/// per-frame rendering repeated the event drain, the csound lock and the onset
+/// scan once per sample. `buf` is owned by the stream callback and only ever
+/// grown, so a steady buffer size allocates nothing on the audio thread.
+fn write_frames<T>(data: &mut [T], channels: usize, mixer: &mut Mixer, buf: &mut Vec<(f32, f32)>)
 where
     T: cpal::Sample + cpal::FromSample<f32>,
 {
-    for frame in data.chunks_mut(channels.max(1)) {
-        let (l, r) = mixer.render_frame();
+    let channels = channels.max(1);
+    buf.resize(data.len().div_ceil(channels), (0.0, 0.0));
+    mixer.render_block(buf);
+    for (frame, &(l, r)) in data.chunks_mut(channels).zip(buf.iter()) {
         match frame {
             [] => {}
             [mono] => *mono = T::from_sample((l + r) * 0.5),

@@ -737,10 +737,7 @@ fn js_object_and_declaration_forms_become_koto_ones() {
     );
     // Two declarations on one line: the keyword is dropped from both, not just
     // the one that opens the line.
-    assert_eq!(
-        preprocess_strudel("var a = 1; var b = 2"),
-        "a = 1\nb = 2"
-    );
+    assert_eq!(preprocess_strudel("var a = 1; var b = 2"), "a = 1\nb = 2");
     // Spread has no Koto syntax, so it becomes a merge call.
     assert_eq!(
         preprocess_strudel("x = {...v, n: 1}"),
@@ -866,9 +863,6 @@ fn widget_options_coerce_between_their_three_shapes() {
     assert_eq!(Bool(true).as_str(), None);
 }
 
-
-
-
 #[test]
 fn a_c_style_for_loop_becomes_a_while_loop() {
     // The counter's declaration is mid-line, where the declaration pass never
@@ -886,7 +880,10 @@ fn a_c_style_for_loop_becomes_a_while_loop() {
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 3);
     // And inside a function body, where the block is already indented.
     let script = "function f(n) {\n  let t = 0\n  for (let i = 0; i < n; i++) {\n    t += i\n  }\n  return t\n}\npure(f(4))";
-    assert_eq!(values(&eval(script).expect("eval"), 0, 1), vec![Value::Int(6)]);
+    assert_eq!(
+        values(&eval(script).expect("eval"), 0, 1),
+        vec![Value::Int(6)]
+    );
 }
 
 #[test]
@@ -910,7 +907,10 @@ fn appending_a_string_with_plus_equals_becomes_an_assignment() {
 fn a_bare_silence_statement_is_called() {
     // Upstream's `silence` is the pattern, not a factory, and a scratch pad ends
     // with the bare word to go quiet.
-    assert_eq!(preprocess_strudel("s(\"bd\")\nsilence"), "s(m(\"bd\", 3))\nsilence()");
+    assert_eq!(
+        preprocess_strudel("s(\"bd\")\nsilence"),
+        "s(m(\"bd\", 3))\nsilence()"
+    );
     let pat = eval("s(\"bd\")\nsilence").expect("eval");
     assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
     // Only when it is the whole statement, and only when it is code.

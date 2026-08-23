@@ -678,13 +678,21 @@ mod tests {
     #[test]
     fn commenting_and_uncommenting_round_trips() {
         let mut text = "one
-two".to_string();
+two"
+        .to_string();
         toggle_line_comments(&mut text, selection(0, 7));
-        assert_eq!(text, "// one
-// two");
+        assert_eq!(
+            text,
+            "// one
+// two"
+        );
         toggle_line_comments(&mut text, selection(0, 13));
-        assert_eq!(text, "one
-two", "and back again");
+        assert_eq!(
+            text,
+            "one
+two",
+            "and back again"
+        );
 
         // A comment written without the space loses only the slashes.
         let mut text = "//one".to_string();
@@ -705,20 +713,29 @@ two", "and back again");
         // it into commenting everything twice.
         let mut text = "// one
 
-// two".to_string();
+// two"
+            .to_string();
         toggle_line_comments(&mut text, selection(0, 15));
-        assert_eq!(text, "one
+        assert_eq!(
+            text,
+            "one
 
-two");
+two"
+        );
     }
 
     #[test]
     fn outdenting_a_line_with_no_indent_leaves_it_alone() {
         let mut text = "one
-  two".to_string();
+  two"
+        .to_string();
         indent_lines(&mut text, selection(0, 9), false);
-        assert_eq!(text, "one
-two", "only the indented line moves");
+        assert_eq!(
+            text,
+            "one
+two",
+            "only the indented line moves"
+        );
 
         // Tabs come off one character at a time.
         let mut text = "	one".to_string();
@@ -755,10 +772,14 @@ two";
         assert!(auto_indent_after_enter(&mut text, cursor(3)).is_none());
         // Straight after one, the new line takes the previous indent.
         let mut text = "  one
-".to_string();
+"
+        .to_string();
         assert!(auto_indent_after_enter(&mut text, cursor(6)).is_some());
-        assert_eq!(text, "  one
-  ");
+        assert_eq!(
+            text,
+            "  one
+  "
+        );
     }
     /// Run one frame with `events` queued and the editor focused, and return
     /// what the shortcut capture made of them.
@@ -777,7 +798,12 @@ two";
             },
             |ui| {
                 ui.memory_mut(|m| m.request_focus(id));
-                captured.set(capture_editor_shortcuts(ui, id, completion_active, settings));
+                captured.set(capture_editor_shortcuts(
+                    ui,
+                    id,
+                    completion_active,
+                    settings,
+                ));
             },
         );
         out.textures_delta.clear();
@@ -952,7 +978,10 @@ two";
         assert!(pressed(vec![key(egui::Key::Enter, egui::Modifiers::NONE)]));
         assert!(!pressed(vec![]));
         // Ctrl+Enter is "evaluate", not a newline.
-        assert!(!pressed(vec![key(egui::Key::Enter, egui::Modifiers::COMMAND)]));
+        assert!(!pressed(vec![key(
+            egui::Key::Enter,
+            egui::Modifiers::COMMAND
+        )]));
     }
 
     #[test]
@@ -960,7 +989,8 @@ two";
         // Each direction works on its own; requiring both would mean neither
         // ever fires.
         let mut text = "$: a
-$: b".to_string();
+$: b"
+            .to_string();
         let jump = |text: &mut String, at: usize, next: bool, prev: bool| {
             apply_editor_text_edits(
                 text,

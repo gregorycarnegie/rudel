@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use rudel_core::{
-    Pattern, Value, ValueMap, note_to_midi, note_to_midi_with_octave, query_controls,
+    Clock, Pattern, Value, ValueMap, note_to_midi, note_to_midi_with_octave, query_controls,
 };
 use std::{
     net::{ToSocketAddrs, UdpSocket},
@@ -341,20 +341,37 @@ fn run_scheduler(
     running: Arc<AtomicBool>,
 ) {
     let start = Instant::now();
+    let mut clock = Clock::new(*cps.lock().unwrap());
     let mut scheduled_cycle = 0.0_f64;
     let mut pending: Vec<TimedOsc> = Vec::new();
     while running.load(Ordering::Relaxed) {
-        let cps_now = *cps.lock().unwrap();
+        let cps_set = *cps.lock().unwrap();
         let now = start.elapsed().as_secs_f64();
-        let target_cycle = (now + LOOKAHEAD) * cps_now;
+        if cps_set != clock.cps() {
+            // Re-anchor rather than rescale from the origin: without this a
+            // slower cps pushes the target cycle *behind* what is already
+            // scheduled (silence until the clock catches up) and a faster one
+            // jumps it forward (a burst of events at once).
+            clock.set_cps(now, cps_set);
+            pending.retain(|m| m.at_seconds <= now); // timed at the old rate
+            scheduled_cycle = clock.cycle_at(now);
+        }
+        let cps_now = clock.cps();
+        let target_cycle = clock.cycle_at(now + LOOKAHEAD);
         if target_cycle > scheduled_cycle {
             let pat = pattern.read().unwrap().clone();
-            pending.extend(schedule_window(
-                &pat,
-                cps_now,
-                scheduled_cycle,
-                target_cycle,
-            ));
+            // `schedule_window` times events as `cycle / cps`, i.e. from the
+            // origin; shifting by the anchor's origin time puts them back on
+            // this thread's `start` clock.
+            let shift = clock.seconds_at(0.0);
+            pending.extend(
+                schedule_window(&pat, cps_now, scheduled_cycle, target_cycle)
+                    .into_iter()
+                    .map(|mut m| {
+                        m.at_seconds += shift;
+                        m
+                    }),
+            );
             pending.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
             scheduled_cycle = target_cycle;
         }

@@ -18,8 +18,8 @@ use serde_json::Value;
 fn golden() -> Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/oracle/hydra_golden.json");
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&text).expect("hydra_golden.json is valid JSON")
 }
 
@@ -90,9 +90,9 @@ fn implemented_functions_match_the_pinned_signature() {
                 "{name}: only float inputs are ported; {} is not one",
                 ours.name
             );
-            let default = theirs["default"].as_f64().unwrap_or_else(|| {
-                panic!("{name}: {} has a non-numeric default", ours.name)
-            });
+            let default = theirs["default"]
+                .as_f64()
+                .unwrap_or_else(|| panic!("{name}: {} has a non-numeric default", ours.name));
             assert_eq!(
                 ours.default, default,
                 "{name}: {} defaults to {default} upstream",
@@ -135,10 +135,9 @@ fn exercising(func: &'static HydraFn) -> Chain {
         FnType::Src => Chain::source(func, vec![]),
         FnType::Coord | FnType::Color => Chain::source(osc, vec![]).then(func, vec![]),
         // The first argument of a combine is the other chain.
-        FnType::Combine | FnType::CombineCoord => Chain::source(osc, vec![]).then(
-            func,
-            vec![Arg::Chain(Chain::source(shape, vec![]))],
-        ),
+        FnType::Combine | FnType::CombineCoord => {
+            Chain::source(osc, vec![]).then(func, vec![Arg::Chain(Chain::source(shape, vec![]))])
+        }
     }
 }
 
@@ -212,8 +211,12 @@ fn prev_reads_the_buffer_its_chain_is_bound_to() {
             "output {output} did not bind to its own buffer:
 {source}"
         );
-        check_wgsl(&source).unwrap_or_else(|e| panic!("output {output}:
-{e}"));
+        check_wgsl(&source).unwrap_or_else(|e| {
+            panic!(
+                "output {output}:
+{e}"
+            )
+        });
     }
     // Out-of-range clamps rather than emitting a read of a buffer that is not
     // bound, which would be a compile error in the generated module.

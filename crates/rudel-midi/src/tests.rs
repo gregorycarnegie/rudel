@@ -833,6 +833,36 @@ impl Recorder {
 }
 
 #[test]
+fn slowing_the_tempo_does_not_stall_the_scheduler() {
+    // The scheduler used to map seconds to cycles from the origin
+    // (`cycle = now * cps`). Running at cps 4 for ~700ms puts the scheduled
+    // cycle near 3; dropping to cps 0.25 then re-derives a target cycle of
+    // ~0.2, which is behind what is already scheduled, so nothing new is
+    // queued until the clock catches up — ~11 seconds of silence. Re-anchoring
+    // at the moment of the change keeps events flowing.
+    let rec = Recorder::default();
+    let engine = MidiEngine::start(
+        rec.clone(),
+        note(sequence(
+            &["c3", "e3", "g3", "a3"].map(|n| pure(Value::Str(n.into()))),
+        )),
+        4.0,
+    );
+    std::thread::sleep(Duration::from_millis(700));
+    engine.set_cps(0.25);
+    let before = rec.note_ons();
+    // At cps 0.25 a four-step cycle is one note per second, so 1.5s is at
+    // least one note if — and only if — the clock re-anchored.
+    std::thread::sleep(Duration::from_millis(1500));
+    let after = rec.note_ons();
+    engine.stop();
+    assert!(
+        after > before,
+        "slowing the tempo stalled the scheduler: {before} note-ons before, {after} after"
+    );
+}
+
+#[test]
 fn the_engine_thread_plays_the_pattern_it_is_given() {
     // cps 2, four steps: eight note-ons a second. Two cycles of slack keeps
     // the assertion away from the scheduler's 5ms tick and 0.1s lookahead.

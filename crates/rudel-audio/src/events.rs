@@ -2,12 +2,11 @@
 // This is the pure, testable core of the scheduler (no audio device needed).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::{clock::Clock, samples::SampleBank, soundfont};
+use crate::{Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, ModContext, ModSpecs,
-    OrbitSend, PostFx,
-    KabelProgram, Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
+    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, KabelProgram, ModContext,
+    ModSpecs, OrbitSend, PostFx, Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
 
@@ -364,7 +363,9 @@ pub fn collect_events_at(
                 Some(rudel_core::Value::List(stages)) => stages
                     .iter()
                     .filter_map(|stage| match stage {
-                        rudel_core::Value::Map(map) => Some(FxStage::from_controls(map, ev.duration_seconds as f32)),
+                        rudel_core::Value::Map(map) => {
+                            Some(FxStage::from_controls(map, ev.duration_seconds as f32))
+                        }
                         _ => None,
                     })
                     .collect(),

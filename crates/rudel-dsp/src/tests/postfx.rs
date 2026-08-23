@@ -1663,12 +1663,7 @@ fn a_block_render_matches_ticking_the_same_voice() {
                 duration: 1.0,
                 ..Default::default()
             };
-            PostFxVoice::with_mods(
-                Box::new(Voice::new(params, 44100.0)),
-                fx,
-                44100.0,
-                &[],
-            )
+            PostFxVoice::with_mods(Box::new(Voice::new(params, 44100.0)), fx, 44100.0, &[])
         };
         const N: usize = 101;
         let mut ticked = make();

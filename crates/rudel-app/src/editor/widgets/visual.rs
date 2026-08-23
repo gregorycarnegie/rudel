@@ -1,12 +1,12 @@
 use super::{
     analyzer::{paint_fscope, paint_scope, paint_spectrum},
     claviature::paint_claviature,
+    hydra_gpu::paint_hydra_gpu,
     options::{DrawWindow, VisualWidgetOptions},
     paint::WidgetPaintInput,
     pianoroll::paint_pianoroll,
     pitchwheel::paint_pitchwheel,
     query::{hap_is_active, in_window, widget_haps},
-    hydra_gpu::paint_hydra_gpu,
     shader::paint_shader,
     spiral::paint_spiral,
     spiral_gpu::paint_spiral_gpu,

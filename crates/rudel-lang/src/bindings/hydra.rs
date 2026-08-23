@@ -158,7 +158,9 @@ mod tests {
         let Some(KValue::Map(map)) = prelude.get("Hydra") else {
             panic!("no `Hydra` map");
         };
-        for source in ["osc", "noise", "shape", "gradient", "solid", "voronoi", "prev", "src"] {
+        for source in [
+            "osc", "noise", "shape", "gradient", "solid", "voronoi", "prev", "src",
+        ] {
             assert!(map.get(source).is_some(), "Hydra.{source} is missing");
         }
         // Lowercase `hydra` is the widget method's top-level form, so the

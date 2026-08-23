@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rudel-core = { path = "../rudel-core" }
+rudel-core.workspace = true
 pest = "2.8.7"
 pest_derive = "2.8.7"
 

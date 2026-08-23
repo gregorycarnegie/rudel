@@ -13,10 +13,7 @@
 //! *i*" is exact and the only edge softening is one pixel of deliberate
 //! anti-aliasing. There is no geometry to seam.
 
-use super::{
-    spiral::SpiralBand,
-    style::WidgetDrawColors,
-};
+use super::{spiral::SpiralBand, style::WidgetDrawColors};
 use eframe::{egui, egui_wgpu, wgpu};
 use std::{
     collections::HashMap,
@@ -201,7 +198,10 @@ impl SpiralStore {
 
     /// The pipeline, built on first use — `prepare` is the earliest point a
     /// callback is handed a device.
-    fn pipeline(&mut self, device: &wgpu::Device) -> &(wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    fn pipeline(
+        &mut self,
+        device: &wgpu::Device,
+    ) -> &(wgpu::RenderPipeline, wgpu::BindGroupLayout) {
         self.pipeline
             .get_or_insert_with(|| build_pipeline(device, self.format))
     }
@@ -340,11 +340,7 @@ impl egui_wgpu::CallbackTrait for SpiralCallback {
     }
 }
 
-fn create_surface(
-    device: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    capacity: u64,
-) -> Surface {
+fn create_surface(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, capacity: u64) -> Surface {
     let globals = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("rudel-spiral-globals"),
         size: GLOBALS_SIZE,

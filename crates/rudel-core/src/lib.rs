@@ -5,6 +5,7 @@
 // A `Pattern` is a pure function `State -> Vec<Hap>`; everything is built from
 // the functor / applicative / monad combinators in `pattern`.
 
+pub mod clock;
 pub mod color;
 pub mod controls;
 pub mod draw;
@@ -31,6 +32,7 @@ pub mod value;
 pub mod voicing;
 pub mod xen;
 
+pub use clock::Clock;
 pub use fraction::Frac;
 pub use hap::{Context, Hap};
 pub use impure::reset_timelines;

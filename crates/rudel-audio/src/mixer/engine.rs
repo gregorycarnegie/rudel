@@ -81,23 +81,26 @@ impl Engine {
             csound: csound.clone(),
         };
 
+        // Owned by the callback so the per-callback render buffer is reused
+        // instead of allocated on the audio thread.
+        let mut buf: Vec<(f32, f32)> = Vec::new();
         let err_fn = |e| eprintln!("[rudel-audio] stream error: {e}");
         let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 stream_config,
-                move |data: &mut [f32], _| write_frames(data, channels, &mut mixer),
+                move |data: &mut [f32], _| write_frames(data, channels, &mut mixer, &mut buf),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_output_stream(
                 stream_config,
-                move |data: &mut [i16], _| write_frames(data, channels, &mut mixer),
+                move |data: &mut [i16], _| write_frames(data, channels, &mut mixer, &mut buf),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::U16 => device.build_output_stream(
                 stream_config,
-                move |data: &mut [u16], _| write_frames(data, channels, &mut mixer),
+                move |data: &mut [u16], _| write_frames(data, channels, &mut mixer, &mut buf),
                 err_fn,
                 None,
             ),

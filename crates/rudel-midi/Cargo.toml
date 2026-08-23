@@ -8,5 +8,5 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rudel-core = { path = "../rudel-core" }
+rudel-core.workspace = true
 midir = "0.11.0"

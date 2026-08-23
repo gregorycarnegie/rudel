@@ -106,7 +106,9 @@ pub(crate) fn register_js_builtins(prelude: &KMap) {
         match value {
             Json::Null => KValue::Null,
             Json::Bool(b) => KValue::Bool(*b),
-            Json::Number(n) => n.as_f64().map_or(KValue::Null, |f| KValue::Number(f.into())),
+            Json::Number(n) => n
+                .as_f64()
+                .map_or(KValue::Null, |f| KValue::Number(f.into())),
             Json::String(s) => KValue::Str(s.as_str().into()),
             Json::Array(items) => KValue::List(KList::with_data(
                 items.iter().map(json_to_koto).collect::<Vec<_>>().into(),
@@ -403,11 +405,7 @@ fn register_list(list: &KMap) {
                     },
                 };
                 for (i, value) in items {
-                    let args = [
-                        acc,
-                        value.clone(),
-                        KValue::Number(KNumber::from(i as i64)),
-                    ];
+                    let args = [acc, value.clone(), KValue::Number(KNumber::from(i as i64))];
                     let args = if with_index { &args[..] } else { &args[..2] };
                     acc = ctx.vm.call_function(f.clone(), CallArgs::Separate(args))?;
                 }

@@ -8,8 +8,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rudel-core = { path = "../rudel-core" }
-rudel-dsp = { path = "../rudel-dsp" }
+rudel-core.workspace = true
+rudel-dsp.workspace = true
 cpal = "0.18.1"
 # Sample decoding. `all` is the codec set fundsp pulled in when it owned this,
 # and is not optional: MP3 is behind a feature flag and off by default. Gapless
@@ -23,8 +23,8 @@ serde_json.workspace = true
 ureq = "3.4.0"
 
 [dev-dependencies]
-rudel-mini = { path = "../rudel-mini" }
-rudel-lang = { path = "../rudel-lang" }
+rudel-mini.workspace = true
+rudel-lang.workspace = true
 tempfile = "3.27.0"
 
 [[bench]]

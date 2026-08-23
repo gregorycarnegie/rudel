@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rudel-core = { path = "../rudel-core" }
+rudel-core.workspace = true
 wide.workspace = true
 
 [dev-dependencies]

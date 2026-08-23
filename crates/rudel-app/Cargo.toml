@@ -12,15 +12,20 @@ name = "rudel"
 path = "src/main.rs"
 
 [dependencies]
-rudel-core = { path = "../rudel-core" }
-rudel-lang = { path = "../rudel-lang" }
-rudel-audio = { path = "../rudel-audio" }
-rudel-midi = { path = "../rudel-midi" }
-rudel-osc = { path = "../rudel-osc" }
-eframe = "0.36.1"
+rudel-core.workspace = true
+rudel-lang.workspace = true
+rudel-audio.workspace = true
+rudel-midi.workspace = true
+rudel-osc.workspace = true
+# `persistence`: eframe autosaves every 30s and on exit, which is what keeps
+# the editor buffer across a crash or a close. No file dialogs, no autosave
+# thread of our own.
+eframe = { version = "0.36.1", features = ["persistence"] }
 # egui exposes `copy_text` but no clipboard *read*, so the context menu's Paste
 # has to go to the platform itself. Already in the tree via egui-winit.
 arboard = "3.6.1"
+# Native Open/Save dialogs; egui has no file picker of its own.
+rfd = "0.15.4"
 # Already in the tree as wgpu's shader front-end. Used here to parse and
 # validate a widget's WGSL *before* handing it to wgpu, whose default handler
 # aborts the process on a validation error — a typo mid-set must not be fatal.

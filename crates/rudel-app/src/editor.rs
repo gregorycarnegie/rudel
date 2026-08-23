@@ -651,17 +651,25 @@ mod tests {
     #[test]
     fn the_gutter_numbers_every_line_from_one() {
         let heights = std::collections::HashMap::new();
-        let drawn = gutter_shapes("a
+        let drawn = gutter_shapes(
+            "a
 b
-c", None, &heights);
+c", None, &heights,
+        );
         let labels: Vec<&str> = drawn.iter().map(|(t, _, _)| t.as_str()).collect();
         assert_eq!(labels, ["1", "2", "3"], "one number per line, 1-based");
 
         // A buffer with no newline is still one line, and a trailing newline
         // opens the next one.
         assert_eq!(gutter_shapes("a", None, &heights).len(), 1);
-        assert_eq!(gutter_shapes("a
-", None, &heights).len(), 2);
+        assert_eq!(
+            gutter_shapes(
+                "a
+", None, &heights
+            )
+            .len(),
+            2
+        );
     }
 
     #[test]
@@ -672,9 +680,13 @@ c", None, &heights);
         // Lines longer than one character: with single-char lines, counting
         // the newlines before the cursor and counting everything else give the
         // same answer, and a wrong one passes.
-        let drawn = gutter_shapes("ab
+        let drawn = gutter_shapes(
+            "ab
 cd
-ef", Some((3, 3)), &heights);
+ef",
+            Some((3, 3)),
+            &heights,
+        );
         let active: Vec<&str> = drawn
             .iter()
             .filter(|(_, _, color)| *color == palette.line_number_active)
@@ -683,8 +695,10 @@ ef", Some((3, 3)), &heights);
         assert_eq!(active, ["2"], "only the cursor's line is highlighted");
 
         // With no cursor, nothing is.
-        let drawn = gutter_shapes("ab
-cd", None, &heights);
+        let drawn = gutter_shapes(
+            "ab
+cd", None, &heights,
+        );
         assert!(
             drawn
                 .iter()
@@ -698,10 +712,21 @@ cd", None, &heights);
         // Numbers are right-aligned inside a gutter sized to the widest one,
         // so a three-digit file has to push its column right.
         let heights = std::collections::HashMap::new();
-        let short = gutter_shapes("a
-b", None, &heights)[0].1.x;
-        let long = gutter_shapes(&"x
-".repeat(120), None, &heights)[0].1.x;
+        let short = gutter_shapes(
+            "a
+b", None, &heights,
+        )[0]
+        .1
+        .x;
+        let long = gutter_shapes(
+            &"x
+"
+            .repeat(120),
+            None,
+            &heights,
+        )[0]
+        .1
+        .x;
         let settings = EditorSettings::default();
         assert!(
             (long - short - settings.font_size * 0.62).abs() < 0.01,
@@ -710,8 +735,10 @@ b", None, &heights)[0].1.x;
 
         // ...and the column sits an exact distance in from the left edge: the
         // gutter's own width, less the right-hand padding the number keeps.
-        let (_, left, right) = gutter_run_full("a
-b", None, &heights);
+        let (_, left, right) = gutter_run_full(
+            "a
+b", None, &heights,
+        );
         let width = 2.0 * settings.font_size * 0.62 + 10.0;
         assert!(
             (right - (left + width - 4.0)).abs() < 0.01,
@@ -724,13 +751,17 @@ b", None, &heights);
         // The layouter inflates rows carrying inline widgets; the gutter has to
         // mirror that or every number after one drifts out of line.
         let mut heights = std::collections::HashMap::new();
-        let flat = gutter_shapes("a
+        let flat = gutter_shapes(
+            "a
 b
-c", None, &heights);
+c", None, &heights,
+        );
         heights.insert(0, 60.0);
-        let inflated = gutter_shapes("a
+        let inflated = gutter_shapes(
+            "a
 b
-c", None, &heights);
+c", None, &heights,
+        );
         assert_eq!(flat[0].1.y, inflated[0].1.y, "the inflated row itself");
         assert!(
             inflated[1].1.y - flat[1].1.y > 40.0,

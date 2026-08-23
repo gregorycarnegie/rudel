@@ -1387,7 +1387,7 @@ fn a_choked_voice_is_routed_through_the_same_sends() {
                 ..Default::default()
             })),
             fx_chain: Vec::new(),
-        worklet: None,
+            worklet: None,
             fx: rudel_dsp::PostFx::default(),
             cut: Some(2),
             send: OrbitSend {
@@ -2101,19 +2101,19 @@ fn write_frames_lays_out_mono_stereo_and_extra_channels() {
     );
 
     let mut mono = [0.0f32; 4];
-    write_frames(&mut mono, 1, &mut voice());
+    write_frames(&mut mono, 1, &mut voice(), &mut Vec::new());
     for (got, (l, r)) in mono.iter().zip(&want) {
         assert_eq!(*got, (l + r) * 0.5, "mono is the average of the pair");
     }
 
     let mut stereo = [0.0f32; 8];
-    write_frames(&mut stereo, 2, &mut voice());
+    write_frames(&mut stereo, 2, &mut voice(), &mut Vec::new());
     for (got, (l, r)) in stereo.chunks(2).zip(&want) {
         assert_eq!((got[0], got[1]), (*l, *r), "stereo is the pair verbatim");
     }
 
     let mut surround = [0.0f32; 12];
-    write_frames(&mut surround, 3, &mut voice());
+    write_frames(&mut surround, 3, &mut voice(), &mut Vec::new());
     for (got, (l, r)) in surround.chunks(3).zip(&want) {
         assert_eq!(
             (got[0], got[1], got[2]),
@@ -2539,8 +2539,10 @@ fn dough_plays_its_pattern_as_bytebeat() {
 
 #[test]
 fn an_fx_chain_applies_its_stages_in_order() {
-    let saw = || rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
-        .note(rudel_core::Value::Int(57));
+    let saw = || {
+        rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+            .note(rudel_core::Value::Int(57))
+    };
     let stage = |name: &'static str, v: f64| {
         rudel_core::pure(rudel_core::Value::Null).ctrl(name, rudel_core::Value::F64(v))
     };
@@ -2549,7 +2551,11 @@ fn an_fx_chain_applies_its_stages_in_order() {
     // A stage is heard at all.
     let plain = saw();
     let crushed = saw().fx(&[stage("crush", 2.0)]);
-    assert_ne!(level(&crushed), level(&plain), "an FX stage should be heard");
+    assert_ne!(
+        level(&crushed),
+        level(&plain),
+        "an FX stage should be heard"
+    );
 
     // One stage alone is the same rack the voice's own controls drive, so it
     // has to match the effect named directly.
@@ -2586,7 +2592,11 @@ fn a_kabelsalat_graph_plays_as_the_voice_it_wraps() {
         let mut map = rudel_core::ValueMap::new();
         map.insert(
             "types".to_string(),
-            list(["audioin", "n", "mul"].map(|t| Value::Str(t.into())).to_vec()),
+            list(
+                ["audioin", "n", "mul"]
+                    .map(|t| Value::Str(t.into()))
+                    .to_vec(),
+            ),
         );
         map.insert(
             "values".to_string(),
@@ -2609,9 +2619,7 @@ fn a_kabelsalat_graph_plays_as_the_voice_it_wraps() {
         );
         Value::Map(map)
     };
-    let saw = || {
-        rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(57))
-    };
+    let saw = || rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(57));
     let level = |p: &Pattern| rms(&render_pattern(p, 1.0, 0.5));
 
     // `audioin()` reads the voice the graph is wrapped around, so halving it
@@ -2627,9 +2635,15 @@ fn a_kabelsalat_graph_plays_as_the_voice_it_wraps() {
     // A graph that does not touch `audioin` replaces the voice rather than
     // colouring it, which is what makes `K(...)` usable as a synth.
     let mut silent = rudel_core::ValueMap::new();
-    silent.insert("types".to_string(), Value::List(vec![Value::Str("n".into())]));
+    silent.insert(
+        "types".to_string(),
+        Value::List(vec![Value::Str("n".into())]),
+    );
     silent.insert("values".to_string(), Value::List(vec![Value::F64(0.0)]));
-    silent.insert("ins".to_string(), Value::List(vec![Value::List(Vec::new())]));
+    silent.insert(
+        "ins".to_string(),
+        Value::List(vec![Value::List(Vec::new())]),
+    );
     silent.insert(
         "outs".to_string(),
         Value::List(vec![Value::List(vec![Value::Int(0), Value::Int(0)])]),

@@ -295,7 +295,10 @@ mod tests {
         // Each of those is only a default: naming it in the script wins, even
         // when the value asked for is the opposite.
         for (key, check) in [
-            ("vertical", (|o: &VisualWidgetOptions| !o.vertical) as fn(&VisualWidgetOptions) -> bool),
+            (
+                "vertical",
+                (|o: &VisualWidgetOptions| !o.vertical) as fn(&VisualWidgetOptions) -> bool,
+            ),
             ("labels", |o| !o.labels),
             ("stroke", |o| o.stroke == Some(true)),
             ("fillActive", |o| !o.fill_active),

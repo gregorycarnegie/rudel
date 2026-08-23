@@ -7,7 +7,6 @@
 #![warn(missing_docs)]
 
 /// Cycle/seconds clock with cyclist-style cps re-anchoring.
-pub mod clock;
 /// Csound as an alternative sound engine, via the installed `libcsound`.
 pub mod csound;
 /// Note event creation and scheduling logic.
@@ -24,10 +23,10 @@ pub mod sf2;
 pub mod soundfont;
 mod sync;
 
-pub use clock::Clock;
 pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
 pub use midimap_source::{load_midimaps, spawn_midimaps};
 pub use mixer::{CsoundSource, Engine, OfflineMixer};
+pub use rudel_core::Clock;
 /// Radix-2 FFT, re-exported so UI analysers share the DSP one.
 pub use rudel_dsp::Fft;
 pub use samples::{DEFAULT_SAMPLE_BANKS, SampleBank, take_sample_requests};

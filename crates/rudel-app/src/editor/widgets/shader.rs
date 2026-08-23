@@ -473,13 +473,18 @@ mod tests {
     fn an_error_points_at_the_line_the_user_wrote() {
         // Three lines of body, broken on the third. The prelude is ~30 lines of
         // assembled source in front of it and must not show up in the count.
-        let error = check(&assemble("\nlet a = 1.0;\nreturn vec4<f32>(a, nope, 0.0, 1.0);\n"))
-            .expect_err("`nope` is undefined");
+        let error = check(&assemble(
+            "\nlet a = 1.0;\nreturn vec4<f32>(a, nope, 0.0, 1.0);\n",
+        ))
+        .expect_err("`nope` is undefined");
         assert!(error.contains("line 3,"), "wrong line: {error}");
         // Only the message and the location survive — naga frames the offending
         // line in box-drawing glyphs the editor font renders as tofu.
         assert_eq!(error.lines().count(), 3, "undecorated: {error}");
-        assert!(error.contains("return vec4<f32>(a, nope"), "no source line: {error}");
+        assert!(
+            error.contains("return vec4<f32>(a, nope"),
+            "no source line: {error}"
+        );
         assert!(
             error.is_ascii(),
             "the editor font has no box-drawing glyphs: {error}"

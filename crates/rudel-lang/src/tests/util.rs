@@ -147,7 +147,10 @@ fn map_over_a_long_list_takes_a_one_parameter_callback() {
     // entry took that error path, and past a few dozen the VM stopped recovering
     // from them: a 94-entry table failed where a 59-entry one worked. Long
     // enough here to be past that.
-    let list = (0..100).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let list = (0..100)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let one = |script: &str| values(&eval(script).expect("eval"), 0, 1);
     assert_eq!(
         one(&format!("pure([{list}].map((v) => v + 1)[99])")),

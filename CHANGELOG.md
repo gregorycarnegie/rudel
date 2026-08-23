@@ -11,6 +11,62 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+
+Files, and the two clocks that were wrong.
+
+### Added
+
+- **Open and Save.** `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, plus toolbar buttons,
+  through the native file dialogs. Patterns are Koto source, so the dialogs
+  filter on `.koto` and a name typed without an extension gets one. `Ctrl+S`
+  with no file yet falls through to Save As rather than saving into nowhere,
+  and the window title names the open file.
+
+- **The editor buffer survives a close.** eframe's `persistence` is on, so the
+  buffer is autosaved every 30 seconds and on exit, and restored on the next
+  launch — along with the file it came from, so `Ctrl+S` after a restart still
+  knows where to write. A failed read reports to the error bar instead of
+  clobbering what is in the editor.
+
+- **Release binaries.** `.github/workflows/release.yml` builds
+  `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc` and
+  `aarch64-apple-darwin` on a pushed `v*` tag and attaches them to a GitHub
+  release.
+
+### Fixed
+
+- **A live `cps` change no longer stalls or bursts MIDI and OSC output.** Both
+  schedulers mapped seconds to cycles from the origin (`cycle = now * cps`).
+  Slowing the tempo therefore re-derived a target cycle *behind* what was
+  already scheduled — nothing new was queued until the clock caught up, which
+  at a large enough drop is tens of seconds of silence — and raising it jumped
+  the target forward, dumping a window of events at once. Both now use
+  `Clock`, which re-anchors at the moment of the change the way Strudel's
+  cyclist does; the audio path already did.
+
+- **The audio callback renders one block instead of one frame at a time.**
+  `write_frames` called `render_frame()` per sample, so every frame re-ran the
+  event drain, the Csound `try_lock` and the pending-onset scan — work whose
+  whole point is to be done once per buffer. It now renders the callback as a
+  single `render_block` into a buffer owned by the stream callback, grown once
+  and never reallocated on the audio thread.
+
+- **The transport bar no longer overlaps itself.** The row ended in a
+  right-to-left block, which anchors to the right edge however much space is
+  left, so an overflowing row painted the output selector, the status text and
+  the state light on top of each other. The controls row wraps now, and the
+  status moved to the `i/o` row.
+
+### Changed
+
+- **`Clock` moved from `rudel-audio` to `rudel-core`**, so the MIDI and OSC
+  schedulers can share the re-anchoring the audio path had. `rudel_audio::Clock`
+  still resolves; the `rudel_audio::clock` module path does not.
+
+- **Internal crate dependencies are declared once**, in
+  `[workspace.dependencies]` with a version. `cargo package --workspace` failed
+  before this — a path dependency with no version cannot be packaged.
+
 ## [0.16.0] — 2026-08-22
 
 Kabelsalat, ported.

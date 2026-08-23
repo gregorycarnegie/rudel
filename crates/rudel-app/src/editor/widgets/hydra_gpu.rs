@@ -271,7 +271,8 @@ impl HydraStore {
                     label: Some("rudel-hydra-blit"),
                     source: wgpu::ShaderSource::Wgsl(BLIT.into()),
                 });
-                let pipeline = render_pipeline(device, "rudel-hydra-blit", &module, &layout, format);
+                let pipeline =
+                    render_pipeline(device, "rudel-hydra-blit", &module, &layout, format);
                 (pipeline, layout)
             })
             .clone()
@@ -297,7 +298,8 @@ impl HydraStore {
                     label: Some("rudel-hydra-grid"),
                     source: wgpu::ShaderSource::Wgsl(BLIT_GRID.into()),
                 });
-                let pipeline = render_pipeline(device, "rudel-hydra-grid", &module, &layout, format);
+                let pipeline =
+                    render_pipeline(device, "rudel-hydra-grid", &module, &layout, format);
                 (pipeline, layout)
             })
             .clone()
@@ -378,11 +380,7 @@ fn render_pipeline(
     })
 }
 
-fn build_surface(
-    store: &mut HydraStore,
-    device: &wgpu::Device,
-    call: &HydraCallback,
-) -> Surface {
+fn build_surface(store: &mut HydraStore, device: &wgpu::Device, call: &HydraCallback) -> Surface {
     let format = store.format;
     let layout = store.chain_layout(device);
     let sampler = store.sampler(device);
@@ -631,8 +629,7 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
                 pass.set_bind_group(0, &binds[surface.write], &[]);
             }
             Render::One(index) => {
-                let (Some((blit, _)), Some(shown)) =
-                    (&store.blit, surface.outputs[index].as_ref())
+                let (Some((blit, _)), Some(shown)) = (&store.blit, surface.outputs[index].as_ref())
                 else {
                     return;
                 };
