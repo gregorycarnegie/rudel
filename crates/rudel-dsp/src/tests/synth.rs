@@ -1013,3 +1013,102 @@ fn a_frequency_modulator_and_fm_both_reach_the_wavetable_source() {
         "fm: {octave} crossings against {plain}"
     );
 }
+
+#[test]
+fn a_unison_wavetable_stack_starts_decorrelated_where_a_single_voice_does_not() {
+    // `wtphaserand ?? (unison > 1)`: a stack randomises its start phases so its
+    // voices do not sum into one transient, while a single voice starts at
+    // phase 0 — which is what makes a lone wavetable voice reproducible.
+    let frame = 512;
+    let samples: Vec<f32> = (0..frame)
+        .map(|i| (TAU * i as f32 / frame as f32).sin())
+        .collect();
+    let render = |unison: usize| {
+        let mut v = Voice::new(
+            VoiceParams {
+                wavetable: Some(WaveTable::from_samples(&samples, frame)),
+                unison,
+                freq: 220.0,
+                duration: 0.1,
+                ..Default::default()
+            },
+            SR,
+        );
+        (0..64).map(|_| v.tick().0).collect::<Vec<f32>>()
+    };
+    assert_eq!(
+        render(1),
+        render(1),
+        "one voice starts where the table does"
+    );
+    assert_ne!(render(2), render(2), "a stack draws its own start phases");
+}
+
+#[test]
+fn a_pitch_envelope_multiplies_the_wavetable_carrier_rather_than_offsetting_it() {
+    // `freq * pitch_mult()`: twelve semitones of pitch envelope is a doubling,
+    // which neither adding the multiplier to the frequency nor dividing by it
+    // produces.
+    let frame = 512;
+    let samples: Vec<f32> = (0..frame)
+        .map(|i| (TAU * i as f32 / frame as f32).sin())
+        .collect();
+    let crossings = |penv: Option<f32>| {
+        let mut v = Voice::new(
+            VoiceParams {
+                wavetable: Some(WaveTable::from_samples(&samples, frame)),
+                freq: 220.0,
+                duration: 1.0,
+                penv,
+                ..Default::default()
+            },
+            SR,
+        );
+        let out: Vec<f32> = (0..2205).map(|_| v.tick().0).collect();
+        out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+    };
+    let plain = crossings(None);
+    // The envelope sweeps down to its anchor, so an octave of it halves the
+    // pitch across this window. Adding the multiplier to the frequency, or
+    // dividing by it, moves it the other way or not at all.
+    let swept = crossings(Some(12.0));
+    assert!(
+        swept < plain && swept * 2 <= plain + 2,
+        "an octave of pitch envelope: {swept} crossings against {plain}"
+    );
+}
+
+#[test]
+fn a_stereo_source_is_turned_down_by_the_same_gain_stage_as_a_mono_one() {
+    // The stereo branch of `tick` has its own `env * gain * 0.3`, and Strudel's
+    // 0.3 turn-down is what keeps a full-scale table off the rails.
+    let frame = 512;
+    let samples: Vec<f32> = (0..frame)
+        .map(|i| (TAU * i as f32 / frame as f32).sin())
+        .collect();
+    let mut v = Voice::new(
+        VoiceParams {
+            wavetable: Some(WaveTable::from_samples(&samples, frame)),
+            freq: 441.0,
+            gain: 1.0,
+            pan: 0.5,
+            duration: 0.5,
+            adsr: Adsr {
+                attack: 0.0001,
+                decay: 0.0001,
+                sustain: 1.0,
+                release: 0.01,
+            },
+            ..Default::default()
+        },
+        SR,
+    );
+    let peak = (0..4410).map(|_| v.tick().0.abs()).fold(0.0f32, f32::max);
+    // A band rather than a number: what the table itself peaks at depends on
+    // its interpolation, but a voice that skipped the 0.3 turn-down would be
+    // over unity rather than well under it.
+    assert!(
+        (0.05..0.6).contains(&peak),
+        "peak {peak} is not a turned-down full-scale table"
+    );
+}
