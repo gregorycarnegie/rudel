@@ -13,6 +13,21 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.20.1] — 2026-08-24
+
+### Changed
+
+- **The kabelsalat back end, the host tables and the synth voice are tested.**
+  A mutation run over the whole workspace read 84.2%, down five points, and the
+  drop was all new code that had landed under-tested: `dsp/kabelsalat.rs` alone
+  survived 748 mutations — 43% of the workspace's total — against 7 tests for
+  1581 lines. Its ugens, its instruction set and its wire format are pinned
+  now, along with the gain curve in core's host tables, the synth voice's
+  wavetable and noise-blend paths, the FM matrix's cross-modulation direction,
+  and several of the preprocessor's walks. No behaviour changes: 838 surviving
+  mutations across those files became 96, and what is left is mostly
+  comparisons whose two branches agree.
+
 ## [0.20.0] — 2026-08-23
 
 ### Fixed
