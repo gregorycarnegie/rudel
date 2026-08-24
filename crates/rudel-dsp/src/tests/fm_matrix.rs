@@ -120,3 +120,80 @@ fn a_modulated_operator_uses_the_previous_samples_value() {
         "a modulated operator runs faster: flipped at {with} vs {without}"
     );
 }
+
+/// A two-operator chain: operator 2 into operator 1 at `cross`, operator 1
+/// into the carrier at unity, both square.
+fn chain(cross: f32) -> Voice {
+    let square = FmOp {
+        ratio: 1.0,
+        wave: Waveform::Square,
+        env: None,
+    };
+    let mut ops = [FmOp::default(); FM_OPS + 1];
+    ops[1] = square;
+    ops[2] = square;
+    let mut amt = [[0.0f32; FM_OPS + 1]; FM_OPS + 1];
+    amt[1][0] = 1.0;
+    amt[2][1] = cross;
+    Voice::new(
+        VoiceParams {
+            freq: 100.0,
+            fm: FmSpec {
+                ops,
+                amt,
+                max_op: 2,
+            },
+            ..Default::default()
+        },
+        SR,
+    )
+}
+
+#[test]
+fn cross_modulation_pushes_an_operator_forward_rather_than_backward() {
+    // At index 2 against an eighth-cycle carrier, operator 1 covers three
+    // eighths of its cycle in one sample and is still positive. Subtracting
+    // the modulation instead lands on seven eighths, where a square has
+    // already flipped — the same distance, the other way round.
+    let carrier = SR / 8.0;
+    let mut v = chain(2.0);
+    assert_eq!(v.fm_deviation(carrier), carrier);
+    assert_eq!(v.fm_deviation(carrier), carrier, "still in its first half");
+    // Twice as far again is past the flip, so the sign does follow the phase.
+    let mut v = chain(6.0);
+    v.fm_deviation(carrier);
+    assert_eq!(v.fm_deviation(carrier), -carrier);
+}
+
+#[test]
+fn every_operator_slot_is_addressable() {
+    // Index 0 is the carrier's target, so the per-operator arrays have to be
+    // one longer than the operator count; a run with every operator active is
+    // what reaches the last of them.
+    let mut ops = [FmOp::default(); FM_OPS + 1];
+    let mut amt = [[0.0f32; FM_OPS + 1]; FM_OPS + 1];
+    for k in 1..=FM_OPS {
+        ops[k] = FmOp {
+            ratio: k as f32,
+            wave: Waveform::Square,
+            env: None,
+        };
+        amt[k][0] = 1.0;
+    }
+    let mut v = Voice::new(
+        VoiceParams {
+            freq: 100.0,
+            fm: FmSpec {
+                ops,
+                amt,
+                max_op: FM_OPS,
+            },
+            ..Default::default()
+        },
+        SR,
+    );
+    // Each operator contributes `amt * (carrier * ratio) * +1`, so the total is
+    // the carrier times the sum of the ratios.
+    let ratios: f32 = (1..=FM_OPS).map(|k| k as f32).sum();
+    assert_eq!(v.fm_deviation(100.0), 100.0 * ratios);
+}

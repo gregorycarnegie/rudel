@@ -635,4 +635,31 @@ mod tests {
         let h = wav_header(48_000, u32::MAX);
         assert_eq!(u32::from_le_bytes(h[4..8].try_into().unwrap()), u32::MAX);
     }
+
+    #[test]
+    fn a_wav_header_carries_the_rate_the_device_ran_at() {
+        let h = wav_header(44_100, 8);
+        assert_eq!(&h[0..4], b"RIFF");
+        assert_eq!(&h[8..12], b"WAVE");
+        assert_eq!(u32::from_le_bytes(h[24..28].try_into().unwrap()), 44_100);
+        // Four bytes a frame: 16-bit stereo.
+        assert_eq!(u16::from_le_bytes(h[32..34].try_into().unwrap()), 4);
+        // The byte rate is the product of the two, not a sum of them.
+        assert_eq!(
+            u32::from_le_bytes(h[28..32].try_into().unwrap()),
+            44_100 * 4
+        );
+        assert_eq!(u32::from_le_bytes(h[40..44].try_into().unwrap()), 8);
+    }
+
+    #[test]
+    fn opus_granules_are_counted_at_48k_whatever_the_device_ran_at() {
+        // A tenth of a second is 4800 granules however it was sampled.
+        assert_eq!(to_48k(4_800, 48_000), 4_800);
+        assert_eq!(to_48k(800, 8_000), 4_800);
+        assert_eq!(to_48k(1_200, 12_000), 4_800);
+        assert_eq!(to_48k(1_600, 16_000), 4_800);
+        // A zero rate would divide by zero, so it is floored at 1 instead.
+        assert_eq!(to_48k(2, 0), 96_000);
+    }
 }

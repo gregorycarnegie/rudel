@@ -863,3 +863,153 @@ fn a_pattern_that_names_no_sound_plays_a_triangle() {
         assert_eq!(params.waveform, want, "s({name:?})");
     }
 }
+
+#[test]
+fn the_noise_blend_is_the_wetfade_pair_sample_for_sample() {
+    // `s * wetfade(w) + pink * wetfade(1 - w)`. The voice's pink source is
+    // seeded, drawn once per sample, so an independent generator reproduces it
+    // exactly and the whole expression can be pinned rather than correlated.
+    let render = |w: f32| {
+        let mut v = voice(VoiceParams {
+            waveform: Waveform::Sine,
+            noise_mix: w,
+            freq: 441.0,
+            duration: 1.0,
+            ..Default::default()
+        });
+        (0..16).map(|_| v.next_source()).collect::<Vec<f32>>()
+    };
+    let mut generator = crate::oscillator::NoiseGen::new();
+    let pink: Vec<f32> = (0..16).map(|_| generator.next(NoiseKind::Pink)).collect();
+
+    // 0.2 puts the pink side on the ramp too, where its gain is neither 1
+    // nor its own reciprocal.
+    for w in [0.2f32, 0.5, 0.9] {
+        for (i, got) in render(w).iter().enumerate() {
+            let sine = (TAU * (i as f32 * 441.0 / SR)).sin();
+            let want = sine * wetfade(w) + pink[i] * wetfade(1.0 - w);
+            assert!(
+                (got - want).abs() < 1e-5,
+                "mix {w}, sample {i}: {got} is not {want}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_fm_voice_runs_at_the_carrier_plus_its_deviation() {
+    // The oscillator's phase advances by `(carrier + deviation) / sr`. A square
+    // operator at ratio 1 and index 1 holds the deviation at the carrier's own
+    // frequency for the first half of its cycle, so the voice is exactly an
+    // octave up over those samples.
+    let mut ops = [FmOp::default(); crate::fm::FM_OPS + 1];
+    ops[1] = FmOp {
+        ratio: 1.0,
+        wave: Waveform::Square,
+        env: None,
+    };
+    let mut amt = [[0.0f32; crate::fm::FM_OPS + 1]; crate::fm::FM_OPS + 1];
+    amt[1][0] = 1.0;
+    let mut v = voice(VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 100.0,
+        duration: 1.0,
+        fm: FmSpec {
+            ops,
+            amt,
+            max_op: 1,
+        },
+        ..Default::default()
+    });
+    for i in 0..16 {
+        let got = v.next_source();
+        let want = (TAU * (i as f32 * 200.0 / SR)).sin();
+        assert!((got - want).abs() < 1e-5, "sample {i}: {got} is not {want}");
+    }
+}
+
+#[test]
+fn a_held_note_does_not_start_releasing_until_its_hold_is_up() {
+    // `hold_end` is the duration *plus* the hold, and it is what tells the
+    // envelope when to let go — a note held past its duration is still at
+    // sustain, not already decaying.
+    let mut v = voice(VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 441.0,
+        duration: 0.1,
+        hold: 0.1,
+        pan: 0.5,
+        adsr: Adsr {
+            attack: 0.001,
+            decay: 0.001,
+            sustain: 1.0,
+            release: 0.01,
+        },
+        ..Default::default()
+    });
+    let peak: Vec<f32> = (0..2)
+        .map(|_| (0..4410).map(|_| v.tick().0.abs()).fold(0.0f32, f32::max))
+        .collect();
+    // The second tenth of a second — past the duration, inside the hold — is
+    // as loud as the first.
+    assert!(peak[1] > 0.9 * peak[0], "{peak:?}");
+}
+
+#[test]
+fn a_frequency_modulator_and_fm_both_reach_the_wavetable_source() {
+    // `next_wavetable` reads `freq * pitch_mult() + mods.get(Frequency)` and
+    // then adds the FM deviation on top. A plain wavetable voice has both of
+    // those at zero, so neither term's sign is observable from one.
+    let frame = 512;
+    let samples: Vec<f32> = (0..frame)
+        .map(|i| (TAU * i as f32 / frame as f32).sin())
+        .collect();
+    let base = || VoiceParams {
+        wavetable: Some(WaveTable::from_samples(&samples, frame)),
+        freq: 220.0,
+        duration: 1.0,
+        ..Default::default()
+    };
+    // Driven through `tick`, because only `tick` advances the modulator bank.
+    let crossings = |params: VoiceParams, mods: &[ModSpec]| {
+        let mut v = Voice::with_mods(params, SR, mods);
+        let out: Vec<f32> = (0..4410).map(|_| v.tick().0).collect();
+        out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count()
+    };
+
+    let plain = crossings(base(), &[]);
+    assert!(plain > 0, "a wavetable voice should oscillate");
+
+    // An upward modulator raises the pitch; subtracting it would lower it.
+    let specs = positive_freq_lfo(400.0, 3.0);
+    let lifted = crossings(base(), &specs.voice);
+    assert!(lifted > plain, "lfo: {lifted} crossings against {plain}");
+
+    // A square operator slow enough to stay positive across the whole window,
+    // at an index that makes its deviation the carrier's own frequency: the
+    // voice runs exactly an octave up for as long as we listen — not at zero,
+    // and not at the product of the two.
+    let mut ops = [FmOp::default(); crate::fm::FM_OPS + 1];
+    ops[1] = FmOp {
+        ratio: 0.01,
+        wave: Waveform::Square,
+        env: None,
+    };
+    let mut amt = [[0.0f32; crate::fm::FM_OPS + 1]; crate::fm::FM_OPS + 1];
+    amt[1][0] = 100.0;
+    let octave = crossings(
+        VoiceParams {
+            fm: FmSpec {
+                ops,
+                amt,
+                max_op: 1,
+            },
+            ..base()
+        },
+        &[],
+    );
+    assert!(
+        octave.abs_diff(2 * plain) <= 2,
+        "fm: {octave} crossings against {plain}"
+    );
+}

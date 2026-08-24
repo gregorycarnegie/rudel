@@ -200,6 +200,10 @@ mod tests {
         assert_eq!(sample_duration("sax", 1), Some(2.0));
         assert_eq!(sample_duration("sax", 2), None);
         assert_eq!(sample_duration("nope", 0), None);
+        // Clearing belongs to this test rather than one of its own: the table
+        // is process-global, so a second test wiping it would race this one.
+        clear_sample_durations();
+        assert_eq!(sample_duration("sax", 0), None);
     }
 
     #[test]
@@ -214,5 +218,50 @@ mod tests {
         assert_eq!(lines.first().map(String::as_str), Some("10"));
         assert_eq!(lines.last().map(String::as_str), Some("521"));
         assert!(drain_log().is_empty(), "draining empties the ring");
+    }
+
+    #[test]
+    fn max_polyphony_is_whatever_a_script_last_set() {
+        assert_eq!(max_polyphony(), DEFAULT_MAX_POLYPHONY);
+        set_max_polyphony(7);
+        assert_eq!(max_polyphony(), 7);
+        set_max_polyphony(DEFAULT_MAX_POLYPHONY);
+    }
+
+    #[test]
+    fn a_gain_curve_interpolates_between_samples_and_extrapolates_past_the_ends() {
+        // The whole test is one case because the table is process-global: a
+        // second test touching it would race this one.
+        let step = GAIN_CURVE_MAX / (GAIN_CURVE_POINTS - 1) as f64;
+        assert!(!has_gain_curve());
+        assert_eq!(apply_gain_curve(3.0), 3.0);
+
+        // Doubling is linear, so every reading back through the table is exact.
+        set_gain_curve(|x| x * 2.0);
+        assert!(has_gain_curve());
+        assert_eq!(apply_gain_curve(1.0), 2.0);
+        // Halfway between two samples.
+        assert_eq!(apply_gain_curve(1.0 + step / 2.0), 2.0 + step);
+        assert_eq!(apply_gain_curve(GAIN_CURVE_MAX), 16.0);
+        // Off either end it carries on along the slope of the last pair rather
+        // than flattening.
+        assert_eq!(apply_gain_curve(10.0), 20.0);
+        assert_eq!(apply_gain_curve(-1.0), -2.0);
+        // Anything not finite passes straight through.
+        assert!(apply_gain_curve(f64::NAN).is_nan());
+        assert_eq!(apply_gain_curve(f64::INFINITY), f64::INFINITY);
+
+        // A table needs two points to interpolate between; one is refused, and
+        // refusing leaves no curve installed.
+        set_gain_curve_samples(vec![1.0]);
+        assert!(!has_gain_curve());
+        set_gain_curve_samples(vec![0.0, 4.0]);
+        assert!(has_gain_curve());
+        // Two points spread over the whole range, so 4 in is halfway along.
+        assert_eq!(apply_gain_curve(4.0), 2.0);
+
+        clear_gain_curve();
+        assert!(!has_gain_curve());
+        assert_eq!(apply_gain_curve(3.0), 3.0);
     }
 }

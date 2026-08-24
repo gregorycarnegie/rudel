@@ -4723,4 +4723,132 @@ b`, y)"
         assert_eq!(rewrite_string_concatenation("f('a', 'b')"), "f('a', 'b')");
         leaves_quoted_and_commented_alone(rewrite_string_concatenation, "a + 1");
     }
+
+    #[test]
+    fn a_spread_argument_becomes_a_rudel_apply_call() {
+        // Koto has no spread, so the call is rebuilt as groups of arguments
+        // that `rudel_apply` flattens back out.
+        assert_eq!(
+            rewrite_spread_calls("stack(...parts)"),
+            "rudel_apply(stack, [parts])"
+        );
+        // Ordinary arguments each become a group of one, and what follows the
+        // call is kept.
+        assert_eq!(
+            rewrite_spread_calls("stack(a, ...rest, b).fast(2)"),
+            "rudel_apply(stack, [[a], rest, [b]]).fast(2)"
+        );
+        // `_` and `$` are name characters, so they belong to the callee.
+        assert_eq!(
+            rewrite_spread_calls("_my$fn(...a)"),
+            "rudel_apply(_my$fn, [a])"
+        );
+    }
+
+    #[test]
+    fn only_a_call_with_a_spread_in_it_is_rewritten() {
+        // No spread, nothing to do — and a spread inside a string is text.
+        assert_eq!(rewrite_spread_calls("stack(a, b)"), "stack(a, b)");
+        assert_eq!(rewrite_spread_calls("x = \"...a\""), "x = \"...a\"");
+        // A parenthesised group is not a call, whatever is inside it, and a
+        // paren opening the source has no callee in front of it at all.
+        assert_eq!(rewrite_spread_calls("f((...a))"), "f((...a))");
+        assert_eq!(rewrite_spread_calls("(f)(...a)"), "(f)(...a)");
+        // A keyword's parentheses are not a call either.
+        assert_eq!(rewrite_spread_calls("if (...a) {}"), "if (...a) {}");
+        // Nor is a call whose parenthesis never closes — half-typed source
+        // reaches this on every keystroke.
+        assert_eq!(rewrite_spread_calls("stack(...a"), "stack(...a");
+    }
+
+    #[test]
+    fn a_dot_with_nothing_in_front_of_it_is_left_alone() {
+        // A source opening with a dot has nothing before it to reach back to,
+        // which is the shape a half-typed continuation line takes.
+        assert_eq!(tighten_member_dots(".fast(2)"), ".fast(2)");
+        assert_eq!(tighten_member_dots("...args"), "...args");
+        // A spread with a gap after it is still a spread.
+        assert_eq!(tighten_member_dots("f(... args)"), "f(... args)");
+        // `$` and `_` open a name, so a dot in front of one closes up.
+        assert_eq!(tighten_member_dots("f() . $x"), "f().$x");
+        assert_eq!(tighten_member_dots("f() . _x"), "f()._x");
+    }
+
+    #[test]
+    fn a_blank_line_inside_an_expression_is_closed_up() {
+        // Koto ends an expression at a blank line, so one inside brackets has
+        // to go.
+        assert_eq!(
+            close_expression_gaps("stack(\n  a,\n\n  b\n)"),
+            "stack(\n  a,\n  b\n)"
+        );
+        // And one in front of a method continuation, even at the top level.
+        assert_eq!(
+            close_expression_gaps("s(\"bd\")\n\n  .fast(2)"),
+            "s(\"bd\")\n  .fast(2)"
+        );
+        // A range is not a method chain.
+        assert_eq!(close_expression_gaps("a\n\n..b"), "a\n\n..b");
+        // Never the first line: there is no expression above it to continue.
+        assert_eq!(close_expression_gaps("\n.fast(2)"), "\n.fast(2)");
+        // A blank line between two statements is the user's own spacing.
+        assert_eq!(close_expression_gaps("a = 1\n\nb = 2"), "a = 1\n\nb = 2");
+    }
+
+    #[test]
+    fn a_blank_line_inside_a_template_literal_is_content() {
+        // The line is inside brackets, so only the string check keeps it.
+        assert_eq!(close_expression_gaps("f(`a\n\nb`)"), "f(`a\n\nb`)");
+        // A string that ends *before* the blank line does not protect it.
+        assert_eq!(close_expression_gaps("f(\"a\",\n\n b)"), "f(\"a\",\n b)");
+    }
+
+    // --- the delimiter and operand walks ------------------------------------
+    //
+    // These are private helpers behind several rewriters, and a rewriter test
+    // only reaches the shapes that rewriter is written for. Called directly,
+    // the nesting and the give-up paths can be pinned in a line apiece.
+
+    #[test]
+    fn the_opening_delimiter_skips_nested_pairs() {
+        let src = "f(a(b), c)";
+        let mask = code_mask(src);
+        // The paren opening the group that ends at 9 is the call's own, not
+        // the inner pair's.
+        assert_eq!(opening_delimiter(&mask, 9, b'(', b')'), Some(1));
+        assert_eq!(opening_delimiter(&mask, 5, b'(', b')'), Some(3));
+        // Brackets walk the same way.
+        let mask = code_mask("[x[0]]");
+        assert_eq!(opening_delimiter(&mask, 5, b'[', b']'), Some(0));
+        // Nothing opens it: no answer rather than a wrong one.
+        let mask = code_mask("a)");
+        assert_eq!(opening_delimiter(&mask, 1, b'(', b')'), None);
+    }
+
+    #[test]
+    fn a_shifts_right_operand_stops_at_the_first_separator_outside_brackets() {
+        let end_after_shift = |src: &str| {
+            let mask = code_mask(src);
+            shift_operand_end(&mask, src.find("<<").unwrap() + 2)
+        };
+        // A bracketed group is taken whole, so the operand runs to the comma.
+        assert_eq!(end_after_shift("x = 1 << (a + b), y"), 16);
+        // A closing bracket that was never opened ends it — the shift is
+        // inside somebody else's call.
+        assert_eq!(end_after_shift("f(1 << a)"), 8);
+    }
+
+    #[test]
+    fn an_arrows_parameter_list_starts_at_its_own_opening_paren() {
+        let start = |src: &str| {
+            let mask = code_mask(src);
+            arrow_params_start(src, &mask, src.find("=>").unwrap())
+        };
+        // The list's own paren, not the call's around it.
+        assert_eq!(start("f((a, b) => a)"), 2);
+        // A nested call inside the list does not end the walk early.
+        assert_eq!(start("f((a, g(b)) => a)"), 2);
+        // A bare parameter starts where its name does.
+        assert_eq!(start("map(abc => x)"), 4);
+    }
 }
