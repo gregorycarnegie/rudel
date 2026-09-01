@@ -13,6 +13,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.20.2] — 2026-09-01
+
+### Changed
+
+- **Dependency bumps.** `wide` 1.6.1 → 1.7.0 and `indexmap` 2.14.0 → 2.14.1,
+  both semver-compatible and needing no source changes. The workspace tests and
+  clippy are clean on them.
+
 ## [0.20.1] — 2026-08-24
 
 ### Changed

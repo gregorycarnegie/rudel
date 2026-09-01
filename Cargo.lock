@@ -1944,9 +1944,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.14.0"
+version = "2.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
+checksum = "07aa2048142242915a31d35844fb311e0e53fcca590c3a0a40dcf1b841fa09eb"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
@@ -3648,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-app"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "arboard",
  "eframe",
@@ -3666,7 +3666,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-audio"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "base64",
  "cpal",
@@ -3688,7 +3688,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-core"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "indexmap",
  "num-integer",
@@ -3700,7 +3700,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-dsp"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "proptest",
  "rudel-core",
@@ -3710,7 +3710,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-lang"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "koto",
  "naga",
@@ -3723,7 +3723,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-midi"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "midir",
  "rudel-core",
@@ -3731,7 +3731,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-mini"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "pest",
  "pest_derive",
@@ -3742,7 +3742,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-osc"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "proptest",
  "rudel-core",
@@ -3864,9 +3864,9 @@ dependencies = [
 
 [[package]]
 name = "safe_arch"
-version = "1.0.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f7caad094bd561859bcd467734a720c3c1f5d1f338995351fefe2190c45efed"
+checksum = "42c6efa15875e6ecb39ca61fb0b0c1a40b84fac5a5ffe71eef7d1000c8eb3f5f"
 dependencies = [
  "bytemuck",
 ]
@@ -5320,9 +5320,9 @@ dependencies = [
 
 [[package]]
 name = "wide"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de2aaf408e58689c2096682331b1f42bb2d9f2ed6b11560407d023cd0a6c634e"
+checksum = "8cf05ca94c9fba0c51316899caa1d1e74a064fc310a5efa7375e614343d415be"
 dependencies = [
  "bytemuck",
  "safe_arch",
