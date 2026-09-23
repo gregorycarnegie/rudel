@@ -9,8 +9,8 @@ rust-version.workspace = true
 
 [dependencies]
 rudel-core.workspace = true
-pest = "2.9.0"
-pest_derive = "2.9.0"
+pest = "2.9.2"
+pest_derive = "2.9.2"
 
 [dev-dependencies]
 proptest.workspace = true

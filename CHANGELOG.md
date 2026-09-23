@@ -13,6 +13,16 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-09-23
+
+### Changed
+
+- **Dependency bumps.** `wide` 1.7.0 → 1.7.1, `indexmap` 2.14.1 → 2.14.2,
+  `eframe` and `egui_kittest` 0.36.1 → 0.36.2, `ureq` 3.4.0 → 3.4.2,
+  `opus-rs` 0.1.32 → 0.1.34, and `pest`/`pest_derive` 2.9.0 → 2.9.2, all
+  semver-compatible and needing no source changes. The workspace tests and
+  clippy are clean on them.
+
 ## [0.20.2] — 2026-09-01
 
 ### Changed

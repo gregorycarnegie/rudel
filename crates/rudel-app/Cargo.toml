@@ -20,7 +20,7 @@ rudel-osc.workspace = true
 # `persistence`: eframe autosaves every 30s and on exit, which is what keeps
 # the editor buffer across a crash or a close. No file dialogs, no autosave
 # thread of our own.
-eframe = { version = "0.36.1", features = ["persistence"] }
+eframe = { version = "0.36.2", features = ["persistence"] }
 # egui exposes `copy_text` but no clipboard *read*, so the context menu's Paste
 # has to go to the platform itself. Already in the tree via egui-winit.
 arboard = "3.6.1"
@@ -44,4 +44,4 @@ windows = { version = "0.62.2", features = [
 winresource = "0.1.31"
 
 [dev-dependencies]
-egui_kittest = { version = "0.36.1", features = ["eframe"] }
+egui_kittest = { version = "0.36.2", features = ["eframe"] }
