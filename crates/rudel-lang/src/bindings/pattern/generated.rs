@@ -1,695 +1,633 @@
-#![allow(non_snake_case)]
+//! The bulk of `Pattern.prototype`: every method whose arguments fall into one
+//! of a handful of shapes, generated from lists of the core method names.
+//! Methods with bespoke argument handling live in `methods.rs`.
+//! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::{
-    KPattern,
     args::*,
     callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64},
-    engine::{
-        kpattern_compress_span, kpattern_focus_span, kpattern_query, kpattern_sort_haps_by_part,
-        kpattern_split_queries, kpattern_zoom_arc,
-    },
     methods::*,
 };
-use koto::{derive::*, prelude::*, runtime::Result as KotoResult};
-use rudel_core::PickJoin;
+use crate::js::{Arg, Res, Scope};
+use rudel_core::{Pattern, PickJoin};
 
-macro_rules! kpattern_methods {
-    (
-        pattern_arg: [$($pattern_arg_method:ident),* $(,)?],
-        no_arg: [$($no_arg_method:ident),* $(,)?],
-        i64_arg: [$($i64_arg_method:ident),* $(,)?],
-        stepwise_arg: [$($stepwise_arg_method:ident),* $(,)?],
-        f64_arg: [$($f64_arg_method:ident),* $(,)?],
-        frac_arg: [$($frac_arg_method:ident),* $(,)?],
-        pattern_pattern_arg: [$($pattern_pattern_arg_method:ident),* $(,)?],
-        frac_frac_arg: [$($frac_frac_arg_method:ident),* $(,)?],
-        f64_f64_arg: [$($f64_f64_arg_method:ident),* $(,)?],
-        i64_frac_f64_arg: [$($i64_frac_f64_arg_method:ident),* $(,)?],
-        i64_f64_frac_arg: [$($i64_f64_frac_arg_method:ident),* $(,)?],
-        fn_arg: [$($fn_arg_method:ident),* $(,)?],
-        i64_fn_arg: [$($i64_fn_arg_method:ident),* $(,)?],
-        frac_fn_arg: [$($frac_fn_arg_method:ident),* $(,)?],
-        f64_fn_arg: [$($f64_fn_arg_method:ident),* $(,)?],
-        pattern_fn_arg: [$($pattern_fn_arg_method:ident),* $(,)?],
-        frac_frac_fn_arg: [$($frac_frac_fn_arg_method:ident),* $(,)?],
-        forward: [
-            $(
-                $(#[$forward_attr:meta])*
-                $forward_method:ident => $forward_handler:ident
-            ),* $(,)?
-        ],
-        choose: [
-            $(
-                $(#[$choose_attr:meta])*
-                $choose_method:ident => $choose_bipolar:expr
-            ),* $(,)?
-        ],
-        pick_join: [
-            $(
-                $(#[$pick_join_attr:meta])*
-                $pick_join_method:ident => ($pick_join_modulo:expr, $pick_join_mode:expr)
-            ),* $(,)?
-        ],
-        pick_f: [
-            $(
-                $(#[$pick_f_attr:meta])*
-                $pick_f_method:ident => $pick_f_modulo:expr
-            ),* $(,)?
-        ],
-        // CamelCase alias groups: each maps Camel => snake
-        camel_pattern: [$($camel_pattern:ident => $snake_pattern:ident),* $(,)?],
-        camel_pattern_pattern: [$($camel_pattern_pattern:ident => $snake_pattern_pattern:ident),* $(,)?],
-        camel_literal_or_pattern: [$($camel_literal_or_pattern:ident => $snake_literal_or_pattern:ident),* $(,)?],
-        camel_no_arg: [$($camel_no_arg:ident => $snake_no_arg:ident),* $(,)?],
-        camel_noarg_fn: [$($camel_noarg_fn:ident => $snake_noarg_fn:ident),* $(,)?],
-        camel_i64: [$($camel_i64:ident => $snake_i64:ident),* $(,)?],
-        camel_f64: [$($camel_f64:ident => $snake_f64:ident),* $(,)?],
-        camel_frac: [$($camel_frac:ident => $snake_frac:ident),* $(,)?],
-        camel_frac_frac: [$($camel_frac_frac:ident => $snake_frac_frac:ident),* $(,)?],
-        camel_i64_fn: [$($camel_i64_fn:ident => $snake_i64_fn:ident),* $(,)?],
-        camel_f64_fn: [$($camel_f64_fn:ident => $snake_f64_fn:ident),* $(,)?],
-    ) => {
-        #[koto_impl]
-        impl KPattern {
-            $(
-                #[koto_method]
-                fn $pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_pattern_arg(&ctx, |pat, arg| pat.$pattern_arg_method(arg))
-                }
-            )*
+type Handler = fn(&Pattern, &[Arg]) -> Res;
 
-            $(
-                #[koto_method]
-                fn $no_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_instance(&ctx, |pat| pat.$no_arg_method())
-                }
-            )*
+pub(super) fn register_generated(p: &Scope) {
+    macro_rules! pattern_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| Ok(pat.$m(pattern_arg(a, 0)).into()));
+        )*};
+    }
+    macro_rules! no_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, _| Ok(pat.$m().into()));
+        )*};
+    }
+    macro_rules! i64_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| Ok(pat.$m(i64_arg(a, 0)).into()));
+        )*};
+    }
+    // Same shape as `i64_arg`, but a patterned count is laid out stepwise
+    // rather than sampled per cycle.
+    macro_rules! stepwise_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                Ok(stepwise_call(pat, a.first(), |p, n| p.$m(n)).into())
+            });
+        )*};
+    }
+    macro_rules! f64_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| Ok(pat.$m(f64_arg(a, 0)).into()));
+        )*};
+    }
+    macro_rules! frac_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| Ok(pat.$m(frac_arg(a, 0)).into()));
+        )*};
+    }
+    macro_rules! pattern_pattern_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                Ok(pat.$m(pattern_arg(a, 0), pattern_arg(a, 1)).into())
+            });
+        )*};
+    }
+    macro_rules! frac_frac_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                Ok(pat.$m(frac_arg(a, 0), frac_arg(a, 1)).into())
+            });
+        )*};
+    }
+    macro_rules! f64_f64_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                Ok(pat.$m(f64_arg(a, 0), f64_arg(a, 1)).into())
+            });
+        )*};
+    }
+    // `pat.method(f)` where `f` is a function `Pattern -> Pattern`.
+    macro_rules! fn_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                with_callback(pat, a, 0, |pat, cb| pat.$m(|p| cb.apply(p)))
+            });
+        )*};
+    }
+    // `pat.method(n, f)` where `n` is a number (or a pattern of numbers,
+    // `chunk("<2 4>", f)`) and `f` a function.
+    macro_rules! i64_fn_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                with_cb_i64(pat, arg(a, 0), arg(a, 1), |p, n, cb| p.$m(n, |p| cb.apply(p)))
+            });
+        )*};
+    }
+    macro_rules! frac_fn_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                with_cb_frac(pat, arg(a, 0), arg(a, 1), |p, n, cb| p.$m(n, |p| cb.apply(p)))
+            });
+        )*};
+    }
+    macro_rules! f64_fn_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                with_cb_f64(pat, arg(a, 0), arg(a, 1), |p, n, cb| p.$m(n, |p| cb.apply(p)))
+            });
+        )*};
+    }
+    macro_rules! pattern_fn_arg {
+        ($($m:ident),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                let x = pattern_arg(a, 0);
+                with_callback(pat, a, 1, |pat, cb| pat.$m(x, |p| cb.apply(p)))
+            });
+        )*};
+    }
 
-            $(
-                #[koto_method]
-                fn $i64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_arg(&ctx, |pat, n| pat.$i64_arg_method(n))
-                }
-            )*
-
-            // Same shape as `i64_arg`, but a patterned count is laid out
-            // stepwise rather than sampled per cycle.
-            $(
-                #[koto_method]
-                fn $stepwise_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let arg = ctx.args.first().cloned();
-                    with_instance(&ctx, |pat| {
-                        stepwise_call(pat, arg.as_ref(), |p, n| p.$stepwise_arg_method(n))
-                    })
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_f64_arg(&ctx, |pat, n| pat.$f64_arg_method(n))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_frac_arg(&ctx, |pat, n| pat.$frac_arg_method(n))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $pattern_pattern_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_pattern_pattern_args(&ctx, |pat, a, b| pat.$pattern_pattern_arg_method(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $frac_frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_frac_frac_args(&ctx, |pat, a, b| pat.$frac_frac_arg_method(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $f64_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_f64_f64_args(&ctx, |pat, a, b| pat.$f64_f64_arg_method(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $i64_frac_f64_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_frac_f64_args(&ctx, |pat, a, b, c| pat.$i64_frac_f64_arg_method(a, b, c))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $i64_f64_frac_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_f64_frac_args(&ctx, |pat, a, b, c| pat.$i64_f64_frac_arg_method(a, b, c))
-                }
-            )*
-
-            // `pat.method(f)` where `f` is a Koto function `Pattern -> Pattern`.
-            $(
-                #[koto_method]
-                fn $fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_callback(&ctx, 0, |pat, cb| pat.$fn_arg_method(|p| cb.apply(p)))
-                }
-            )*
-
-            // `pat.method(n, f)` where `n` is an integer (or a pattern of
-            // integers, `chunk("<2 4>", f)`) and `f` a function.
-            $(
-                #[koto_method]
-                fn $i64_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_cb_i64(&ctx, |pat, n, cb| pat.$i64_fn_arg_method(n, |p| cb.apply(p)))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $frac_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_cb_frac(&ctx, |pat, n, cb| pat.$frac_fn_arg_method(n, |p| cb.apply(p)))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $f64_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_cb_f64(&ctx, |pat, n, cb| pat.$f64_fn_arg_method(n, |p| cb.apply(p)))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $pattern_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    let arg = method_pattern_arg(&ctx, 0);
-                    with_callback(&ctx, 1, |pat, cb| pat.$pattern_fn_arg_method(arg, |p| cb.apply(p)))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                fn $frac_frac_fn_arg_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_cb_frac2(&ctx, |pat, a, b, cb| {
-                        pat.$frac_frac_fn_arg_method(a, b, |p| cb.apply(p))
-                    })
-                }
-            )*
-
-            // Bespoke method families whose argument parsing lives in
-            // `methods.rs`.
-            $(
-                $(#[$forward_attr])*
-                fn $forward_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    $forward_handler(ctx)
-                }
-            )*
-
-            $(
-                $(#[$choose_attr])*
-                fn $choose_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    kpattern_choose(ctx, $choose_bipolar)
-                }
-            )*
-
-            $(
-                $(#[$pick_join_attr])*
-                fn $pick_join_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    kpattern_pick_join(ctx, $pick_join_modulo, $pick_join_mode)
-                }
-            )*
-
-            $(
-                $(#[$pick_f_attr])*
-                fn $pick_f_method(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    kpattern_pick_f(ctx, $pick_f_modulo)
-                }
-            )*
-
-            // CamelCase aliases: generate small wrappers that call the
-            // existing snake_case implementations to reduce duplication.
-            // Each alias group maps CamelCase -> snake_case and uses the
-            // appropriate argument extractor.
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_pattern_arg(&ctx, |pat, arg| pat.$snake_pattern(arg))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_pattern_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_pattern_pattern_args(&ctx, |pat, a, b| pat.$snake_pattern_pattern(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_literal_or_pattern(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_literal_or_pattern_arg(&ctx, |pat, arg| pat.$snake_literal_or_pattern(arg))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_no_arg(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_instance(&ctx, |pat| pat.$snake_no_arg())
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_noarg_fn(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_callback(&ctx, 0, |pat, cb| pat.$snake_noarg_fn(|p| cb.apply(p)))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_i64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_i64_arg(&ctx, |pat, n| pat.$snake_i64(n))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_f64(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_f64_arg(&ctx, |pat, n| pat.$snake_f64(n))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_frac(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_frac_arg(&ctx, |pat, n| pat.$snake_frac(n))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_frac_frac(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_frac_frac_args(&ctx, |pat, a, b| pat.$snake_frac_frac(a, b))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_i64_fn(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_cb_i64(&ctx, |pat, n, cb| pat.$snake_i64_fn(n, |p| cb.apply(p)))
-                }
-            )*
-
-            $(
-                #[koto_method]
-                #[allow(non_snake_case)]
-                fn $camel_f64_fn(ctx: MethodContext<Self>) -> KotoResult<KValue> {
-                    with_cb_f64(&ctx, |pat, n, cb| pat.$snake_f64_fn(n, |p| cb.apply(p)))
-                }
-            )*
-        }
-    };
-}
-
-kpattern_methods! {
-    pattern_arg: [
-        degrade_by, undegrade_by,
-        fast, slow, ply, segment, seg, add, sub, mul, div, modulo, pow, set, keep, mask, struct_pat,
-        early, late, fast_gap,
+    pattern_arg![
+        degrade_by,
+        undegrade_by,
+        fast,
+        slow,
+        ply,
+        segment,
+        seg,
+        add,
+        sub,
+        mul,
+        div,
+        modulo,
+        pow,
+        set,
+        keep,
+        mask,
+        struct_pat,
+        early,
+        late,
+        fast_gap,
         // comparison / logic composers (boolean results)
-        lt, gt, lte, gte, eq, eqt, ne, net, and, or, keepif, bypass,
+        lt,
+        gt,
+        lte,
+        gte,
+        eq,
+        eqt,
+        ne,
+        net,
+        and,
+        or,
+        keepif,
+        bypass,
         // bitwise composers (int32 results)
-        band, bor, bxor, blshift, brshift,
+        band,
+        bor,
+        bxor,
+        blshift,
+        brshift,
         // Simple controls and their aliases (note, s, gain, lpf, the numbered
         // FM families, MIDI controls, ...) are NOT listed here: they are
-        // registered dynamically from rudel-core's `control_builders`
-        // registry by `extend_control_entries`, so adding a control to the
-        // macros in rudel-core/src/controls.rs is all that's needed.
+        // registered from rudel-core's `control_builders` registry by
+        // `register_methods`, so adding a control to the macros in
+        // rudel-core/src/controls.rs is all that's needed.
         // alignment matrix (`in` is the default plain op; these are the full
         // out/mix/squeeze/squeezeout/reset/restart/poly set for each composer)
-        add_out, add_mix, add_squeeze, add_squeezeout, add_reset, add_restart, add_poly,
-        sub_out, sub_mix, sub_squeeze, sub_squeezeout, sub_reset, sub_restart, sub_poly,
-        mul_out, mul_mix, mul_squeeze, mul_squeezeout, mul_reset, mul_restart, mul_poly,
-        div_out, div_mix, div_squeeze, div_squeezeout, div_reset, div_restart, div_poly,
-        set_out, set_mix, set_squeeze, set_squeezeout, set_reset, set_restart, set_poly,
-        keep_out, keep_mix, keep_squeeze, keep_squeezeout, keep_reset, keep_restart, keep_poly,
-        modulo_out, modulo_mix, modulo_squeeze, modulo_squeezeout, modulo_reset, modulo_restart, modulo_poly,
-        pow_out, pow_mix, pow_squeeze, pow_squeezeout, pow_reset, pow_restart, pow_poly,
-        transpose, scale_transpose, bend_range,
-        overlay, arp, trans, strans,
+        add_out,
+        add_mix,
+        add_squeeze,
+        add_squeezeout,
+        add_reset,
+        add_restart,
+        add_poly,
+        sub_out,
+        sub_mix,
+        sub_squeeze,
+        sub_squeezeout,
+        sub_reset,
+        sub_restart,
+        sub_poly,
+        mul_out,
+        mul_mix,
+        mul_squeeze,
+        mul_squeezeout,
+        mul_reset,
+        mul_restart,
+        mul_poly,
+        div_out,
+        div_mix,
+        div_squeeze,
+        div_squeezeout,
+        div_reset,
+        div_restart,
+        div_poly,
+        set_out,
+        set_mix,
+        set_squeeze,
+        set_squeezeout,
+        set_reset,
+        set_restart,
+        set_poly,
+        keep_out,
+        keep_mix,
+        keep_squeeze,
+        keep_squeezeout,
+        keep_reset,
+        keep_restart,
+        keep_poly,
+        modulo_out,
+        modulo_mix,
+        modulo_squeeze,
+        modulo_squeezeout,
+        modulo_reset,
+        modulo_restart,
+        modulo_poly,
+        pow_out,
+        pow_mix,
+        pow_squeeze,
+        pow_squeezeout,
+        pow_reset,
+        pow_restart,
+        pow_poly,
+        transpose,
+        scale_transpose,
+        bend_range,
+        overlay,
+        arp,
+        trans,
+        strans,
         // impure: live-coding timeline cue alignment (core/impure.mjs)
         timeline,
         // waveshaping-distortion shortcuts (superdough distortion family)
-        soft, hard, cubic, diode, asym, fold, sinefold, chebyshev,
+        soft,
+        hard,
+        cubic,
+        diode,
+        asym,
+        fold,
+        sinefold,
+        chebyshev,
         // multi-control helpers (`adsr` expands into attack/decay/sustain/
         // release, `control` sets ccn/ccv, `sysex` sets sysexid/sysexdata)
         // and sample scrubbing
-        adsr, ad, ds, ar, control, sysex, scrub,
+        adsr,
+        ad,
+        ds,
+        ar,
+        control,
+        sysex,
+        scrub,
         // @strudel/draw animate transforms over the x/y/w/h visual params
         // (no `animate` runtime in Rudel; these set the params for parity).
-        rescale, zoom_in,
-    ],
-    no_arg: [
+        rescale,
+        zoom_in,
+        loop_play,
+        loop_begin,
+        loop_end,
+    ];
+    // The chained forms of the factories: `s("hh*4").stack(note("c"))` takes
+    // `this` as the first pattern, as upstream's methods do.
+    for name in ["cat", "slowcat"] {
+        method(p, name, |pat, a| Ok(pat.cat_with(pattern_arg(a, 0)).into()));
+    }
+    for name in ["seq", "fastcat", "sequence"] {
+        method(p, name, |pat, a| Ok(pat.seq_with(pattern_arg(a, 0)).into()));
+    }
+    no_arg![
         dough,
         hush,
-        rev, revv, palindrome, degrade, undegrade, press, brak, round, floor, ceil, log2,
-        to_bipolar, from_bipolar, ratio, fit, arpeggiate, voicing, piano, invert, collect,
-        // The joins: a pattern whose *values* are patterns is flattened by
-        // one of these. Reachable because a Koto callback returning a
-        // pattern already converts to `Value::Pat`, so `fmap(v => …).innerJoin()`
-        // — the shape a `register`ed helper is written in — works with no
-        // Koto in the query path.
-        inner_join, outer_join, squeeze_join, join, reset_join, restart_join,
-    ],
-    i64_arg: [
-        iter, iter_back, repeat_cycles,
-        chop, striate, root_notes, shuffle, scramble,
-    ],
+        rev,
+        revv,
+        palindrome,
+        degrade,
+        undegrade,
+        press,
+        brak,
+        round,
+        floor,
+        ceil,
+        log2,
+        to_bipolar,
+        from_bipolar,
+        ratio,
+        fit,
+        arpeggiate,
+        voicing,
+        piano,
+        invert,
+        collect,
+        // The joins: a pattern whose *values* are patterns is flattened by one
+        // of these. Reachable because a callback returning a pattern already
+        // converts to `Value::Pat`, so `fmap(v => …).innerJoin()` — the shape a
+        // `register`ed helper is written in — works with no script in the query
+        // path.
+        inner_join,
+        outer_join,
+        squeeze_join,
+        join,
+        reset_join,
+        restart_join,
+    ];
+    i64_arg![
+        iter,
+        iter_back,
+        repeat_cycles,
+        chop,
+        striate,
+        root_notes,
+        shuffle,
+        scramble,
+    ];
     // https://strudel.cc/learn/stepwise/ — the count may be a pattern, and is
     // then laid out stepwise rather than sampled per cycle.
-    stepwise_arg: [expand, extend, contract, shrink, grow, take, drop, replicate],
-    f64_arg: [cpm],
-    frac_arg: [hurry, press_by, swing, loop_at, pace, seed, linger],
-    pattern_pattern_arg: [slice, splice, bite, beat, xfade, move_xy, speak],
-    frac_frac_arg: [focus, swing_by, compress, zoom, ribbon, rib],
-    f64_f64_arg: [range, range2, rangex],
-    i64_frac_f64_arg: [echo],
-    i64_f64_frac_arg: [stut],
-    fn_arg: [
-        jux, jux_flip, sometimes, often, rarely, almost_always, almost_never,
-        some_cycles, always, never,
-    ],
-    i64_fn_arg: [chunk, chunk_back, fast_chunk],
-    frac_fn_arg: [inside, outside],
-    f64_fn_arg: [jux_by, jux_flip_by, sometimes_by, some_cycles_by],
-    pattern_fn_arg: [off, when],
-    frac_frac_fn_arg: [within],
-    forward: [
-        // `apply` takes a *pattern* of functions as well as a function, so
-        // it cannot use the plain callback group.
-        #[koto_method]
-        apply => kpattern_apply,
-        // The engine's own vocabulary, for a script that defines a
-        // combinator rather than using one (see `engine.rs`).
-        #[koto_method]
-        query => kpattern_query,
-        #[koto_method(alias = "splitQueries")]
-        split_queries => kpattern_split_queries,
-        #[koto_method(alias = "sortHapsByPart")]
-        sort_haps_by_part => kpattern_sort_haps_by_part,
-        // The span-object forms of compress/focus/zoom, reachable now that a
-        // script can build a `TimeSpan`.
-        #[koto_method(alias = "compressSpan", alias = "compressspan")]
-        compress_span => kpattern_compress_span,
-        #[koto_method(alias = "focusSpan", alias = "focusspan")]
-        focus_span => kpattern_focus_span,
-        #[koto_method(alias = "zoomArc", alias = "zoomarc")]
-        zoom_arc => kpattern_zoom_arc,
-        #[koto_method]
-        layer => kpattern_layer,
-        #[koto_method]
-        superimpose => kpattern_superimpose,
+    stepwise_arg![
+        expand, extend, contract, shrink, grow, take, drop, replicate
+    ];
+    f64_arg![cpm];
+    frac_arg![hurry, press_by, swing, loop_at, pace, seed, linger];
+    pattern_pattern_arg![slice, splice, bite, beat, xfade, move_xy, speak];
+    frac_frac_arg![focus, swing_by, compress, zoom, ribbon, rib];
+    f64_f64_arg![range, range2, rangex];
+    method(p, "echo", |pat, a| {
+        Ok(pat
+            .echo(i64_arg(a, 0), frac_arg(a, 1), f64_arg(a, 2))
+            .into())
+    });
+    method(p, "stut", |pat, a| {
+        Ok(pat
+            .stut(i64_arg(a, 0), f64_arg(a, 1), frac_arg(a, 2))
+            .into())
+    });
+    fn_arg![
+        jux,
+        jux_flip,
+        sometimes,
+        often,
+        rarely,
+        almost_always,
+        almost_never,
+        some_cycles,
+        always,
+        never,
+    ];
+    i64_fn_arg![chunk, chunk_back, fast_chunk];
+    frac_fn_arg![inside, outside];
+    f64_fn_arg![jux_by, jux_flip_by, sometimes_by, some_cycles_by];
+    pattern_fn_arg![off, when];
+    method(p, "within", |pat, a| {
+        with_cb_frac2(pat, arg(a, 0), arg(a, 1), arg(a, 2), |p, x, y, cb| {
+            p.within(x, y, |p| cb.apply(p))
+        })
+    });
+
+    // Bespoke method families whose argument parsing lives in `methods.rs`,
+    // each under every name it answers to.
+    let forward: &[(&[&str], Handler)] = &[
+        // `apply` takes a *pattern* of functions as well as a function, so it
+        // cannot use the plain callback group.
+        (&["apply"], kpattern_apply),
+        (&["layer"], kpattern_layer),
+        (&["superimpose"], kpattern_superimpose),
         // `withValue` is Strudel's own name for `fmap` (core/pattern.mjs binds
         // both to the same function); songs in the wild use it more than `fmap`.
-        #[koto_method(alias = "withValue")]
-        fmap => kpattern_fmap,
-        #[koto_method]
-        tour => kpattern_tour,
-        #[koto_method(alias = "FX", alias = "fx")]
-        FX => kpattern_fx,
-        #[koto_method]
-        s_tour => kpattern_tour,
-        #[koto_method(alias = "arpWith")]
-        arp_with => kpattern_arp_with,
-        #[koto_method(alias = "whenKey")]
-        when_key => kpattern_when_key,
-        #[koto_method]
-        tag => kpattern_tag,
-        #[koto_method(alias = "degradeByWith")]
-        degrade_by_with => kpattern_degrade_by_with,
-        #[koto_method(alias = "setSteps")]
-        set_steps => kpattern_set_steps,
+        (&["fmap", "withValue"], kpattern_fmap),
+        (&["tour", "s_tour"], kpattern_tour),
+        (&["FX", "fx"], kpattern_fx),
+        (&["arp_with", "arpWith"], kpattern_arp_with),
+        (&["when_key", "whenKey"], kpattern_when_key),
+        (&["tag"], kpattern_tag),
+        (
+            &["degrade_by_with", "degradeByWith"],
+            kpattern_degrade_by_with,
+        ),
+        (&["set_steps", "setSteps"], kpattern_set_steps),
         // The euclid family takes patterned counts, so it cannot go in a
         // plain-integer argument group.
-        #[koto_method]
-        euclid => kpattern_euclid,
-        #[koto_method(alias = "euclidRot", alias = "euclidrot")]
-        euclid_rot => kpattern_euclid_rot,
-        #[koto_method(alias = "euclidLegato")]
-        euclid_legato => kpattern_euclid_legato,
-        #[koto_method(alias = "euclidLegatoRot")]
-        euclid_legato_rot => kpattern_euclid_legato_rot,
-        #[koto_method]
-        soundfont => kpattern_soundfont,
-        // `filterHaps` is upstream's own name for it (core/pattern.mjs
-        // defines `filter` as a `register`ed wrapper around the method).
-        #[koto_method(alias = "setContext")]
-        set_context => kpattern_set_context,
-        #[koto_method(alias = "filterHaps")]
-        filter => kpattern_filter,
-        #[koto_method(alias = "filterValues")]
-        filter_values => kpattern_filter_values,
-        #[koto_method(alias = "filterWhen")]
-        filter_when => kpattern_filter_when,
-        #[koto_method(alias = "keyDown")]
-        key_down => kpattern_key_down,
-        #[koto_method]
-        voicings => kpattern_voicings,
-        #[koto_method]
-        scale => kpattern_scale,
-        #[koto_method]
-        markcss => kpattern_markcss,
-        #[koto_method]
-        log => kpattern_log,
-        #[koto_method(alias = "logValues")]
-        log_values => kpattern_log_values,
-        #[koto_method(alias = "onTriggerTime")]
-        on_trigger_time => kpattern_on_trigger_time,
-        #[koto_method(alias = "edoScale")]
-        edo_scale => kpattern_edo_scale,
-        #[koto_method]
-        i => kpattern_i,
-        #[koto_method]
-        freq => kpattern_freq,
-        #[koto_method]
-        tune => kpattern_tune,
-        #[koto_method]
-        xen => kpattern_xen,
-        #[koto_method]
-        tuning => kpattern_tuning,
-        #[koto_method]
-        with_base => kpattern_with_base,
-        #[koto_method]
-        ftrans => kpattern_ftrans,
-        #[koto_method]
-        ftranspose => kpattern_ftranspose,
-        #[koto_method]
-        partials => kpattern_partials,
-        #[koto_method]
-        phases => kpattern_phases,
-        #[koto_method]
-        ctrl => kpattern_ctrl,
-        #[koto_method(alias = "as")]
-        as_controls => kpattern_as_controls,
-        #[koto_method(alias = "struct")]
-        struct_alias => kpattern_struct_alias,
-        #[koto_method(alias = "loop")]
-        loop_play => kpattern_loop_play,
-        #[koto_method(alias = "loopBegin", alias = "loopb")]
-        loop_begin => kpattern_loop_begin,
-        #[koto_method(alias = "loopEnd", alias = "loope")]
-        loop_end => kpattern_loop_end,
-        #[koto_method]
-        p => kpattern_p,
-        #[koto_method]
-        midi => kpattern_midi,
-        #[koto_method]
-        osc => kpattern_osc,
-        #[koto_method]
-        chord => kpattern_chord,
+        (&["euclid"], kpattern_euclid),
+        (
+            &["euclid_rot", "euclidRot", "euclidrot"],
+            kpattern_euclid_rot,
+        ),
+        (&["euclid_legato", "euclidLegato"], kpattern_euclid_legato),
+        (
+            &["euclid_legato_rot", "euclidLegatoRot"],
+            kpattern_euclid_legato_rot,
+        ),
+        (&["soundfont"], kpattern_soundfont),
+        (&["set_context", "setContext"], kpattern_set_context),
+        // `filterHaps` is upstream's own name for it (core/pattern.mjs defines
+        // `filter` as a `register`ed wrapper around the method).
+        (&["filter", "filterHaps"], kpattern_filter),
+        (&["filter_values", "filterValues"], kpattern_filter_values),
+        (&["filter_when", "filterWhen"], kpattern_filter_when),
+        (&["key_down", "keyDown"], kpattern_key_down),
+        (&["voicings"], kpattern_voicings),
+        (&["scale"], kpattern_scale),
+        (&["markcss"], kpattern_markcss),
+        (&["log"], kpattern_log),
+        (&["log_values", "logValues"], kpattern_log_values),
+        (
+            &["on_trigger_time", "onTriggerTime"],
+            kpattern_on_trigger_time,
+        ),
+        (&["edo_scale", "edoScale"], kpattern_edo_scale),
+        (&["i"], kpattern_i),
+        (&["freq"], kpattern_freq),
+        (&["tune"], kpattern_tune),
+        (&["xen"], kpattern_xen),
+        (&["tuning"], kpattern_tuning),
+        (&["with_base", "withBase"], kpattern_with_base),
+        (
+            &["ftrans", "ftranspose", "fTrans", "fTranspose"],
+            kpattern_ftrans,
+        ),
+        (&["partials"], kpattern_partials),
+        (&["phases"], kpattern_phases),
+        (&["ctrl"], kpattern_ctrl),
+        (&["as_controls", "as"], kpattern_as_controls),
+        (&["midi"], kpattern_midi),
+        (&["osc"], kpattern_osc),
+        (&["chord"], kpattern_chord),
         // The public (non-underscore) visualizer names are Strudel's global
         // full-screen painters; Rudel has no global draw canvas, so they expose
         // the same inline editor widget as their `_`-prefixed variants (the
         // preprocess rewrites either spelling to the same widget host).
-        #[koto_method(alias = "pianoroll")]
-        _pianoroll => kpattern_visual_widget,
-        #[koto_method(alias = "punchcard")]
-        _punchcard => kpattern_visual_widget,
-        #[koto_method(alias = "spiral")]
-        _spiral => kpattern_visual_widget,
-        #[koto_method(alias = "scope", alias = "tscope")]
-        _scope => kpattern_visual_widget,
-        #[koto_method(alias = "fscope")]
-        _fscope => kpattern_visual_widget,
-        #[koto_method(alias = "pitchwheel")]
-        _pitchwheel => kpattern_visual_widget,
-        #[koto_method(alias = "spectrum")]
-        _spectrum => kpattern_visual_widget,
-        #[koto_method(alias = "wordfall")]
-        _wordfall => kpattern_visual_widget,
-        #[koto_method(alias = "claviature")]
-        _claviature => kpattern_visual_widget,
-        #[koto_method(alias = "shader")]
-        _shader => kpattern_visual_widget,
-        #[koto_method(alias = "hydra")]
-        _hydra => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_pianoroll => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_punchcard => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_spiral => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_scope => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_pitchwheel => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_spectrum => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_wordfall => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_claviature => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_shader => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_hydra => kpattern_visual_widget,
-        #[koto_method]
-        rudel_widget_fscope => kpattern_visual_widget,
-        #[koto_method(alias = "loopAtCps", alias = "loopatcps")]
-        loop_at_cps => kpattern_loop_at_cps,
-        #[koto_method(alias = "applyN")]
-        apply_n => kpattern_apply_n,
-        #[koto_method(alias = "echoWith", alias = "echowith", alias = "stutWith", alias = "stutwith")]
-        echo_with => kpattern_echo_with,
-        #[koto_method(alias = "plyWith", alias = "plywith")]
-        ply_with => kpattern_ply_with,
-        #[koto_method(alias = "plyForEach", alias = "plyforeach")]
-        ply_for_each => kpattern_ply_for_each,
-        #[koto_method]
-        into => kpattern_into,
-        #[koto_method(alias = "chunkInto", alias = "chunkinto")]
-        chunk_into => kpattern_chunk_into,
-        #[koto_method(alias = "chunkBackInto", alias = "chunkbackinto")]
-        chunk_back_into => kpattern_chunk_back_into,
-        #[koto_method(alias = "eish")]
-        euclidish => kpattern_euclidish,
-        #[koto_method]
-        hsl => kpattern_hsl,
-        #[koto_method]
-        hsla => kpattern_hsla,
-        #[koto_method]
-        bjork => kpattern_bjork,
+        (
+            &[
+                "_pianoroll",
+                "pianoroll",
+                "_punchcard",
+                "punchcard",
+                "_spiral",
+                "spiral",
+                "_scope",
+                "scope",
+                "tscope",
+                "_fscope",
+                "fscope",
+                "_pitchwheel",
+                "pitchwheel",
+                "_spectrum",
+                "spectrum",
+                "_wordfall",
+                "wordfall",
+                "_claviature",
+                "claviature",
+                "_shader",
+                "shader",
+                "_hydra",
+                "hydra",
+                "rudel_widget_pianoroll",
+                "rudel_widget_punchcard",
+                "rudel_widget_spiral",
+                "rudel_widget_scope",
+                "rudel_widget_pitchwheel",
+                "rudel_widget_spectrum",
+                "rudel_widget_wordfall",
+                "rudel_widget_claviature",
+                "rudel_widget_shader",
+                "rudel_widget_hydra",
+                "rudel_widget_fscope",
+            ],
+            kpattern_visual_widget,
+        ),
+        (
+            &["loop_at_cps", "loopAtCps", "loopatcps"],
+            kpattern_loop_at_cps,
+        ),
+        (&["apply_n", "applyN"], kpattern_apply_n),
+        (
+            &["echo_with", "echoWith", "echowith", "stutWith", "stutwith"],
+            kpattern_echo_with,
+        ),
+        (&["ply_with", "plyWith", "plywith"], kpattern_ply_with),
+        (
+            &["ply_for_each", "plyForEach", "plyforeach"],
+            kpattern_ply_for_each,
+        ),
+        (&["into"], kpattern_into),
+        (
+            &["chunk_into", "chunkInto", "chunkinto"],
+            kpattern_chunk_into,
+        ),
+        (
+            &["chunk_back_into", "chunkBackInto", "chunkbackinto"],
+            kpattern_chunk_back_into,
+        ),
+        (&["euclidish", "eish"], kpattern_euclidish),
+        (&["hsl"], kpattern_hsl),
+        (&["hsla"], kpattern_hsla),
+        (&["bjork"], kpattern_bjork),
         // `every`/`firstOf`/`lastOf` take a *patternified* cycle count
         // (`every("<2 4>", f)`), so they bypass the scalar `i64_fn_arg` group.
-        #[koto_method]
-        every => kpattern_every,
-        #[koto_method(alias = "firstOf")]
-        first_of => kpattern_every,
-        #[koto_method(alias = "lastOf")]
-        last_of => kpattern_last_of,
-    ],
-    choose: [
-        #[koto_method]
-        choose => false,
-        #[koto_method]
-        choose2 => true,
-    ],
-    pick_join: [
-        #[koto_method]
-        pick => (false, PickJoin::Inner),
-        #[koto_method]
-        pickmod => (true, PickJoin::Inner),
-        #[koto_method(alias = "pickOut")]
-        pick_out => (false, PickJoin::Outer),
-        #[koto_method(alias = "pickmodOut")]
-        pickmod_out => (true, PickJoin::Outer),
-        #[koto_method(alias = "pickReset")]
-        pick_reset => (false, PickJoin::Reset),
-        #[koto_method(alias = "pickmodReset")]
-        pickmod_reset => (true, PickJoin::Reset),
-        #[koto_method(alias = "pickRestart")]
-        pick_restart => (false, PickJoin::Restart),
-        #[koto_method(alias = "pickmodRestart")]
-        pickmod_restart => (true, PickJoin::Restart),
-        #[koto_method(alias = "pickSqueeze", alias = "pick_squeeze")]
-        inhabit => (false, PickJoin::Squeeze),
-        #[koto_method(alias = "pickmodSqueeze", alias = "pickmod_squeeze")]
-        inhabitmod => (true, PickJoin::Squeeze),
-    ],
-    pick_f: [
-        #[koto_method(alias = "pickF")]
-        pick_f => false,
-        #[koto_method(alias = "pickmodF")]
-        pickmod_f => true,
-    ],
-    // CamelCase alias mappings (Camel => snake)
-    camel_pattern: [
-        // camelCase control names (wavetablePosition, compressorKnee, ...)
-        // come from the dynamic registry; only non-control transforms and the
+        (&["every", "first_of", "firstOf"], kpattern_every),
+        (&["last_of", "lastOf"], kpattern_last_of),
+    ];
+    for (names, handler) in forward {
+        for name in *names {
+            method(p, name, *handler);
+        }
+    }
+    // `struct` is a reserved word in Rust, so the core method is `struct_pat`.
+    p.alias("struct", "struct_pat");
+    p.alias("loop", "loop_play");
+    for name in ["loopBegin", "loopb"] {
+        p.alias(name, "loop_begin");
+    }
+    for name in ["loopEnd", "loope"] {
+        p.alias(name, "loop_end");
+    }
+
+    for (name, bipolar) in [("choose", false), ("choose2", true)] {
+        method(p, name, move |pat, a| kpattern_choose(pat, a, bipolar));
+    }
+    for (names, modulo, join) in [
+        (&["pick"][..], false, PickJoin::Inner),
+        (&["pickmod"][..], true, PickJoin::Inner),
+        (&["pick_out", "pickOut"][..], false, PickJoin::Outer),
+        (&["pickmod_out", "pickmodOut"][..], true, PickJoin::Outer),
+        (&["pick_reset", "pickReset"][..], false, PickJoin::Reset),
+        (
+            &["pickmod_reset", "pickmodReset"][..],
+            true,
+            PickJoin::Reset,
+        ),
+        (
+            &["pick_restart", "pickRestart"][..],
+            false,
+            PickJoin::Restart,
+        ),
+        (
+            &["pickmod_restart", "pickmodRestart"][..],
+            true,
+            PickJoin::Restart,
+        ),
+        (
+            &["inhabit", "pickSqueeze", "pick_squeeze"][..],
+            false,
+            PickJoin::Squeeze,
+        ),
+        (
+            &["inhabitmod", "pickmodSqueeze", "pickmod_squeeze"][..],
+            true,
+            PickJoin::Squeeze,
+        ),
+    ] {
+        for name in names {
+            method(p, name, move |pat, a| {
+                kpattern_pick_join(pat, a, modulo, join)
+            });
+        }
+    }
+    for (names, modulo) in [
+        (["pick_f", "pickF"], false),
+        (["pickmod_f", "pickmodF"], true),
+    ] {
+        for name in names {
+            method(p, name, move |pat, a| kpattern_pick_f(pat, a, modulo));
+        }
+    }
+
+    // CamelCase and other second spellings: the same method under another
+    // name.
+    for (alias, name) in [
+        // camelCase control names (wavetablePosition, compressorKnee, ...) come
+        // from the registry; only non-control transforms and the
         // keyword-safe `bendRange` spelling are listed here.
-        bendRange => bend_range, fastGap => fast_gap, fastgap => fast_gap,
-        scaleTranspose => scale_transpose,
-        scaleTrans => strans, sparsity => slow,
+        ("bendRange", "bend_range"),
+        ("fastGap", "fast_gap"),
+        ("fastgap", "fast_gap"),
+        ("scaleTranspose", "scale_transpose"),
+        ("scaleTrans", "strans"),
+        ("sparsity", "slow"),
         // Bare alignment methods default to the `set` op (Strudel's
         // `pat.out(x) == pat.set.out(x)`); `squeezein` aliases `squeeze`.
-        out => set_out, mix => set_mix, squeeze => set_squeeze,
-        squeezeout => set_squeezeout, squeezeOut => set_squeezeout,
-        squeezein => set_squeeze, squeezeIn => set_squeeze,
-        reset => set_reset, restart => set_restart, poly => set_poly,
+        ("out", "set_out"),
+        ("mix", "set_mix"),
+        ("squeeze", "set_squeeze"),
+        ("squeezeout", "set_squeezeout"),
+        ("squeezeOut", "set_squeezeout"),
+        ("squeezein", "set_squeeze"),
+        ("squeezeIn", "set_squeeze"),
+        ("reset", "set_reset"),
+        ("restart", "set_restart"),
+        ("poly", "set_poly"),
         // per-operator squeezein aliases for the arithmetic composers
-        add_squeezein => add_squeeze, sub_squeezein => sub_squeeze,
-        mul_squeezein => mul_squeeze, div_squeezein => div_squeeze,
-        set_squeezein => set_squeeze, keep_squeezein => keep_squeeze,
+        ("add_squeezein", "add_squeeze"),
+        ("sub_squeezein", "sub_squeeze"),
+        ("mul_squeezein", "mul_squeeze"),
+        ("div_squeezein", "div_squeeze"),
+        ("set_squeezein", "set_squeeze"),
+        ("keep_squeezein", "keep_squeeze"),
         // @strudel/draw animate transform (zoomIn over x/y/w/h params)
-        zoomIn => zoom_in,
-        // The chained forms of the factories: `s("hh*4").stack(note("c"))`
-        // takes `this` as the first pattern, as upstream's methods do.
-        stack => overlay, cat => cat_with, seq => seq_with,
-        slowcat => cat_with, fastcat => seq_with, sequence => seq_with,
+        ("zoomIn", "zoom_in"),
+        ("stack", "overlay"),
         // patternified amounts, as upstream registers them
-        degradeBy => degrade_by, undegradeBy => undegrade_by,
-    ],
-    camel_pattern_pattern: [moveXY => move_xy],
-    camel_literal_or_pattern: [withBase => with_base, fTrans => ftrans, fTranspose => ftranspose],
-    camel_no_arg: [
-        toBipolar => to_bipolar, fromBipolar => from_bipolar, inv => invert,
-        innerJoin => inner_join, outerJoin => outer_join, squeezeJoin => squeeze_join,
-        resetJoin => reset_join, restartJoin => restart_join,
-    ],
-    camel_noarg_fn: [
-        someCycles => some_cycles, almostAlways => almost_always, almostNever => almost_never,
-        juxFlip => jux_flip, flux => jux_flip,
-    ],
-    camel_i64: [
-        iterBack => iter_back, repeatCycles => repeat_cycles, rootNotes => root_notes,
+        ("degradeBy", "degrade_by"),
+        ("undegradeBy", "undegrade_by"),
+        ("moveXY", "move_xy"),
+        ("toBipolar", "to_bipolar"),
+        ("fromBipolar", "from_bipolar"),
+        ("inv", "invert"),
+        ("innerJoin", "inner_join"),
+        ("outerJoin", "outer_join"),
+        ("squeezeJoin", "squeeze_join"),
+        ("resetJoin", "reset_join"),
+        ("restartJoin", "restart_join"),
+        ("someCycles", "some_cycles"),
+        ("almostAlways", "almost_always"),
+        ("almostNever", "almost_never"),
+        ("juxFlip", "jux_flip"),
+        ("flux", "jux_flip"),
+        ("iterBack", "iter_back"),
+        ("repeatCycles", "repeat_cycles"),
+        ("rootNotes", "root_notes"),
         // deprecated Strudel stepwise aliases
-        s_taper => shrink, s_add => take, s_sub => drop,
-        s_expand => expand, s_extend => extend, s_contract => contract,
-    ],
-    camel_f64: [],
-    camel_frac: [pressBy => press_by, loopAt => loop_at, steps => pace],
-    camel_frac_frac: [swingBy => swing_by],
-    camel_i64_fn: [
-        chunkBack => chunk_back, fastChunk => fast_chunk, fastchunk => fast_chunk,
-        slowChunk => chunk,
-    ],
-    camel_f64_fn: [
-        juxBy => jux_by, juxFlipBy => jux_flip_by, fluxBy => jux_flip_by,
-        sometimesBy => sometimes_by, someCyclesBy => some_cycles_by,
-    ],
+        ("s_taper", "shrink"),
+        ("s_add", "take"),
+        ("s_sub", "drop"),
+        ("s_expand", "expand"),
+        ("s_extend", "extend"),
+        ("s_contract", "contract"),
+        ("pressBy", "press_by"),
+        ("loopAt", "loop_at"),
+        ("steps", "pace"),
+        ("swingBy", "swing_by"),
+        ("chunkBack", "chunk_back"),
+        ("fastChunk", "fast_chunk"),
+        ("fastchunk", "fast_chunk"),
+        ("slowChunk", "chunk"),
+        ("juxBy", "jux_by"),
+        ("juxFlipBy", "jux_flip_by"),
+        ("fluxBy", "jux_flip_by"),
+        ("sometimesBy", "sometimes_by"),
+        ("someCyclesBy", "some_cycles_by"),
+        // `mod` is Strudel's spelling; `modulo` is the one Rust can use.
+        ("mod", "modulo"),
+    ] {
+        p.alias(alias, name);
+    }
 }

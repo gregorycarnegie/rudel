@@ -1,8 +1,3 @@
-// Several Koto methods are deliberately named in camelCase to match Strudel's
-// public API exactly (e.g. `iterBack`, `euclidLegato`); the koto derive macro
-// also generates `__koto_<name>` shims that inherit those names.
-#![allow(non_snake_case)]
-
 mod args;
 mod callback;
 mod convert;
@@ -13,132 +8,50 @@ mod modulate;
 mod pick;
 mod repl;
 
-use koto::{
-    derive::*,
-    prelude::*,
-    runtime::{KotoEntries, KotoObject},
-};
+use crate::js::{self, Arg, Res, Scope};
 use rudel_core::Pattern;
-use std::collections::HashSet;
+use std::{cell::RefCell, collections::HashSet};
 
+pub(crate) use args::method;
 pub(crate) use callback::register_standalone_callbacks;
-pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0};
+pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0, fn_to_value};
 pub(super) use convert::{
-    arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, koto_to_value,
+    arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, to_value,
 };
 pub(crate) use engine::{register_engine_fns, register_span_fns};
-pub(crate) use methods::hap_to_koto;
-pub(in crate::bindings) use methods::{euclid_call, stepwise_call};
+pub(crate) use methods::hap_to_filter_arg;
+pub(in crate::bindings) use methods::{bjork_counts, euclid_call, stepwise_call};
 pub(crate) use modulate::register_modulate_fns;
 pub(super) use pick::pick_args;
 pub(crate) use repl::{apply_pattern_transforms, push_all, register_slot, reset_slots, set_each};
 
-/// A Koto wrapper around a rudel [`Pattern`].
-#[derive(Clone, KotoCopy, KotoType)]
-pub struct KPattern(pub Pattern);
-
-/// Give `KPattern` the arithmetic operators, in both operand orders, as the
-/// methods of the same name.
-///
-/// JavaScript has no operator overloading, so `"<1 2>" / 48` in Strudel is a
-/// string divided by a number: `NaN`, silently, wherever it is used. Scripts
-/// write it anyway — meaning the mini-notation `"<1 2>/48"` — and Koto asks the
-/// object what `/` means rather than guessing, so answering with the pattern
-/// arithmetic is both the useful reading and the one that cannot error.
-macro_rules! kpattern_operators {
-    ($($op:ident, $rhs:ident => $method:ident),* $(,)?) => {
-        impl KotoObject for KPattern {
-            $(
-                fn $op(&self, other: &KValue) -> koto::runtime::Result<KValue> {
-                    Ok(KPattern::wrap(self.0.$method(arg_to_pattern(other))))
-                }
-                fn $rhs(&self, other: &KValue) -> koto::runtime::Result<KValue> {
-                    Ok(KPattern::wrap(arg_to_pattern(other).$method(self.0.clone())))
-                }
-            )*
-        }
-    };
-}
-
-kpattern_operators! {
-    add, add_rhs => add,
-    subtract, subtract_rhs => sub,
-    multiply, multiply_rhs => mul,
-    divide, divide_rhs => div,
-    remainder, remainder_rhs => modulo,
-}
-
-impl From<KPattern> for KValue {
-    fn from(p: KPattern) -> KValue {
-        KObject::from(p).into()
-    }
-}
-
-impl KPattern {
-    fn wrap(pat: Pattern) -> KValue {
-        KPattern(pat).into()
-    }
-}
-
-/// Expose every rudel-core control as a `KPattern` method, driven by the
-/// `control_builders` registry instead of hand-listed method names.
-///
-/// The `#[koto_impl]`-generated entries map is a cheap shared handle to a
-/// cached map, so inserting here makes the methods visible to every
-/// interpreter on this thread. Under koto's default `rc` feature that cache
-/// is `thread_local!`, so the extension runs once per thread (not per
-/// process). Names that already have generated or bespoke methods (e.g.
-/// `sound`, `i`, `freq`, `loop`) are left untouched, so static definitions
+/// Fill `Pattern.prototype`: the generated and bespoke methods first, then one
+/// method per rudel-core control, driven by the `control_builders` registry
+/// instead of hand-listed names. Names that already have a method (e.g.
+/// `sound`, `i`, `freq`, `loop`) are left untouched, so the definitions above
 /// always win over registry entries.
-pub(crate) fn extend_control_entries() {
-    use std::cell::Cell;
-    thread_local! {
-        static DONE: Cell<bool> = const { Cell::new(false) };
-    }
-    if DONE.with(|done| done.replace(true)) {
-        return;
-    }
-    {
-        let Some(entries) = KPattern(rudel_core::silence()).entries() else {
-            return;
-        };
-        for (name, builder) in rudel_core::control_builders() {
-            if entries.get(name).is_some() {
-                continue;
-            }
-            entries.insert(
-                name,
-                KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                    control_method_call(ctx, builder)
-                })),
-            );
+pub(crate) fn register_methods(proto: &Scope) {
+    generated::register_generated(proto);
+    engine::register_engine_methods(proto);
+    for (name, builder) in rudel_core::control_builders() {
+        if !proto.has(name) {
+            method(proto, name, move |pat, a| {
+                control_method_call(pat, a, &builder)
+            });
         }
-        // Names Rust cannot spell as a method: `#[koto_method]` takes the
-        // function's own identifier, and a raw one (`r#mod`) keeps its prefix.
-        for (alias, method) in [("mod", "modulo")] {
-            if let Some(f) = entries.get(method) {
-                entries.insert(alias, f);
-            }
-        }
-        // REPL pattern slots (`p`/`q`/`d1`/`p1`/`q1`) registered onto the same
-        // shared entries map.
-        repl::insert_slot_methods(&entries);
-        // Modulator builders (`modulate`/`lfo`/`env`/`bmod`), which take a
-        // config map whose key order is significant.
-        modulate::insert_modulate_methods(&entries);
-        // Numbered FM controls have no Rust builder fns; their names and
-        // canonical keys are generated at runtime.
-        for (name, key) in rudel_core::numbered_control_names() {
-            if entries.get(name.as_str()).is_some() {
-                continue;
-            }
-            entries.insert(
-                name.as_str(),
-                KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                    let key = key.clone();
-                    control_method_call(ctx, move |arg| rudel_core::control_dyn(key.clone(), arg))
-                })),
-            );
+    }
+    // REPL pattern slots (`p`/`q`/`d1`/`p1`/`q1`).
+    repl::insert_slot_methods(proto);
+    // Modulator builders (`modulate`/`lfo`/`env`/`bmod`), which take a config
+    // object whose key order is significant.
+    modulate::insert_modulate_methods(proto);
+    // Numbered FM controls have no Rust builder fns; their names and canonical
+    // keys are generated at runtime.
+    for (name, key) in rudel_core::numbered_control_names() {
+        if !proto.has(&name) {
+            method(proto, &name, move |pat, a| {
+                control_method_call(pat, a, &|arg| rudel_core::control_dyn(key.clone(), arg))
+            });
         }
     }
 }
@@ -147,25 +60,14 @@ pub(crate) fn extend_control_entries() {
 /// registry-driven control methods), sorted. Drives the generated reference
 /// surface so it can't drift from what is actually exposed.
 pub(crate) fn method_names() -> Vec<String> {
-    extend_control_entries();
-    let Some(entries) = KPattern(rudel_core::silence()).entries() else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .data()
-        .iter()
-        .filter_map(|(key, _)| match key.value() {
-            KValue::Str(s) if !s.starts_with("rudel_widget_") => Some(s.to_string()),
-            _ => None,
-        })
-        .collect();
-    names.sort();
-    names.dedup();
-    names
+    Scope::pattern()
+        .names()
+        .into_iter()
+        .filter(|name| !name.starts_with("rudel_widget_") && name != "constructor")
+        .collect()
 }
 
-/// Call a control as a `KPattern` method: extract the instance and the value
-/// argument the same way the generated `#[koto_method]` wrappers do.
+/// Call a control as a pattern method.
 ///
 /// With an argument this is `pat.set(builder(arg))`. With none the pattern's own
 /// values become the control — Strudel's `createParam`
@@ -176,123 +78,95 @@ pub(crate) fn method_names() -> Vec<String> {
 /// Both paths go through the control's own builder rather than wrapping by
 /// name, because only the builder knows a control that spreads over several
 /// keys: `"bd:3".s()` has to set `s` *and* `n`, the way `s("bd:3")` does.
-fn control_method_call(
-    ctx: &mut koto::runtime::CallContext,
-    builder: impl Fn(Pattern) -> Pattern,
-) -> koto::runtime::Result<KValue> {
-    use koto::runtime::{ErrorKind, MethodContext, runtime_error};
-    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
-        (KValue::Object(o), extra_args) => {
-            let bare = extra_args.is_empty();
-            let mctx = MethodContext::new(o, extra_args, ctx.vm);
-            if bare {
-                args::with_instance(&mctx, |pat| builder(pat.clone()))
-            } else {
-                args::with_pattern_arg(&mctx, |pat, arg| pat.set(builder(arg)))
-            }
-        }
-        _ => runtime_error!(ErrorKind::UnexpectedError),
+fn control_method_call(pat: &Pattern, a: &[Arg], builder: &dyn Fn(Pattern) -> Pattern) -> Res {
+    Ok(match a.first() {
+        None => builder(pat.clone()),
+        Some(arg) => pat.set(builder(arg_to_pattern(arg))),
     }
+    .into())
 }
 
-/// Bind `name` as a pattern method that calls the Koto function `func` with the
-/// method's own arguments followed by the pattern — Strudel's
+thread_local! {
+    /// Names this evaluation bound through `register`, so a later registration
+    /// can tell "mine" from a built-in it must not shadow.
+    static REGISTERED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+/// Forget what the previous evaluation `register`ed.
+pub(crate) fn reset_registered() {
+    REGISTERED.with(|names| names.borrow_mut().clear());
+}
+
+/// Bind `name` as a pattern method that calls the script function `func` with
+/// the method's own arguments followed by the pattern — Strudel's
 /// `register(name, (...args, pat) => ...)` convention, where the pattern is
 /// always last.
 ///
 /// Songs in the wild lean on this heavily to define helpers (`split`, `gString`,
-/// `ati`), so without it a script fails at its first line. The entry goes into
-/// the same shared method map the controls use, which means a registration
-/// outlives the evaluation that made it — as it does in Strudel, where the
-/// method is patched onto `Pattern.prototype`.
+/// `ati`), so without it a script fails at its first line.
 ///
 /// A **built-in method is never replaced.** Scripts in the wild register
 /// polyfills for names Rudel already implements (`pickRestart` is the common
-/// one, written when Strudel had not shipped it yet), and because the method map
-/// outlives the evaluation, one such script would hand its polyfill to every
-/// later script in the session — which is exactly what happened when a corpus
-/// was run in one process: a song that passed alone failed after another had
-/// been evaluated. Registering over an *earlier registration* is still allowed,
-/// so re-evaluating a script that defines its own helper picks up the edit.
+/// one, written when Strudel had not shipped it yet), and a polyfill written
+/// against upstream's internals is a worse `pickRestart` than the real one.
+/// Registering over an *earlier registration* is still allowed, so a script
+/// that defines the same helper twice gets the second.
 ///
-/// ponytail: no arity or type checking — the Koto call reports its own errors.
-pub(crate) fn register_pattern_method(name: &str, func: KValue) {
-    register_method(name, func, true)
-}
-
-/// Bind `name` the way `Pattern.prototype.name = function …` does: the receiver
-/// is still the trailing argument, but the arguments are *not* patternified.
+/// `patternify` is `register`'s third argument: a helper that says `false`
+/// does its own `reify`/join on its arguments and wants them whole.
 ///
-/// A prototype method upstream gets none of `register`'s wrapping, and a
-/// combinator wants the argument pattern whole — `warp(tpat)` reads `tpat`'s
-/// haps to number them, which sampling it per cycle would make impossible.
-pub(crate) fn register_prototype_method(name: &str, func: KValue) {
-    register_method(name, func, false)
-}
-
-fn register_method(name: &str, func: KValue, patternify: bool) {
-    use std::cell::RefCell;
-    thread_local! {
-        /// Names this thread bound through `register`, so a later registration
-        /// can tell "mine" from a built-in it must not shadow.
-        static REGISTERED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    }
-    let Some(entries) = KPattern(rudel_core::silence()).entries() else {
-        return;
-    };
+/// ponytail: no arity or type checking — the call reports its own errors.
+pub(crate) fn register_pattern_method(name: &str, func: &Arg, patternify: bool) {
+    let proto = Scope::pattern();
     let mine = REGISTERED.with(|names| names.borrow().contains(name));
-    if !mine && entries.get(name).is_some() {
+    if !mine && proto.has(name) {
         return;
     }
     REGISTERED.with(|names| names.borrow_mut().insert(name.to_string()));
-    entries.insert(
+    proto.value(
         name,
-        KValue::NativeFunction(KNativeFunction::new(move |ctx: &mut CallContext| {
-            let (instance, extra) =
-                ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())?;
-            let mut args: Vec<KValue> = extra.to_vec();
-            args.push(instance.clone());
-            let vm = std::cell::RefCell::new(ctx.vm.spawn_shared_vm());
-            let call = |args: &[KValue]| {
-                vm.borrow_mut()
-                    .call_function(func.clone(), CallArgs::Separate(args))
-            };
-            // Upstream's `register` patternifies its arguments: a pattern passed
-            // where a value is expected is sampled per cycle rather than handed
-            // to the callback whole (`arg.fmap(v => fn(v, pat)).innerJoin()`).
-            // Except for its pure fast path, which hands the leading arguments
-            // over as plain values when every one of them is a `pure` — so what
-            // decides is whether the argument *has structure*, not whether it
-            // was written as a mini literal. `m("c3")` is one steady value and
-            // stays a value; `m("<c3 e3>")` is a cycle-alternation and gets
-            // sampled, which is what a helper doing `noteToMidi(arg)` needs.
-            let patterned = patternify
-                .then(|| {
-                    args[..args.len() - 1].iter().position(|arg| {
-                        matches!(arg, KValue::Object(o) if o.is_a::<KPattern>()
-                            && o.cast::<KPattern>().is_ok_and(|p| p.0.pure_value.is_none()))
-                    })
-                })
-                .flatten();
-            let Some(at) = patterned else {
-                return call(&args);
-            };
-            let arg = args[at].clone();
-            let KValue::Object(object) = &arg else {
-                return call(&args);
-            };
-            let sampled = object.cast::<KPattern>()?.0.clone();
-            Ok(KPattern(callback::probe_patternify(sampled, |value| {
-                let mut per_value = args.clone();
-                per_value[at] = convert::value_to_koto(value.clone());
-                match call(&per_value) {
-                    Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
-                        o.cast::<KPattern>().unwrap().0.clone()
-                    }
-                    _ => rudel_core::silence(),
-                }
-            }))
-            .into())
-        })),
+        js::method_calling(Arg::native(registered_call), func, patternify),
     );
+}
+
+/// What a `register`ed method runs: `(fn, patternify, args, pattern)`.
+fn registered_call(a: &[Arg]) -> Res {
+    let func = args::arg(a, 0);
+    let patternify = matches!(args::arg(a, 1), Arg::Bool(true));
+    let mut call_args = match args::arg(a, 2) {
+        Arg::List(extra) => extra.clone(),
+        _ => Vec::new(),
+    };
+    call_args.push(args::arg(a, 3).clone());
+    // Upstream's `register` patternifies its arguments: a pattern passed where a
+    // value is expected is sampled per cycle rather than handed to the
+    // callback whole (`arg.fmap(v => fn(v, pat)).innerJoin()`). Except for its
+    // pure fast path, which hands the leading arguments over as plain values
+    // when every one of them is a `pure` — so what decides is whether the
+    // argument *has structure*, not whether it was written as a mini literal.
+    // `m("c3")` is one steady value and stays a value; `m("<c3 e3>")` is a
+    // cycle-alternation and gets sampled, which is what a helper doing
+    // `noteToMidi(arg)` needs.
+    let patterned = patternify
+        .then(|| {
+            call_args[..call_args.len() - 1]
+                .iter()
+                .position(|arg| matches!(arg, Arg::Pat(p) if p.pure_value.is_none()))
+        })
+        .flatten();
+    let Some(at) = patterned else {
+        return js::call(func, call_args);
+    };
+    let Arg::Pat(sampled) = call_args[at].clone() else {
+        return js::call(func, call_args);
+    };
+    Ok(callback::probe_patternify(sampled, |value| {
+        let mut per_value = call_args.clone();
+        per_value[at] = convert::value_to_arg(value.clone());
+        match js::call(func, per_value) {
+            Ok(Arg::Pat(p)) => p,
+            _ => rudel_core::silence(),
+        }
+    })
+    .into())
 }

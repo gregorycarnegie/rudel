@@ -16,10 +16,8 @@ fn midi_to_freq_matches_strudel() {
 fn freq_to_midi_is_the_inverse() {
     // freqToMidi(440) == 69.
     let pat = eval("pure(freqToMidi(440))").expect("eval");
-    match &values(&pat, 0, 1)[0] {
-        Value::F64(n) => assert!((n - 69.0).abs() < 1e-9, "got {n}"),
-        other => panic!("expected a number, got {other:?}"),
-    }
+    let got = values(&pat, 0, 1)[0].as_f64().expect("a number");
+    assert!((got - 69.0).abs() < 1e-9, "got {got}");
 }
 
 #[test]
@@ -36,7 +34,7 @@ fn note_to_midi_parses_note_names() {
 
 #[test]
 fn note_to_midi_rejects_non_notes() {
-    // Strudel throws on a non-note; the binding raises a Koto error.
+    // Strudel throws on a non-note, and so does the binding.
     assert!(eval(r#"pure(noteToMidi("xyz"))"#).is_err());
 }
 
@@ -55,24 +53,24 @@ fn converters_compose_in_patterns() {
     // A realistic use: set a note from a frequency round-tripped through midi.
     let pat = eval(r#"note(freqToMidi(440))"#).expect("eval");
     match &values(&pat, 0, 1)[0] {
-        Value::Map(m) => match m.get("note") {
-            Some(Value::F64(n)) => assert!((n - 69.0).abs() < 1e-9, "got {n}"),
+        Value::Map(m) => match m.get("note").and_then(Value::as_f64) {
+            Some(n) => assert!((n - 69.0).abs() < 1e-9, "got {n}"),
             other => panic!("expected note number, got {other:?}"),
         },
         other => panic!("expected a control map, got {other:?}"),
     }
 }
 
-// The JavaScript shims (`js.rs`). Strudel snippets call these directly, so
-// they are part of the language surface even though no rudel script needs
-// them. Single-quoted literals stay plain strings; double-quoted ones are
+// JavaScript's own builtins. Strudel snippets call these directly, so they are
+// part of the language surface even though no rudel script needs them.
+// Single-quoted literals stay plain strings; double-quoted ones are
 // mini-notation patterns by then, and have no string methods.
 
 #[test]
 fn javascript_string_methods_match_javascript() {
-    // A literal with a method on it is rewritten into a *pattern* (that is how
-    // `"bd sd".fast(2)` works), so the string methods are reached through a
-    // binding, which is how Strudel snippets use them.
+    // A double-quoted literal is a *pattern* (that is how `"bd sd".fast(2)`
+    // works), so the string methods are reached through a single-quoted one,
+    // which is how Strudel snippets use them.
     let one = |script: &str| {
         values(
             &eval(&format!(
@@ -89,7 +87,7 @@ fn javascript_string_methods_match_javascript() {
     assert_eq!(one("pure(s.substring(5, 0))"), vec!["hello".into()]);
     assert_eq!(one("pure(s.substring(6))"), vec!["world".into()]);
     assert_eq!(one("pure(s.substring(6, 99))"), vec!["world".into()]);
-    assert_eq!(one("pure(s.length())"), vec![Value::Int(11)]);
+    assert_eq!(one("pure(s.length)"), vec![Value::Int(11)]);
     assert_eq!(one("pure(s.indexOf('world'))"), vec![Value::Int(6)]);
     // Not found is -1, not 0 and not an error.
     assert_eq!(one("pure(s.indexOf('zzz'))"), vec![Value::Int(-1)]);
@@ -102,8 +100,8 @@ fn javascript_conversions_match_javascript() {
     let one = |script: &str| values(&eval(script).expect("eval"), 0, 1);
     assert_eq!(one("pure(Number('3'))"), vec![Value::Int(3)]);
     assert_eq!(one("pure(Number(3))"), vec![Value::Int(3)]);
-    // A string that will not parse is 0 here, where JS says NaN.
-    assert_eq!(one("pure(Number('wat'))"), vec![Value::Int(0)]);
+    // A string that will not parse is NaN, as JavaScript says.
+    assert!(matches!(one("pure(Number('wat'))")[..], [Value::F64(n)] if n.is_nan()));
     // `String` of either a string or a number round-trips through `Number`.
     assert_eq!(one("pure(Number(String(4)))"), vec![Value::Int(4)]);
     assert_eq!(one("pure(Number(String('4')))"), vec![Value::Int(4)]);
@@ -114,39 +112,29 @@ fn javascript_conversions_match_javascript() {
     );
     assert_eq!(one("pure(Boolean(0))"), vec![Value::Bool(false)]);
     assert_eq!(one("pure(Boolean('x'))"), vec![Value::Bool(true)]);
-    assert_eq!(one("pure(rudel_typeof('a'))"), vec!["string".into()]);
-    assert_eq!(one("pure(rudel_typeof(1))"), vec!["number".into()]);
+    assert_eq!(one("pure(typeof 'a')"), vec!["string".into()]);
+    assert_eq!(one("pure(typeof 1)"), vec!["number".into()]);
 }
 
 #[test]
-fn object_from_entries_takes_lists_or_tuples_at_either_level() {
+fn object_from_entries_builds_an_object() {
     let one = |script: &str| values(&eval(script).expect("eval"), 0, 1);
     assert_eq!(
-        one("pure(Object.fromEntries([['a', 5]]).a)"),
-        vec![Value::Int(5)]
-    );
-    assert_eq!(
-        one("pure(Object.fromEntries([('a', 5)]).a)"),
-        vec![Value::Int(5)]
-    );
-    assert_eq!(
-        one("pure(Object.fromEntries((('a', 5), ('b', 6))).b)"),
+        one("pure(Object.fromEntries([['a', 5], ['b', 6]]).b)"),
         vec![Value::Int(6)]
     );
     // A non-string key is stringified, as JS object keys are.
     assert_eq!(
-        one("pure(Object.fromEntries([[1, 5]]).contains_key('1'))"),
+        one("pure('1' in Object.fromEntries([[1, 5]]))"),
         vec![Value::Bool(true)]
     );
 }
 
 #[test]
 fn map_over_a_long_list_takes_a_one_parameter_callback() {
-    // `map` passes JS's `(value, index)`, and a callback that declares only the
-    // value used to be *called* with both and retried on the arity error. Every
-    // entry took that error path, and past a few dozen the VM stopped recovering
-    // from them: a 94-entry table failed where a 59-entry one worked. Long
-    // enough here to be past that.
+    // `map` passes JS's `(value, index)`, and a callback may ignore the index.
+    // A 94-entry table once failed where a 59-entry one worked, back when the
+    // index was a retried arity error; long enough here to be past that.
     let list = (0..100)
         .map(|i| i.to_string())
         .collect::<Vec<_>>()
@@ -181,8 +169,7 @@ fn reduce_folds_left_in_javascripts_argument_order() {
         one("pure([5, 5, 5].reduce((a, v, i) => a + i, 0))"),
         vec![Value::Int(3)]
     );
-    // A block body with a further argument after it — the shape that made the
-    // preprocessor parenthesise the lambda.
+    // A block body with a further argument after it.
     assert_eq!(
         one("pure([1, 2].reduce((a, v) => { a.push(v); return a }, []).length)"),
         vec![Value::Int(2)]
@@ -204,12 +191,10 @@ fn json_parse_reads_an_embedded_table_back_as_maps_and_lists() {
     );
     // Malformed JSON is a script bug, and says so rather than passing silently.
     assert!(eval("pure(JSON.parse('{oops'))").is_err());
-    // A brace-carrying literal becomes a Koto *raw* string, which applies no
-    // escapes of its own — so the escapes JS would have applied are resolved on
-    // the way in. A table keyed by `"` is written `\\"` in the JS source: the
-    // literal collapses that to the `\"` the JSON parser then needs.
+    // A table keyed by `"` is written `\\"` in the JS source: the literal
+    // collapses that to the `\"` the JSON parser then needs.
     assert_eq!(
-        one(r#"pure(JSON.parse('{"\\"": "quote"}').get('"'))"#),
+        one(r#"pure(JSON.parse('{"\\"": "quote"}')['"'])"#),
         vec!["quote".into()]
     );
 }

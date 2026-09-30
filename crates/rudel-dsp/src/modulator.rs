@@ -765,7 +765,7 @@ mod tests {
     // controls and the DSP, so a wrong arm does not error — it modulates
     // something else, or nothing.
 
-    /// A one-entry modulator descriptor in the nested-map shape Koto hands over.
+    /// A one-entry modulator descriptor in the nested-map shape a script hands over.
     fn descriptor(kind: &str, entries: &[(&str, Value)]) -> ValueMap {
         let entry: ValueMap = entries
             .iter()

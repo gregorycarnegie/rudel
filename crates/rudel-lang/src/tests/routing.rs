@@ -195,7 +195,7 @@ fn key_down_and_when_key_read_the_live_keyboard() {
 
     // `whenKey` applies its callback while the keys are held, and the check is
     // live: the same pattern responds without being re-evaluated.
-    let pat = eval(r#"note("c e").whenKey("ctrl:j", |p| p.fast(2))"#).expect("eval");
+    let pat = eval(r#"note("c e").whenKey("ctrl:j", p => p.fast(2))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 4, "held -> fast(2)");
     rudel_core::clear_keys();
     assert_eq!(values(&pat, 0, 1).len(), 2, "released -> untransformed");
@@ -228,7 +228,7 @@ fn log_and_log_values_write_lines_as_events_play() {
     assert_eq!(drain_log(), vec!["[hap] 0/1 → 1/1: s:bd".to_string()]);
 
     // A formatting callback replaces the message.
-    let pat = eval(r#"s("bd sd").logValues(|v| 'saw ' + v.s)"#).expect("eval");
+    let pat = eval(r#"s("bd sd").logValues(v => 'saw ' + v.s)"#).expect("eval");
     query_controls(&pat, 1.0, 0.0, 1.0);
     assert_eq!(
         drain_log(),
@@ -238,11 +238,11 @@ fn log_and_log_values_write_lines_as_events_play() {
 
 #[test]
 fn on_trigger_time_fires_its_callback_per_event() {
-    // The callback survives evaluation (with the VM that runs it) and is fired
-    // by the host as each event's onset passes; the tag never leaks to a
+    // The callback survives evaluation (with the engine that runs it) and is
+    // fired by the host as each event's onset passes; the tag never leaks to a
     // back-end.
     let result = crate::eval_result(
-        "let seen = []\nexport seen = seen\ns(\"bd sd\").onTriggerTime(|hap| seen.push(hap.value.s))",
+        "let seen = []\ns(\"bd sd\").onTriggerTime(hap => seen.push(hap.value.s))",
     )
     .expect("eval");
     let mut hooks = result.trigger_hooks;
@@ -257,7 +257,7 @@ fn on_trigger_time_fires_its_callback_per_event() {
         "the trigger key is consumed by the scheduler"
     );
 
-    // Firing runs the Koto callback without error.
+    // Firing runs the script's callback without error.
     for hap in result.pattern.query_arc(Frac::zero(), Frac::one()) {
         assert_eq!(hooks.fire(&hap), None, "callback should not raise");
     }
@@ -272,7 +272,8 @@ fn a_failing_trigger_callback_reports_its_error() {
     // Proof the hook was actually *found and run*: a callback that raises
     // comes back as an error. Firing a hap whose id matches nothing is
     // indistinguishable from a callback that simply did nothing.
-    let result = crate::eval_result(r#"s("bd").onTriggerTime(|hap| throw 'boom')"#).expect("eval");
+    let result =
+        crate::eval_result(r#"s("bd").onTriggerTime(hap => { throw 'boom' })"#).expect("eval");
     let mut hooks = result.trigger_hooks;
     let haps = result.pattern.query_arc(Frac::zero(), Frac::one());
     let err = hooks.fire(&haps[0]).expect("the callback should raise");
@@ -288,7 +289,7 @@ fn a_new_evaluation_forgets_the_previous_callbacks() {
     // The pending list is thread-local and drained at the end of an
     // evaluation, so a script that registers nothing must come back empty even
     // when the evaluation before it registered something.
-    let first = crate::eval_result(r#"s("bd").onTriggerTime(|hap| hap)"#).expect("eval");
+    let first = crate::eval_result(r#"s("bd").onTriggerTime(hap => hap)"#).expect("eval");
     assert!(!first.trigger_hooks.is_empty());
     // A *failed* evaluation is what makes the reset load-bearing: it registers
     // its callback and then never reaches the drain at the end.
@@ -296,7 +297,7 @@ fn a_new_evaluation_forgets_the_previous_callbacks() {
     // script that will not parse never registers anything.
     assert!(
         crate::eval_result(
-            "s(\"bd\").onTriggerTime(|hap| hap)
+            "s(\"bd\").onTriggerTime(hap => hap)
 nope()"
         )
         .is_err()

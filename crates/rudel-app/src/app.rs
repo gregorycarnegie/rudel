@@ -228,7 +228,7 @@ impl RudelApp {
 
     /// Build the editor's highlight identifier set from the live runtime
     /// reference: top-level functions, pattern methods, control names, plus the
-    /// Koto language keywords.
+    /// JavaScript keywords.
     fn build_highlight_idents(reference: &rudel_lang::Reference) -> HashSet<String> {
         let mut idents: HashSet<String> = HashSet::new();
         idents.extend(reference.functions.iter().cloned());

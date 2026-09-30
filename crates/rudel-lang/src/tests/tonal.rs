@@ -1,7 +1,7 @@
 use super::common::*;
 
 #[test]
-fn scale_via_koto() {
+fn scale_via_script() {
     // n("0 2 4").scale("C:major") -> C3 E3 G3 = 48 52 55
     let pat = eval(r#"n("0 2 4").scale("C:major")"#).expect("eval");
     let mut got: Vec<f64> = pat
@@ -17,7 +17,7 @@ fn scale_via_koto() {
 }
 
 #[test]
-fn transpose_via_koto() {
+fn transpose_via_script() {
     let pat = eval(r#"note(60).transpose(7)"#).expect("eval");
     let note = match &pat.query_arc(Frac::zero(), Frac::one())[0].value {
         Value::Map(m) => m.get("note").and_then(|v| v.as_f64()).unwrap(),
@@ -27,7 +27,7 @@ fn transpose_via_koto() {
 }
 
 #[test]
-fn transpose_interval_strings_via_koto() {
+fn transpose_interval_strings_via_script() {
     let note_at = |src: &str, b: i64, e: i64| -> f64 {
         let pat = eval(src).expect("eval");
         match &pat.query_arc(Frac::int(b), Frac::int(e))[0].value {
@@ -43,33 +43,33 @@ fn transpose_interval_strings_via_koto() {
 }
 
 #[test]
-fn arp_with_via_koto() {
+fn arp_with_via_script() {
     // the chord is presented to the callback as a sequence of its notes;
     // identity == arpeggiate
-    let pat = eval(r#"stack(5, 7, 9).arp_with(|c| c)"#).expect("eval");
+    let pat = eval(r#"stack(5, 7, 9).arp_with(c => c)"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Int(5), Value::Int(7), Value::Int(9)]
     );
     // reversing the chord sequence per chord (snake, camelCase, and standalone)
-    let pat = eval(r#"stack(0, 1, 2).arp_with(|c| c.rev())"#).expect("eval");
+    let pat = eval(r#"stack(0, 1, 2).arp_with(c => c.rev())"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Int(2), Value::Int(1), Value::Int(0)]
     );
-    let camel = eval(r#"stack(0, 1, 2).arpWith(|c| c.rev())"#).expect("eval");
+    let camel = eval(r#"stack(0, 1, 2).arpWith(c => c.rev())"#).expect("eval");
     assert_eq!(values(&camel, 0, 1), values(&pat, 0, 1));
-    let standalone = eval(r#"arpWith(|c| c.rev(), stack(0, 1, 2))"#).expect("eval");
+    let standalone = eval(r#"arpWith(c => c.rev(), stack(0, 1, 2))"#).expect("eval");
     assert_eq!(values(&standalone, 0, 1), values(&pat, 0, 1));
     // works per-cycle across an alternation of different chords (probe
     // window discovers both chords)
-    let pat = eval(r#"seq("<[0,1] [2,3]>").arp_with(|c| c.rev())"#).expect("eval");
+    let pat = eval(r#"seq("<[0,1] [2,3]>").arp_with(c => c.rev())"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(1), Value::Int(0)]);
     assert_eq!(values(&pat, 1, 2), vec![Value::Int(3), Value::Int(2)]);
 }
 
 #[test]
-fn voicing_via_koto() {
+fn voicing_via_script() {
     // a chord-symbol pattern voiced with the default `ireal` dictionary below
     // the c5 anchor: C -> E3 C4 E4 G4 C5.
     // (mini-notation can't spell `^`, so use `maj7`/`m7`-style symbols, or
@@ -105,7 +105,7 @@ fn voicing_via_koto() {
 }
 
 #[test]
-fn arp_and_arpeggiate_via_koto() {
+fn arp_and_arpeggiate_via_script() {
     // stack(0,1,2) is a chord; arp("0 1 2") walks up it
     let pat = eval(r#"stack(0, 1, 2).arp("0 1 2")"#).expect("eval");
     assert_eq!(
@@ -123,7 +123,7 @@ fn arp_and_arpeggiate_via_koto() {
 }
 
 #[test]
-fn chord_control_and_voicing_controls_via_koto() {
+fn chord_control_and_voicing_controls_via_script() {
     // top-level chord(...) plus `.dict()`/`.voicing()` voice a chord symbol.
     // Default `ireal` dictionary: C -> E3 C4 E4 G4 C5.
     let pat = eval(r#"chord("C").voicing()"#).expect("eval");
@@ -185,7 +185,7 @@ fn mtranspose_ctranspose_fold_into_note() {
 }
 
 #[test]
-fn xen_via_koto_produces_freq_control() {
+fn xen_via_script_produces_freq_control() {
     let pat = eval(r#"i("0 1").xen("12edo")"#).expect("eval");
     let got = values(&pat, 0, 1);
     match &got[0] {
@@ -202,7 +202,7 @@ fn xen_via_koto_produces_freq_control() {
 }
 
 #[test]
-fn tune_mul_freq_chain_via_koto() {
+fn tune_mul_freq_chain_via_script() {
     let pat = eval(r#"i("0 1 2").tune("hexany15").mul(220).freq()"#).expect("eval");
     let got = values(&pat, 0, 1);
     assert_eq!(got.len(), 3);
@@ -217,7 +217,7 @@ fn tune_mul_freq_chain_via_koto() {
 }
 
 #[test]
-fn xen_ratio_array_and_with_base_via_koto() {
+fn xen_ratio_array_and_with_base_via_script() {
     let pat = eval(r#"i("0 1 2").xen([1, 5/4, 3/2]).withBase(440)"#).expect("eval");
     let got: Vec<f64> = values(&pat, 0, 1)
         .into_iter()
@@ -230,7 +230,7 @@ fn xen_ratio_array_and_with_base_via_koto() {
 }
 
 #[test]
-fn edo_scale_via_koto() {
+fn edo_scale_via_script() {
     // C:LLsLLLs:2:1 is C major in 12-EDO; bare degrees map to diatonic notes.
     let pat = eval(r#""0 2 4 6".edoScale("C:LLsLLLs:2:1")"#).expect("eval");
     let got: Vec<f64> = values(&pat, 0, 1)
@@ -248,7 +248,7 @@ fn edo_scale_via_koto() {
 }
 
 #[test]
-fn tuning_ratio_array_via_koto() {
+fn tuning_ratio_array_via_script() {
     // tuning reads the bare value as the scale index and returns the raw ratio.
     let pat = eval(r#""0 1 2 3".tuning([1, 5/4, 3/2])"#).expect("eval");
     let got: Vec<f64> = values(&pat, 0, 1)
@@ -259,7 +259,7 @@ fn tuning_ratio_array_via_koto() {
 }
 
 #[test]
-fn xen_docs_math_pow_and_piano_via_koto() {
+fn xen_docs_math_pow_and_piano_via_script() {
     let pat = eval(
         r#"
 i("0 1 2").xen([
@@ -286,7 +286,7 @@ i("0 1 2").xen([
 }
 
 #[test]
-fn fmap_get_freq_and_reverb_aliases_via_koto() {
+fn fmap_get_freq_and_reverb_aliases_via_script() {
     let pat = eval(r#""<c3 a3>".fmap(getFreq)"#).expect("eval");
     let got: Vec<f64> = values(&pat, 0, 2)
         .into_iter()
@@ -308,7 +308,7 @@ fn fmap_get_freq_and_reverb_aliases_via_koto() {
 }
 
 #[test]
-fn get_freq_and_ftrans_aliases_via_koto() {
+fn get_freq_and_ftrans_aliases_via_script() {
     let pat = eval(r#"freq(getFreq("c3"))"#).expect("eval");
     match &values(&pat, 0, 1)[0] {
         Value::Map(m) => {
@@ -339,7 +339,7 @@ fn get_freq_and_ftrans_aliases_via_koto() {
 }
 
 #[test]
-fn anchor_scale_stepping_via_koto() {
+fn anchor_scale_stepping_via_script() {
     // n("0 7").anchor("c5").scale("C:major") -> C5 (72) and C6 (84).
     let pat = eval(r#"n("0 7").anchor("c5").scale("C:major")"#).expect("eval");
     let mut got: Vec<f64> = pat

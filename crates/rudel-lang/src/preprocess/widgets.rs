@@ -183,7 +183,7 @@ fn widget_id(base_id: &str, widget_type: &str, index: usize, from: usize, to: us
     format!("{base_id}_widget_{widget_type}_{index}_{from}-{to}")
 }
 
-fn koto_widget_method(widget_type: &str) -> &'static str {
+fn widget_method(widget_type: &str) -> &'static str {
     match widget_type {
         "_pianoroll" => "rudel_widget_pianoroll",
         "_punchcard" => "rudel_widget_punchcard",
@@ -258,7 +258,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
 
             anchors.push((out.len(), last));
             out.push_str(&src[last..i + 1]);
-            out.push_str(koto_widget_method(widget_type));
+            out.push_str(widget_method(widget_type));
             out.push('(');
             out.push_str(&format!("{id:?}"));
             let args = src[open + 1..call.close].trim();

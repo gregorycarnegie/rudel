@@ -5,11 +5,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::{
-    args::{method_arg, with_method_instance},
+    args::{arg, method},
     callback::Callback,
-    convert::koto_to_value,
+    convert::to_value,
 };
-use koto::{prelude::*, runtime::CallContext};
+use crate::js::{Arg, Scope};
 use rudel_core::{Pattern, Value, pure, silence, stack};
 use std::cell::{Cell, RefCell};
 
@@ -40,15 +40,13 @@ pub(crate) fn reset_slots() {
 }
 
 /// Store the `each(f)` transform (the last call wins, matching Strudel).
-pub(crate) fn set_each(ctx: &CallContext, func: KValue) {
-    let cb = Callback::from_call_ctx(ctx, func);
-    EACH.with(|e| *e.borrow_mut() = Some(cb));
+pub(crate) fn set_each(func: Arg) {
+    EACH.with(|e| *e.borrow_mut() = Some(Callback::new(func)));
 }
 
 /// Append an `all(f)` transform (applied in registration order).
-pub(crate) fn push_all(ctx: &CallContext, func: KValue) {
-    let cb = Callback::from_call_ctx(ctx, func);
-    ALL.with(|a| a.borrow_mut().push(cb));
+pub(crate) fn push_all(func: Arg) {
+    ALL.with(|a| a.borrow_mut().push(Callback::new(func)));
 }
 
 /// Combine the evaluated patterns the way Strudel's `applyPatternTransforms`
@@ -58,6 +56,9 @@ pub(crate) fn push_all(ctx: &CallContext, func: KValue) {
 /// transform over the result. Returns `None` only when there is nothing to play
 /// (no slots, no script pattern, no transforms) so the caller can report the
 /// "script did not return a pattern" error.
+///
+/// The transforms are script functions, so this runs with the evaluation's
+/// context lent.
 pub(crate) fn apply_pattern_transforms(script: Option<Pattern>) -> Option<Pattern> {
     let slots = P_SLOTS.with(|s| s.borrow().clone());
 
@@ -129,55 +130,34 @@ pub(crate) fn register_slot(id: &str, pat: Pattern) -> Pattern {
 
 /// Turn a slot-id argument into its registry key: numbers render without a
 /// decimal point (`1` -> `"1"`), strings pass through.
-fn slot_id_string(value: &KValue) -> String {
-    match koto_to_value(value) {
+fn slot_id_string(value: &Arg) -> String {
+    match to_value(value) {
         Value::Str(s) => s,
         Value::Int(n) => n.to_string(),
-        Value::F64(n) if n.fract() == 0.0 => (n as i64).to_string(),
         Value::F64(n) => n.to_string(),
         Value::Bool(b) => b.to_string(),
         other => other.as_f64().map(|n| n.to_string()).unwrap_or_default(),
     }
 }
 
-/// Insert the REPL slot methods (`p`, `q`, `d1`-`d9`, `p1`-`p9`, `q1`-`q9`)
-/// onto the shared `KPattern` entries map, alongside the control methods.
-pub(crate) fn insert_slot_methods(entries: &koto::runtime::KMap) {
+/// Put the REPL slot methods (`p`, `q`, `d1`-`d9`, `p1`-`p9`, `q1`-`q9`) on
+/// `Pattern.prototype`, alongside the control methods.
+pub(crate) fn insert_slot_methods(proto: &Scope) {
     // p(id): register under the given id.
-    entries.insert(
-        "p",
-        KValue::NativeFunction(KNativeFunction::new(|ctx| {
-            with_method_instance(ctx, |mctx, pat| {
-                let id = slot_id_string(&method_arg(mctx, 0));
-                register_slot(&id, pat.clone())
-            })
-        })),
-    );
+    method(proto, "p", |pat, a| {
+        Ok(register_slot(&slot_id_string(arg(a, 0)), pat.clone()).into())
+    });
     // q(id): a silent (queued/muted) slot.
-    entries.insert(
-        "q",
-        KValue::NativeFunction(KNativeFunction::new(|ctx| {
-            with_method_instance(ctx, |_, _| silence())
-        })),
-    );
+    method(proto, "q", |_, _| Ok(silence().into()));
     for i in 1..=9 {
         // d<i> and p<i> are fixed-id slots: shorthand for p(i).
         for prefix in ["d", "p"] {
             let id = i.to_string();
-            entries.insert(
-                format!("{prefix}{i}").as_str(),
-                KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                    let id = id.clone();
-                    with_method_instance(ctx, move |_, pat| register_slot(&id, pat.clone()))
-                })),
-            );
+            method(proto, &format!("{prefix}{i}"), move |pat, _| {
+                Ok(register_slot(&id, pat.clone()).into())
+            });
         }
         // q<i>: a silent slot.
-        entries.insert(
-            format!("q{i}").as_str(),
-            KValue::NativeFunction(KNativeFunction::new(|ctx| {
-                with_method_instance(ctx, |_, _| silence())
-            })),
-        );
+        method(proto, &format!("q{i}"), |_, _| Ok(silence().into()));
     }
 }

@@ -5,14 +5,14 @@
 [![Release](https://img.shields.io/github/v/release/gregorycarnegie/rudel)](https://github.com/gregorycarnegie/rudel/releases/latest)
 [![Rust edition: 2024](https://img.shields.io/badge/rust%20edition-2024-orange)](Cargo.toml)
 [![MSRV: 1.96](https://img.shields.io/badge/MSRV-1.96-orange)](Cargo.toml)
-[![Koto: 0.16.1](https://img.shields.io/badge/Koto-0.16.1-blue)](https://koto.dev)
+[![Boa: 0.22](https://img.shields.io/badge/Boa-0.22-blue)](https://boajs.dev)
 [![Csound: optional at runtime](https://img.shields.io/badge/Csound-optional%20at%20runtime-blue)](#csound)
 [![Checks: test + clippy](https://img.shields.io/badge/checks-test%20%2B%20clippy-brightgreen)](#tests)
 
 Rudel is a native Rust fork of [Strudel](https://codeberg.org/uzu/strudel)
 (itself the JS port of [TidalCycles](https://tidalcycles.org/)): live-coded,
-algorithmic music patterns with a Koto scripting layer, native audio, MIDI out,
-and SuperDirt-compatible OSC out.
+algorithmic music patterns written in Strudel's own JavaScript, native audio,
+MIDI out, and SuperDirt-compatible OSC out.
 
 > Licensed under **AGPL-3.0-or-later**, the same as Strudel. Sound bank licensing
 > follows the source samples you load.
@@ -25,10 +25,10 @@ and SuperDirt-compatible OSC out.
 | [`rudel-mini`](crates/rudel-mini)   | `pest` mini-notation parser ported from Strudel's `krill.pegjs`: sequences, groups, rests, alternation, stacks, choices, Euclidean rhythms, ranges, polymeter, degradation, and sample indices. |
 | [`rudel-dsp`](crates/rudel-dsp)     | Offline-testable voices: synth oscillators, noise, built-in drums, sampler playback, filters, envelopes, panning, and per-voice post effects.                                                   |
 | [`rudel-audio`](crates/rudel-audio) | Real-time audio engine: lookahead scheduler, `cpal` output, sample bank loading, mixer, delay, and `fundsp` reverb.                                                                             |
-| [`rudel-lang`](crates/rudel-lang)   | [Koto](https://koto.dev) bindings for Rudel patterns, controls, signals, factories, higher-order callbacks, sample transforms, and tonal operations.                                            |
+| [`rudel-lang`](crates/rudel-lang)   | JavaScript bindings (run by [Boa](https://boajs.dev)) for Rudel patterns, controls, signals, factories, higher-order callbacks, sample transforms, and tonal operations.                      |
 | [`rudel-midi`](crates/rudel-midi)   | MIDI output: control-map to note/CC/program messages, timed windows, port wrapper, and real-time scheduler.                                                                                     |
 | [`rudel-osc`](crates/rudel-osc)     | SuperDirt OSC output: hand-rolled OSC 1.0 encoding, `/dirt/play` messages, UDP sender, and real-time scheduler.                                                                                 |
-| [`rudel-app`](crates/rudel-app)     | Native `egui` editor with Koto live evaluation, audio/MIDI/OSC output selection, sample loading, and a one-cycle visualizer grouped by orbit.                                                   |
+| [`rudel-app`](crates/rudel-app)     | Native `egui` editor with live JavaScript evaluation, audio/MIDI/OSC output selection, sample loading, and a one-cycle visualizer grouped by orbit.                                             |
 
 ## Run the app
 
@@ -39,7 +39,7 @@ cargo run --release -p rudel-app
 Type a pattern in the editor, press **Ctrl+Enter** to evaluate, then press
 **Play**:
 
-```koto
+```js
 stack(
   s("bd ~ bd bd").gain(0.9),
   s("~ sd ~ sd"),
@@ -65,19 +65,19 @@ $ n <0 2 4 [3 1] -1>*4 # scale C4:minor # jux rev # dec .2 # delay .5
 ```
 
 Round parens call a function, `#` chains one call onto the last, and `$`
-separates patterns into a stack. That is this, in Koto:
+separates patterns into a stack. That is this, in JavaScript:
 
-```koto
+```js
 stack(
   s("bd rim [~ bd] rim").bank("tr707"),
   n("<0 2 4 [3 1] -1>*4").scale("C4:minor").jux(rev).dec(0.2).delay(0.5)
 )
 ```
 
-To reach for mondo inside an otherwise-Koto script, tag a single pattern with
-it instead: `` mondo`s hh*8` ``.
+To reach for mondo inside an otherwise-JavaScript script, tag a single pattern
+with it instead: `` mondo`s hh*8` ``.
 
-Mondo is compiled to Koto rather than interpreted, so every control, transform
+Mondo is compiled to JavaScript rather than interpreted, so every control, transform
 and signal Rudel exposes is reachable from it. Its two limits — `:`/`..` want
 literal operands, and `def` binds values rather than functions — are in
 [`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md#mondo-strudelmondo-strudelmondough--supported).
@@ -99,7 +99,7 @@ To get started, install Csound ([downloads](https://csound.com/download.html);
 the 64-bit build, which is what the installers give you), then paste this in and
 press **Play**:
 
-```koto
+```js
 loadCsound`
 instr Beep
     asig = vco2(p5, p4)
@@ -159,10 +159,10 @@ let pat = note("c3 [e3 g3] <c4 e4>")
 ## Current Status
 
 Rudel has a usable native live-coding path today: pattern engine, mini-notation,
-synth/drum/sample audio, effects, Koto live evaluation, an `egui` app, MIDI out,
-and SuperDirt-compatible OSC out. The core, mini parser, transforms, audio event
-scheduling, MIDI, OSC, and Koto bindings are covered by unit, integration, and
-Strudel parity tests.
+synth/drum/sample audio, effects, live JavaScript evaluation, an `egui` app, MIDI
+out, and SuperDirt-compatible OSC out. The core, mini parser, transforms, audio
+event scheduling, MIDI, OSC, and JavaScript bindings are covered by unit,
+integration, and Strudel parity tests.
 
 Still evolving: richer synth families, more Strudel sample-bank loading modes,
 MIDI input/clock-in, per-pattern routing helpers, deeper editor ergonomics, and

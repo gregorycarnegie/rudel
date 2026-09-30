@@ -142,7 +142,7 @@ fn a_misspelt_node_is_an_error_rather_than_silence() {
     let Err(err) = eval("K(Kabel.sine(220).notAKabelsalatNode().out())") else {
         panic!("a name that is not a node should not evaluate");
     };
-    assert!(err.contains("notAKabelsalatNode"), "{err}");
+    assert!(err.contains("not a callable function"), "{err}");
 }
 
 // --- the preprocessor pass -------------------------------------------------

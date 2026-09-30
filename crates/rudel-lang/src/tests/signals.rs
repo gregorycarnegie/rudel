@@ -29,7 +29,7 @@ fn signals_are_values_and_segment() {
 }
 
 #[test]
-fn signal_module_additions_via_koto() {
+fn signal_module_additions_via_script() {
     // The newly exposed signal.mjs members all parse and segment as values/fns.
     for s in [
         "itri.segment(4)",
@@ -130,7 +130,7 @@ fn factories_resolve() {
 }
 
 #[test]
-fn binary_and_bitwise_via_koto() {
+fn binary_and_bitwise_via_script() {
     // binary(5) -> "1 0 1": three steps.
     let pat = eval("binary(5)").expect("eval");
     assert_eq!(
@@ -155,7 +155,7 @@ fn binary_and_bitwise_via_koto() {
 }
 
 #[test]
-fn binary_lists_and_randl_via_koto() {
+fn binary_lists_and_randl_via_script() {
     // binaryL(5) packs the bits into a 3-element list value.
     match &values(&eval("binaryL(5)").unwrap(), 0, 1)[0] {
         Value::List(items) => assert_eq!(items.len(), 3),

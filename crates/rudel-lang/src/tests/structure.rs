@@ -13,7 +13,7 @@ fn newly_bound_transforms_resolve() {
 }
 
 #[test]
-fn alignment_via_koto() {
+fn alignment_via_script() {
     // add.out takes structure from the right pattern -> 3 onsets
     let pat = eval(r#"seq(0, 1).add_out("10 20 30")"#).expect("eval");
     let onsets = pat
@@ -97,7 +97,7 @@ fn linger_invert_replicate_applyn_and_aliases() {
     );
     // applyN(3, +1): apply the callback three times.
     assert_eq!(
-        values(&eval(r#""0".applyN(3, |x| x.add(1))"#).unwrap(), 0, 1),
+        values(&eval(r#""0".applyN(3, x => x.add(1))"#).unwrap(), 0, 1),
         vec![Value::Int(3)]
     );
     // aliases: sparsity == slow (method + standalone), sequence == seq,
@@ -118,7 +118,7 @@ fn linger_invert_replicate_applyn_and_aliases() {
         5
     );
     assert!(
-        eval(r#"nothing()"#)
+        eval(r#"nothing"#)
             .unwrap()
             .query_arc(Frac::zero(), Frac::one())
             .is_empty()
@@ -141,16 +141,16 @@ fn chunk_jux_flip_and_keepif_variants() {
     // fastChunk(2): cycle 0 bumps the 1st half, cycle 1 the 2nd (looped
     // subcycle, no slow-down). Matches Strudel.
     assert_eq!(
-        ns(r#"n("0 1 2 3").fastChunk(2, |x| x.add(n(10)))"#, 0, 1),
+        ns(r#"n("0 1 2 3").fastChunk(2, x => x.add(n(10)))"#, 0, 1),
         vec![10, 11, 2, 3]
     );
     assert_eq!(
-        ns(r#"n("0 1 2 3").fastChunk(2, |x| x.add(n(10)))"#, 1, 2),
+        ns(r#"n("0 1 2 3").fastChunk(2, x => x.add(n(10)))"#, 1, 2),
         vec![0, 1, 12, 13]
     );
     // slowChunk is an alias for chunk.
     assert_eq!(
-        ns(r#"n("0 1 2 3").slowChunk(2, |x| x.add(n(10)))"#, 0, 1),
+        ns(r#"n("0 1 2 3").slowChunk(2, x => x.add(n(10)))"#, 0, 1),
         vec![10, 11, 2, 3]
     );
     // keepif keeps the control value where the bool is truthy (drops the rest),
@@ -208,7 +208,7 @@ fn comparison_and_logic_composers() {
     assert_eq!(b(r#""0 1 2".ne(1)"#), vec![true, false, true]);
     assert_eq!(b(r#""0 1 2 3".gte(2)"#), vec![false, false, true, true]);
     assert_eq!(b(r#""1 2 3".eqt(2)"#), vec![false, true, false]);
-    // and/or pick an operand by left-truthiness (method-only: Koto keywords).
+    // and/or pick an operand by left-truthiness (method-only).
     assert_eq!(b(r#""1 0 1".and("1 1 0")"#), vec![true, false, false]);
     assert_eq!(b(r#""1 0 0".or("0 1 0")"#), vec![true, true, false]);
     // idiomatic use: gate a struct.
@@ -217,13 +217,13 @@ fn comparison_and_logic_composers() {
 }
 
 #[test]
-fn chop_via_koto() {
+fn chop_via_script() {
     let pat = eval(r#"s("bd").chop(4)"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
 }
 
 #[test]
-fn slice_via_koto() {
+fn slice_via_script() {
     let pat = eval(r#"s("bd").slice(4, "0 2")"#).expect("eval");
     let haps = pat.query_arc(Frac::zero(), Frac::one());
     assert_eq!(haps.len(), 2);
@@ -234,7 +234,7 @@ fn slice_via_koto() {
 }
 
 #[test]
-fn bite_via_koto() {
+fn bite_via_script() {
     // bite(4, "0 2") picks pattern slices 0 and 2, squeezed into each step.
     let pat = eval(r#"s("a b c d").bite(4, "0 2")"#).expect("eval");
     let vals = values(&pat, 0, 1);
@@ -253,7 +253,7 @@ fn bite_via_koto() {
 }
 
 #[test]
-fn loop_at_cps_via_koto() {
+fn loop_at_cps_via_script() {
     // loopAtCps(2, 1.0): speed = (1/2)*1 = 0.5, unit 'c'.
     let pat = eval(r#"s("bd").loopAtCps(2, 1.0)"#).expect("eval");
     match &values(&pat, 0, 1)[0] {
@@ -266,7 +266,7 @@ fn loop_at_cps_via_koto() {
 }
 
 #[test]
-fn euclidish_and_eish_via_koto() {
+fn euclidish_and_eish_via_script() {
     // perc=0 == euclid(3,8); the eish alias resolves to the same.
     let morphed = eval(r#"s("bd").euclidish(3, 8, 0)"#).expect("eval");
     let plain = eval(r#"s("bd").euclid(3, 8)"#).expect("eval");
@@ -342,7 +342,7 @@ fn stack_alignment_variants() {
 }
 
 #[test]
-fn bjork_tuple_via_koto() {
+fn bjork_tuple_via_script() {
     // bjork([3,8,2]) == euclidRot(3,8,2), as method and standalone.
     let bjork = eval(r#"s("bd").bjork([3, 8, 2])"#).expect("eval");
     let rot = eval(r#"s("bd").euclidRot(3, 8, 2)"#).expect("eval");
@@ -370,7 +370,7 @@ fn factories_stepcat_arrange_polymeter() {
 }
 
 #[test]
-fn take_drop_scan_via_koto() {
+fn take_drop_scan_via_script() {
     // seq(0,1,2,3).take(2) -> "0 1"; drop(1) -> "1 2 3"
     let pat = eval(r#"seq(0, 1, 2, 3).take(2)"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(0), Value::Int(1)]);
@@ -389,7 +389,7 @@ fn take_drop_scan_via_koto() {
 }
 
 #[test]
-fn shuffle_scramble_tour_zip_via_koto() {
+fn shuffle_scramble_tour_zip_via_script() {
     // shuffle(4): a permutation — each cycle plays every part exactly once.
     let pat = eval(r#"pat("0 1 2 3").shuffle(4)"#).expect("eval");
     for c in 0..4 {
@@ -445,7 +445,7 @@ fn shuffle_scramble_tour_zip_via_koto() {
 }
 
 #[test]
-fn weighted_choosers_and_stepalt_via_koto() {
+fn weighted_choosers_and_stepalt_via_script() {
     // wrandcat: heavy weight on 0 dominates, one value per cycle
     let pat = eval(r#"wrandcat([0, 1000], [1, 1])"#).expect("eval");
     let mut zeros = 0;
@@ -475,7 +475,7 @@ fn weighted_choosers_and_stepalt_via_koto() {
 }
 
 #[test]
-fn ribbon_and_seg_via_koto() {
+fn ribbon_and_seg_via_script() {
     // ribbon loops the window [1,3) of "<0 1 2 3>": cycle 0 -> 1, cycle 2 -> 1
     let pat = eval(r#"n("<0 1 2 3>").ribbon(1, 2)"#).expect("eval");
     let n_at = |c: i64| match &pat.query_arc(Frac::int(c), Frac::int(c + 1))[0].value {
@@ -492,7 +492,7 @@ fn ribbon_and_seg_via_koto() {
 }
 
 #[test]
-fn overlay_and_pace_via_koto() {
+fn overlay_and_pace_via_script() {
     let pat = eval(r#"seq(0).overlay(7)"#).expect("eval");
     let mut got = values(&pat, 0, 1);
     got.sort_by_key(|v| v.as_f64().unwrap() as i64);
@@ -519,15 +519,15 @@ fn camel_case_aliases_resolve() {
         r#"s("bd").loopAt(2)"#,
         r#"sine.toBipolar()"#,
         r#"sine.fromBipolar()"#,
-        r#"seq(0, 1).firstOf(2, |x| x.add(10))"#,
-        r#"seq(0, 1).lastOf(2, |x| x.add(10))"#,
-        r#"seq(0, 1, 2, 3).chunkBack(2, |x| x.add(10))"#,
+        r#"seq(0, 1).firstOf(2, x => x.add(10))"#,
+        r#"seq(0, 1).lastOf(2, x => x.add(10))"#,
+        r#"seq(0, 1, 2, 3).chunkBack(2, x => x.add(10))"#,
         r#"note("0 1").juxBy(0.5, rev)"#,
-        r#"seq(0, 1).sometimesBy(0.5, |x| x.add(7))"#,
-        r#"seq(0, 1).someCycles(|x| x.add(7))"#,
-        r#"seq(0, 1).someCyclesBy(0.5, |x| x.add(7))"#,
-        r#"seq(0, 1).almostAlways(|x| x.add(7))"#,
-        r#"seq(0, 1).almostNever(|x| x.add(7))"#,
+        r#"seq(0, 1).sometimesBy(0.5, x => x.add(7))"#,
+        r#"seq(0, 1).someCycles(x => x.add(7))"#,
+        r#"seq(0, 1).someCyclesBy(0.5, x => x.add(7))"#,
+        r#"seq(0, 1).almostAlways(x => x.add(7))"#,
+        r#"seq(0, 1).almostNever(x => x.add(7))"#,
     ] {
         assert!(eval(src).is_ok(), "should eval: {src}");
     }
@@ -539,7 +539,7 @@ fn curried_standalone_transforms_as_callbacks() {
     // so Strudel's `sometimes(ply("2"))` idiom works like `|x| x.ply("2")`.
     let curried = shape(&eval(r#"seq(0, 1).always(fast(2))"#).expect("eval"), 1);
     let lambda = shape(
-        &eval(r#"seq(0, 1).always(|x| x.fast(2))"#).expect("eval"),
+        &eval(r#"seq(0, 1).always(x => x.fast(2))"#).expect("eval"),
         1,
     );
     assert_eq!(curried, lambda);
@@ -565,7 +565,7 @@ fn curried_callback_combinators() {
         1,
     );
     let lambda = shape(
-        &eval(r#"seq(0, 1).off(0.25, |x| x.fast(2))"#).expect("eval"),
+        &eval(r#"seq(0, 1).off(0.25, x => x.fast(2))"#).expect("eval"),
         1,
     );
     assert_eq!(nested, lambda);
@@ -587,7 +587,7 @@ fn chained_recurrying() {
 }
 
 #[test]
-fn step_count_transforms_via_koto() {
+fn step_count_transforms_via_script() {
     // contract halves the step count; shrink/grow concatenate shrinking views.
     let pat = eval(r#"seq(0, 1, 2, 3).contract(2)"#).expect("eval");
     assert_eq!(pat.steps, Some(Frac::int(2)));
@@ -599,7 +599,7 @@ fn step_count_transforms_via_koto() {
 }
 
 #[test]
-fn timeline_method_and_standalone_via_koto() {
+fn timeline_method_and_standalone_via_script() {
     // timeline(0) is an unshifted no-op, so it must match the bare pattern in
     // both the method and standalone (pattern-last) spellings. This confirms
     // the impure `timeline` binding is wired.
@@ -611,7 +611,7 @@ fn timeline_method_and_standalone_via_koto() {
 }
 
 #[test]
-fn beat_collect_morph_xfade_via_koto() {
+fn beat_collect_morph_xfade_via_script() {
     // beat: "0,7,10" (a mini stack) places three onsets in a 16-division cycle.
     let pat = eval(r#"s("bd").beat("0,7,10", 16)"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 3);

@@ -1,12 +1,11 @@
 // triggers.rs - `onTriggerTime`: user callbacks fired as events play.
 //
-// Every other Koto callback in Rudel is applied eagerly at build time, because
-// the Koto VM is not `Send` and the audio/query path is. `onTriggerTime` is the
-// one that genuinely has to run *later*: it exists to make something happen at
-// event time. So the evaluation's VM is kept alive past `eval` inside a
-// [`TriggerHooks`], the haps are tagged with the hook id, and the host — which
-// owns the VM's thread — fires the callbacks from its frame loop as the
-// playhead passes each event.
+// Every other callback in Rudel is applied eagerly at build time, which is
+// cheaper and keeps a callback's errors attached to the evaluation that made
+// them. `onTriggerTime` is the one that genuinely has to run *later*: it exists
+// to make something happen at event time. So the function is kept past `eval`
+// (see `js::SendFn`), the haps are tagged with the hook id, and the host fires
+// the callbacks from its frame loop as the playhead passes each event.
 //
 // Upstream (`core/pattern.mjs`) implements this with `onTrigger` plus a
 // `window.setTimeout`, and its own docs call that "innacurate for audio tasks".
@@ -14,10 +13,9 @@
 // side effects, not for sample-accurate audio.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::bindings::KPattern;
-use koto::{prelude::*, runtime::Result as KotoResult};
-use rudel_core::{Hap, Value};
-use std::{cell::RefCell, collections::HashMap};
+use crate::js::{self, Arg, Res, SendFn, Session};
+use rudel_core::{Hap, Pattern, Value};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 /// The control an `onTriggerTime`-tagged hap carries: the id of the callback to
 /// fire. The scheduler's event extraction strips it, like `rudel_core::LOG_KEY`.
@@ -26,7 +24,7 @@ pub use rudel_core::TRIGGER_KEY;
 thread_local! {
     /// Callbacks registered by the evaluation currently running, keyed by id.
     /// Drained into a [`TriggerHooks`] when the evaluation finishes.
-    static PENDING: RefCell<Vec<KValue>> = const { RefCell::new(Vec::new()) };
+    static PENDING: RefCell<Vec<SendFn>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Forget any callbacks a previous evaluation left behind. Called at the start
@@ -35,33 +33,33 @@ pub(crate) fn reset_hooks() {
     PENDING.with(|p| p.borrow_mut().clear());
 }
 
-/// `pat.onTriggerTime(f)`: register `f` and tag the pattern with its id.
-pub(crate) fn kpattern_on_trigger_time(ctx: MethodContext<KPattern>) -> KotoResult<KValue> {
-    let func = ctx.args.first().cloned().unwrap_or(KValue::Null);
+/// `pat.onTriggerTime(f)`: keep `f` and tag the pattern with its id.
+pub(crate) fn kpattern_on_trigger_time(pat: &Pattern, a: &[Arg]) -> Res {
+    let Some(func) = a.first().and_then(js::keep) else {
+        return Err("onTriggerTime: expected a function".to_string());
+    };
     let id = PENDING.with(|p| {
         let mut p = p.borrow_mut();
         p.push(func);
         p.len() as i64 - 1
     });
-    let pat = ctx.instance()?.0.clone();
-    Ok(KPattern(pat.ctrl(TRIGGER_KEY, rudel_core::pure(Value::Int(id)))).into())
+    Ok(pat
+        .ctrl(TRIGGER_KEY, rudel_core::pure(Value::Int(id)))
+        .into())
 }
 
-/// The callbacks an evaluation registered, together with the VM that can run
-/// them. Not `Send` — it lives on the thread that evaluated the script, which
-/// is the same thread the host's frame loop runs on.
+/// The callbacks an evaluation registered. Holding one keeps the evaluation's
+/// engine alive to run them.
 #[derive(Default)]
 pub struct TriggerHooks {
-    /// `None` when the script registered no hooks, so the common case drops
-    /// the interpreter at the end of evaluation as it always did.
-    koto: Option<Koto>,
-    hooks: HashMap<i64, KValue>,
+    hooks: HashMap<i64, SendFn>,
+    _session: Option<Arc<Session>>,
 }
 
 impl TriggerHooks {
     /// Take whatever the just-finished evaluation registered.
-    pub(crate) fn take(koto: Koto) -> TriggerHooks {
-        let hooks: HashMap<i64, KValue> = PENDING.with(|p| {
+    pub(crate) fn take(session: Option<Arc<Session>>) -> TriggerHooks {
+        let hooks: HashMap<i64, SendFn> = PENDING.with(|p| {
             p.borrow_mut()
                 .drain(..)
                 .enumerate()
@@ -69,7 +67,7 @@ impl TriggerHooks {
                 .collect()
         });
         TriggerHooks {
-            koto: (!hooks.is_empty()).then_some(koto),
+            _session: (!hooks.is_empty()).then_some(session).flatten(),
             hooks,
         }
     }
@@ -80,17 +78,15 @@ impl TriggerHooks {
         self.hooks.is_empty()
     }
 
-    /// Fire the callback `hap` is tagged for, passing the hap as a map (the
-    /// same shape `filter` sees). Returns the callback's error message, if it
+    /// Fire the callback `hap` is tagged for, passing the hap as the object a
+    /// `filter` predicate sees. Returns the callback's error message, if it
     /// raised one, so the host can surface it.
     pub fn fire(&mut self, hap: &Hap) -> Option<String> {
         let id = trigger_id(&hap.value)?;
-        let func = self.hooks.get(&id)?.clone();
-        let koto = self.koto.as_mut()?;
-        let arg = crate::bindings::hap_to_koto(hap);
-        koto.call_function(func, CallArgs::Single(arg))
-            .err()
-            .map(|e| e.to_string())
+        let func = *self.hooks.get(&id)?;
+        let hap = hap.clone();
+        func.run(move |f| js::call(f, vec![crate::bindings::hap_to_filter_arg(&hap)]).err())
+            .flatten()
     }
 }
 

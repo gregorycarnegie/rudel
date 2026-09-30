@@ -2,7 +2,7 @@ use super::common::*;
 use std::collections::BTreeMap;
 
 // `modulate`/`lfo`/`env`/`bmod` build a nested modulator descriptor in the hap
-// value. These tests pin the Koto-level surface; the descriptor shape itself is
+// value. These tests pin the script-level surface; the descriptor shape itself is
 // unit-tested in rudel-core's `modulate` module.
 
 /// The first hap's control map over cycle 0.

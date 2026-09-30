@@ -9,8 +9,8 @@ use super::RudelApp;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
-/// Patterns are written as Strudel JavaScript (the preprocessor turns them
-/// into Koto), and the corpora they come from are directories of `.js`.
+/// Patterns are written as Strudel JavaScript, and the corpora they come from
+/// are directories of `.js`.
 const EXTENSION: &str = "js";
 
 /// What a recording is saved as when the name carries no extension of its own.
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(app.io_error, None);
 
         // A different buffer, then read the file back over it.
-        app.code = "silence()".to_string();
+        app.code = "silence".to_string();
         app.load_path(&path);
         assert_eq!(app.code, "s(\"bd sd\")");
         assert!(app.status.contains("pattern.js"), "status: {}", app.status);

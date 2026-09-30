@@ -1,28 +1,69 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1050 methods=1143 controls=668
+# functions=1095 methods=1144 controls=668
 
 [functions]
+AggregateError
 Array
+ArrayBuffer
+Atomics
+BigInt
+BigInt64Array
+BigUint64Array
 Boolean
+DataView
+Date
+Error
+EvalError
 FXr
 FXrel
 FXrelease
+FinalizationRegistry
+Float32Array
+Float64Array
 Fraction
+Function
 H
 Hap
 Hydra
+Infinity
+Int16Array
+Int32Array
+Int8Array
+Iterator
 JSON
 K
 Kabel
+Map
 Math
+NaN
 Number
 Object
 P5
 Pattern
+Promise
+Proxy
+RangeError
+ReferenceError
+Reflect
+RegExp
+Set
+SharedArrayBuffer
 String
+Symbol
+SyntaxError
 TimeSpan
+TypeError
+TypedArray
+URIError
+Uint16Array
+Uint32Array
+Uint8Array
+Uint8ClampedArray
+WeakMap
+WeakRef
+WeakSet
 accelerate
 activeLabel
 add
@@ -161,6 +202,8 @@ cyclesPer
 datt
 dec
 decay
+decodeURI
+decodeURIComponent
 defaultmidimap
 degrade
 degradeBy
@@ -213,6 +256,8 @@ echo
 echoWith
 echowith
 eish
+encodeURI
+encodeURIComponent
 end
 enhance
 env
@@ -227,6 +272,7 @@ euclid_legato_rot
 euclid_rot
 euclidish
 euclidrot
+eval
 every
 expand
 expression
@@ -561,6 +607,7 @@ gate
 getDur
 getDuration
 getFreq
+globalThis
 grow
 gt
 gte
@@ -597,6 +644,7 @@ hsla
 hurry
 hush
 i
+id
 imag
 inhabit
 inhabitmod
@@ -610,6 +658,8 @@ irand
 irbegin
 iresponse
 irspeed
+isFinite
+isNaN
 isaw
 isaw2
 iter
@@ -743,6 +793,8 @@ panspan
 pansplay
 panwidth
 parray
+parseFloat
+parseInt
 partials
 pat
 patt
@@ -841,15 +893,7 @@ rootNotes
 root_notes
 round
 rsize
-rudel_apply
-rudel_concat
 rudel_label
-rudel_prop
-rudel_prototype
-rudel_shl
-rudel_shr
-rudel_spread
-rudel_typeof
 run
 s
 s_alt
@@ -887,6 +931,7 @@ shape
 shapevol
 shrink
 shuffle
+signal
 silence
 sine
 sine2
@@ -1320,6 +1365,7 @@ filterValues
 filterWhen
 filter_values
 filter_when
+firstCycle
 firstOf
 first_of
 fit
@@ -1941,6 +1987,7 @@ q7
 q8
 q9
 query
+queryArc
 range
 range2
 rangex
@@ -2067,7 +2114,6 @@ strans
 stretch
 striate
 struct
-struct_alias
 struct_pat
 stut
 stutWith

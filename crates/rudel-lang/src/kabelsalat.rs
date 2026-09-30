@@ -9,7 +9,7 @@
 //! AudioWorklet that runs `new Function(src)` once per sample.
 //!
 //! Rudel skips the source round-trip. `K(...)` evaluates inline — the node
-//! builders in [`crate::bindings::kabelsalat`] are Koto functions, so the
+//! builders in [`crate::bindings::kabelsalat`] are native functions, so the
 //! graph is built by the same interpreter that runs the rest of the pattern —
 //! and the compiled program travels to the audio thread as plain control
 //! [`Value`]s. Nothing is stringified, and nothing is evaluated per sample.
@@ -145,7 +145,7 @@ pub enum Arg {
     Poly(Vec<Arg>),
     /// A function argument, which kabelsalat calls with the node currently
     /// being built. This is how a graph closes a loop back on itself.
-    Feedback(Box<dyn Fn(NodeId) -> Arg + Send>),
+    Feedback(Box<dyn Fn(NodeId) -> Arg>),
 }
 
 /// kabelsalat's `poly` marker node, holding one input per channel.

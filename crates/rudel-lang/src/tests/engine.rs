@@ -12,7 +12,7 @@ use super::common::*;
 #[test]
 fn a_pattern_can_be_built_from_a_query_function() {
     // The simplest combinator there is: one hap covering whatever was asked
-    // for. It proves the state reaches Koto and the haps come back.
+    // for. It proves the state reaches the script and the haps come back.
     let pat = eval(
         r#"
 new Pattern(state => [new Hap(state.span, state.span, 7)])
@@ -55,19 +55,6 @@ new Pattern(state => [new Hap(state.span, state.span, Fraction(1).div(3).mul(3).
     )
     .expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::F64(1.0)]);
-}
-
-#[test]
-fn a_query_function_may_return_a_tuple_of_haps() {
-    // Koto's own iterator adaptors hand back tuples, so a combinator written
-    // as `[...].to_tuple()` has to work like the list form.
-    let pat = eval(
-        r#"
-new Pattern(state => [new Hap(state.span, state.span, 7)].to_tuple())
-"#,
-    )
-    .expect("eval");
-    assert_eq!(values(&pat, 0, 1), vec![Value::Int(7)]);
 }
 
 #[test]
@@ -184,4 +171,55 @@ Pattern.prototype.tally = function (other) {
         vec![Value::Int(4)],
         "the argument arrived as a whole pattern, not one sampled value"
     );
+}
+
+#[test]
+fn an_engine_panic_is_the_script_s_error_and_the_next_one_runs() {
+    // boa's `sort` panics on a comparator that is not a total order, which is
+    // exactly what the shuffle idiom is. That has to come back as an error
+    // rather than taking the host down, and leave the engine usable.
+    let script = "pure([...Array(100).keys()].sort(() => Math.random() - 0.5)[0])";
+    let mut failed = false;
+    // Random, so a lucky run may sort without tripping the check.
+    for _ in 0..20 {
+        if let Err(e) = eval(script) {
+            assert!(e.contains("sort"), "{e}");
+            failed = true;
+            break;
+        }
+    }
+    assert!(failed, "the inconsistent comparator never tripped");
+    assert_eq!(
+        values(&eval("pure(1)").expect("eval"), 0, 1),
+        vec![Value::Int(1)]
+    );
+}
+
+#[test]
+fn a_script_can_read_a_pattern_and_build_a_signal() {
+    // `queryArc`/`firstCycle` hand back haps, as upstream's do.
+    let pat = eval("pure(n(\"0 1 2\").firstCycle().length + n(\"0 1\").queryArc(0, 2).length)")
+        .expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(7)]);
+    // `signal(t => …)` is sampled at each query's start.
+    let pat = eval("signal(t => t * 2).segment(2)").expect("eval");
+    assert_eq!(values(&pat, 0, 1), vec![Value::Int(0), Value::Int(1)]);
+    // `id` is the identity.
+    assert_eq!(
+        values(&eval("id(pure(3))").expect("eval"), 0, 1),
+        vec![Value::Int(3)]
+    );
+}
+
+#[test]
+fn register_takes_an_array_of_names() {
+    let pat = eval(
+        "const {twice, twice2} = register(['twice', 'twice2'], (pat) => pat.fast(2))\n\
+         s(\"bd\").twice2()",
+    )
+    .expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
+    // `filter` handed something that is not a predicate plays on unfiltered.
+    let pat = eval(r#"s("bd sd").filter(500)"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
 }

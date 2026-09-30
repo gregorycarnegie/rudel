@@ -4,7 +4,7 @@
 //
 // These set the `x`/`y`/`w`/`h` visual params that Strudel's `animate` runtime
 // consumes per frame. Rudel has no `animate` painter — the realtime/draw path
-// never runs the Koto VM (docs/UNSUPPORTED.md) — so these produce no visual on
+// never runs the script (docs/UNSUPPORTED.md) — so these produce no visual on
 // their own. They are provided for hap/API parity: each transform evaluates and
 // emits the same control maps as Strudel, exactly as the `register`-wrapped
 // originals do, so `.rescale(2)` / `.moveXY(0.1, 0.1)` / `.zoomIn(0.5)` are

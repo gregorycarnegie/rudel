@@ -10,7 +10,7 @@
 //! The body is written in single quotes: double-quoted strings are
 //! mini-notation, and a WGSL blob is not a pattern.
 //!
-//! ```koto
+//! ```js
 //! s("bd*4").shader({ code: '
 //!   let d = length(uv - vec2<f32>(0.5, 0.5));
 //!   return vec4<f32>(u.gain * (1.0 - d), 0.1, d, 1.0);

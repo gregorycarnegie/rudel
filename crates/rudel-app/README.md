@@ -2,7 +2,7 @@
 
 Native live-coding editor for Rudel.
 
-`rudel-app` is an `egui` desktop app that evaluates Koto scripts and routes the
+`rudel-app` is an `egui` desktop app that evaluates Strudel JavaScript and routes the
 resulting pattern to audio, MIDI, or OSC output.
 
 ## Run
@@ -44,7 +44,7 @@ widgets, and the native one-cycle visualizer.
 
 ## Features
 
-- Multiline Koto editor with full-buffer and current-block evaluation.
+- Multiline JavaScript editor with full-buffer and current-block evaluation.
 - CodeMirror-style editor settings with Strudel-compatible defaults.
 - Play/stop transport and cycles-per-second slider.
 - Audio, MIDI, and OSC output selector.

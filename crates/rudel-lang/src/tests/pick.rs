@@ -50,7 +50,7 @@ fn pick_variants_are_bound_as_methods_and_factories() {
 #[test]
 fn pick_f_picks_functions_from_lists_and_maps() {
     // index 0 -> rev, index 1 -> fast(2): cycle 0 reverses, cycle 1 doubles
-    let pat = eval(r#""a b".pickF("<0 1>", [|x| x.rev(), |x| x.fast(2)])"#).expect("eval");
+    let pat = eval(r#""a b".pickF("<0 1>", [x => x.rev(), x => x.fast(2)])"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Str("b".into()), Value::Str("a".into())]
@@ -58,19 +58,19 @@ fn pick_f_picks_functions_from_lists_and_maps() {
     assert_eq!(values(&pat, 1, 2).len(), 4);
 
     // name lookup + pickmodF index wrapping
-    let pat = eval(r#""a b".pickmodF("<r 3>", {r: |x| x.rev()})"#).expect("eval");
+    let pat = eval(r#""a b".pickmodF("<r 3>", {r: x => x.rev()})"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Str("b".into()), Value::Str("a".into())]
     );
-    let pat = eval(r#""a b".pickmodF("3", [|x| x.rev()])"#).expect("eval");
+    let pat = eval(r#""a b".pickmodF("3", [x => x.rev()])"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Str("b".into()), Value::Str("a".into())]
     );
 
     // callback errors surface instead of being swallowed
-    assert!(eval(r#""a".pickF("0", [|x| nope()])"#).is_err());
+    assert!(eval(r#""a".pickF("0", [x => nope()])"#).is_err());
 }
 
 #[test]
@@ -78,9 +78,9 @@ fn a_picked_function_is_applied_as_a_transform() {
     // `apply(pick([...]))` is upstream's pattern-of-functions: the callback is
     // called from the *query*, and what it returns has to come back as a
     // pattern rather than as a value.
-    let pat = eval(r#"seq(0).apply(pick([|x| x.add(5)], 0))"#).expect("eval");
+    let pat = eval(r#"seq(0).apply(pick([x => x.add(5)], 0))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(5)]);
     // A callback that returns some *other* object is not cast into a pattern.
-    let pat = eval(r#"seq(0).apply(pick([|x| Fraction(1)], 0))"#).expect("eval");
+    let pat = eval(r#"seq(0).apply(pick([x => Fraction(1)], 0))"#).expect("eval");
     assert!(values(&pat, 0, 1).iter().all(|v| *v != Value::Int(5)));
 }

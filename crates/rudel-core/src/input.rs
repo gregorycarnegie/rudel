@@ -72,7 +72,7 @@ pub fn clear_cc() {
 }
 
 /// A continuous 0..1 signal of the latest value of MIDI CC `cc`. `channel` is
-/// `1..=16`, or `None` for any channel (`ccin` in Koto). Reads the live bus at
+/// `1..=16`, or `None` for any channel (`ccin` in a script). Reads the live bus at
 /// query time, so the value tracks incoming controllers in real time.
 pub fn cc_in(cc: u8, channel: Option<u8>) -> Pattern {
     cc_in_from("", cc, channel)

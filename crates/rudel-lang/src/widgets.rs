@@ -2,16 +2,16 @@
 // The source scan in `preprocess/widgets.rs` can only read option *literals*
 // (`.pianoroll({cycles: 4})`), because it runs before the script does. The
 // rewrite passes the original argument through to the widget method, though, so
-// by the time that method runs Koto has evaluated the map — `{cycles: n}` or
-// `{cycles: bars * 2}` included. This registry carries those evaluated options
-// back out of the run so the host can merge them over the scanned ones.
+// by the time that method runs the script has evaluated the object —
+// `{cycles: n}` or `{cycles: bars * 2}` included. This registry carries those
+// evaluated options back out of the run so the host can merge them over the
+// scanned ones.
 //
 // Same shape as the slider registry next door: a process-global map keyed by
 // widget id, cleared at the start of each evaluation.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::WidgetOption;
-use koto::prelude::*;
+use crate::{WidgetOption, js::Arg};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{LazyLock, RwLock},
@@ -22,14 +22,14 @@ type OptionMap = BTreeMap<String, WidgetOption>;
 static WIDGET_OPTIONS: LazyLock<RwLock<HashMap<String, OptionMap>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-/// Convert one evaluated Koto value into a widget option. Mirrors the literal
-/// forms the source scan accepts, so a computed value and a written-out one
-/// land as the same `WidgetOption`.
-fn option_from_koto(key: &str, value: &KValue) -> Option<WidgetOption> {
+/// Convert one evaluated value into a widget option. Mirrors the literal forms
+/// the source scan accepts, so a computed value and a written-out one land as
+/// the same `WidgetOption`.
+fn option_from_arg(key: &str, value: &Arg) -> Option<WidgetOption> {
     match value {
-        KValue::Bool(b) => Some(WidgetOption::Bool(*b)),
-        KValue::Number(n) => Some(WidgetOption::Number(f64::from(n))),
-        KValue::Str(s) => Some(WidgetOption::String(s.to_string())),
+        Arg::Bool(b) => Some(WidgetOption::Bool(*b)),
+        Arg::Num(n) => Some(WidgetOption::Number(*n)),
+        Arg::Str(s) => Some(WidgetOption::String(s.clone())),
         // A hydra chain arrives as an object and leaves as the WGSL it
         // compiles to, so the shader is generated once per evaluation rather
         // than once per frame, and the widget host needs to know nothing about
@@ -38,10 +38,10 @@ fn option_from_koto(key: &str, value: &KValue) -> Option<WidgetOption> {
         // The key decides which output buffer the chain is bound to, because
         // that is what `prev()` inside it reads. `chain` is `o0` under its
         // single-output name.
-        KValue::Object(o) => o
-            .cast::<crate::bindings::hydra::KHydra>()
-            .ok()
-            .map(|h| WidgetOption::String(crate::hydra::compile(&h.0, hydra_output(key)))),
+        Arg::Hydra(chain) => Some(WidgetOption::String(crate::hydra::compile(
+            chain,
+            hydra_output(key),
+        ))),
         _ => None,
     }
 }
@@ -56,20 +56,16 @@ fn hydra_output(key: &str) -> usize {
     }
 }
 
-/// Read an evaluated `{key: value}` widget-option map. Non-string keys and
-/// values that are not a bool/number/string (a nested map, a function) are
-/// skipped rather than failing the evaluation — the scanned literal, or the
-/// painter's default, still stands for them.
-pub(crate) fn options_from_koto(value: &KValue) -> OptionMap {
-    let KValue::Map(map) = value else {
+/// Read an evaluated `{key: value}` widget-option object. Values that are not a
+/// bool/number/string/chain (a nested object, a function) are skipped rather
+/// than failing the evaluation — the scanned literal, or the painter's
+/// default, still stands for them.
+pub(crate) fn options_from_arg(value: &Arg) -> OptionMap {
+    let Arg::Map(map) = value else {
         return OptionMap::new();
     };
-    map.data()
-        .iter()
-        .filter_map(|(k, v)| match k.value() {
-            KValue::Str(key) => Some((key.to_string(), option_from_koto(key, v)?)),
-            _ => None,
-        })
+    map.iter()
+        .filter_map(|(key, v)| Some((key.clone(), option_from_arg(key, v)?)))
         .collect()
 }
 
@@ -101,15 +97,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn koto_values_map_onto_the_literal_option_forms() {
-        let map = KMap::new();
-        map.insert("cycles", 4);
-        map.insert("vertical", true);
-        map.insert("mode", "polygon");
-        // A value shape no option takes is skipped, not an error.
-        map.insert("nested", KMap::new());
+    fn evaluated_values_map_onto_the_literal_option_forms() {
+        let map = Arg::Map(vec![
+            ("cycles".to_string(), Arg::Num(4.0)),
+            ("vertical".to_string(), Arg::Bool(true)),
+            ("mode".to_string(), Arg::Str("polygon".to_string())),
+            // A value shape no option takes is skipped, not an error.
+            ("nested".to_string(), Arg::Map(Vec::new())),
+        ]);
 
-        let options = options_from_koto(&KValue::Map(map));
+        let options = options_from_arg(&map);
         assert_eq!(options.get("cycles"), Some(&WidgetOption::Number(4.0)));
         assert_eq!(options.get("vertical"), Some(&WidgetOption::Bool(true)));
         assert_eq!(
@@ -118,8 +115,8 @@ mod tests {
         );
         assert!(!options.contains_key("nested"));
 
-        // A non-map argument yields nothing rather than panicking.
-        assert!(options_from_koto(&KValue::Null).is_empty());
+        // A non-object argument yields nothing rather than panicking.
+        assert!(options_from_arg(&Arg::Null).is_empty());
     }
 
     #[test]

@@ -1,104 +1,20 @@
 use super::pattern::{
-    KPattern, arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_raw_str,
-    arg_to_value, arg_to_weighted_pair, arg0, koto_to_value, pick_args,
+    arg_to_f64, arg_to_group, arg_to_pattern, arg_to_pattern_weight, arg_to_raw_str, arg_to_value,
+    arg_to_weighted_pair, arg0, bjork_counts, euclid_call, pick_args, stepwise_call, to_value,
 };
-use koto::prelude::*;
-use rudel_core::{Frac, Pattern, PickJoin};
+use crate::js::{self, Arg, NULL, Scope};
+use rudel_core::{Frac, Pattern, PickJoin, Value};
 
-macro_rules! register_unary_pattern_fns {
-    ($p:expr; $($name:literal => $f:path),* $(,)?) => {
-        $(
-            $p.add_fn($name, |ctx| {
-                Ok(KPattern($f(arg_to_pattern(&arg0(ctx)))).into())
-            });
-        )*
-    };
+/// The pattern a side-effecting call hands back, so it can sit on a line of
+/// its own.
+fn done() -> Result<Arg, String> {
+    Ok(rudel_core::silence().into())
 }
 
-macro_rules! register_pattern_list_fns {
-    ($p:expr; $($name:literal => $f:path),* $(,)?) => {
-        $(
-            $p.add_fn($name, |ctx| {
-                let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-                Ok(KPattern($f(&pats)).into())
-            });
-        )*
-    };
-}
-
-macro_rules! register_pick_fns {
-    ($p:expr; $($name:literal => ($modulo:expr, $join:expr)),* $(,)?) => {
-        $(
-            $p.add_fn($name, |ctx| {
-                Ok(KPattern(pick_args(ctx.args(), $modulo, $join, ctx.vm)).into())
-            });
-        )*
-    };
-}
-
-/// Register a standalone transform with Strudel-style partial application:
-/// called with fewer than `arity` arguments (i.e. without the trailing
-/// pattern), it returns a function holding those arguments and awaiting the
-/// rest, so `ply("0")` works as a transform argument (`x => x.ply("0")`)
-/// exactly like Strudel's curried `register` functions.
-pub(super) fn add_curried_fn(
-    prelude: &KMap,
-    name: &str,
-    arity: usize,
-    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + Send + Sync + 'static,
-) {
-    prelude.add_fn(name, move |ctx| {
-        let args = ctx.args();
-        if args.len() < arity {
-            return Ok(curried(args.to_vec(), arity, f.clone()));
-        }
-        f(args)
-    });
-}
-
-/// `Math.random`'s source: xorshift64*, seeded once from the clock. Strudel's
-/// is the host's `Math.random`, which is likewise unseeded and unrepeatable.
-fn next_random() -> f64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static STATE: AtomicU64 = AtomicU64::new(0);
-    let mut x = STATE.load(Ordering::Relaxed);
-    if x == 0 {
-        x = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0x2545_F491_4F6C_DD1D, |d| d.as_nanos() as u64)
-            | 1;
-    }
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    STATE.store(x, Ordering::Relaxed);
-    // 53 bits of mantissa, as `Math.random` yields.
-    (x >> 11) as f64 / (1u64 << 53) as f64
-}
-
-/// A partial application holding `held`: each call appends its args, then
-/// either re-curries (still short of `arity`) or applies `f`, so chained
-/// partial calls (`every(4)(rev)(pat)`) work like Strudel's `curry`.
-fn curried(
-    held: Vec<KValue>,
-    arity: usize,
-    f: impl Fn(&[KValue]) -> koto::runtime::Result<KValue> + Clone + Send + Sync + 'static,
-) -> KValue {
-    KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-        let mut all = held.clone();
-        all.extend_from_slice(ctx.args());
-        if all.len() < arity {
-            return Ok(curried(all, arity, f.clone()));
-        }
-        f(&all)
-    }))
-}
-
-/// Register the standalone (curried-style) form of pattern transforms that are
-/// also methods, taking the pattern as the *last* argument to mirror Strudel's
-/// `register`ed functions (`fast(2, pat)` == `pat.fast(2)`). Each group matches
-/// the argument types in `generated.rs`'s `kpattern_methods!`. Calls missing
-/// the trailing pattern partially apply via [`add_curried_fn`].
+/// Register the standalone form of pattern transforms that are also methods,
+/// taking the pattern as the *last* argument to mirror Strudel's `register`ed
+/// functions (`fast(2, pat)` == `pat.fast(2)`). Each group matches the argument
+/// types in `generated.rs`. Calls missing the trailing pattern partially apply.
 macro_rules! register_pattern_fns {
     ($p:expr;
      pattern1: [$($n_a1:literal => $a1:ident),* $(,)?];
@@ -114,250 +30,130 @@ macro_rules! register_pattern_fns {
     ) => {{
         // The pattern is the last argument; leading arg `i` exists only when
         // `i < last` (otherwise it would be the pattern itself). Each arity is
-        // the full argument count; shorter calls curry via `add_curried_fn`.
-        $(add_curried_fn($p, $n_a1, 2, |a: &[KValue]| {
+        // the full argument count; shorter calls curry.
+        fn lead(a: &[Arg], i: usize) -> &Arg {
             let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.$a1(x)).into())
+            a.get(i).filter(|_| last > i).unwrap_or(NULL)
+        }
+        fn subject(a: &[Arg]) -> Pattern {
+            arg_to_pattern(a.last().unwrap_or(NULL))
+        }
+        $($p.curried($n_a1, 2, |a| Ok(subject(a).$a1(arg_to_pattern(lead(a, 0))).into()));)*
+        // Strudel's `register` curries, so calling one of these with no
+        // argument hands back the transform rather than applying it to
+        // nothing: `.sometimesBy(0.8, rev())` passes a function.
+        $($p.curried($n_a0, 1, |a| Ok(subject(a).$a0().into()));)*
+        $($p.curried($n_b1, 2, |a| Ok(subject(a).$b1(arg_to_f64(lead(a, 0)) as i64).into()));)*
+        $($p.curried($n_h1, 2, |a| Ok(subject(a).$h1(arg_to_f64(lead(a, 0))).into()));)*
+        $($p.curried($n_c1, 2, |a| {
+            Ok(subject(a).$c1(Frac::from_f64(arg_to_f64(lead(a, 0)))).into())
         });)*
-        $($p.add_fn($n_a0, |ctx| {
-            let a = ctx.args();
-            // Strudel's `register` curries, so calling one of these with no
-            // argument hands back the transform rather than applying it to
-            // nothing: `.sometimesBy(0.8, rev())` passes a function.
-            if a.is_empty() {
-                return Ok(curried(Vec::new(), 1, |a: &[KValue]| {
-                    let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
-                    Ok(KPattern(pat.$a0()).into())
-                }));
-            }
-            let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.$a0()).into())
+        $($p.curried($n_d2, 3, |a| {
+            Ok(subject(a).$d2(arg_to_f64(lead(a, 0)), arg_to_f64(lead(a, 1))).into())
         });)*
-        $(add_curried_fn($p, $n_b1, 2, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
-            Ok(KPattern(pat.$b1(n)).into())
+        $($p.curried($n_e2, 3, |a| {
+            let x = Frac::from_f64(arg_to_f64(lead(a, 0)));
+            let y = Frac::from_f64(arg_to_f64(lead(a, 1)));
+            Ok(subject(a).$e2(x, y).into())
         });)*
-        $(add_curried_fn($p, $n_h1, 2, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let n = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.$h1(n)).into())
+        $($p.curried($n_ja, 4, |a| {
+            let x = arg_to_f64(lead(a, 0)) as i64;
+            let y = Frac::from_f64(arg_to_f64(lead(a, 1)));
+            let z = arg_to_f64(lead(a, 2));
+            Ok(subject(a).$ja(x, y, z).into())
         });)*
-        $(add_curried_fn($p, $n_c1, 2, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let n = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
-            Ok(KPattern(pat.$c1(n)).into())
+        $($p.curried($n_jb, 4, |a| {
+            let x = arg_to_f64(lead(a, 0)) as i64;
+            let y = arg_to_f64(lead(a, 1));
+            let z = Frac::from_f64(arg_to_f64(lead(a, 2)));
+            Ok(subject(a).$jb(x, y, z).into())
         });)*
-        $(add_curried_fn($p, $n_d2, 3, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
-            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.$d2(x, y)).into())
-        });)*
-        $(add_curried_fn($p, $n_e2, 3, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = Frac::from_f64(arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)));
-            let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
-            Ok(KPattern(pat.$e2(x, y)).into())
-        });)*
-        $(add_curried_fn($p, $n_ja, 4, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
-            let y = Frac::from_f64(arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null)));
-            let z = arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.$ja(x, y, z)).into())
-        });)*
-        $(add_curried_fn($p, $n_jb, 4, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_f64(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null)) as i64;
-            let y = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
-            let z = Frac::from_f64(arg_to_f64(a.get(2).filter(|_| last >= 3).unwrap_or(&KValue::Null)));
-            Ok(KPattern(pat.$jb(x, y, z)).into())
-        });)*
-        $(add_curried_fn($p, $n_g2, 3, |a: &[KValue]| {
-            let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let x = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
-            let y = arg_to_pattern(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.$g2(x, y)).into())
+        $($p.curried($n_g2, 3, |a| {
+            Ok(subject(a).$g2(arg_to_pattern(lead(a, 0)), arg_to_pattern(lead(a, 1))).into())
         });)*
     }};
 }
 
-/// Add the rudel top-level functions to a Koto prelude.
-pub(crate) fn register(prelude: &KMap) {
-    // Make every rudel-core control available as a KPattern method (a
-    // process-wide one-time extension of the generated method map).
-    super::pattern::extend_control_entries();
-    // The JS builtins helper functions call on plain values (`Array.isArray`,
-    // `arr.map`, `s.endsWith`).
-    super::js::register_js_builtins(prelude);
+/// The patterns of every argument, as `stack(a, b, c)` takes them.
+fn patterns(a: &[Arg]) -> Vec<Pattern> {
+    a.iter().map(arg_to_pattern).collect()
+}
+
+/// Add the rudel top-level functions to the global scope.
+pub(crate) fn register(prelude: &Scope) {
+    // Pattern methods first: the controls below skip any name already bound.
+    let proto = Scope::pattern();
+    super::pattern::register_methods(&proto);
     // `osc`, `noise`, `shape`, ... — the hydra sources that start a chain.
     super::hydra::register(prelude);
     // `Kabel.sine(220).out()` — the kabelsalat node DSL behind `K(...)`.
-    super::kabelsalat::register(prelude);
+    super::kabelsalat::register(prelude, &proto);
     // `Pattern`, `Hap`, `Fraction`, `TimeSpan` — the engine's own vocabulary,
     // plus the standalone forms of the transforms that take a span.
     super::pattern::register_engine_fns(prelude);
     super::pattern::register_span_fns(prelude);
-    // JavaScript's `Math`, in full. Scripts reach for it constantly, and a
-    // missing member is not a parse error — it surfaces as `'floor' not found
-    // in 'map'` somewhere down the expression that used it.
-    let math = KMap::new();
-    for (name, value) in [
-        ("E", std::f64::consts::E),
-        ("LN10", std::f64::consts::LN_10),
-        ("LN2", std::f64::consts::LN_2),
-        ("LOG10E", std::f64::consts::LOG10_E),
-        ("LOG2E", std::f64::consts::LOG2_E),
-        ("PI", std::f64::consts::PI),
-        ("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2),
-        ("SQRT2", std::f64::consts::SQRT_2),
-    ] {
-        math.insert(name, KValue::Number(KNumber::from(value)));
-    }
-    macro_rules! math_fns {
-        ($($name:literal => $f:expr),* $(,)?) => {
-            $(math.add_fn($name, |ctx| {
-                let f: fn(f64) -> f64 = $f;
-                Ok(KValue::Number(KNumber::from(f(arg_to_f64(&arg0(ctx))))))
-            });)*
-        };
-    }
-    math_fns! {
-        "abs" => f64::abs, "acos" => f64::acos, "acosh" => f64::acosh,
-        "asin" => f64::asin, "asinh" => f64::asinh, "atan" => f64::atan,
-        "atanh" => f64::atanh, "cbrt" => f64::cbrt, "ceil" => f64::ceil,
-        "cos" => f64::cos, "cosh" => f64::cosh, "exp" => f64::exp,
-        "expm1" => f64::exp_m1, "floor" => f64::floor, "log" => f64::ln,
-        "log1p" => f64::ln_1p, "log10" => f64::log10, "log2" => f64::log2,
-        "sin" => f64::sin, "sinh" => f64::sinh, "sqrt" => f64::sqrt,
-        "tan" => f64::tan, "tanh" => f64::tanh, "trunc" => f64::trunc,
-        // `Math.round` breaks ties towards +infinity, where Rust's `round`
-        // breaks them away from zero: JS gives -0 for -0.5, Rust gives -1.
-        "round" => |x: f64| (x + 0.5).floor(),
-        // `fround` is the value as a 32-bit float, `sign` keeps NaN and zeros.
-        "fround" => |x: f64| x as f32 as f64,
-        "sign" => |x: f64| if x == 0.0 || x.is_nan() { x } else { x.signum() },
-    }
-    macro_rules! math_fns2 {
-        ($($name:literal => $f:expr),* $(,)?) => {
-            $(math.add_fn($name, |ctx| {
-                let f: fn(f64, f64) -> f64 = $f;
-                let a = arg_to_f64(&arg0(ctx));
-                let b = ctx.args().get(1).map(arg_to_f64).unwrap_or(f64::NAN);
-                Ok(KValue::Number(KNumber::from(f(a, b))))
-            });)*
-        };
-    }
-    math_fns2! {
-        "atan2" => f64::atan2,
-        "pow" => f64::powf,
-        "imul" => |a: f64, b: f64| ((a as i32).wrapping_mul(b as i32)) as f64,
-    }
-    // Variadic, and empty-argument cases JS defines: `max()` is -Infinity,
-    // `min()` is +Infinity, and either is NaN if any argument is.
-    for (name, empty, pick) in [
-        ("max", f64::NEG_INFINITY, true),
-        ("min", f64::INFINITY, false),
-    ] {
-        math.add_fn(name, move |ctx| {
-            let mut acc = empty;
-            for arg in ctx.args() {
-                let v = arg_to_f64(arg);
-                if v.is_nan() {
-                    acc = f64::NAN;
-                    break;
-                }
-                acc = if pick { acc.max(v) } else { acc.min(v) };
-            }
-            Ok(KValue::Number(KNumber::from(acc)))
-        });
-    }
-    math.add_fn("hypot", |ctx| {
-        let sum: f64 = ctx.args().iter().map(|a| arg_to_f64(a).powi(2)).sum();
-        Ok(KValue::Number(KNumber::from(sum.sqrt())))
-    });
-    math.add_fn("clz32", |ctx| {
-        let n = arg_to_f64(&arg0(ctx));
-        let bits = if n.is_finite() { n as i64 as u32 } else { 0 };
-        Ok(KValue::Number(KNumber::from(f64::from(
-            bits.leading_zeros(),
-        ))))
-    });
-    // `Math.random` is the one member that cannot be a pure function. It is
-    // seeded per process and left out of every golden test; a pattern that
-    // wants a *reproducible* random wants rudel's `rand` signal instead.
-    math.add_fn("random", |_| {
-        Ok(KValue::Number(KNumber::from(next_random())))
-    });
-    prelude.insert("Math", math);
 
-    register_unary_pattern_fns!(prelude;
-        "note" => rudel_core::note,
-        "n" => rudel_core::n,
-        "i" => rudel_core::i,
-        "freq" => rudel_core::freq,
-        "mpe" => rudel_core::mpe,
-        "bendRange" => rudel_core::bend_range,
-        "s" => rudel_core::s,
-        "sound" => rudel_core::sound,
-    );
-    prelude.add_fn("getFreq", |ctx| {
-        let value = koto_to_value(&arg0(ctx));
-        Ok(rudel_core::get_freq(&value).unwrap_or(0.0).into())
+    for (name, f) in [
+        ("note", rudel_core::note as fn(Pattern) -> Pattern),
+        ("n", rudel_core::n),
+        ("i", rudel_core::i),
+        ("freq", rudel_core::freq),
+        ("mpe", rudel_core::mpe),
+        ("bendRange", rudel_core::bend_range),
+        ("s", rudel_core::s),
+        ("sound", rudel_core::sound),
+    ] {
+        prelude.func(name, move |a| Ok(f(arg_to_pattern(arg0(a))).into()));
+    }
+    prelude.func("getFreq", |a| {
+        Ok(rudel_core::get_freq(&to_value(arg0(a)))
+            .unwrap_or(0.0)
+            .into())
     });
     // Scalar conversion/util helpers from core/util.mjs that a user can reach
     // from the REPL (the rest of util.mjs is registration/curry/hashing/keyboard
     // plumbing). These operate on numbers, not patterns.
-    prelude.add_fn("midiToFreq", |ctx| {
-        Ok(rudel_core::midi_to_freq(arg_to_f64(&arg0(ctx))).into())
+    prelude.func("midiToFreq", |a| {
+        Ok(rudel_core::midi_to_freq(arg_to_f64(arg0(a))).into())
     });
-    prelude.add_fn("freqToMidi", |ctx| {
-        Ok(rudel_core::freq_to_midi(arg_to_f64(&arg0(ctx))).into())
+    prelude.func("freqToMidi", |a| {
+        Ok(rudel_core::freq_to_midi(arg_to_f64(arg0(a))).into())
     });
-    prelude.add_fn("noteToMidi", |ctx| {
+    prelude.func("noteToMidi", |a| {
         // noteToMidi(note, defaultOctave = 3); throws on a non-note, like Strudel.
-        let value = koto_to_value(&arg0(ctx));
-        let default_octave = ctx.args().get(1).map(arg_to_f64).unwrap_or(3.0) as i32;
+        let value = to_value(arg0(a));
+        let default_octave = a.get(1).map(arg_to_f64).unwrap_or(3.0) as i32;
         match value.as_str() {
             Some(s) => match rudel_core::note_to_midi_with_octave(s, default_octave) {
                 Some(m) => Ok((m as f64).into()),
-                None => runtime_error!("noteToMidi: not a note: \"{s}\""),
+                None => Err(format!("noteToMidi: not a note: \"{s}\"")),
             },
-            None => runtime_error!("noteToMidi: expected a note string"),
+            None => Err("noteToMidi: expected a note string".to_string()),
         }
     });
-    prelude.add_fn("clamp", |ctx| {
+    prelude.func("clamp", |a| {
         // clamp(num, min, max) = min(max(num, min), max).
-        let a = ctx.args();
-        let num = arg_to_f64(a.first().unwrap_or(&KValue::Null));
+        let num = arg_to_f64(arg0(a));
         let lo = a.get(1).map(arg_to_f64).unwrap_or(0.0);
         let hi = a.get(2).map(arg_to_f64).unwrap_or(1.0);
         Ok(num.max(lo).min(hi).into())
     });
-    prelude.add_fn("silence", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // `silence` is a pattern, not a function, as upstream. `nothing` is its
+    // other name.
+    prelude.value("silence", rudel_core::silence());
+    prelude.value("nothing", rudel_core::silence());
     // hush(): clear the REPL pattern slots and return silence (core/repl.mjs).
-    prelude.add_fn("hush", |_| {
+    prelude.func("hush", |_| {
         super::pattern::reset_slots();
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
     // clearScope(): upstream deletes the user variables block-based eval leaked
-    // into the shared `strudelScope`. Rudel runs each evaluation in a fresh Koto
-    // VM, so nothing accumulates across blocks and there is nothing to delete;
-    // the persistent state Rudel *does* keep is the slot registry, which is
-    // already cleared per eval. So this returns silence, as upstream does, and
-    // is otherwise a no-op (like `registerSoundfonts()`).
-    prelude.add_fn("clearScope", |_| Ok(KPattern(rudel_core::silence()).into()));
+    // into the shared `strudelScope`. Rudel runs each evaluation in a fresh
+    // engine, so nothing accumulates across blocks and there is nothing to
+    // delete; the persistent state Rudel *does* keep is the slot registry,
+    // which is already cleared per eval. So this returns silence, as upstream
+    // does, and is otherwise a no-op (like `registerSoundfonts()`).
+    prelude.func("clearScope", |_| done());
     // getDuration(name[, n]) / getDur: the length in seconds of a loaded
     // sample, so a pattern can set its tempo from it
     // (`setcps(1 / getDuration('sax'))`). Upstream returns a promise resolved
@@ -365,83 +161,90 @@ pub(crate) fn register(prelude: &KMap) {
     // registers each sample, so this returns the number directly — no `await`.
     // An unknown sound (or one not loaded yet) reads as 0, like an unseen CC.
     for name in ["getDuration", "getDur"] {
-        prelude.add_fn(name, |ctx| {
-            let a = ctx.args();
+        prelude.func(name, |a| {
             let sound = a.first().and_then(arg_to_raw_str).unwrap_or_default();
             let n = a.get(1).map(arg_to_f64).unwrap_or(0.0).round() as i64;
             Ok(rudel_core::sample_duration(&sound, n).unwrap_or(0.0).into())
         });
     }
     // Strudel-style chord control: `chord("<Am C>").voicing()`.
-    prelude.add_fn("chord", |ctx| {
-        Ok(KPattern(rudel_core::control_dyn("chord", arg_to_pattern(&arg0(ctx)))).into())
+    prelude.func("chord", |a| {
+        Ok(rudel_core::control_dyn("chord", arg_to_pattern(arg0(a))).into())
     });
     // `$:`/`name:` labels: register the pattern into the slot registry so it is
     // picked up by `applyPatternTransforms` (stacking, `each`/`all`, soloing),
     // exactly like Strudel's transpiler-injected `.p(label)`.
-    prelude.add_fn("rudel_label", |ctx| {
-        let name = match ctx.args().first() {
-            Some(KValue::Str(s)) => s.to_string(),
+    prelude.func("rudel_label", |a| {
+        let name = match arg0(a) {
+            Arg::Str(s) => s.clone(),
             _ => String::new(),
         };
-        let pat = ctx
-            .args()
+        let pat = a
             .get(1)
             .map(arg_to_pattern)
             .unwrap_or_else(rudel_core::silence);
-        Ok(KPattern(super::pattern::register_slot(&name, pat)).into())
+        Ok(super::pattern::register_slot(&name, pat).into())
     });
     // all(f): apply `f` to all running patterns stacked together (core/repl.mjs).
-    // each(f): apply `f` to each running pattern separately. Both take a function
-    // value (`rev`, `|x| x.fast(2)`) since Koto has no partial application, and
-    // return silence so they can sit on their own line. Patterns must be labeled
-    // (`$:`) or slotted (`.d1()`) to be picked up.
-    prelude.add_fn("all", |ctx| {
-        let func = ctx.args().first().cloned().unwrap_or(KValue::Null);
-        super::pattern::push_all(ctx, func);
-        Ok(KPattern(rudel_core::silence()).into())
+    // each(f): apply `f` to each running pattern separately. Both take a
+    // function value (`rev`, `x => x.fast(2)`) and return silence so they can
+    // sit on their own line. Patterns must be labeled (`$:`) or slotted
+    // (`.d1()`) to be picked up.
+    prelude.func("all", |a| {
+        super::pattern::push_all(arg0(a).clone());
+        done()
     });
-    prelude.add_fn("each", |ctx| {
-        let func = ctx.args().first().cloned().unwrap_or(KValue::Null);
-        super::pattern::set_each(ctx, func);
-        Ok(KPattern(rudel_core::silence()).into())
+    prelude.func("each", |a| {
+        super::pattern::set_each(arg0(a).clone());
+        done()
     });
-    register_pattern_list_fns!(prelude;
-        "stack" => rudel_core::stack,
-        "polyrhythm" => rudel_core::stack, // Strudel alias: polyrhythm = stack
-        "pr" => rudel_core::stack,
-        "stackLeft" => rudel_core::stack_left,
-        "stackRight" => rudel_core::stack_right,
-        "stackCentre" => rudel_core::stack_centre,
-        "stackCenter" => rudel_core::stack_centre, // US spelling
-        "cat" => rudel_core::cat,
-        "seq" => rudel_core::fastcat,
-        "sequence" => rudel_core::fastcat,
-    );
-    // `nothing` is an alias for `silence`.
-    prelude.add_fn("nothing", |_| Ok(KPattern(rudel_core::silence()).into()));
+    for (name, f) in [
+        ("stack", rudel_core::stack as fn(&[Pattern]) -> Pattern),
+        ("polyrhythm", rudel_core::stack), // Strudel alias: polyrhythm = stack
+        ("pr", rudel_core::stack),
+        ("stackLeft", rudel_core::stack_left),
+        ("stackRight", rudel_core::stack_right),
+        ("stackCentre", rudel_core::stack_centre),
+        ("stackCenter", rudel_core::stack_centre), // US spelling
+        ("cat", rudel_core::cat),
+        ("seq", rudel_core::fastcat),
+        ("sequence", rudel_core::fastcat),
+        ("fastcat", rudel_core::fastcat),
+        ("slowcat", rudel_core::slowcat),
+        // chooseCycles is randcat over reified args.
+        ("randcat", rudel_core::randcat),
+        ("chooseCycles", rudel_core::randcat),
+        // zip: interleave the steps of the given patterns into one dense cycle.
+        ("zip", rudel_core::zip),
+        ("s_zip", rudel_core::zip), // deprecated Strudel alias
+        // polymeter / pm: align patterns to a common (LCM) step count.
+        ("polymeter", rudel_core::polymeter),
+        ("pm", rudel_core::polymeter),
+        ("s_polymeter", rudel_core::polymeter), // deprecated Strudel alias
+        // choose / chooseOut / chooseIn: continuously pick from the given
+        // values. `choose`/`chooseOut` take structure from the random chooser;
+        // `chooseIn` takes it from the chosen values.
+        ("choose", rudel_core::choose),
+        ("chooseOut", rudel_core::choose),
+        ("chooseIn", rudel_core::choose_in),
+    ] {
+        prelude.func(name, move |a| Ok(f(&patterns(a)).into()));
+    }
     // `parray([p0, p1, ...])`: pack one value from each pattern into a list
     // value per hap. Strudel passes a single array; also accept bare varargs.
-    prelude.add_fn("parray", |ctx| {
-        let a = ctx.args();
-        let pats: Vec<Pattern> = if a.len() == 1 {
+    prelude.func("parray", |a| {
+        let pats = if a.len() == 1 {
             arg_to_group(&a[0])
         } else {
-            a.iter().map(arg_to_pattern).collect()
+            patterns(a)
         };
-        Ok(KPattern(rudel_core::parray(&pats)).into())
+        Ok(rudel_core::parray(&pats).into())
     });
     // stackBy(mode, ...pats): dispatch to a step-alignment by mode name.
     // (Strudel patternifies `mode`; here it is taken as a constant string.)
-    prelude.add_fn("stackBy", |ctx| {
-        let a = ctx.args();
-        let mode = koto_to_value(a.first().unwrap_or(&KValue::Null));
-        let pats: Vec<Pattern> = a
-            .get(1..)
-            .unwrap_or(&[])
-            .iter()
-            .map(arg_to_pattern)
-            .collect();
+    prelude.func("stackBy", |a| {
+        let mode = to_value(arg0(a));
+        let pats = patterns(a.get(1..).unwrap_or(&[]));
         let out = match mode.as_str().unwrap_or("expand") {
             "left" => rudel_core::stack_left(&pats),
             "right" => rudel_core::stack_right(&pats),
@@ -449,100 +252,82 @@ pub(crate) fn register(prelude: &KMap) {
             "repeat" => rudel_core::polymeter(&pats),
             _ => rudel_core::stack(&pats), // "expand"
         };
-        Ok(KPattern(out).into())
+        Ok(out.into())
     });
 
     // -- Factories ---------------------------------------------------------
-    // chooseCycles is randcat over reified args.
-    register_pattern_list_fns!(prelude;
-        "fastcat" => rudel_core::fastcat,
-        "slowcat" => rudel_core::slowcat,
-        "randcat" => rudel_core::randcat,
-        "chooseCycles" => rudel_core::randcat,
-    );
-
-    prelude.add_fn("pure", |ctx| {
-        Ok(KPattern(rudel_core::pure(arg_to_value(&arg0(ctx)))).into())
+    prelude.func("pure", |a| {
+        Ok(rudel_core::pure(arg_to_value(arg0(a))).into())
     });
-    prelude.add_fn("gap", |ctx| {
-        let n = super::pattern::arg_to_f64(&arg0(ctx)) as i64;
-        Ok(KPattern(rudel_core::gap(Frac::int(n.max(0)))).into())
+    prelude.func("gap", |a| {
+        let n = arg_to_f64(arg0(a)) as i64;
+        Ok(rudel_core::gap(Frac::int(n.max(0))).into())
     });
     // stepcat / timecat: weighted stepwise concatenation. Each arg is either a
     // pattern (weight = its step count) or a `[weight, pattern]` pair.
-    let stepcat = |ctx: &mut CallContext| {
-        let pairs: Vec<(Frac, Pattern)> = ctx.args().iter().map(arg_to_weighted_pair).collect();
-        Ok(KPattern(rudel_core::timecat(&pairs)).into())
-    };
-    prelude.add_fn("stepcat", stepcat);
-    prelude.add_fn("timecat", stepcat);
-    prelude.add_fn("timeCat", stepcat);
-    prelude.add_fn("s_cat", stepcat); // deprecated Strudel alias
+    for name in ["stepcat", "timecat", "timeCat", "s_cat"] {
+        prelude.func(name, |a| {
+            let pairs: Vec<(Frac, Pattern)> = a.iter().map(arg_to_weighted_pair).collect();
+            Ok(rudel_core::timecat(&pairs).into())
+        });
+    }
     // arrange: each arg is a `[cycles, pattern]` section laid out on a timeline.
-    prelude.add_fn("arrange", |ctx| {
-        let sections: Vec<(Frac, Pattern)> = ctx.args().iter().map(arg_to_weighted_pair).collect();
-        Ok(KPattern(rudel_core::arrange(&sections)).into())
+    prelude.func("arrange", |a| {
+        let sections: Vec<(Frac, Pattern)> = a.iter().map(arg_to_weighted_pair).collect();
+        Ok(rudel_core::arrange(&sections).into())
     });
-    // polymeter / pm: align patterns to a common (LCM) step count.
-    let polymeter = |ctx: &mut CallContext| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::polymeter(&pats)).into())
-    };
-    prelude.add_fn("polymeter", polymeter);
-    prelude.add_fn("pm", polymeter);
-    prelude.add_fn("s_polymeter", polymeter); // deprecated Strudel alias
     // wchoose: continuously choose from weighted [pattern, weight] pairs.
-    prelude.add_fn("wchoose", |ctx| {
-        let pairs: Vec<(Pattern, f64)> = ctx.args().iter().map(arg_to_pattern_weight).collect();
-        Ok(KPattern(rudel_core::wchoose(&pairs)).into())
+    prelude.func("wchoose", |a| {
+        let pairs: Vec<(Pattern, f64)> = a.iter().map(arg_to_pattern_weight).collect();
+        Ok(rudel_core::wchoose(&pairs).into())
     });
     // wchooseCycles / wrandcat: pick one weighted pattern per cycle.
-    let wrandcat = |ctx: &mut CallContext| {
-        let pairs: Vec<(Pattern, f64)> = ctx.args().iter().map(arg_to_pattern_weight).collect();
-        Ok(KPattern(rudel_core::wrandcat(&pairs)).into())
-    };
-    prelude.add_fn("wchooseCycles", wrandcat);
-    prelude.add_fn("wrandcat", wrandcat);
+    for name in ["wchooseCycles", "wrandcat"] {
+        prelude.func(name, |a| {
+            let pairs: Vec<(Pattern, f64)> = a.iter().map(arg_to_pattern_weight).collect();
+            Ok(rudel_core::wrandcat(&pairs).into())
+        });
+    }
     // stepalt: alternate stepwise between groups of patterns.
-    let stepalt = |ctx: &mut CallContext| {
-        let groups: Vec<Vec<Pattern>> = ctx.args().iter().map(arg_to_group).collect();
-        Ok(KPattern(rudel_core::stepalt(&groups)).into())
-    };
-    prelude.add_fn("stepalt", stepalt);
-    prelude.add_fn("s_alt", stepalt); // deprecated Strudel alias
-    // The pick family (strudel core/pick.mjs): select patterns from a list
-    // (by index) or a map (by name) via a selector pattern. `pickmod*` wraps
-    // out-of-range indices instead of clamping; the suffix picks the join.
-    // squeeze(pat, xs): pick from a list with wrapping, squeezing the picked
-    // pattern into the selecting event (strudel's standalone `squeeze`).
-    register_pick_fns!(prelude;
-        "pick" => (false, PickJoin::Inner),
-        "pickmod" => (true, PickJoin::Inner),
-        "pickOut" => (false, PickJoin::Outer),
-        "pickmodOut" => (true, PickJoin::Outer),
-        "pickReset" => (false, PickJoin::Reset),
-        "pickmodReset" => (true, PickJoin::Reset),
-        "pickRestart" => (false, PickJoin::Restart),
-        "pickmodRestart" => (true, PickJoin::Restart),
-        "inhabit" => (false, PickJoin::Squeeze),
-        "pickSqueeze" => (false, PickJoin::Squeeze),
-        "inhabitmod" => (true, PickJoin::Squeeze),
-        "pickmodSqueeze" => (true, PickJoin::Squeeze),
-        "squeeze" => (true, PickJoin::Squeeze),
-    );
-    prelude.add_fn("pat", |ctx| Ok(KPattern(arg_to_pattern(&arg0(ctx))).into()));
+    for name in ["stepalt", "s_alt"] {
+        prelude.func(name, |a| {
+            let groups: Vec<Vec<Pattern>> = a.iter().map(arg_to_group).collect();
+            Ok(rudel_core::stepalt(&groups).into())
+        });
+    }
+    // The pick family (strudel core/pick.mjs): select patterns from an array
+    // (by index) or an object (by name) via a selector pattern. `pickmod*`
+    // wraps out-of-range indices instead of clamping; the suffix picks the
+    // join. squeeze(pat, xs): pick from a list with wrapping, squeezing the
+    // picked pattern into the selecting event (strudel's standalone `squeeze`).
+    for (name, modulo, join) in [
+        ("pick", false, PickJoin::Inner),
+        ("pickmod", true, PickJoin::Inner),
+        ("pickOut", false, PickJoin::Outer),
+        ("pickmodOut", true, PickJoin::Outer),
+        ("pickReset", false, PickJoin::Reset),
+        ("pickmodReset", true, PickJoin::Reset),
+        ("pickRestart", false, PickJoin::Restart),
+        ("pickmodRestart", true, PickJoin::Restart),
+        ("inhabit", false, PickJoin::Squeeze),
+        ("pickSqueeze", false, PickJoin::Squeeze),
+        ("inhabitmod", true, PickJoin::Squeeze),
+        ("pickmodSqueeze", true, PickJoin::Squeeze),
+        ("squeeze", true, PickJoin::Squeeze),
+    ] {
+        prelude.func(name, move |a| Ok(pick_args(a, modulo, join).into()));
+    }
+    prelude.func("pat", |a| Ok(arg_to_pattern(arg0(a)).into()));
     // `useRNG(mode)` picks the random generator (signal.mjs). Rudel ports only
     // the legacy one — Strudel's default, and what the tunes that call this ask
     // for — so `'legacy'` is a no-op and `'precise'` says so rather than
     // quietly handing back different random numbers.
-    prelude.add_fn("useRNG", |ctx| {
-        match arg_to_raw_str(&arg0(ctx)).as_deref() {
-            None | Some("legacy") => Ok(KPattern(rudel_core::silence()).into()),
-            Some(mode) => koto::runtime::runtime_error!(
-                "useRNG({mode:?}): only the legacy RNG is ported; \
-                 remove the call or use useRNG('legacy')"
-            ),
-        }
+    prelude.func("useRNG", |a| match arg_to_raw_str(arg0(a)).as_deref() {
+        None | Some("legacy") => done(),
+        Some(mode) => Err(format!(
+            "useRNG({mode:?}): only the legacy RNG is ported; \
+             remove the call or use useRNG('legacy')"
+        )),
     });
     // `setVoicingRange(name, [low, high])` (tonal/voicings.mjs) narrows a
     // dictionary's register. Upstream it only reaches the deprecated
@@ -551,112 +336,90 @@ pub(crate) fn register(prelude: &KMap) {
     // path, so this is a no-op rather than an error: rejecting it would stop a
     // tune that upstream runs identically without it. Dinofunk pins that in
     // `tunes.rs`, matching Strudel's own haps with the call ignored.
-    prelude.add_fn("setVoicingRange", |_| {
-        Ok(KPattern(rudel_core::silence()).into())
-    });
-    // `setDefaultVoicings(name)` (tonal/voicings.mjs) picks the dictionary a
-    // later bare `.voicing()` reads. Process-global upstream and here; songs
-    // call it once at the top.
-    // `rudel_spread(base, overrides)` backs the preprocessor's rewrite of JS
-    // object spread (`{...v, value: x}`), which Koto's map declaration has no
-    // syntax for. A non-map base has nothing to copy, so the overrides stand
-    // alone — the same as JS spreading a primitive.
-    prelude.add_fn("rudel_spread", |ctx| {
-        let args = ctx.args();
-        let merged = match args.first() {
-            Some(KValue::Map(base)) => KMap::with_data(base.data().clone()),
-            _ => KMap::new(),
-        };
-        if let Some(KValue::Map(overrides)) = args.get(1) {
-            for (key, value) in overrides.data().iter() {
-                merged.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(KValue::Map(merged))
-    });
+    prelude.func("setVoicingRange", |_| done());
     // `register(name, fn)` (core/pattern.mjs) defines a new pattern method,
     // with the pattern as the callback's last argument. Returns the function,
     // as upstream does, so `const f = register(...)` still binds something.
-    prelude.add_fn("register", |ctx| {
-        let args = ctx.args();
-        let (Some(name), Some(func)) = (args.first().map(arg_to_raw_str), args.get(1).cloned())
-        else {
-            return koto::runtime::runtime_error!("register(name, fn) needs a name and a function");
+    // An array of names registers each, and returns them as an object, which
+    // is how `const {beat, beatOut} = register(['beat', 'beatOut'], f)` reads.
+    prelude.func("register", |a| {
+        let names: Vec<String> = match arg0(a) {
+            Arg::List(names) => names.iter().filter_map(arg_to_raw_str).collect(),
+            one => arg_to_raw_str(one).into_iter().collect(),
         };
-        let Some(name) = name else {
-            return koto::runtime::runtime_error!("register(name, fn): name must be a string");
-        };
+        if names.is_empty() {
+            return Err("register(name, fn): name must be a string".to_string());
+        }
+        let func = a.get(1).unwrap_or(NULL);
+        if !func.is_callable() {
+            return Err("register(name, fn) needs a name and a function".to_string());
+        }
         // `register(name, fn, patternify = true)`. A helper that says `false`
         // does its own `reify`/join on the argument and would be handed a
         // per-cycle sample instead of the pattern it means to work on.
-        match args.get(2) {
-            Some(KValue::Bool(false)) => {
-                super::pattern::register_prototype_method(&name, func.clone());
-            }
-            _ => super::pattern::register_pattern_method(&name, func.clone()),
+        let patternify = !matches!(a.get(2), Some(Arg::Bool(false)));
+        for name in &names {
+            super::pattern::register_pattern_method(name, func, patternify);
         }
-        Ok(func)
+        Ok(match arg0(a) {
+            Arg::List(_) => Arg::Map(names.into_iter().map(|n| (n, func.clone())).collect()),
+            _ => func.clone(),
+        })
     });
-    // `Pattern.prototype.name = function …`, as the preprocessor rewrites it.
-    // Same binding as `register`, minus the argument patternification a
-    // prototype method does not get.
-    prelude.add_fn("rudel_prototype", |ctx| {
-        let args = ctx.args();
-        let (Some(Some(name)), Some(func)) =
-            (args.first().map(arg_to_raw_str), args.get(1).cloned())
-        else {
-            return koto::runtime::runtime_error!("rudel_prototype(name, fn) needs both");
+    // `id(x)`: upstream's identity function, which scripts pass where a
+    // transform is wanted and none is.
+    prelude.func("id", |a| Ok(arg0(a).clone()));
+    // `signal(t => value)`: a continuous pattern whose value at each query is
+    // the function of the query's start. The function runs from the query, so
+    // on the engine's thread (see `convert::fn_to_value`).
+    prelude.func("signal", |a| {
+        let Value::Func(f) = super::pattern::fn_to_value(arg0(a)) else {
+            return Err("signal(fn) needs a function".to_string());
         };
-        super::pattern::register_prototype_method(&name, func.clone());
-        Ok(func)
+        Ok(rudel_core::signal::signal(move |t| f(Value::F64(t.to_f64()))).into())
     });
     // `addVoicings(name, dictionary, range)` (tonal/voicings.mjs) registers a
     // chord dictionary a later `.voicing(name)` can name. `range` is accepted
     // and ignored for the reason `setVoicingRange` above is a no-op: upstream
     // reads it only on the deprecated `.voicings(dict)` path.
-    prelude.add_fn("addVoicings", |ctx| {
-        let args = ctx.args();
-        let (Some(Some(name)), Some(KValue::Map(dictionary))) =
-            (args.first().map(arg_to_raw_str), args.get(1))
-        else {
-            return koto::runtime::runtime_error!(
-                "addVoicings(name, dictionary) needs a name and a map of chord symbols"
+    prelude.func("addVoicings", |a| {
+        let (Some(name), Some(Arg::Map(dictionary))) = (arg_to_raw_str(arg0(a)), a.get(1)) else {
+            return Err(
+                "addVoicings(name, dictionary) needs a name and an object of chord symbols"
+                    .to_string(),
             );
         };
-        let data = dictionary.data();
-        let entries: Vec<(String, Vec<String>)> = data
+        let entries: Vec<(String, Vec<String>)> = dictionary
             .iter()
             .filter_map(|(symbol, voicings)| {
-                let KValue::Str(symbol) = symbol.value() else {
-                    return None;
-                };
-                // A single voicing may be written without its list, as one string.
+                // A single voicing may be written without its array, as one
+                // string.
                 let voicings = match voicings {
-                    KValue::Str(one) => vec![one.to_string()],
-                    KValue::List(l) => l.data().iter().filter_map(arg_to_raw_str).collect(),
-                    KValue::Tuple(t) => t.iter().filter_map(arg_to_raw_str).collect(),
-                    _ => return None,
+                    Arg::List(l) => l.iter().filter_map(arg_to_raw_str).collect(),
+                    other => vec![arg_to_raw_str(other)?],
                 };
-                Some((symbol.to_string(), voicings))
+                Some((symbol.clone(), voicings))
             })
             .collect();
         rudel_core::voicing::add_voicings(&name, entries);
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
-    prelude.add_fn("setDefaultVoicings", |ctx| {
-        if let Some(dict) = arg_to_raw_str(&arg0(ctx)) {
+    // `setDefaultVoicings(name)` (tonal/voicings.mjs) picks the dictionary a
+    // later bare `.voicing()` reads. Process-global upstream and here; songs
+    // call it once at the top.
+    prelude.func("setDefaultVoicings", |a| {
+        if let Some(dict) = arg_to_raw_str(arg0(a)) {
             rudel_core::voicing::set_default_voicings(dict);
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
     // `mini(...strings)`: each argument parsed as mini-notation, laid out across
     // the cycle (mini/mini.mjs). A bare string reaching an ordinary pattern
     // argument is deliberately *not* mini -- see `arg_to_pattern` -- but this
     // call is the parser itself, and it is how a tune plays a mini string it
     // built at runtime, which is the only way it can be parsed at all.
-    prelude.add_fn("mini", |ctx| {
-        let pats: Vec<Pattern> = ctx
-            .args()
+    prelude.func("mini", |a| {
+        let pats: Vec<Pattern> = a
             .iter()
             .map(|arg| match arg_to_raw_str(arg) {
                 Some(text) => rudel_mini::parse_with_offset(&text, 0)
@@ -665,77 +428,59 @@ pub(crate) fn register(prelude: &KMap) {
                 None => arg_to_pattern(arg),
             })
             .collect();
-        Ok(KPattern(rudel_core::fastcat(&pats)).into())
+        Ok(rudel_core::fastcat(&pats).into())
     });
     // The list-valued additive-synthesis controls, as standalone factories to
     // match their method forms.
-    for (name, key) in [("partials", "partials"), ("phases", "phases")] {
-        prelude.add_fn(name, move |ctx| {
-            let v = koto_to_value(&arg0(ctx));
-            Ok(KPattern(rudel_core::control_dyn(key, rudel_core::pure(v))).into())
+    for key in ["partials", "phases"] {
+        prelude.func(key, move |a| {
+            Ok(rudel_core::control_dyn(key, rudel_core::pure(to_value(arg0(a)))).into())
         });
     }
     // m(value, offset): mini-notation with a source offset. Emitted by the
-    // preprocessor for every string literal so per-hap locations are absolute
-    // to the editor source. Numbers/patterns pass through unchanged. The raw
-    // source text is remembered so raw-string consumers can recover it.
-    prelude.add_fn("m", |ctx| {
-        let value = arg0(ctx);
-        let offset = ctx
-            .args()
-            .get(1)
-            .map(super::pattern::arg_to_f64)
-            .unwrap_or(0.0) as usize;
-        match &value {
-            KValue::Str(s) => {
-                let pat = rudel_mini::parse_with_offset(s, offset)
-                    .unwrap_or_else(|_| rudel_core::silence())
-                    .with_source(s.as_str());
-                Ok(KPattern(pat).into())
-            }
-            _ => Ok(KPattern(arg_to_pattern(&value)).into()),
-        }
+    // preprocessor for every double-quoted literal so per-hap locations are
+    // absolute to the editor source. Numbers/patterns pass through unchanged.
+    // The raw source text is remembered so raw-string consumers can recover it.
+    prelude.func("m", |a| {
+        let offset = a.get(1).map(arg_to_f64).unwrap_or(0.0) as usize;
+        Ok(match arg0(a) {
+            Arg::Str(s) => rudel_mini::parse_with_offset(s, offset)
+                .unwrap_or_else(|_| rudel_core::silence())
+                .with_source(s.as_str())
+                .into(),
+            other => arg_to_pattern(other).into(),
+        })
     });
-    // scan: step through growing runs (run(1), run(2), ... run(n)).
-    // Calls the browser REPL answers and a native build cannot. Only names
-    // Strudel does not document are stubbed: a documented one (`setGainCurve`)
-    // would be counted as implemented by the API inventory, which a no-op is
-    // not. Accepting them
-    // is what lets the *audio* of a pattern that also draws visuals still play;
-    // saying so in the log is what keeps that from looking like a silent
-    // success. `console.log` goes to the same place the pattern's own `log`
-    // does, which is the console panel.
     // `setGainCurve(f)`: rescale every gain-like value through `f`, as
     // superdough's `applyGainCurve` does (gain, postgain, velocity, delay,
     // busgain, shapevol, distortvol, tremolodepth). The function is sampled
-    // here, at evaluation time, because the audio path has no Koto VM to call
-    // it on — see `rudel_core::set_gain_curve` for the ceiling that carries.
-    prelude.add_fn("setGainCurve", |ctx| {
-        let f = arg0(ctx);
+    // here, at evaluation time, because the audio path runs no script — see
+    // `rudel_core::set_gain_curve` for the ceiling that carries.
+    prelude.func("setGainCurve", |a| {
+        let f = arg0(a);
         if !f.is_callable() {
             rudel_core::clear_gain_curve();
-            return Ok(KValue::Null);
+            return Ok(Arg::Null);
         }
         let step = rudel_core::GAIN_CURVE_MAX / (rudel_core::GAIN_CURVE_POINTS - 1) as f64;
         let mut samples = Vec::with_capacity(rudel_core::GAIN_CURVE_POINTS);
         for i in 0..rudel_core::GAIN_CURVE_POINTS {
-            let x = KValue::Number(KNumber::from(i as f64 * step));
-            let out = ctx.vm.call_function(f.clone(), &[x][..])?;
+            let out = js::call(f, vec![Arg::Num(i as f64 * step)])?;
             samples.push(arg_to_f64(&out));
         }
         rudel_core::set_gain_curve_samples(samples);
-        Ok(KValue::Null)
+        Ok(Arg::Null)
     });
     // `setMaxPolyphony(n)`: the most voices allowed to sound at once. Past it
     // the mixer fades the oldest ones out, first in first out, as superdough
     // does when its `activeSoundSources` map outgrows the cap.
-    prelude.add_fn("setMaxPolyphony", |ctx| {
+    prelude.func("setMaxPolyphony", |a| {
         // `parseInt(polyphony)`: a number, or the leading digits of a string.
         // Anything that does not read as one leaves the default standing,
         // which is what upstream's `?? DEFAULT_MAX_POLYPHONY` intends.
-        let voices = match arg0(ctx) {
-            KValue::Number(n) => Some(f64::from(n).trunc()),
-            KValue::Str(s) => {
+        let voices = match arg0(a) {
+            Arg::Num(n) => Some(n.trunc()),
+            Arg::Str(s) => {
                 let digits: String = s
                     .trim_start()
                     .chars()
@@ -749,7 +494,7 @@ pub(crate) fn register(prelude: &KMap) {
             Some(n) if n.is_finite() && n >= 0.0 => n as usize,
             _ => rudel_core::DEFAULT_MAX_POLYPHONY,
         });
-        Ok(KValue::Null)
+        Ok(Arg::Null)
     });
 
     // Hydra's browser loader: `initHydra` fetches hydra-synth from a CDN and
@@ -760,16 +505,16 @@ pub(crate) fn register(prelude: &KMap) {
     // `hydra` itself is deliberately *not* here any more: it is the widget
     // method that renders a chain, and a stub of that name would shadow it.
     for name in ["initHydra", "clearHydra"] {
-        prelude.add_fn(name, |_| Ok(KValue::Null));
+        prelude.func(name, |_| Ok(Arg::Null));
     }
     // `H(pattern)` samples a pattern once per animation frame to drive a hydra
     // uniform. A chain here compiles once per evaluation, so its parameters are
     // constants for that evaluation's life and a per-frame value has nowhere to
     // go.
     for name in ["H", "P5", "p5"] {
-        prelude.add_fn(name, move |_| {
+        prelude.func(name, move |_| {
             rudel_core::log_line(format!("{name}: not supported here, ignored"));
-            Ok(KValue::Null)
+            Ok(Arg::Null)
         });
     }
     // ``dough`…` ``: compile the given JavaScript into an AudioWorklet and run
@@ -778,295 +523,203 @@ pub(crate) fn register(prelude: &KMap) {
     // pattern it was installed for still plays, because `.dough()` renders the
     // bytebeat these worklets are always built to play. See `Pattern::dough`
     // for what that covers and what it does not.
-    prelude.add_fn("dough", |_| {
+    prelude.func("dough", |_| {
         rudel_core::log_line(
-            "dough: the DSP worklet needs a JS engine and is not run here; \
-             `.dough()` plays its pattern as bytebeat"
+            "dough: the DSP worklet needs a JS engine on the audio thread and is \
+             not run here; `.dough()` plays its pattern as bytebeat"
                 .to_string(),
         );
-        Ok(KValue::Null)
+        Ok(Arg::Null)
     });
-    let console = KMap::new();
+    // `console.log` goes to the same place the pattern's own `log` does, which
+    // is the console panel.
+    let console = prelude.namespace("console");
     for level in ["log", "info", "warn", "error", "debug"] {
-        console.add_fn(level, |ctx| {
-            let args = ctx.args().to_vec();
-            let mut parts = Vec::with_capacity(args.len());
-            for arg in &args {
-                parts.push(ctx.vm.value_to_string(arg)?);
-            }
+        console.func(level, |a| {
+            let parts: Vec<String> = a.iter().map(js::display).collect();
             rudel_core::log_line(parts.join(" "));
-            Ok(KValue::Null)
+            Ok(Arg::Null)
         });
     }
-    prelude.insert("console", console);
 
-    // `rudel_apply(f, [group, ...])`: call `f` with the groups flattened one
-    // level into its argument list. The preprocessor emits this for a
-    // JavaScript spread call — `stack(...xs)` cannot become `stack(xs)`,
-    // because a list argument is one sequenced pattern rather than several
-    // stacked ones, so the spread has to survive to runtime.
-    prelude.add_fn("rudel_apply", |ctx| {
-        let (f, groups) = (arg0(ctx), ctx.args().get(1).cloned());
-        let mut args = Vec::new();
-        let mut push_group = |g: &KValue| match g {
-            KValue::List(l) => args.extend(l.data().iter().cloned()),
-            KValue::Tuple(t) => args.extend(t.iter().cloned()),
-            other => args.push(other.clone()),
-        };
-        match &groups {
-            Some(KValue::List(l)) => l.data().iter().for_each(&mut push_group),
-            Some(KValue::Tuple(t)) => t.iter().for_each(&mut push_group),
-            Some(other) => push_group(other),
-            None => {}
-        }
-        ctx.vm.call_function(f, args.as_slice())
-    });
     // `reify(x)`: anything as a pattern. Strudel's own coercion, exposed
     // because scripts call it directly when building patterns by hand.
-    prelude.add_fn("reify", |ctx| {
-        Ok(KPattern(arg_to_pattern(&arg0(ctx))).into())
-    });
+    prelude.func("reify", |a| Ok(arg_to_pattern(arg0(a)).into()));
     // `chooseWith(signal, [a, b, ...])` / `chooseInWith`: index the list with an
     // arbitrary 0..1 signal, taking structure from the signal or from the
     // chosen patterns respectively.
     for (name, in_form) in [("chooseWith", false), ("chooseInWith", true)] {
-        prelude.add_fn(name, move |ctx| {
-            let chooser = arg_to_pattern(&arg0(ctx));
-            let pats: Vec<Pattern> = match ctx.args().get(1) {
-                Some(KValue::List(l)) => l.data().iter().map(arg_to_pattern).collect(),
-                Some(KValue::Tuple(t)) => t.iter().map(arg_to_pattern).collect(),
-                Some(other) => vec![arg_to_pattern(other)],
+        prelude.func(name, move |a| {
+            let chooser = arg_to_pattern(arg0(a));
+            let pats: Vec<Pattern> = match a.get(1) {
+                Some(other) => arg_to_group(other),
                 None => Vec::new(),
             };
-            let pat = if in_form {
+            Ok(if in_form {
                 rudel_core::choose_in_with(chooser, &pats)
             } else {
                 rudel_core::choose_with(chooser, &pats)
-            };
-            Ok(KPattern(pat).into())
+            }
+            .into())
         });
     }
-    prelude.add_fn("scan", |ctx| {
-        Ok(KPattern(rudel_core::scan(
-            super::pattern::arg_to_f64(&arg0(ctx)) as i64
-        ))
-        .into())
-    });
-    // zip: interleave the steps of the given patterns into one dense cycle.
-    let zip = |ctx: &mut CallContext| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::zip(&pats)).into())
-    };
-    prelude.add_fn("zip", zip);
-    prelude.add_fn("s_zip", zip); // deprecated Strudel alias
+    // Integer-count signals and factories: scan (growing runs), irand, randrun
+    // (0..n once each per cycle, in a random order), run, binary (bit patterns
+    // of a number) and randL (a list of n random numbers).
+    for (name, f) in [
+        ("scan", rudel_core::scan as fn(i64) -> Pattern),
+        ("irand", rudel_core::irand),
+        ("randrun", rudel_core::randrun),
+        ("run", rudel_core::run),
+        ("binary", rudel_core::binary),
+        ("randL", rudel_core::rand_l),
+    ] {
+        prelude.func(name, move |a| Ok(f(arg_to_f64(arg0(a)) as i64).into()));
+    }
     // tour(pat, a, b, ...): standalone form of `pat.tour(a, b, ...)`.
-    prelude.add_fn("tour", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
+    prelude.func("tour", |a| {
+        let pats = patterns(a);
         let Some((head, many)) = pats.split_first() else {
-            return Ok(KPattern(rudel_core::silence()).into());
+            return done();
         };
-        Ok(KPattern(head.tour(many)).into())
+        Ok(head.tour(many).into())
     });
 
     // -- Signals --------------------------------------------------------
-    // Continuous signals are exposed as pattern *values* (like Strudel), so
+    // Continuous signals are pattern *values* (like Strudel), so
     // `sine.range(0,1)` works without calling `sine()`.
-    macro_rules! signal_val {
-        ($($name:literal => $f:path),* $(,)?) => {
-            $( prelude.insert($name, KPattern($f())); )*
-        };
-    }
-    signal_val!(
-        "sine" => rudel_core::sine, "cosine" => rudel_core::cosine,
-        "saw" => rudel_core::saw, "isaw" => rudel_core::isaw,
-        "tri" => rudel_core::tri, "itri" => rudel_core::itri,
-        "square" => rudel_core::square,
-        "sine2" => rudel_core::sine2, "cosine2" => rudel_core::cosine2,
-        "saw2" => rudel_core::saw2, "isaw2" => rudel_core::isaw2,
-        "tri2" => rudel_core::tri2, "itri2" => rudel_core::itri2,
-        "square2" => rudel_core::square2,
-        "rand" => rudel_core::rand, "rand2" => rudel_core::rand2,
-        "brand" => rudel_core::brand,
-        "time" => rudel_core::time,
-        "perlin" => rudel_core::perlin, "berlin" => rudel_core::berlin,
+    for (name, f) in [
+        ("sine", rudel_core::sine as fn() -> Pattern),
+        ("cosine", rudel_core::cosine),
+        ("saw", rudel_core::saw),
+        ("isaw", rudel_core::isaw),
+        ("tri", rudel_core::tri),
+        ("itri", rudel_core::itri),
+        ("square", rudel_core::square),
+        ("sine2", rudel_core::sine2),
+        ("cosine2", rudel_core::cosine2),
+        ("saw2", rudel_core::saw2),
+        ("isaw2", rudel_core::isaw2),
+        ("tri2", rudel_core::tri2),
+        ("itri2", rudel_core::itri2),
+        ("square2", rudel_core::square2),
+        ("rand", rudel_core::rand),
+        ("rand2", rudel_core::rand2),
+        ("brand", rudel_core::brand),
+        ("time", rudel_core::time),
+        ("perlin", rudel_core::perlin),
+        ("berlin", rudel_core::berlin),
         // Pointer position, 0..1 across the app window (Strudel reads the
         // browser's mousemove events; the egui app is the source here).
-        "mousex" => rudel_core::mousex, "mouseX" => rudel_core::mousex,
-        "mousey" => rudel_core::mousey, "mouseY" => rudel_core::mousey,
+        ("mousex", rudel_core::mousex),
+        ("mouseX", rudel_core::mousex),
+        ("mousey", rudel_core::mousey),
+        ("mouseY", rudel_core::mousey),
         // Event-duration signals (take structure from the pattern they meet).
-        "per" => rudel_core::per, "perCycle" => rudel_core::per,
-        "cyclesPer" => rudel_core::cycles_per, "perx" => rudel_core::perx,
-    );
+        ("per", rudel_core::per),
+        ("perCycle", rudel_core::per),
+        ("cyclesPer", rudel_core::cycles_per),
+        ("perx", rudel_core::perx),
+    ] {
+        prelude.value(name, f());
+    }
     // brandBy(p): a 0/1 signal that is 1 with probability `p`.
-    prelude.add_fn("brandBy", |ctx| {
-        Ok(KPattern(rudel_core::brand_by(super::pattern::arg_to_f64(&arg0(ctx)))).into())
+    prelude.func("brandBy", |a| {
+        Ok(rudel_core::brand_by(arg_to_f64(arg0(a))).into())
     });
     // steady(value): a continuous pattern of a single constant value.
-    prelude.add_fn("steady", |ctx| {
-        Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
-    });
     // slider(value, min?, max?, step?): Strudel's transpiler rewrites this to
     // sliderWithID(id, value, ...). The untranspiled fallback is steady(value).
-    prelude.add_fn("slider", |ctx| {
-        Ok(KPattern(rudel_core::steady(arg_to_value(&arg0(ctx)))).into())
-    });
-    let slider_with_id = |ctx: &mut CallContext| {
-        let id = ctx
-            .args()
-            .first()
-            .and_then(arg_to_raw_str)
-            .unwrap_or_default();
-        let value = ctx.args().get(1).unwrap_or(&KValue::Null);
-        Ok(KPattern(crate::sliders::slider_with_id(id, arg_to_value(value))).into())
-    };
-    prelude.add_fn("slider_with_id", slider_with_id);
-    prelude.add_fn("sliderWithID", slider_with_id);
-    // choose / chooseOut / chooseIn: continuously pick from the given values.
-    // `choose`/`chooseOut` take structure from the random chooser; `chooseIn`
-    // takes it from the chosen values.
-    let choose = |ctx: &mut CallContext| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::choose(&pats)).into())
-    };
-    prelude.add_fn("choose", choose);
-    prelude.add_fn("chooseOut", choose);
-    prelude.add_fn("chooseIn", |ctx| {
-        let pats: Vec<Pattern> = ctx.args().iter().map(arg_to_pattern).collect();
-        Ok(KPattern(rudel_core::choose_in(&pats)).into())
-    });
-    // Signals taking an integer count.
-    prelude.add_fn("irand", |ctx| {
-        Ok(KPattern(rudel_core::irand(
-            super::pattern::arg_to_f64(&arg0(ctx)) as i64
-        ))
-        .into())
-    });
-    // randrun(n): the integers 0..n once each per cycle, in a random order.
-    prelude.add_fn("randrun", |ctx| {
-        Ok(KPattern(rudel_core::randrun(
-            super::pattern::arg_to_f64(&arg0(ctx)) as i64
-        ))
-        .into())
-    });
-    prelude.add_fn("run", |ctx| {
-        Ok(KPattern(rudel_core::run(
-            super::pattern::arg_to_f64(&arg0(ctx)) as i64
-        ))
-        .into())
-    });
-    // binary(n) / binaryN(n, nBits): bit patterns of a number (struct fodder).
-    // binaryL(n) / binaryNL(n, nBits): the bits packed into a list value.
-    // randL(n): a list of n random numbers. nBits defaults to 16, as in Strudel.
-    fn nbits_arg(ctx: &CallContext) -> i64 {
-        ctx.args().get(1).map(arg_to_f64).unwrap_or(16.0) as i64
+    for name in ["steady", "slider"] {
+        prelude.func(name, |a| {
+            Ok(rudel_core::steady(arg_to_value(arg0(a))).into())
+        });
     }
-    prelude.add_fn("binary", |ctx| {
-        Ok(KPattern(rudel_core::binary(
-            super::pattern::arg_to_f64(&arg0(ctx)) as i64
-        ))
-        .into())
+    for name in ["slider_with_id", "sliderWithID"] {
+        prelude.func(name, |a| {
+            let id = a.first().and_then(arg_to_raw_str).unwrap_or_default();
+            let value = arg_to_value(a.get(1).unwrap_or(NULL));
+            Ok(crate::sliders::slider_with_id(id, value).into())
+        });
+    }
+    // binaryN(n, nBits) / binaryL(n) / binaryNL(n, nBits): bit patterns of a
+    // number, and the bits packed into a list value. nBits defaults to 16, as
+    // in Strudel.
+    fn nbits_arg(a: &[Arg]) -> i64 {
+        a.get(1).map(arg_to_f64).unwrap_or(16.0) as i64
+    }
+    prelude.func("binaryN", |a| {
+        Ok(rudel_core::binary_n(arg_to_pattern(arg0(a)), nbits_arg(a)).into())
     });
-    prelude.add_fn("binaryN", |ctx| {
-        let nbits = nbits_arg(ctx);
-        Ok(KPattern(rudel_core::binary_n(arg_to_pattern(&arg0(ctx)), nbits)).into())
+    prelude.func("binaryL", |a| {
+        Ok(rudel_core::binary_l(arg_to_pattern(arg0(a))).into())
     });
-    prelude.add_fn("binaryL", |ctx| {
-        Ok(KPattern(rudel_core::binary_l(arg_to_pattern(&arg0(ctx)))).into())
-    });
-    prelude.add_fn("binaryNL", |ctx| {
-        let nbits = nbits_arg(ctx);
-        Ok(KPattern(rudel_core::binary_nl(arg_to_pattern(&arg0(ctx)), nbits)).into())
-    });
-    prelude.add_fn("randL", |ctx| {
-        Ok(KPattern(rudel_core::rand_l(
-            super::pattern::arg_to_f64(&arg0(ctx)) as i64
-        ))
-        .into())
+    prelude.func("binaryNL", |a| {
+        Ok(rudel_core::binary_nl(arg_to_pattern(arg0(a)), nbits_arg(a)).into())
     });
     // morph(from, to, by): morph between two binary rhythms. `from`/`to` are
     // list-valued (a `[1,0,1,...]` array or a `"1:0:1:..."` mini list); `by` is
     // a 0→1 number or signal.
-    prelude.add_fn("morph", |ctx| {
-        let a = ctx.args();
-        let list_or_pat = |v: &KValue| match v {
-            KValue::List(_) | KValue::Tuple(_) => rudel_core::pure(arg_to_value(v)),
+    prelude.func("morph", |a| {
+        let list_or_pat = |v: &Arg| match v {
+            Arg::List(_) => rudel_core::pure(to_value(v)),
             _ => arg_to_pattern(v),
         };
-        let from = list_or_pat(a.first().unwrap_or(&KValue::Null));
-        let to = list_or_pat(a.get(1).unwrap_or(&KValue::Null));
-        let by = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
-        Ok(KPattern(rudel_core::morph(from, to, by)).into())
+        let from = list_or_pat(arg0(a));
+        let to = list_or_pat(a.get(1).unwrap_or(NULL));
+        let by = arg_to_pattern(a.get(2).unwrap_or(NULL));
+        Ok(rudel_core::morph(from, to, by).into())
     });
     // MIDI input: `ccin(cc)` / `ccin(cc, chan)` is a 0..1 signal of the latest
     // value of an incoming control-change (the input counterpart to `ccn`).
-    prelude.add_fn("ccin", |ctx| {
-        let cc = super::pattern::arg_to_f64(&arg0(ctx)) as u8;
-        let chan = ctx
-            .args()
-            .get(1)
-            .map(|v| super::pattern::arg_to_f64(v) as u8)
-            .filter(|c| *c >= 1);
-        Ok(KPattern(rudel_core::cc_in(cc, chan)).into())
+    prelude.func("ccin", |a| {
+        let cc = arg_to_f64(arg0(a)) as u8;
+        let chan = a.get(1).map(|v| arg_to_f64(v) as u8).filter(|c| *c >= 1);
+        Ok(rudel_core::cc_in(cc, chan).into())
     });
     // Keyboard input: `keyDown("Control:j")` is a boolean signal that is true
     // while every named key is held. The argument is patternified like
     // Strudel's `register`, so a `:`-list is a combination and `<a b>`
     // alternates which key is watched.
-    prelude.add_fn("keyDown", |ctx| {
-        Ok(KPattern(key_down_pattern(&arg0(ctx))).into())
-    });
+    prelude.func("keyDown", |a| Ok(key_down_pattern(arg0(a)).into()));
 
     // Standalone (curried-style) forms of the transforms, so Strudel code
     // written as `fast(2, pat)` / `jux(rev, pat)` works as well as the method
-    // forms, under both snake_case and Strudel's camelCase names. `rev` is
-    // registered above. The function-callback combinators are registered
-    // separately since their `Callback` plumbing lives in the pattern module.
+    // forms, under both snake_case and Strudel's camelCase names. The
+    // function-callback combinators are registered separately since their
+    // `Callback` plumbing lives in the pattern module.
     super::pattern::register_standalone_callbacks(prelude);
     // Standalone `lfo`/`env`/`bmod` modulator factories (build on an empty map).
     super::pattern::register_modulate_fns(prelude);
 
     // euclid morph / tuple-euclid standalone forms (pattern last); their
     // signatures don't fit the `register_pattern_fns!` arg groups.
-    let euclidish_fn = |ctx: &mut CallContext| {
-        let a = ctx.args();
-        let pulses = arg_to_f64(a.first().unwrap_or(&KValue::Null)) as i64;
-        let steps = arg_to_f64(a.get(1).unwrap_or(&KValue::Null)) as i64;
-        let perc = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
-        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
-        Ok(KPattern(pat.euclidish(pulses, steps, perc)).into())
-    };
-    prelude.add_fn("euclidish", euclidish_fn);
-    prelude.add_fn("eish", euclidish_fn);
+    for name in ["euclidish", "eish"] {
+        prelude.func(name, |a| {
+            let pulses = arg_to_f64(arg0(a)) as i64;
+            let steps = arg_to_f64(a.get(1).unwrap_or(NULL)) as i64;
+            let perc = arg_to_pattern(a.get(2).unwrap_or(NULL));
+            let pat = arg_to_pattern(a.last().unwrap_or(NULL));
+            Ok(pat.euclidish(pulses, steps, perc).into())
+        });
+    }
 
     // `hsl(h, s, l, pat)` / `hsla(h, s, l, a, pat)`: CSS colour helpers writing
     // the `color` control (pattern last, mirroring Strudel's `register`).
-    prelude.add_fn("hsl", |ctx| {
-        let a = ctx.args();
-        let h = arg_to_pattern(a.first().unwrap_or(&KValue::Null));
-        let s = arg_to_pattern(a.get(1).unwrap_or(&KValue::Null));
-        let l = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
-        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
-        Ok(KPattern(pat.hsl(h, s, l)).into())
+    prelude.func("hsl", |a| {
+        let at = |i: usize| arg_to_pattern(a.get(i).unwrap_or(NULL));
+        let pat = arg_to_pattern(a.last().unwrap_or(NULL));
+        Ok(pat.hsl(at(0), at(1), at(2)).into())
     });
-    prelude.add_fn("hsla", |ctx| {
-        let a = ctx.args();
-        let h = arg_to_pattern(a.first().unwrap_or(&KValue::Null));
-        let s = arg_to_pattern(a.get(1).unwrap_or(&KValue::Null));
-        let l = arg_to_pattern(a.get(2).unwrap_or(&KValue::Null));
-        let alpha = arg_to_pattern(a.get(3).unwrap_or(&KValue::Null));
-        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
-        Ok(KPattern(pat.hsla(h, s, l, alpha)).into())
+    prelude.func("hsla", |a| {
+        let at = |i: usize| arg_to_pattern(a.get(i).unwrap_or(NULL));
+        let pat = arg_to_pattern(a.last().unwrap_or(NULL));
+        Ok(pat.hsla(at(0), at(1), at(2), at(3)).into())
     });
-    prelude.add_fn("bjork", |ctx| {
-        let a = ctx.args();
-        let euc: Vec<i64> = match a.first() {
-            Some(KValue::List(l)) => l.data().iter().map(|v| arg_to_f64(v) as i64).collect(),
-            Some(KValue::Tuple(t)) => t.data().iter().map(|v| arg_to_f64(v) as i64).collect(),
-            Some(other) => vec![arg_to_f64(other) as i64],
-            None => vec![],
-        };
-        let pat = arg_to_pattern(a.last().unwrap_or(&KValue::Null));
-        Ok(KPattern(pat.bjork(&euc)).into())
+    prelude.func("bjork", |a| {
+        let counts = bjork_counts(a.first().unwrap_or(NULL));
+        let pat = arg_to_pattern(a.last().unwrap_or(NULL));
+        Ok(pat.bjork(&counts).into())
     });
 
     // The euclid family, pattern-last like every other standalone transform.
@@ -1090,12 +743,12 @@ pub(crate) fn register(prelude: &KMap) {
         ),
     ] {
         for name in names {
-            add_curried_fn(prelude, name, if rotated { 4 } else { 3 }, move |a| {
+            prelude.curried(name, if rotated { 4 } else { 3 }, move |a| {
                 let last = a.len().saturating_sub(1);
-                let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
+                let pat = arg_to_pattern(a.get(last).unwrap_or(NULL));
                 let count = |i: usize| a.get(i).filter(|_| last > i);
                 let counts = [count(0), count(1), count(2)];
-                Ok(KPattern(super::pattern::euclid_call(&pat, counts, rotated, build)).into())
+                Ok(euclid_call(&pat, counts, rotated, build).into())
             });
         }
     }
@@ -1105,24 +758,22 @@ pub(crate) fn register(prelude: &KMap) {
     // so these share `stepwise_call` with the methods instead of living in the
     // plain-integer group.
     type StepwiseBuild = fn(&Pattern, i64) -> Pattern;
-    for (names, build) in [
-        (&["expand"][..], (|p, n| p.expand(n)) as StepwiseBuild),
-        (&["extend"][..], (|p, n| p.extend(n)) as StepwiseBuild),
-        (&["contract"][..], (|p, n| p.contract(n)) as StepwiseBuild),
-        (&["shrink"][..], (|p, n| p.shrink(n)) as StepwiseBuild),
-        (&["grow"][..], (|p, n| p.grow(n)) as StepwiseBuild),
-        (&["take"][..], (|p, n| p.take(n)) as StepwiseBuild),
-        (&["drop"][..], (|p, n| p.drop(n)) as StepwiseBuild),
-        (&["replicate"][..], (|p, n| p.replicate(n)) as StepwiseBuild),
+    for (name, build) in [
+        ("expand", (|p, n| p.expand(n)) as StepwiseBuild),
+        ("extend", |p, n| p.extend(n)),
+        ("contract", |p, n| p.contract(n)),
+        ("shrink", |p, n| p.shrink(n)),
+        ("grow", |p, n| p.grow(n)),
+        ("take", |p, n| p.take(n)),
+        ("drop", |p, n| p.drop(n)),
+        ("replicate", |p, n| p.replicate(n)),
     ] {
-        for name in names {
-            add_curried_fn(prelude, name, 2, move |a| {
-                let last = a.len().saturating_sub(1);
-                let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-                let count = a.first().filter(|_| last >= 1);
-                Ok(KPattern(super::pattern::stepwise_call(&pat, count, build)).into())
-            });
-        }
+        prelude.curried(name, 2, move |a| {
+            let last = a.len().saturating_sub(1);
+            let pat = arg_to_pattern(a.get(last).unwrap_or(NULL));
+            let count = a.first().filter(|_| last >= 1);
+            Ok(stepwise_call(&pat, count, build).into())
+        });
     }
 
     register_pattern_fns!(prelude;
@@ -1192,12 +843,12 @@ pub(crate) fn register(prelude: &KMap) {
     // `degradeByWith(withPat, x, pat)` is the only (pattern, f64) transform, so
     // it is registered directly rather than growing the macro a one-member group.
     for name in ["degradeByWith", "degrade_by_with"] {
-        add_curried_fn(prelude, name, 3, |a: &[KValue]| {
+        prelude.curried(name, 3, |a| {
             let last = a.len().saturating_sub(1);
-            let pat = arg_to_pattern(a.get(last).unwrap_or(&KValue::Null));
-            let with_pat = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(&KValue::Null));
-            let x = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(&KValue::Null));
-            Ok(KPattern(pat.degrade_by_with(with_pat, x)).into())
+            let pat = arg_to_pattern(a.get(last).unwrap_or(NULL));
+            let with_pat = arg_to_pattern(a.first().filter(|_| last >= 1).unwrap_or(NULL));
+            let x = arg_to_f64(a.get(1).filter(|_| last >= 2).unwrap_or(NULL));
+            Ok(pat.degrade_by_with(with_pat, x).into())
         });
     }
 
@@ -1210,33 +861,22 @@ pub(crate) fn register(prelude: &KMap) {
 }
 
 /// Register a pattern-valued factory for every control name that is not already
-/// a top-level function. The counterpart of `extend_control_entries`, which does
-/// the same for the method form.
-fn register_control_factories(prelude: &KMap) {
+/// a top-level function. The counterpart of `register_methods`, which does the
+/// same for the method form.
+fn register_control_factories(prelude: &Scope) {
     for (name, builder) in rudel_core::control_builders() {
-        if prelude.get(name).is_some() {
-            continue;
+        if !prelude.has(name) {
+            prelude.func(name, move |a| Ok(builder(arg_to_pattern(arg0(a))).into()));
         }
-        prelude.insert(
-            name,
-            KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                Ok(KPattern(builder(arg_to_pattern(&arg0(ctx)))).into())
-            })),
-        );
     }
     // The numbered FM/operator controls have no Rust builder fn; their canonical
     // keys are generated at runtime.
     for (name, key) in rudel_core::numbered_control_names() {
-        if prelude.get(name.as_str()).is_some() {
-            continue;
+        if !prelude.has(&name) {
+            prelude.func(&name, move |a| {
+                Ok(rudel_core::control_dyn(key.clone(), arg_to_pattern(arg0(a))).into())
+            });
         }
-        prelude.insert(
-            name.as_str(),
-            KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-                let key = key.clone();
-                Ok(KPattern(rudel_core::control_dyn(key, arg_to_pattern(&arg0(ctx)))).into())
-            })),
-        );
     }
 }
 
@@ -1244,7 +884,7 @@ fn register_control_factories(prelude: &KMap) {
 /// held. The argument is patternified like Strudel's `register`, so a
 /// `:`-list (`"Control:j"`) is a combination and the live keyboard state is
 /// read at query time rather than when the pattern is built.
-pub(super) fn key_down_pattern(arg: &KValue) -> Pattern {
+pub(super) fn key_down_pattern(arg: &Arg) -> Pattern {
     arg_to_pattern(arg).fmap(|v| {
         let names: Vec<&str> = match &v {
             rudel_core::Value::List(items) => items.iter().filter_map(|x| x.as_str()).collect(),

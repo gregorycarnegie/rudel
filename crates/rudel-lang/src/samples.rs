@@ -1,5 +1,7 @@
-use crate::bindings::{KPattern, arg_to_f64, arg_to_raw_str, arg0};
-use koto::prelude::*;
+use crate::{
+    bindings::{arg_to_f64, arg_to_raw_str, arg0},
+    js::{Arg, Res, Scope},
+};
 use rudel_core::CcMapping;
 use std::sync::{Arc, Mutex};
 
@@ -36,122 +38,100 @@ pub struct SampleEffects {
     pub csound_orcs: Vec<(bool, String)>,
 }
 
-/// Convert a Koto value into a `serde_json::Value` for an inline sample map.
-/// Handles the shapes a sample map uses: strings, numbers, lists, and nested
-/// (note-keyed) maps with string keys.
-fn koto_to_json(value: &KValue) -> Option<serde_json::Value> {
+/// Convert a script value into a `serde_json::Value` for an inline sample map.
+/// Handles the shapes a sample map uses: strings, numbers, arrays, and nested
+/// (note-keyed) objects.
+fn arg_to_json(value: &Arg) -> Option<serde_json::Value> {
     use serde_json::Value as Json;
     if let Some(s) = arg_to_raw_str(value) {
         return Some(Json::String(s));
     }
     Some(match value {
-        KValue::Number(n) => {
-            if n.is_i64() {
-                Json::Number(i64::from(n).into())
-            } else {
-                serde_json::Number::from_f64(f64::from(n)).map_or(Json::Null, Json::Number)
-            }
-        }
-        KValue::List(l) => Json::Array(l.data().iter().filter_map(koto_to_json).collect()),
-        KValue::Tuple(t) => Json::Array(t.data().iter().filter_map(koto_to_json).collect()),
-        KValue::Map(m) => {
-            let obj = m
-                .data()
-                .iter()
-                .filter_map(|(k, v)| match k.value() {
-                    KValue::Str(key) => Some((key.to_string(), koto_to_json(v)?)),
-                    _ => None,
-                })
-                .collect();
-            Json::Object(obj)
-        }
+        Arg::Num(n) if n.fract() == 0.0 && n.abs() < 9e15 => Json::Number((*n as i64).into()),
+        Arg::Num(n) => serde_json::Number::from_f64(*n).map_or(Json::Null, Json::Number),
+        Arg::List(l) => Json::Array(l.iter().filter_map(arg_to_json).collect()),
+        Arg::Map(m) => Json::Object(
+            m.iter()
+                .filter_map(|(key, v)| Some((key.clone(), arg_to_json(v)?)))
+                .collect(),
+        ),
         _ => return None,
     })
+}
+
+/// The pattern a side-effecting call hands back, so it can sit on a line of
+/// its own.
+fn done() -> Res {
+    Ok(rudel_core::silence().into())
 }
 
 /// Register the side-effecting sample helpers (`samples` / `aliasBank`). They
 /// record their string arguments into `effects` (applied by the host against
 /// its sample bank) and return an empty pattern.
-pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
-    let sample_effects = effects.clone();
-    let tempo_effects = effects.clone();
+pub(crate) fn register_samples(prelude: &Scope, effects: Arc<Mutex<SampleEffects>>) {
     register_midimaps(prelude, effects.clone());
-    prelude.add_fn("samples", move |ctx| {
-        let mut eff = sample_effects.lock().unwrap();
-        let args = ctx.args();
+    let eff = effects.clone();
+    prelude.func("samples", move |args| {
+        let mut eff = eff.lock().unwrap();
         match args.first() {
             // Inline map form: samples({ bd: "...", ... }, base?)
-            Some(KValue::Map(_)) => {
-                if let Some(json) = koto_to_json(&args[0]) {
+            Some(map @ Arg::Map(_)) => {
+                if let Some(json) = arg_to_json(map) {
                     let base = args.get(1).and_then(arg_to_raw_str).unwrap_or_default();
                     eff.maps.push((json.to_string(), base));
                 }
             }
             // String source form: samples("github:...", "https://...", ...)
-            _ => {
-                for arg in args {
-                    if let Some(s) = arg_to_raw_str(arg) {
-                        eff.sources.push(s);
-                    }
-                }
-            }
+            _ => eff.sources.extend(args.iter().filter_map(arg_to_raw_str)),
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
 
-    let effects = tempo_effects.clone();
+    let eff = effects.clone();
     // `setSoundfontUrl(url)`: repoint General MIDI preset loading at another
     // mirror or a local directory.
-    prelude.add_fn("setSoundfontUrl", move |ctx| {
-        if let Some(url) = ctx.args().first().and_then(arg_to_raw_str) {
-            effects.lock().unwrap().soundfont_url = Some(url);
+    prelude.func("setSoundfontUrl", move |args| {
+        if let Some(url) = args.first().and_then(arg_to_raw_str) {
+            eff.lock().unwrap().soundfont_url = Some(url);
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
 
     // `registerSoundfonts()`: upstream registers the `gm_*` names with lazy
     // loaders at prebake. Rudel knows them from its built-in General MIDI
     // table and fetches on first use, so this exists for parity and to make
     // the intent explicit in a script.
-    prelude.add_fn("registerSoundfonts", |_ctx| {
-        Ok(KPattern(rudel_core::silence()).into())
-    });
+    prelude.func("registerSoundfonts", |_| done());
 
-    let effects = tempo_effects.clone();
+    let eff = effects.clone();
     // `loadSoundfont(path, name?)`: load a local `.sf2` file, exposing its
     // presets under `name` (defaulting to the file stem).
-    prelude.add_fn("loadSoundfont", move |ctx| {
-        let args = ctx.args();
-        if let Some(path) = args.first().and_then(arg_to_raw_str) {
-            let name = args
-                .get(1)
-                .and_then(arg_to_raw_str)
-                .unwrap_or_else(|| soundfont_stem(&path));
-            effects
-                .lock()
-                .unwrap()
-                .soundfonts
-                .push((path, name.clone()));
-            return Ok(KValue::Str(name.into()));
-        }
-        Ok(KValue::Null)
+    prelude.func("loadSoundfont", move |args| {
+        let Some(path) = args.first().and_then(arg_to_raw_str) else {
+            return Ok(Arg::Null);
+        };
+        let name = args
+            .get(1)
+            .and_then(arg_to_raw_str)
+            .unwrap_or_else(|| soundfont_stem(&path));
+        eff.lock().unwrap().soundfonts.push((path, name.clone()));
+        Ok(name.into())
     });
 
     // tables(url, frameLen): load a collection of wavetables to play with `s`.
     // Recorded as a host effect, like `samples(...)`; the default frame length
     // is superdough's 2048.
-    let effects = tempo_effects.clone();
-    prelude.add_fn("tables", move |ctx| {
-        let args = ctx.args();
+    let eff = effects.clone();
+    prelude.func("tables", move |args| {
         if let Some(source) = args.first().and_then(arg_to_raw_str) {
             let frame_len = args
                 .get(1)
                 .map(arg_to_f64)
                 .filter(|n| *n >= 1.0)
                 .map_or(2048, |n| n as usize);
-            effects.lock().unwrap().tables.push((source, frame_len));
+            eff.lock().unwrap().tables.push((source, frame_len));
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
 
     // midin(device): open a named MIDI input port and return a
@@ -159,49 +139,44 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
     // changes. Upstream returns a promise (WebMidi is async); Rudel records the
     // port as a host effect and returns the factory straight away, so the
     // signals read 0 until the app has the port open.
-    let effects = tempo_effects.clone();
-    prelude.add_fn("midin", move |ctx| {
-        let device = arg_to_raw_str(&arg0(ctx)).unwrap_or_default();
-        effects.lock().unwrap().midi_inputs.push(device.clone());
-        Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-            let a = ctx.args();
+    let eff = effects.clone();
+    prelude.func("midin", move |args| {
+        let device = arg_to_raw_str(arg0(args)).unwrap_or_default();
+        eff.lock().unwrap().midi_inputs.push(device.clone());
+        Ok(Arg::native(move |a| {
             let cc = a.first().map(arg_to_f64).unwrap_or(0.0) as u8;
-            let chan = a
-                .get(1)
-                .map(arg_to_f64)
-                .map(|c| c as u8)
-                .filter(|c| *c >= 1);
-            Ok(KPattern(rudel_core::cc_in_from(&device, cc, chan)).into())
-        })))
+            let chan = a.get(1).map(|c| arg_to_f64(c) as u8).filter(|c| *c >= 1);
+            Ok(rudel_core::cc_in_from(&device, cc, chan).into())
+        }))
     });
 
     // midikeys(device): open a named MIDI input port and return a
     // `(noteLength?) -> pattern` factory of the notes played on it. `noteLength`
     // is in cycles and defaults to 0.5, as upstream.
-    let effects = tempo_effects.clone();
-    prelude.add_fn("midikeys", move |ctx| {
-        let device = arg_to_raw_str(&arg0(ctx)).unwrap_or_default();
-        effects.lock().unwrap().midi_inputs.push(device.clone());
-        Ok(KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-            let length = match ctx.args().first() {
-                None | Some(KValue::Null) => rudel_core::pure(rudel_core::Value::F64(0.5)),
+    let eff = effects.clone();
+    prelude.func("midikeys", move |args| {
+        let device = arg_to_raw_str(arg0(args)).unwrap_or_default();
+        eff.lock().unwrap().midi_inputs.push(device.clone());
+        Ok(Arg::native(move |a| {
+            let length = match a.first() {
+                None | Some(Arg::Null) => rudel_core::pure(rudel_core::Value::F64(0.5)),
                 Some(arg) => crate::bindings::arg_to_pattern(arg),
             };
-            Ok(KPattern(rudel_core::midi_keys(&device, length)).into())
-        })))
+            Ok(rudel_core::midi_keys(&device, length).into())
+        }))
     });
 
     // aliasBank(canonical, alias, ...): each extra string is an alias.
-    let effects = tempo_effects.clone();
-    prelude.add_fn("aliasBank", move |ctx| {
-        let strs: Vec<String> = ctx.args().iter().filter_map(arg_to_raw_str).collect();
+    let eff = effects.clone();
+    prelude.func("aliasBank", move |args| {
+        let strs: Vec<String> = args.iter().filter_map(arg_to_raw_str).collect();
         if let Some((canonical, aliases)) = strs.split_first() {
-            let mut eff = effects.lock().unwrap();
+            let mut eff = eff.lock().unwrap();
             for alias in aliases {
                 eff.bank_aliases.push((canonical.clone(), alias.clone()));
             }
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
 
     // `loadCsound(code)` / `loadOrc(url)` (@strudel/csound). Both start Csound
@@ -215,18 +190,17 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
         ("loadOrc", true),
         ("loadorc", true),
     ] {
-        let effects = tempo_effects.clone();
-        prelude.add_fn(name, move |ctx| {
-            let text = ctx.args().first().and_then(arg_to_raw_str);
+        let eff = effects.clone();
+        prelude.func(name, move |args| {
+            let text = args.first().and_then(arg_to_raw_str);
             if is_url && text.is_none() {
-                return koto::runtime::runtime_error!("loadOrc: expected a url string");
+                return Err("loadOrc: expected a url string".to_string());
             }
-            effects
-                .lock()
+            eff.lock()
                 .unwrap()
                 .csound_orcs
                 .push((is_url, text.unwrap_or_default()));
-            Ok(KPattern(rudel_core::silence()).into())
+            done()
         });
     }
 
@@ -236,10 +210,10 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
         ("setCpm", 1.0 / 60.0),
         ("setcpm", 1.0 / 60.0),
     ] {
-        let effects = tempo_effects.clone();
-        prelude.add_fn(name, move |ctx| {
-            effects.lock().unwrap().cps = Some(arg_to_f64(&arg0(ctx)) * scale);
-            Ok(KPattern(rudel_core::silence()).into())
+        let eff = effects.clone();
+        prelude.func(name, move |args| {
+            eff.lock().unwrap().cps = Some(arg_to_f64(arg0(args)) * scale);
+            done()
         });
     }
 }
@@ -247,40 +221,37 @@ pub(crate) fn register_samples(prelude: &KMap, effects: Arc<Mutex<SampleEffects>
 /// Read one midimap entry: a bare CC number (`{ lpf: 74 }`) or a table
 /// (`{ lpf: { ccn: 74, min: 0, max: 20000, exp: 0.5 } }`), matching
 /// `unifyMapping`'s two accepted value shapes.
-fn cc_mapping_from(value: &KValue) -> Option<CcMapping> {
+fn cc_mapping_from(value: &Arg) -> Option<CcMapping> {
     let ccn = |x: f64| x.round().clamp(0.0, 127.0) as u8;
     match value {
-        KValue::Map(m) => {
+        Arg::Map(_) => {
             let field = |k: &str, fallback| {
-                m.get(k)
-                    .map(|v| arg_to_f64(&v))
+                value
+                    .get(k)
+                    .map(arg_to_f64)
                     .filter(|x| x.is_finite())
                     .unwrap_or(fallback)
             };
             Some(CcMapping {
-                ccn: ccn(m.get("ccn").map(|v| arg_to_f64(&v))?),
+                ccn: ccn(value.get("ccn").map(arg_to_f64)?),
                 min: field("min", 0.0),
                 max: field("max", 1.0),
                 exp: field("exp", 1.0),
             })
         }
-        KValue::Number(n) => Some(CcMapping::new(ccn(f64::from(n)))),
+        Arg::Num(n) => Some(CcMapping::new(ccn(*n))),
         _ => None,
     }
 }
 
-/// Collect a `{ control: ccn | { ccn, min, max, exp } }` Koto map into the
+/// Collect a `{ control: ccn | { ccn, min, max, exp } }` object into the
 /// entries [`rudel_core::set_midimap`] takes.
-fn midimap_entries(value: &KValue) -> Vec<(String, CcMapping)> {
-    let KValue::Map(m) = value else {
+fn midimap_entries(value: &Arg) -> Vec<(String, CcMapping)> {
+    let Arg::Map(m) = value else {
         return Vec::new();
     };
-    m.data()
-        .iter()
-        .filter_map(|(k, v)| match k.value() {
-            KValue::Str(key) => Some((key.to_string(), cc_mapping_from(v)?)),
-            _ => None,
-        })
+    m.iter()
+        .filter_map(|(key, v)| Some((key.clone(), cc_mapping_from(v)?)))
         .collect()
 }
 
@@ -292,14 +263,12 @@ fn midimap_entries(value: &KValue) -> Vec<(String, CcMapping)> {
 /// I/O. `midimaps("github:user/repo")` (or any URL / path) instead records the
 /// source for the host to fetch, since the JSON lives behind a network call;
 /// upstream `await`s a `fetch`, rudel collects the request like `samples(...)`.
-fn register_midimaps(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
-    prelude.add_fn("midimaps", move |ctx| {
-        match ctx.args().first() {
-            Some(KValue::Map(maps)) => {
-                for (name, table) in maps.data().iter() {
-                    if let KValue::Str(name) = name.value() {
-                        rudel_core::set_midimap(name, midimap_entries(table));
-                    }
+fn register_midimaps(prelude: &Scope, effects: Arc<Mutex<SampleEffects>>) {
+    prelude.func("midimaps", move |args| {
+        match args.first() {
+            Some(Arg::Map(maps)) => {
+                for (name, table) in maps {
+                    rudel_core::set_midimap(name, midimap_entries(table));
                 }
             }
             Some(arg) => {
@@ -309,13 +278,13 @@ fn register_midimaps(prelude: &KMap, effects: Arc<Mutex<SampleEffects>>) {
             }
             None => {}
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
-    prelude.add_fn("defaultmidimap", |ctx| {
-        if let Some(table) = ctx.args().first() {
+    prelude.func("defaultmidimap", |args| {
+        if let Some(table) = args.first() {
             rudel_core::set_midimap("default", midimap_entries(table));
         }
-        Ok(KPattern(rudel_core::silence()).into())
+        done()
     });
 }
 

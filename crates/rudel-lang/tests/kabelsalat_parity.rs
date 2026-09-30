@@ -5,7 +5,7 @@
 // per patch, the topologically sorted graph `@kabelsalat/lib` builds and the
 // samples superdough's `generic-processor` renders from it. Rudel goes from the
 // same source text to samples by a completely different route — the graph is
-// built by Koto bindings, compiled to an instruction list, and interpreted —
+// built by native bindings, compiled to an instruction list, and interpreted —
 // so agreeing here means the whole chain agrees.
 //
 // This is the one test that crosses the crate seam: `rudel-lang` compiles the

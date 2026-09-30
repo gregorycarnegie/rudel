@@ -34,8 +34,8 @@ pub(crate) const FACTORIES: &[&str] = &[
 ];
 
 pub(crate) const LANGUAGE_KEYWORDS: &[&str] = &[
-    "const", "let", "fn", "if", "else", "for", "while", "in", "match", "return", "true", "false",
-    "null",
+    "const", "let", "var", "function", "if", "else", "for", "of", "in", "while", "return", "new",
+    "typeof", "true", "false", "null",
 ];
 
 #[cfg(test)]

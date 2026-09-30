@@ -47,7 +47,33 @@ pub(super) fn is_ident_char(c: char) -> bool {
 /// meant the mini pass glued its `m(` onto the tag, making `loadCsound` into
 /// the undefined `loadCsoundm`.
 pub(super) fn is_tagged_template(src: &str, at: usize) -> bool {
-    src[at..].starts_with('`') && src[..at].chars().next_back().is_some_and(is_ident_char)
+    // Words that can stand before a template without tagging it.
+    const KEYWORDS: &[&str] = &[
+        "return",
+        "await",
+        "typeof",
+        "void",
+        "delete",
+        "in",
+        "of",
+        "case",
+        "yield",
+        "new",
+        "else",
+        "do",
+        "throw",
+        "instanceof",
+    ];
+    if !src[at..].starts_with('`') {
+        return false;
+    }
+    // JavaScript allows blanks between the tag and its template:
+    // ``note `c e g` `` is as tagged as ``note`c e g` ``. Only on the same
+    // line, though — a word at the end of the line above may be the tail of a
+    // comment, and a tag on its own line is not a thing anyone writes.
+    let head = src[..at].trim_end_matches([' ', '\t']);
+    let word = &head[head.trim_end_matches(is_ident_char).len()..];
+    !word.is_empty() && !word.starts_with(|c: char| c.is_ascii_digit()) && !KEYWORDS.contains(&word)
 }
 
 pub(super) fn previous_non_ws(src: &str, at: usize) -> Option<char> {
@@ -137,8 +163,7 @@ pub(super) fn classify(src: &str, at: usize) -> Option<(Chunk, usize)> {
     match (*b.get(at)?, b.get(at + 1).copied()) {
         // A backtick opens a JS template literal, which tunes use for the
         // multi-line mini-notation of a whole melody. Scanning it as a string
-        // keeps its brackets and quotes out of every pass that counts them;
-        // `normalize_string_literal` turns it into a Koto string.
+        // keeps its brackets and quotes out of every pass that counts them.
         (quote @ (b'"' | b'\'' | b'`'), _) => Some((Chunk::Str, scan_string(b, at, quote))),
         (b'/', Some(b'/')) => Some((Chunk::LineComment, scan_line_comment(b, at))),
         (b'/', Some(b'*')) => Some((Chunk::BlockComment, scan_block_comment(b, at))),
@@ -295,13 +320,29 @@ mod tests {
     }
 
     #[test]
-    fn identifier_characters_are_koto_identifiers() {
+    fn identifier_characters_are_js_identifiers() {
         for c in ['a', 'Z', '0', '9', '_', '$'] {
             assert!(is_ident_char(c), "{c:?} belongs in an identifier");
         }
         for c in ['-', '.', ' ', '(', '"', '\n', 'é'] {
             assert!(!is_ident_char(c), "{c:?} does not");
         }
+    }
+
+    #[test]
+    fn a_template_is_tagged_by_the_word_in_front_of_it() {
+        let tagged = |src: &str| is_tagged_template(src, src.find('`').unwrap());
+        assert!(tagged("note`c e`"));
+        // Blanks between the tag and the template are allowed, as in JS.
+        assert!(tagged("note `c e`"));
+        assert!(tagged("x.K\t`c e`"));
+        // An operator, a keyword or nothing in front: a plain template.
+        assert!(!tagged("x = `c e`"));
+        assert!(!tagged("return `c e`"));
+        assert!(!tagged("`c e`"));
+        assert!(!tagged("(`c e`)"));
+        // Not across a line break: the word above may end a comment.
+        assert!(!tagged("// note\n`c e`"));
     }
 
     #[test]

@@ -1,22 +1,22 @@
 use super::common::*;
 
 #[test]
-fn every_with_koto_callback() {
+fn every_with_a_callback() {
     // every(2, |x| x.add(10)): cycle 0 -> 10, cycle 1 -> 0
-    let pat = eval(r#"seq(0).every(2, |x| x.add(10))"#).expect("eval");
+    let pat = eval(r#"seq(0).every(2, x => x.add(10))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1)[0], Value::Int(10));
     assert_eq!(values(&pat, 1, 2)[0], Value::Int(0));
 }
 
 #[test]
-fn superimpose_with_koto_callback() {
+fn superimpose_with_a_callback() {
     // superimpose(|x| x.add(7)) over a single value -> two haps
-    let pat = eval(r#"seq(0).superimpose(|x| x.add(7))"#).expect("eval");
+    let pat = eval(r#"seq(0).superimpose(x => x.add(7))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(0), Value::Int(7)]);
     // ...and it is variadic, like `layer`: upstream stacks the pattern with a
     // copy through *every* function. Applying only the first dropped a whole
     // voice from any tune that superimposes two.
-    let pat = eval(r#"seq(0).superimpose(|x| x.add(7), |x| x.sub(5))"#).expect("eval");
+    let pat = eval(r#"seq(0).superimpose(x => x.add(7), x => x.sub(5))"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Int(0), Value::Int(7), Value::Int(-5)]
@@ -27,8 +27,8 @@ fn superimpose_with_koto_callback() {
 }
 
 #[test]
-fn jux_with_koto_callback() {
-    let pat = eval(r#"note("0 1").jux(|x| x.rev())"#).expect("eval");
+fn jux_with_a_callback() {
+    let pat = eval(r#"note("0 1").jux(x => x.rev())"#).expect("eval");
     let pans: Vec<f64> = pat
         .query_arc(Frac::zero(), Frac::one())
         .into_iter()
@@ -44,9 +44,9 @@ fn jux_with_koto_callback() {
 }
 
 #[test]
-fn within_with_koto_callback() {
+fn within_with_a_callback() {
     // apply +10 only to the first 40% of the cycle -> events 0 and 1
-    let pat = eval(r#"seq(0, 1, 2, 3).within(0, 0.4, |x| x.add(10))"#).expect("eval");
+    let pat = eval(r#"seq(0, 1, 2, 3).within(0, 0.4, x => x.add(10))"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Int(10), Value::Int(11), Value::Int(2), Value::Int(3)]
@@ -54,9 +54,9 @@ fn within_with_koto_callback() {
 }
 
 #[test]
-fn chunk_with_koto_callback() {
+fn chunk_with_a_callback() {
     // chunk(4, +10): first element bumped on cycle 0
-    let pat = eval(r#"seq(0, 1, 2, 3).chunk(4, |x| x.add(10))"#).expect("eval");
+    let pat = eval(r#"seq(0, 1, 2, 3).chunk(4, x => x.add(10))"#).expect("eval");
     assert_eq!(
         values(&pat, 0, 1),
         vec![Value::Int(10), Value::Int(1), Value::Int(2), Value::Int(3)]
@@ -65,7 +65,7 @@ fn chunk_with_koto_callback() {
 
 #[test]
 fn callback_combinators_accept_patterned_args() {
-    // The Koto VM can't run in the query path, so a patterned leading arg is
+    // The script is not run from the query path, so a patterned leading arg is
     // resolved by probing distinct values and baking the combinator result per
     // value, then selecting per cycle. Verified hap-for-hap against Strudel.
     let n_of = |pat: &rudel_core::Pattern, b, e| -> Vec<i64> {
@@ -81,7 +81,7 @@ fn callback_combinators_accept_patterned_args() {
 
     // chunk("<2 4>"): cycle 0 bumps the 1st half (n=2), cycle 1 the 2nd
     // quarter (n=4).
-    let pat = eval(r#"n("0 1 2 3").chunk("<2 4>", |x| x.add(n(10)))"#).expect("eval");
+    let pat = eval(r#"n("0 1 2 3").chunk("<2 4>", x => x.add(n(10)))"#).expect("eval");
     assert_eq!(n_of(&pat, 0, 1), vec![10, 11, 2, 3]);
     assert_eq!(n_of(&pat, 1, 2), vec![0, 11, 2, 3]);
 
@@ -102,24 +102,24 @@ fn callback_combinators_accept_patterned_args() {
 
     // sometimesBy("<0 1>") — the randomized probability varies per cycle
     // (camelCase routes through the patternified path too).
-    let sby = eval(r#"n("0*4").sometimesBy("<0 1>", |x| x.add(n(10)))"#).expect("eval");
+    let sby = eval(r#"n("0*4").sometimesBy("<0 1>", x => x.add(n(10)))"#).expect("eval");
     assert!(n_of(&sby, 0, 1).iter().all(|&v| v == 0)); // prob 0
     assert_eq!(n_of(&sby, 1, 2), vec![10, 10, 10, 10]); // prob 1
 
     // within with a patterned bound.
-    let within = eval(r#"n("0 1 2 3").within("<0 0.5>", 0.5, |x| x.add(n(10)))"#).expect("eval");
+    let within = eval(r#"n("0 1 2 3").within("<0 0.5>", 0.5, x => x.add(n(10)))"#).expect("eval");
     assert_eq!(n_of(&within, 0, 1), vec![10, 11, 12, 3]);
     assert_eq!(n_of(&within, 1, 2), vec![0, 1, 12, 3]);
 
     // a scalar leading arg still uses the direct fast path.
-    let scalar = eval(r#"n("0 1 2 3").chunk(4, |x| x.add(n(10)))"#).expect("eval");
+    let scalar = eval(r#"n("0 1 2 3").chunk(4, x => x.add(n(10)))"#).expect("eval");
     assert_eq!(n_of(&scalar, 0, 1), vec![10, 1, 2, 3]);
 }
 
 #[test]
-fn off_with_koto_callback() {
+fn off_with_a_callback() {
     // off(0.25, +12) stacks a shifted, transposed copy: two onsets per cycle
-    let pat = eval(r#"note(0).off(0.25, |x| x.add(12))"#).expect("eval");
+    let pat = eval(r#"note(0).off(0.25, x => x.add(12))"#).expect("eval");
     let onsets = pat
         .query_arc(Frac::zero(), Frac::one())
         .into_iter()
@@ -131,20 +131,20 @@ fn off_with_koto_callback() {
 #[test]
 fn layer_stacks_callback_results() {
     // layer([|x| x.add(0), |x| x.add(7)]) over a single value -> two haps
-    let pat = eval(r#"seq(0).layer([|x| x.add(0), |x| x.add(7)])"#).expect("eval");
+    let pat = eval(r#"seq(0).layer([x => x.add(0), x => x.add(7)])"#).expect("eval");
     let mut got = values(&pat, 0, 1);
     got.sort_by_key(|v| v.as_f64().unwrap() as i64);
     assert_eq!(got, vec![Value::Int(0), Value::Int(7)]);
 }
 
 #[test]
-fn apply_always_never_via_koto() {
+fn apply_always_never_via_script() {
     // apply/always run the callback; never leaves the pattern unchanged.
-    let pat = eval(r#"seq(0).apply(|x| x.add(5))"#).expect("eval");
+    let pat = eval(r#"seq(0).apply(x => x.add(5))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(5)]);
-    let pat = eval(r#"seq(0).always(|x| x.add(5))"#).expect("eval");
+    let pat = eval(r#"seq(0).always(x => x.add(5))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(5)]);
-    let pat = eval(r#"seq(0).never(|x| x.add(5))"#).expect("eval");
+    let pat = eval(r#"seq(0).never(x => x.add(5))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1), vec![Value::Int(0)]);
 }
 
@@ -166,24 +166,24 @@ fn every_first_last_accept_a_patterned_cycle_count() {
     assert_eq!(names(1, 2), vec!["b", "a"]);
 
     // scalar still works: every(2) applies on cycle 0 only.
-    let pat = eval(r#"seq(0).every(2, |x| x.add(10))"#).expect("eval");
+    let pat = eval(r#"seq(0).every(2, x => x.add(10))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1)[0], Value::Int(10));
     assert_eq!(values(&pat, 1, 2)[0], Value::Int(0));
 
     // lastOf places the transform on the last cycle of each group.
-    let pat = eval(r#"seq(0).lastOf(2, |x| x.add(10))"#).expect("eval");
+    let pat = eval(r#"seq(0).lastOf(2, x => x.add(10))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1)[0], Value::Int(0));
     assert_eq!(values(&pat, 1, 2)[0], Value::Int(10));
 
     // standalone form (pattern last) honours the patterned count too.
-    let pat = eval(r#"every("<1 2>", |x| x.add(10), seq(0))"#).expect("eval");
+    let pat = eval(r#"every("<1 2>", x => x.add(10), seq(0))"#).expect("eval");
     assert_eq!(values(&pat, 0, 1)[0], Value::Int(10)); // n=1 -> applied
     assert_eq!(values(&pat, 1, 2)[0], Value::Int(0)); // n=2 -> 1 mod 2 != 0
 }
 
 #[test]
 fn bool_literals_become_boolean_patterns() {
-    // A bare Koto `true`/`false` reifies to `pure(true/false)` (Strudel's
+    // A bare `true`/`false` reifies to `pure(true/false)` (Strudel's
     // `reify(true)`), so `when`/`struct` accept bool literals.
     let pat = eval(r#"n("0 1").when(true, rev)"#).expect("eval");
     let ns: Vec<f64> = values(&pat, 0, 1)
@@ -223,7 +223,7 @@ fn bool_literals_become_boolean_patterns() {
 #[test]
 fn echo_with_passes_the_index_to_the_callback() {
     // echoWith(3, 0.25, f): three copies, each f(copy, i). A two-arg callback
-    // gets the index; a one-arg callback ignores it (Koto arity fallback).
+    // gets the index; a one-arg callback ignores it.
     let ns = |src: &str| -> Vec<i64> {
         let mut hs = eval(src).unwrap().query_arc(Frac::zero(), Frac::one());
         hs.sort_by_key(|h| h.part.begin);
@@ -235,17 +235,17 @@ fn echo_with_passes_the_index_to_the_callback() {
             .collect()
     };
     assert_eq!(
-        ns(r#"n("0").echoWith(3, 0.25, |x, i| x.add(n(i)))"#),
+        ns(r#"n("0").echoWith(3, 0.25, (x, i) => x.add(n(i)))"#),
         vec![0, 1, 2, 1, 2]
     );
     // one-arg callback still works (index ignored).
     assert_eq!(
-        ns(r#"n("0").echoWith(3, 0.25, |x| x.add(n(10)))"#),
+        ns(r#"n("0").echoWith(3, 0.25, x => x.add(n(10)))"#),
         vec![10, 10, 10, 10, 10]
     );
     // stutWith is an alias; standalone takes the pattern last.
     assert_eq!(
-        ns(r#"stutWith(3, 0.25, |x, i| x.add(n(i)), n("0"))"#),
+        ns(r#"stutWith(3, 0.25, (x, i) => x.add(n(i)), n("0"))"#),
         vec![0, 1, 2, 1, 2]
     );
 }
@@ -261,17 +261,17 @@ fn ply_with_and_ply_for_each() {
             .collect()
     };
     assert_eq!(
-        vals(r#""0 1".plyWith(3, |x| x.add(10))"#),
+        vals(r#""0 1".plyWith(3, x => x.add(10))"#),
         vec![0, 10, 20, 1, 11, 21]
     );
     // plyForEach(3, (p,n) => p+n*2): first copy untransformed, then index-scaled.
     assert_eq!(
-        vals(r#""0 1".plyForEach(3, |p, n| p.add(n * 2))"#),
+        vals(r#""0 1".plyForEach(3, (p, n) => p.add(n * 2))"#),
         vec![0, 2, 4, 1, 3, 5]
     );
     // standalone form takes the pattern last.
     assert_eq!(
-        vals(r#"plyWith(3, |x| x.add(10), "0 1")"#),
+        vals(r#"plyWith(3, x => x.add(10), "0 1")"#),
         vec![0, 10, 20, 1, 11, 21]
     );
 }
@@ -292,23 +292,23 @@ fn into_and_chunk_into() {
     };
     // hurry(2) on the looped first half -> "bd sd" played twice in [0,0.5).
     assert_eq!(
-        names(r#"s("bd sd ht lt").into("1 0", |x| x.hurry(2))"#),
+        names(r#"s("bd sd ht lt").into("1 0", x => x.hurry(2))"#),
         vec!["bd", "sd", "bd", "sd", "ht", "lt"]
     );
     // chunkInto(4): cycle 0 hurries the first quarter (looped) -> bd, bd, ...
     assert_eq!(
-        names(r#"s("bd sd ht lt").chunkInto(4, |x| x.hurry(2))"#),
+        names(r#"s("bd sd ht lt").chunkInto(4, x => x.hurry(2))"#),
         vec!["bd", "bd", "sd", "ht", "lt"]
     );
     // Two windows in the same cycle are ribboned separately: each gets its own
     // slice of the pattern, so they cannot share one cached transform.
     assert_eq!(
-        names(r#"s("bd sd ht lt").into("1 1", |x| x.hurry(2))"#),
+        names(r#"s("bd sd ht lt").into("1 1", x => x.hurry(2))"#),
         vec!["bd", "sd", "bd", "sd", "ht", "lt", "ht", "lt"]
     );
     // standalone form takes the pattern last.
     assert_eq!(
-        names(r#"into("1 0", |x| x.hurry(2), s("bd sd ht lt"))"#),
+        names(r#"into("1 0", x => x.hurry(2), s("bd sd ht lt"))"#),
         vec!["bd", "sd", "bd", "sd", "ht", "lt"]
     );
 }
@@ -316,16 +316,13 @@ fn into_and_chunk_into() {
 #[test]
 fn callback_error_is_surfaced() {
     // Referencing an undefined function inside the callback raises.
-    let err = eval(r#"seq(0).every(2, |x| x.nonexistent_method())"#);
+    let err = eval(r#"seq(0).every(2, x => x.nonexistent_method())"#);
     assert!(err.is_err());
 }
 
-// --- Transpilation / preprocessing parity -------------------------------------
-
 #[test]
-fn a_tuple_of_callables_layers_like_a_list_of_them() {
-    // `layer`/`tour` take varargs, a list, *or* a tuple — Koto's own adaptors
-    // hand back tuples, and every list form has to work as one.
+fn an_array_of_callables_layers_like_varargs() {
+    // `layer`/`tour` take varargs or one array, and both have to work alike.
     let both = |script: &str| {
         let mut v: Vec<f64> = values(&eval(script).expect("eval"), 0, 1)
             .iter()
@@ -335,13 +332,11 @@ fn a_tuple_of_callables_layers_like_a_list_of_them() {
         v
     };
     let want = vec![0.0, 7.0];
-    assert_eq!(both(r#"seq(0).layer([|x| x.add(0), |x| x.add(7)])"#), want);
     assert_eq!(
-        both(r#"seq(0).layer([|x| x.add(0), |x| x.add(7)].to_tuple())"#),
+        both(r#"seq(0).layer([x => x.add(0), x => x.add(7)])"#),
         want
     );
-    // Varargs are the third spelling.
-    assert_eq!(both(r#"seq(0).layer(|x| x.add(0), |x| x.add(7))"#), want);
+    assert_eq!(both(r#"seq(0).layer(x => x.add(0), x => x.add(7))"#), want);
 }
 
 #[test]
@@ -353,4 +348,29 @@ fn ply_needs_a_positive_repeat_count() {
     assert_eq!(count(r#"s("bd sd").ply(1)"#), 2);
     assert_eq!(count(r#"s("bd sd").ply(0)"#), 0);
     assert_eq!(count(r#"s("bd sd").ply(-1)"#), 0);
+}
+
+#[test]
+fn a_pattern_of_functions_is_a_callback_too() {
+    // `choose(f, g)` is a pattern whose values are functions; upstream's
+    // `register` samples it per cycle like any other patterned argument, so a
+    // combinator handed one applies whichever function the cycle picked.
+    let pat = eval(r#"s("bd*8").sometimesBy(1, choose(x => x.speed(2), x => x.speed(3)))"#)
+        .expect("eval");
+    let speeds: Vec<f64> = pat
+        .query_arc(Frac::zero(), Frac::int(4))
+        .into_iter()
+        .filter_map(|h| match h.value {
+            Value::Map(m) => m.get("speed").and_then(|v| v.as_f64()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !speeds.is_empty(),
+        "every event went through a picked function"
+    );
+    assert!(speeds.iter().all(|s| *s == 2.0 || *s == 3.0), "{speeds:?}");
+    // Handed something that is not a function at all, the pattern plays on.
+    let pat = eval(r#"s("bd sd").sometimes(n("0 1"))"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
 }

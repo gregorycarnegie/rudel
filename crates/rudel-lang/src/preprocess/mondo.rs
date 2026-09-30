@@ -1,12 +1,12 @@
 //! Mondo Notation — Strudel's Lisp-like alternative pattern language
-//! (`@strudel/mondo` + `@strudel/mondough`), compiled to Koto source.
+//! (`@strudel/mondo` + `@strudel/mondough`), compiled to JavaScript source.
 //!
 //! Mondo is a *source language*, not new musical capability: every form in it
 //! maps onto a function Rudel already exposes. So rather than build a second
 //! evaluator against `rudel-core`, this pass does what upstream does — parse,
-//! desugar, and emit — with Koto as the target instead of JavaScript. That is
-//! also why it lives in the preprocessor: `mondo`s hh*8`` is rewritten into the
-//! Koto call it stands for before the script is compiled, so every control,
+//! desugar, and emit — with rudel's own functions as the target. That is also
+//! why it lives in the preprocessor: `mondo`s hh*8`` is rewritten into the
+//! call it stands for before the script is compiled, so every control,
 //! transform and signal in the prelude is reachable from mondo the day it is
 //! added, with no dispatch table to keep in sync.
 //!
@@ -19,7 +19,6 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::scanner::{Chunk, chunks, is_ident_char};
-use koto::prelude::KMap;
 use std::{
     collections::{HashMap, HashSet},
     sync::OnceLock,
@@ -444,19 +443,12 @@ const OP_FNS: &[(&str, &str)] = &[
     ("-", "early"),
 ];
 
-/// Every top-level name the Koto runtime exposes. A bareword that names one is
-/// emitted as that value (`jux rev`), anything else is a string (`s bd`) —
-/// upstream resolves leaves the same way, and collides the same way, which is
-/// why its own docs write `s "sine"` to mean the sample rather than the signal.
+/// Every top-level name rudel registers. A bareword that names one is emitted
+/// as that value (`jux rev`), anything else is a string (`s bd`) — upstream
+/// resolves leaves the same way, and collides the same way, which is why its
+/// own docs write `s "sine"` to mean the sample rather than the signal.
 fn prelude_names() -> &'static HashSet<String> {
-    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
-    NAMES.get_or_init(|| {
-        let prelude = KMap::default();
-        crate::bindings::register(&prelude);
-        crate::bindings::function_names(&prelude)
-            .into_iter()
-            .collect()
-    })
+    crate::registered_names()
 }
 
 /// Controls are the one prelude family that is *not* pattern-last: `s('bd')`
@@ -480,10 +472,9 @@ fn control_names() -> &'static HashSet<String> {
     })
 }
 
-/// Escape a string for a Koto literal. `$` matters: it opens interpolation in
-/// Koto, and is mondo's pattern separator. A newline matters because a compile
-/// error carries a snippet of the user's source, and a literal that runs onto a
-/// second line stops being a literal.
+/// Escape a string for a JavaScript literal. A newline matters because a
+/// compile error carries a snippet of the user's source, and a literal that
+/// runs onto a second line stops being a literal.
 fn escape(text: &str, quote: char) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -491,7 +482,7 @@ fn escape(text: &str, quote: char) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             _ => {
-                if c == '\\' || c == '$' || c == quote {
+                if c == '\\' || c == quote {
                     out.push('\\');
                 }
                 out.push(c);
@@ -501,8 +492,16 @@ fn escape(text: &str, quote: char) -> String {
     out
 }
 
-fn koto_string(text: &str) -> String {
+fn js_string(text: &str) -> String {
     format!("'{}'", escape(text, '\''))
+}
+
+/// An expression that throws `message` where it is evaluated. Preprocessing
+/// has no error channel, so a mondo error is deferred to evaluation, where it
+/// reaches the user as the script's error — and `throw` itself is a statement,
+/// which cannot stand where the mondo expression did.
+fn deferred_error(message: &str) -> String {
+    format!("(() => {{ throw {}; }})()", js_string(message))
 }
 
 /// A double-quoted literal, which the mini pass turns into `m("...")` — the
@@ -511,7 +510,7 @@ fn mini_string(text: &str) -> String {
     format!("\"{}\"", escape(text, '"'))
 }
 
-fn koto_number(raw: &str) -> String {
+fn js_number(raw: &str) -> String {
     if let Some(rest) = raw.strip_prefix('.') {
         format!("0.{rest}")
     } else if let Some(rest) = raw.strip_prefix("-.") {
@@ -522,12 +521,12 @@ fn koto_number(raw: &str) -> String {
 }
 
 struct Gen {
-    /// `def`ined names, mapped to the Koto expression they stand for. Mondo
+    /// `def`ined names, mapped to the expression they stand for. Mondo
     /// values are pure, so a reference is compiled by substitution rather than
     /// by emitting a statement — that keeps the whole program one expression,
     /// which is what a `mondo`...`` call has to be.
     // ponytail: substitution, so a name used n times compiles n times. Hoist to
-    // Koto assignments if a tune ever makes that cost visible.
+    // `const` declarations if a tune ever makes that cost visible.
     defs: HashMap<String, String>,
     /// Lambda parameters in scope, innermost last.
     scope: Vec<(String, String)>,
@@ -548,8 +547,8 @@ impl Gen {
             Node::List(children) => self.emit_list(children),
             Node::Leaf { kind, value } => {
                 let literal = match kind {
-                    Kind::Number => koto_number(value),
-                    Kind::Str => koto_string(&value[1..value.len().saturating_sub(1)]),
+                    Kind::Number => js_number(value),
+                    Kind::Str => js_string(&value[1..value.len().saturating_sub(1)]),
                     _ => return self.emit_word(value, receiver),
                 };
                 Ok(match receiver {
@@ -570,14 +569,14 @@ impl Gen {
         // `_` and `~` are mondo's rests; a trailing operator survives desugaring
         // as a bare word and means the same thing (upstream's `[c -]` case).
         if matches!(word, "_" | "~" | "-") {
-            return Ok("silence()".to_string());
+            return Ok("silence".to_string());
         }
         if prelude_names().contains(word) {
             return Ok(word.to_string());
         }
         Ok(match receiver {
-            true => format!("pure({})", koto_string(word)),
-            false => koto_string(word),
+            true => format!("pure({})", js_string(word)),
+            false => js_string(word),
         })
     }
 
@@ -596,7 +595,7 @@ impl Gen {
             // latter needs a pattern of functions, which only an evaluator can
             // do.
             return match children.is_empty() {
-                true => Ok("silence()".to_string()),
+                true => Ok("silence".to_string()),
                 false => Err("expected a function name at the head of a list".into()),
             };
         };
@@ -665,8 +664,8 @@ impl Gen {
             let Node::Leaf { value, .. } = param else {
                 return Err("expected a name as a function argument".into());
             };
-            // `_` is the name the `#` lambda shorthand generates, and is not a
-            // usable Koto identifier.
+            // `_` is the name the `#` lambda shorthand generates; it would
+            // shadow nothing, but a numbered name keeps nested ones apart.
             let id = match value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
                 && !value.starts_with(|c: char| c.is_ascii_digit())
                 && value != "_"
@@ -679,7 +678,7 @@ impl Gen {
         }
         let body = self.emit(body, false)?;
         self.scope.truncate(depth);
-        Ok(format!("(|{}| {body})", ids.join(", ")))
+        Ok(format!("(({}) => {body})", ids.join(", ")))
     }
 
     fn emit_def(&mut self, args: &[Node]) -> Result<String, String> {
@@ -688,7 +687,7 @@ impl Gen {
         };
         let body = self.emit(body, false)?;
         self.defs.insert(name.clone(), format!("({body})"));
-        Ok("silence()".to_string())
+        Ok("silence".to_string())
     }
 }
 
@@ -726,7 +725,7 @@ fn colon_chain(children: &[Node]) -> Result<Vec<String>, String> {
     Ok(parts)
 }
 
-/// Compile mondo source to the Koto expression it stands for.
+/// Compile mondo source to the JavaScript expression it stands for.
 pub(super) fn compile(code: &str) -> Result<String, String> {
     Gen::new().emit(&parse(code)?, false)
 }
@@ -735,9 +734,9 @@ pub(super) fn compile(code: &str) -> Result<String, String> {
 // Preprocessor entry point
 
 /// Rewrite ``mondo`...` `` (and `mondi`/`mondolang`, and the plain call form)
-/// into Koto.
+/// into JavaScript.
 ///
-/// This runs before every other pass, so what follows sees ordinary Koto and
+/// This runs before every other pass, so what follows sees ordinary code and
 /// mondo needs no special case anywhere else. The cost is that it shifts the
 /// byte offsets of anything after it, so a script that mixes mondo with normal
 /// patterns gets mini-notation highlight ranges that are off by the length of
@@ -753,8 +752,8 @@ pub(super) fn rewrite_mondo_templates(src: &str) -> String {
     // no tag around them. The marker line is what stands in for that mode here.
     if let Some(body) = mondo_document(src) {
         return match compile(body) {
-            Ok(koto) => koto,
-            Err(err) => format!("throw {}", koto_string(&format!("mondo: {err}"))),
+            Ok(js) => js,
+            Err(err) => deferred_error(&format!("mondo: {err}")),
         };
     }
     let mut out = String::with_capacity(src.len());
@@ -789,10 +788,8 @@ pub(super) fn rewrite_mondo_templates(src: &str) -> String {
         };
         out.push_str(&src[last..name_start]);
         out.push_str(&match compile(&code) {
-            Ok(koto) => koto,
-            // Preprocessing has no error channel, so the failure is deferred to
-            // evaluation, where it reaches the user as the script's error.
-            Err(err) => format!("throw {}", koto_string(&format!("mondo: {err}"))),
+            Ok(js) => js,
+            Err(err) => deferred_error(&format!("mondo: {err}")),
         });
         last = call_end;
     }
@@ -807,8 +804,8 @@ pub(super) fn rewrite_mondo_templates(src: &str) -> String {
 /// A marker rather than a guess: almost any text parses as mondo (a bare word is
 /// a sample name, so there is nothing to reject), which makes "does this look
 /// like mondo?" a question with no honest answer. [`looks_like_mondo`] asks it
-/// anyway, but only about a script Koto has already refused, and only to point
-/// at this line.
+/// anyway, but only about a script the engine has already refused, and only to
+/// point at this line.
 pub(super) fn mondo_document(src: &str) -> Option<&str> {
     let mut rest = src.trim_start_matches(|c: char| c.is_whitespace());
     rest = rest.strip_prefix("//")?.trim_start_matches(' ');
@@ -820,7 +817,7 @@ pub(super) fn mondo_document(src: &str) -> Option<&str> {
 }
 
 /// Whether `src` compiles as Mondo Notation. Only meaningful for a script that
-/// is not valid Koto, since the two languages overlap.
+/// is not valid JavaScript, since the two languages overlap.
 pub(crate) fn looks_like_mondo(src: &str) -> bool {
     mondo_document(src).is_none() && compile(src).is_ok()
 }
@@ -1037,21 +1034,21 @@ mod tests {
     fn compiles_lambdas_and_defs() {
         assert_eq!(
             compile("n 0 # sometimes (# dec .1)").unwrap(),
-            "sometimes((|mondoArg0| mondoArg0.dec(0.1)), pure(0).n())"
+            "sometimes(((mondoArg0) => mondoArg0.dec(0.1)), pure(0).n())"
         );
         // A `def` is substituted at each use and evaluates to silence itself.
         assert_eq!(
             compile("$ def melody [0 1] $ n melody").unwrap(),
-            "stack(silence(), (stepcat(0, 1).setSteps(1)).n())"
+            "stack(silence, (stepcat(0, 1).setSteps(1)).n())"
         );
     }
 
     #[test]
     fn compiles_rests_and_empty_programs() {
-        assert_eq!(compile("").unwrap(), "silence()");
+        assert_eq!(compile("").unwrap(), "silence");
         assert_eq!(
             compile("s [bd ~ _]").unwrap(),
-            "stepcat('bd', silence(), silence()).setSteps(1).s()"
+            "stepcat('bd', silence, silence).setSteps(1).s()"
         );
     }
 
@@ -1093,7 +1090,7 @@ mod tests {
         assert_eq!(mondo_document("// mondo notation\ns hh"), None);
         assert_eq!(mondo_document("s hh\n// mondo"), None);
         assert_eq!(mondo_document("s(\"hh\")"), None);
-        // The marker turns the rest of the document into one Koto expression.
+        // The marker turns the rest of the document into one expression.
         assert_eq!(
             rewrite_mondo_templates("// mondo\n$ s bd $ s hh"),
             "stack(pure('bd').s(), pure('hh').s())"
@@ -1103,12 +1100,12 @@ mod tests {
     #[test]
     fn defers_a_parse_error_to_evaluation() {
         let out = rewrite_mondo_templates("mondo`s [bd`");
-        assert!(out.starts_with("throw 'mondo: "), "{out}");
+        assert!(out.starts_with("(() => { throw 'mondo: "), "{out}");
         // The message carries a snippet of the user's source, which must not be
         // able to end the string literal it is deferred in.
         let out = rewrite_mondo_templates("// mondo\ns .bd\ns hh");
         assert_eq!(out.lines().count(), 1, "{out}");
-        assert!(out.starts_with("throw 'mondo: "), "{out}");
+        assert!(out.starts_with("(() => { throw 'mondo: "), "{out}");
     }
     #[test]
     fn an_operator_with_nothing_on_one_side_is_a_plain_function() {
@@ -1119,9 +1116,12 @@ mod tests {
         assert_eq!(compile("* 2").unwrap(), "fast(2)");
         assert_eq!(
             compile("[c -]").unwrap(),
-            "stepcat('c', silence()).setSteps(1)"
+            "stepcat('c', silence).setSteps(1)"
         );
-        assert_eq!(compile("# *2").unwrap(), "(|mondoArg0| fast(2, mondoArg0))");
+        assert_eq!(
+            compile("# *2").unwrap(),
+            "((mondoArg0) => fast(2, mondoArg0))"
+        );
         // An operator straight after a pipe has no left side either.
         assert_eq!(
             compile("s bd | * 2").unwrap(),
@@ -1159,27 +1159,27 @@ mod tests {
     }
 
     #[test]
-    fn a_string_is_escaped_for_the_koto_it_lands_in() {
-        // The emitted source is Koto, so a literal newline, carriage return or
-        // `$` would end the string or start an interpolation.
+    fn a_string_is_escaped_for_the_javascript_it_lands_in() {
+        // A literal newline or carriage return would end the string.
         // The input carries the real character; the output carries its escape.
         assert_eq!(compile("s \"a\nb\"").unwrap(), "pure('a\\nb').s()");
         assert_eq!(compile("s \"a\rb\"").unwrap(), "pure('a\\rb').s()");
-        assert_eq!(compile("s \"a$b\"").unwrap(), "pure('a\\$b').s()");
+        // A `$` opens nothing in a quoted string, so it stays as it is.
+        assert_eq!(compile("s \"a$b\"").unwrap(), "pure('a$b').s()");
     }
 
     #[test]
-    fn a_lambda_parameter_keeps_its_name_only_when_koto_can_use_it() {
-        assert_eq!(compile("(fn (x) (s x))").unwrap(), "(|x| x.s())");
+    fn a_lambda_parameter_keeps_its_name_only_when_it_is_an_identifier() {
+        assert_eq!(compile("(fn (x) (s x))").unwrap(), "((x) => x.s())");
         // `_` is what the `#` shorthand generates and is not an identifier,
         // and a name starting with a digit is not one either.
         assert_eq!(
             compile("(fn (_) (s _))").unwrap(),
-            "(|mondoArg0| mondoArg0.s())"
+            "((mondoArg0) => mondoArg0.s())"
         );
         assert_eq!(
             compile("(fn (1x) (s 1x))").unwrap(),
-            "(|mondoArg0, x| x.s(1))"
+            "((mondoArg0, x) => x.s(1))"
         );
     }
     #[test]
@@ -1221,8 +1221,8 @@ mod tests {
         // A half-typed `mondo\`` is what the editor holds between keystrokes,
         // so the rewriter has to hand back something compilable rather than
         // index past the end of the source.
-        assert_eq!(rewrite_mondo_templates("x = mondo`"), "x = silence()");
-        assert_eq!(rewrite_mondo_templates("x = mondo``"), "x = silence()");
+        assert_eq!(rewrite_mondo_templates("x = mondo`"), "x = silence");
+        assert_eq!(rewrite_mondo_templates("x = mondo``"), "x = silence");
         // A template next to a plain one keeps them apart.
         assert_eq!(
             rewrite_mondo_templates("x = f(mondo`s bd`, `plain`)"),

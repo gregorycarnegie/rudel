@@ -1,91 +1,62 @@
 // modulate.rs - bindings for the `modulate`/`lfo`/`env`/`bmod` modulator
-// builders (core/controls.mjs). Each takes a config *map* whose key order is
-// significant (it mirrors the JS config object), so the Koto map's insertion
-// order is preserved into `rudel_core::modulate`.
+// builders (core/controls.mjs). Each takes a config *object* whose key order is
+// significant (it mirrors the JS config object), so the key order is preserved
+// into `rudel_core::modulate`.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::{
-    KPattern,
-    args::{method_arg, with_method_instance},
+    args::{arg, method},
     convert::arg_to_pattern,
 };
-use koto::{
-    prelude::*,
-    runtime::{CallContext, Result as KotoResult},
-};
+use crate::js::{Arg, Scope};
 use rudel_core::{Pattern, Value, modulate, pure};
 
-/// Ordered `(rawKey, valuePattern)` pairs from a Koto config-map argument. A
-/// non-map argument (or a missing one) yields an empty config.
-fn config_entries(arg: &KValue) -> Vec<(String, Pattern)> {
-    match arg {
-        KValue::Map(m) => m
-            .data()
+/// Ordered `(rawKey, valuePattern)` pairs from a config-object argument. A
+/// non-object argument (or a missing one) yields an empty config.
+fn config_entries(value: &Arg) -> Vec<(String, Pattern)> {
+    match value {
+        Arg::Map(m) => m
             .iter()
-            .filter_map(|(k, v)| match k.value() {
-                KValue::Str(key) => Some((key.to_string(), arg_to_pattern(v))),
-                _ => None,
-            })
+            .map(|(key, v)| (key.clone(), arg_to_pattern(v)))
             .collect(),
         _ => Vec::new(),
     }
 }
 
-/// The id pattern from the optional second argument (`pure(Null)` when absent).
-fn id_pattern(arg: Option<KValue>) -> Pattern {
-    match arg {
-        Some(KValue::Null) | None => pure(Value::Null),
-        Some(a) => arg_to_pattern(&a),
+/// The id pattern from an optional argument (`pure(Null)` when absent).
+fn id_pattern(value: &Arg) -> Pattern {
+    match value {
+        Arg::Null => pure(Value::Null),
+        a => arg_to_pattern(a),
     }
 }
 
-/// Build the `pat.modulate(type, config, id)` method for a fixed modulator type
-/// (`lfo`/`env`/`bmod`): config is arg 0, the optional id is arg 1.
-fn modulate_typed(ctx: &mut CallContext, mod_type: &'static str) -> KotoResult<KValue> {
-    with_method_instance(ctx, |mctx, pat| {
-        let config = config_entries(&method_arg(mctx, 0));
-        let id = id_pattern(mctx.args.get(1).cloned());
-        modulate(pat, mod_type, config, id)
-    })
-}
-
-/// Insert the `modulate`/`lfo`/`env`/`bmod` methods onto the shared `KPattern`
-/// entries map.
-pub(crate) fn insert_modulate_methods(entries: &koto::runtime::KMap) {
+/// Put the `modulate`/`lfo`/`env`/`bmod` methods on `Pattern.prototype`.
+pub(crate) fn insert_modulate_methods(proto: &Scope) {
+    // `pat.lfo(config, id)` and friends: a fixed modulator type.
     for ty in ["lfo", "env", "bmod"] {
-        entries.insert(
-            ty,
-            KValue::NativeFunction(KNativeFunction::new(move |ctx| modulate_typed(ctx, ty))),
-        );
+        method(proto, ty, move |pat, a| {
+            Ok(modulate(pat, ty, config_entries(arg(a, 0)), id_pattern(arg(a, 1))).into())
+        });
     }
-    // The generic `pat.modulate(type, config, id)`: type is arg 0 (a string),
-    // config arg 1, id arg 2.
-    entries.insert(
-        "modulate",
-        KValue::NativeFunction(KNativeFunction::new(|ctx| {
-            with_method_instance(ctx, |mctx, pat| {
-                let mod_type = match method_arg(mctx, 0) {
-                    KValue::Str(s) => s.to_string(),
-                    _ => String::new(),
-                };
-                let config = config_entries(&method_arg(mctx, 1));
-                let id = id_pattern(mctx.args.get(2).cloned());
-                modulate(pat, &mod_type, config, id)
-            })
-        })),
-    );
+    // The generic `pat.modulate(type, config, id)`.
+    method(proto, "modulate", |pat, a| {
+        let mod_type = match arg(a, 0) {
+            Arg::Str(s) => s.clone(),
+            _ => String::new(),
+        };
+        let config = config_entries(arg(a, 1));
+        Ok(modulate(pat, &mod_type, config, id_pattern(arg(a, 2))).into())
+    });
 }
 
 /// Register the standalone `lfo(config)`/`env(config)`/`bmod(config)` factories,
 /// which build the modulator on an empty control map (`pure({}).lfo(...)`).
-pub(crate) fn register_modulate_fns(prelude: &KMap) {
+pub(crate) fn register_modulate_fns(prelude: &Scope) {
     for ty in ["lfo", "env", "bmod"] {
-        prelude.add_fn(ty, move |ctx| {
-            let args = ctx.args();
-            let config = config_entries(args.first().unwrap_or(&KValue::Null));
-            let id = id_pattern(args.get(1).cloned());
+        prelude.func(ty, move |a| {
             let base = pure(Value::Map(rudel_core::ValueMap::new()));
-            Ok(KPattern(modulate(&base, ty, config, id)).into())
+            Ok(modulate(&base, ty, config_entries(arg(a, 0)), id_pattern(arg(a, 1))).into())
         });
     }
 }

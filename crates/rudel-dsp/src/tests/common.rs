@@ -34,7 +34,7 @@ pub(super) fn assert_is_signal(samples: &[f32], what: &str) {
     );
 }
 
-/// A voice-level LFO on `freq`, in the nested-map shape the Koto side hands
+/// A voice-level LFO on `freq`, in the nested-map shape the script side hands
 /// over. `dcoffset: 0` keeps the offset in `0..depth` so it only ever pushes the
 /// pitch up, which is what makes the direction checkable below.
 pub(super) fn positive_freq_lfo(depth_hz: f64, rate: f64) -> ModSpecs {

@@ -14,7 +14,7 @@ fn bank_control_sets_the_bank_key() {
 
 #[test]
 fn loop_controls_set_their_keys() {
-    // `loop` is a Koto keyword but is a valid method name after `.`.
+    // `loop` is a method name here, whatever else the word means.
     let pat = eval(r#"s("break").loop(1).loopBegin(0.25).loopEnd(0.75)"#).expect("eval");
     match &values(&pat, 0, 1)[0] {
         Value::Map(m) => {
@@ -217,7 +217,7 @@ fn extended_strudel_controls_resolve() {
 }
 
 #[test]
-fn envelope_and_midi_helpers_via_koto() {
+fn envelope_and_midi_helpers_via_script() {
     // adsr expands a `:`-list into the four envelope controls
     let pat = eval(r#"note("c3").adsr("0.1:0.2:0.5:0.3")"#).expect("eval");
     let has = pat
@@ -250,7 +250,7 @@ fn envelope_and_midi_helpers_via_koto() {
 }
 
 #[test]
-fn as_and_scrub_via_koto() {
+fn as_and_scrub_via_script() {
     // `as` maps positional values into named controls
     let pat = eval(r#"pat("c:0.5").as("note:clip")"#).expect("eval");
     let has = pat
@@ -279,7 +279,7 @@ fn as_and_scrub_via_koto() {
 }
 
 #[test]
-fn numbered_fm_controls_via_koto() {
+fn numbered_fm_controls_via_script() {
     for src in [
         r#"note("c3").s("sine").fm(4).fm2(2).fm3(1).fmh3(2.01).fmwave4("square")"#,
         r#"note("c3").fmattack5(0.1).fmdec6(0.2).fmsus7(0.5).fmrel8(0.3)"#,

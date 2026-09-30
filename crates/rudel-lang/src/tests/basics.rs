@@ -33,26 +33,26 @@ fn standalone_callback_transforms_match_their_methods() {
     // The higher-order combinators also have standalone forms taking a
     // transform function and the pattern last (`jux(rev, pat)`).
     let pairs = [
-        (r#"jux(rev, s("bd sd"))"#, r#"s("bd sd").jux(|x| x.rev())"#),
+        (r#"jux(rev, s("bd sd"))"#, r#"s("bd sd").jux(x => x.rev())"#),
         (
-            r#"superimpose(|x| x.fast(2), s("bd sd"))"#,
-            r#"s("bd sd").superimpose(|x| x.fast(2))"#,
+            r#"superimpose(x => x.fast(2), s("bd sd"))"#,
+            r#"s("bd sd").superimpose(x => x.fast(2))"#,
         ),
         (
-            r#"every(2, |x| x.fast(2), s("bd sd"))"#,
-            r#"s("bd sd").every(2, |x| x.fast(2))"#,
+            r#"every(2, x => x.fast(2), s("bd sd"))"#,
+            r#"s("bd sd").every(2, x => x.fast(2))"#,
         ),
         (
-            r#"off(0.25, |x| x.add(12), note("0 2"))"#,
-            r#"note("0 2").off(0.25, |x| x.add(12))"#,
+            r#"off(0.25, x => x.add(12), note("0 2"))"#,
+            r#"note("0 2").off(0.25, x => x.add(12))"#,
         ),
         (
-            r#"within(0, 0.5, |x| x.fast(2), s("a b c d"))"#,
-            r#"s("a b c d").within(0, 0.5, |x| x.fast(2))"#,
+            r#"within(0, 0.5, x => x.fast(2), s("a b c d"))"#,
+            r#"s("a b c d").within(0, 0.5, x => x.fast(2))"#,
         ),
         (
-            r#"sometimes(|x| x.fast(2), s("a b c d"))"#,
-            r#"s("a b c d").sometimes(|x| x.fast(2))"#,
+            r#"sometimes(x => x.fast(2), s("a b c d"))"#,
+            r#"s("a b c d").sometimes(x => x.fast(2))"#,
         ),
     ];
     for (standalone, method) in pairs {
@@ -98,24 +98,24 @@ fn standalone_long_tail_matches_methods_and_camelcase_aliases() {
         (r#"degradeBy(0.4, s("a*8"))"#, r#"s("a*8").degradeBy(0.4)"#),
         // callback long tail (i64/f64/frac/pattern + function)
         (
-            r#"firstOf(2, |x| x.fast(2), s("a b"))"#,
-            r#"s("a b").firstOf(2, |x| x.fast(2))"#,
+            r#"firstOf(2, x => x.fast(2), s("a b"))"#,
+            r#"s("a b").firstOf(2, x => x.fast(2))"#,
         ),
         (
-            r#"chunk(2, |x| x.fast(2), s("a b c d"))"#,
-            r#"s("a b c d").chunk(2, |x| x.fast(2))"#,
+            r#"chunk(2, x => x.fast(2), s("a b c d"))"#,
+            r#"s("a b c d").chunk(2, x => x.fast(2))"#,
         ),
         (
             r#"juxBy(0.5, rev, s("a b"))"#,
-            r#"s("a b").juxBy(0.5, |x| x.rev())"#,
+            r#"s("a b").juxBy(0.5, x => x.rev())"#,
         ),
         (
             r#"inside(2, rev, s("a b c d"))"#,
-            r#"s("a b c d").inside(2, |x| x.rev())"#,
+            r#"s("a b c d").inside(2, x => x.rev())"#,
         ),
         (
-            r#"someCycles(|x| x.fast(2), s("a b"))"#,
-            r#"s("a b").someCycles(|x| x.fast(2))"#,
+            r#"someCycles(x => x.fast(2), s("a b"))"#,
+            r#"s("a b").someCycles(x => x.fast(2))"#,
         ),
     ];
     for (standalone, method) in pairs {
@@ -249,7 +249,7 @@ fn a_hap_level_callback_repeats_its_probe_window_forever() {
     // repeat that window, so anything past cycle 16 is the window's own cycle
     // `n mod 16`. Nothing had ever queried past the first window, which left
     // the whole repeat calculation unexercised.
-    let pat = eval(r#"note("<0 1 2 3 4>").filter |hap| true"#).expect("eval");
+    let pat = eval(r#"note("<0 1 2 3 4>").filter(hap => true)"#).expect("eval");
     let at = |cycle: i64| {
         values(&pat, cycle, cycle + 1)
             .iter()
@@ -276,13 +276,13 @@ fn a_callback_that_returns_something_else_leaves_the_pattern_alone() {
     // `every` goes through `Callback::apply`: returning a non-pattern is the
     // same as returning the pattern it was handed.
     assert_eq!(
-        haps(r#"s("bd sd").every(1, |x| Fraction(1))"#),
-        haps(r#"s("bd sd").every(1, |x| x)"#)
+        haps(r#"s("bd sd").every(1, x => Fraction(1))"#),
+        haps(r#"s("bd sd").every(1, x => x)"#)
     );
     // ...and `echoWith` through the indexed `apply2`.
     assert_eq!(
-        haps(r#"s("bd").echoWith(2, 0.25, |x, i| Fraction(i))"#),
-        haps(r#"s("bd").echoWith(2, 0.25, |x, i| x)"#)
+        haps(r#"s("bd").echoWith(2, 0.25, (x, i) => Fraction(i))"#),
+        haps(r#"s("bd").echoWith(2, 0.25, (x, i) => x)"#)
     );
 }
 
@@ -291,7 +291,7 @@ fn filter_keeps_only_matching_haps() {
     // Strudel's own example: `s("hh!7 oh").filter(hap => hap.value.s === 'hh')`.
     // Single-quoted strings are plain strings (double quotes are
     // mini-notation), which is how upstream's example compares against one.
-    let pat = eval(r#"s("hh!7 oh").filter |hap| hap.value.s == 'hh'"#).expect("eval");
+    let pat = eval(r#"s("hh!7 oh").filter(hap => hap.value.s == 'hh')"#).expect("eval");
     let vals = values(&pat, 0, 1);
     assert_eq!(vals.len(), 7, "the `oh` should be dropped");
     assert!(vals.iter().all(|v| match v {
@@ -303,8 +303,9 @@ fn filter_keeps_only_matching_haps() {
 #[test]
 fn tag_marks_haps_for_a_later_filter() {
     // `tag` writes Hap.context.tags, which the predicate sees as `hap.tags`.
-    let pat = eval(r#"stack(s("bd").tag('keep'), s("sd")).filter |hap| hap.tags.contains 'keep'"#)
-        .expect("eval");
+    let pat =
+        eval(r#"stack(s("bd").tag('keep'), s("sd")).filter(hap => hap.tags.includes('keep'))"#)
+            .expect("eval");
     let vals = values(&pat, 0, 1);
     assert_eq!(vals.len(), 1);
     assert!(matches!(&vals[0], Value::Map(m)
@@ -314,10 +315,10 @@ fn tag_marks_haps_for_a_later_filter() {
 #[test]
 fn filter_when_selects_by_onset_time() {
     // `filterWhen` receives the whole's begin in cycles.
-    let pat = eval(r#"s("bd*4").filterWhen |t| t < 0.5"#).expect("eval");
+    let pat = eval(r#"s("bd*4").filterWhen(t => t < 0.5)"#).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 2, "first half of the cycle only");
     // The predicate sees absolute cycle time, so it can select whole cycles.
-    let one = eval(r#"s("bd*4").filterWhen |t| t < 1"#).expect("eval");
+    let one = eval(r#"s("bd*4").filterWhen(t => t < 1)"#).expect("eval");
     assert_eq!(values(&one, 0, 1).len(), 4, "cycle 0 kept");
     assert_eq!(values(&one, 1, 2).len(), 0, "cycle 1 dropped");
 }
@@ -532,7 +533,7 @@ fn set_gain_curve_installs_the_curve_it_was_given() {
         "identity by default"
     );
 
-    eval("setGainCurve(|x| x * x)\ns(\"bd\")").expect("install a curve");
+    eval("setGainCurve(x => x * x)\ns(\"bd\")").expect("install a curve");
     let squared = rudel_core::apply_gain_curve(0.5);
     assert!((squared - 0.25).abs() < 1e-6, "0.5 -> {squared}, want 0.25");
     // Sampled, so check across the range rather than at one point.
@@ -585,10 +586,9 @@ note("c3").both("<60 62>")
 #[test]
 fn javascript_string_arithmetic_and_the_methods_that_go_with_it() {
     // `register('mask' + n, …)` is how the binary-mask helper going round
-    // strudel.cc names its methods, and Koto's `+` refuses a string and a
-    // number outright. The rest of that helper —
+    // strudel.cc names its methods. The rest of that helper —
     // `dec.toString(2).padStart(len, '0').split('').map(Number)` — is the same
-    // family of JS builtins, and each was missing too.
+    // family of JS builtins.
     for (expr, want) in [
         ("'mask' + 4", "mask4"),
         ("1 + 2 + 'a'", "3a"), // folded left to right, as JS does
@@ -618,12 +618,12 @@ fn a_callback_may_hand_back_a_pattern_for_a_join_to_flatten() {
     // `pat.fmap(v => <a pattern>).squeezeJoin()`. The callback's pattern used
     // to come back as null unless it had come from a mini-notation literal, so
     // the helper silenced whatever it was applied to.
-    let pat = eval(r#"s("hh*4").mask("<x>".fmap(|v| seq(1)).squeezeJoin())"#)
+    let pat = eval(r#"s("hh*4").mask("<x>".fmap(v => seq(1)).squeezeJoin())"#)
         .expect("mask by a joined callback pattern");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::int(2)).len(), 8);
     // A literal still arrives as its own text, which is what a callback
     // returning a note name means.
-    let named = eval(r#"pure(1).fmap(|v| "c3")"#).expect("literal from a callback");
+    let named = eval(r#"pure(1).fmap(v => "c3")"#).expect("literal from a callback");
     assert_eq!(values(&named, 0, 1), vec![Value::Str("c3".to_string())]);
 }
 
@@ -633,11 +633,11 @@ fn add_voicings_registers_a_dictionary_a_chord_can_name() {
     // it. The numeric key (`7:`) and the empty one both have to survive the
     // preprocessor and arrive as chord symbols.
     let script = r#"
-addVoicings('koto_cookie', {
+addVoicings('my_cookie', {
   7: ['3M 7m 9M 12P 15P', '7m 10M 13M 16M 19P'],
   '^7': ['3M 6M 9M 12P 14M', '7M 10M 13M 16M 19P'],
 }, ['C3', 'C6'])
-"<C^7>".voicings('koto_cookie')
+"<C^7>".voicings('my_cookie')
 "#;
     let pat = eval(script).expect("register and voice a dictionary");
     let notes: Vec<f64> = values(&pat, 0, 1)
@@ -696,8 +696,7 @@ fn set_max_polyphony_installs_the_cap_it_was_given() {
 
 #[test]
 fn javascript_shifts_and_powers() {
-    // Koto has `^` for a power and no shift operator at all, and a script
-    // reaches for `>> 0` to truncate and `1 << n` to build a mask.
+    // A script reaches for `>> 0` to truncate and `1 << n` to build a mask.
     for (expr, want) in [
         ("(40 / 12) >> 0", 3.0),
         ("1 << 4", 16.0),
@@ -715,37 +714,17 @@ fn javascript_shifts_and_powers() {
 }
 
 #[test]
-fn a_pattern_answers_the_arithmetic_operators() {
-    // JavaScript has no operator overloading, so `"<1 2>" / 48` in Strudel is a
-    // string over a number — `NaN` — and scripts write it meaning the
-    // mini-notation. Koto asks the object, so it gets the pattern arithmetic.
-    for (expr, want) in [
-        ("pure(3) + 4", 7.0),
-        ("4 + pure(3)", 7.0),
-        ("pure(10) - 4", 6.0),
-        ("10 - pure(4)", 6.0),
-        ("pure(3) * 4", 12.0),
-        ("pure(12) / 4", 3.0),
-        ("pure(7) % 4", 3.0),
-    ] {
-        let pat = eval(expr).unwrap_or_else(|e| panic!("{expr}: {e}"));
-        let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
-        assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
-    }
-}
-
-#[test]
 fn the_pattern_methods_a_script_reaches_for_by_upstream_name() {
     // `filterHaps` is upstream's own name for `filter`; `mod` is `modulo`,
     // which is only spelled that way here because Rust reserves the word.
     // Single quotes: a double-quoted literal is mini-notation here, so it
     // would arrive as a pattern rather than the sound's name.
-    let kept = eval(r#"s("bd sd hh").filterHaps(|h| h.value.s != 'hh')"#).expect("filterHaps");
+    let kept = eval(r#"s("bd sd hh").filterHaps(h => h.value.s != 'hh')"#).expect("filterHaps");
     assert_eq!(values(&kept, 0, 1).len(), 2);
     let modded = eval("pure(7).mod(4)").expect("mod");
     assert_eq!(values(&modded, 0, 1)[0].as_f64(), Some(3.0));
     // `restartJoin`/`resetJoin` flatten a pattern of patterns by retriggering.
-    let joined = eval(r#""<0 1>".fmap(|v| seq(1, 2)).restartJoin()"#).expect("restartJoin");
+    let joined = eval(r#""<0 1>".fmap(v => seq(1, 2)).restartJoin()"#).expect("restartJoin");
     assert_eq!(values(&joined, 0, 2).len(), 4);
     // `setContext({})` clears the source locations the editor highlights from.
     let plain = eval(r#"s("bd").setContext({})"#).expect("setContext");
@@ -762,10 +741,10 @@ fn the_javascript_collection_builtins_helpers_call() {
     // `Array.from({length: n})` is how a script repeats something n times;
     // `flat`/`flatMap` and `Object.entries` are the rest of what they reach for.
     for (expr, want) in [
-        ("Array.from({length: 3}).length()", 3.0),
-        ("[[1, 2], [3]].flat().length()", 3.0),
-        ("[1, 2].flatMap(|v| [v, v]).length()", 4.0),
-        ("Object.entries({a: 1, b: 2}).length()", 2.0),
+        ("Array.from({length: 3}).length", 3.0),
+        ("[[1, 2], [3]].flat().length", 3.0),
+        ("[1, 2].flatMap(v => [v, v]).length", 4.0),
+        ("Object.entries({a: 1, b: 2}).length", 2.0),
         ("Object.entries({a: 7})[0][1]", 7.0),
     ] {
         let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));

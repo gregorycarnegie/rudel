@@ -13,6 +13,77 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- **Scripts run as JavaScript, on [Boa], instead of being translated into
+  Koto.** A script is Strudel's own language now, read by a JavaScript engine,
+  so block-bodied functions, `let`/`const`, loops, spread, ternaries, `typeof`,
+  `JSON`, `Array`/`Object`/`String` methods and the rest mean exactly what they
+  mean in Strudel, with nothing in between to get them wrong. The preprocessor
+  keeps only the passes that are Strudel rather than JavaScript — mini-notation
+  literals, widgets and sliders, `name:` labels, Mondo, the kabelsalat scope,
+  alignment getters and `await` — and shrank from about 8,300 lines to about
+  3,700; the 600-line shim of JavaScript builtins is gone. Every song in the
+  eefano collection and every documented example that evaluated before still
+  does, with identical haps; three allowlisted doc examples (`K#1`,
+  `arpWith#0`, `register#0`) now evaluate too.
+- **`Pattern.prototype.name = function …` replaces a built-in method, as it
+  does upstream.** It used to be refused for any name Rudel already had, which
+  quietly kept a song's own `warp` from running (swimandsleep plays its
+  tablature as written now). `register(name, fn)` still never replaces a
+  built-in, and a registration now lasts for the evaluation that made it.
+- **The script engine lives on one thread of its own.** Evaluations queue for
+  it, and the few script functions that run after evaluation — `new
+  Pattern(state => …)` queries, `apply(pick({…: x => …}))`, `onTriggerTime`
+  hooks — are handed to it from whichever thread asks. The engine for the next
+  evaluation is built while the current one plays, so a short pattern still
+  evaluates in well under a millisecond.
+
+### Added
+
+- **A pattern of functions is a callback.** `sometimesBy(.2, choose(x => …,
+  x => …))` applies whichever function the cycle picked, as upstream's
+  `register` samples a patterned argument; a function reaching a pattern
+  argument becomes a pattern of that function, as `reify` makes it.
+- `register([names…], fn)`, which registers each name and returns them as an
+  object; `signal(t => …)`; `id`; and `pat.queryArc(begin, end)` /
+  `pat.firstCycle()` for scripts that read a pattern's haps.
+
+### Fixed
+
+- **`$:` alone on its line labels the statement on the next one,** and an
+  indented `$:` is a label rather than a continuation of the line above. A
+  label's expression now ends where JavaScript's statement does — at a line
+  break with no operator on either side of it — so an indented statement
+  after a label is no longer swallowed into it.
+- **A tagged template may have a space before it** (``note `c e g` ``), which
+  was read as mini-notation and failed to parse.
+- **A script the engine panics on is an error, not a crash.** boa's `sort`
+  panics on a comparator that is not a total order, which the
+  `sort(() => Math.random() - 0.5)` shuffle idiom is.
+- `pat.filter(x)` with something other than a predicate plays the pattern
+  unfiltered, as upstream does, rather than failing.
+
+Measured against real Strudel over the 8,004 patterns shared on strudel.cc,
+patterns that play in Strudel but fail in Rudel went from 83 to 27, eleven of
+which reach for the browser's `window`/`document`.
+
+### Removed
+
+- **Koto syntax.** `|x| x.fast(2)` lambdas, Koto's call-without-parentheses
+  and the other Koto spellings no longer evaluate; write the JavaScript
+  (`x => x.fast(2)`), which always worked.
+- **`silence()` as a call.** `silence` (and `nothing`) is a pattern, as
+  upstream; calling it is an error.
+- **Arithmetic operators on patterns.** `pure(3) + 4` was pattern addition
+  under Koto. JavaScript has no operator overloading, so it is what it is in
+  Strudel: string concatenation, and `"<1 2>" / 48` is `NaN`. Use
+  `.add(4)`/`.div(48)`.
+- `Number('wat')` is `NaN` rather than `0`, and whole numbers reach a pattern
+  as integers (`2.0` is `2`), since JavaScript has one number type.
+
+[Boa]: https://boajs.dev
+
 ## [0.21.0] — 2026-09-23
 
 ### Changed

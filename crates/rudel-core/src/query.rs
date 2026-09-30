@@ -53,7 +53,7 @@ pub const LOG_KEY: &str = "_log";
 
 /// The control `onTriggerTime` tags its haps with (the id of the callback the
 /// host should fire). Defined here because this is where it is stripped; the
-/// registry itself lives in the language layer, which owns the Koto VM.
+/// registry itself lives in the language layer, which owns the script engine.
 pub const TRIGGER_KEY: &str = "_ontrigger";
 
 /// Build the line a `_log`-tagged event writes. `"hap"` is `log()`'s default
@@ -112,8 +112,9 @@ pub fn query_controls(
         if let Some(mode) = controls.shift_remove(LOG_KEY) {
             crate::host::log_line(log_message(&mode, &whole, &controls));
         }
-        // `onTriggerTime`'s hook id is fired by the host (which owns the Koto
-        // VM), not here; strip it so it never reaches a voice or an OSC message.
+        // `onTriggerTime`'s hook id is fired by the host (through the script
+        // engine), not here; strip it so it never reaches a voice or an OSC
+        // message.
         controls.shift_remove(TRIGGER_KEY);
         // Fold mtranspose/ctranspose into `note` using the hap's tagged scale,
         // matching SuperDirt's external-synth pitch handling.

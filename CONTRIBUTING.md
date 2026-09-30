@@ -29,7 +29,7 @@ cargo run --release -p rudel-app
 - `crates/rudel-mini`: mini-notation parser and Strudel parity tests.
 - `crates/rudel-dsp`: synth, drum, sampler, filter, and post-effect voices.
 - `crates/rudel-audio`: `cpal` audio engine, scheduler, mixer, and sample bank.
-- `crates/rudel-lang`: Koto bindings for live evaluation.
+- `crates/rudel-lang`: JavaScript bindings (Boa) for live evaluation.
 - `crates/rudel-midi`: MIDI event mapping and real-time output.
 - `crates/rudel-osc`: SuperDirt-compatible OSC output.
 - `crates/rudel-app`: native `egui` live-coding app.

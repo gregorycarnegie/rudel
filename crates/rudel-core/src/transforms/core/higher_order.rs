@@ -72,9 +72,9 @@ impl Pattern {
 
     /// Place an already-transformed pattern on the first (`last = false`,
     /// `every`/`firstOf`) or last (`last = true`, `lastOf`) cycle of each group
-    /// of `n`. Shared by the patternified Koto bindings, which apply the Koto
-    /// callback eagerly (the VM can't run in the query path), so the transform
-    /// is supplied as a concrete pattern rather than a closure.
+    /// of `n`. Shared by the patternified script bindings, which apply the
+    /// script's callback eagerly (it is not run from the query path), so the
+    /// transform is supplied as a concrete pattern rather than a closure.
     pub fn every_cycles(&self, transformed: &Pattern, n: i64, last: bool) -> Pattern {
         if n <= 0 {
             return self.clone();

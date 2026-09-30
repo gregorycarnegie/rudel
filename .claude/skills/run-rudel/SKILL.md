@@ -78,7 +78,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Adding or renaming any Koto binding fails three drift guards on purpose. Bless
+Adding or renaming any script binding fails three drift guards on purpose. Bless
 them, then re-run and review the diff:
 
 ```powershell

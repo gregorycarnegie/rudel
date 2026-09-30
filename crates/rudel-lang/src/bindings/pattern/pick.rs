@@ -1,5 +1,5 @@
-use super::convert::{arg_to_pattern, koto_fn_to_value};
-use koto::prelude::*;
+use super::convert::arg_to_pattern;
+use crate::js::Arg;
 use rudel_core::{Pattern, PickJoin};
 use std::collections::HashMap;
 
@@ -8,40 +8,20 @@ pub(super) enum PatternLookup {
     Map(HashMap<String, Pattern>),
 }
 
-/// One entry of a `pick` lookup. A *function* entry becomes a pattern carrying
-/// that function as its value, which is what lets `apply(pick(...))` choose a
-/// transform per cycle — upstream's pattern-of-functions. Everything else is an
-/// ordinary pattern.
-fn lookup_entry(value: &KValue, vm: &KotoVm) -> Pattern {
-    if value.is_callable() {
-        return rudel_core::pure(koto_fn_to_value(value.clone(), vm));
-    }
-    arg_to_pattern(value)
-}
-
-pub(super) fn lookup_from_koto(value: &KValue, vm: &KotoVm) -> Option<PatternLookup> {
+pub(super) fn lookup_from_arg(value: &Arg) -> Option<PatternLookup> {
     match value {
-        KValue::List(l) => Some(PatternLookup::List(
-            l.data().iter().map(|v| lookup_entry(v, vm)).collect(),
+        Arg::List(l) => Some(PatternLookup::List(l.iter().map(arg_to_pattern).collect())),
+        Arg::Map(m) => Some(PatternLookup::Map(
+            m.iter()
+                .map(|(k, v)| (k.clone(), arg_to_pattern(v)))
+                .collect(),
         )),
-        KValue::Tuple(t) => Some(PatternLookup::List(
-            t.data().iter().map(|v| lookup_entry(v, vm)).collect(),
-        )),
-        KValue::Map(m) => {
-            let mut out = HashMap::new();
-            for (k, v) in m.data().iter() {
-                if let KValue::Str(key) = k.value() {
-                    out.insert(key.to_string(), lookup_entry(v, vm));
-                }
-            }
-            Some(PatternLookup::Map(out))
-        }
         _ => None,
     }
 }
 
-pub(super) fn is_lookup(value: &KValue) -> bool {
-    matches!(value, KValue::List(_) | KValue::Tuple(_) | KValue::Map(_))
+pub(super) fn is_lookup(value: &Arg) -> bool {
+    matches!(value, Arg::List(_) | Arg::Map(_))
 }
 
 pub(super) fn pick_from_lookup(
@@ -56,16 +36,8 @@ pub(super) fn pick_from_lookup(
     }
 }
 
-pub(in crate::bindings) fn pick_args(
-    args: &[KValue],
-    modulo: bool,
-    join: PickJoin,
-    vm: &KotoVm,
-) -> Pattern {
-    let Some(first) = args.first() else {
-        return rudel_core::silence();
-    };
-    let Some(second) = args.get(1) else {
+pub(in crate::bindings) fn pick_args(args: &[Arg], modulo: bool, join: PickJoin) -> Pattern {
+    let (Some(first), Some(second)) = (args.first(), args.get(1)) else {
         return rudel_core::silence();
     };
     let (lookup_value, selector_value) = if is_lookup(second) && !is_lookup(first) {
@@ -73,7 +45,7 @@ pub(in crate::bindings) fn pick_args(
     } else {
         (first, second)
     };
-    let Some(lookup) = lookup_from_koto(lookup_value, vm) else {
+    let Some(lookup) = lookup_from_arg(lookup_value) else {
         return rudel_core::silence();
     };
     pick_from_lookup(lookup, arg_to_pattern(selector_value), modulo, join)

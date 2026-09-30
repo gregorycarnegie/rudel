@@ -549,7 +549,7 @@ fn fallback_items(catalog: &CompletionCatalog<'_>) -> Vec<CompletionItem> {
             &mut items,
             name,
             CompletionKind::Keyword,
-            "Koto language keyword",
+            "JavaScript keyword",
         );
     }
     items.into_values().collect()

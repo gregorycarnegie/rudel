@@ -1,19 +1,23 @@
-use super::{
-    KPattern,
-    convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, koto_to_value},
-};
-use koto::{
-    prelude::*,
-    runtime::{CallContext, ErrorKind, MethodContext, Result as KotoResult, runtime_error},
-};
+use super::convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, to_value};
+use crate::js::{Arg, NULL, Res, Scope};
 use rudel_core::{Frac, Pattern, Value};
 
-pub(super) fn method_arg(ctx: &MethodContext<KPattern>, i: usize) -> KValue {
-    ctx.args.get(i).cloned().unwrap_or(KValue::Null)
+/// Argument `i`, or `undefined` when the call was shorter than that.
+pub(super) fn arg(args: &[Arg], i: usize) -> &Arg {
+    args.get(i).unwrap_or(NULL)
 }
 
-pub(super) fn method_pattern_arg(ctx: &MethodContext<KPattern>, i: usize) -> Pattern {
-    arg_to_pattern(&method_arg(ctx, i))
+/// Register `name` as a pattern method: `f` gets the pattern it was called on.
+pub(crate) fn method(
+    proto: &Scope,
+    name: &str,
+    f: impl Fn(&Pattern, &[Arg]) -> Res + Send + Sync + 'static,
+) {
+    let label = name.to_string();
+    proto.method(name, move |this, args| match this {
+        Arg::Pat(pat) => f(pat, args),
+        _ => Err(format!("{label}: not called on a pattern")),
+    });
 }
 
 fn looks_like_mini_pattern(s: &str) -> bool {
@@ -22,9 +26,9 @@ fn looks_like_mini_pattern(s: &str) -> bool {
     })
 }
 
-fn literal_or_pattern_arg(value: &KValue) -> Pattern {
+pub(super) fn literal_or_pattern_arg(value: &Arg) -> Pattern {
     match value {
-        KValue::List(_) | KValue::Tuple(_) => rudel_core::pure(koto_to_value(value)),
+        Arg::List(_) => rudel_core::pure(to_value(value)),
         _ => {
             // A non-mini-looking literal (plain or `m(...)`-wrapped) is kept as a
             // single string value rather than mini-parsed.
@@ -38,129 +42,18 @@ fn literal_or_pattern_arg(value: &KValue) -> Pattern {
     }
 }
 
-pub(super) fn method_literal_or_pattern_arg(ctx: &MethodContext<KPattern>, i: usize) -> Pattern {
-    literal_or_pattern_arg(&method_arg(ctx, i))
+pub(super) fn pattern_arg(args: &[Arg], i: usize) -> Pattern {
+    arg_to_pattern(arg(args, i))
 }
 
-pub(super) fn method_f64_arg(ctx: &MethodContext<KPattern>, i: usize) -> f64 {
-    arg_to_f64(&method_arg(ctx, i))
+pub(super) fn f64_arg(args: &[Arg], i: usize) -> f64 {
+    arg_to_f64(arg(args, i))
 }
 
-pub(super) fn method_i64_arg(ctx: &MethodContext<KPattern>, i: usize) -> i64 {
-    method_f64_arg(ctx, i) as i64
+pub(super) fn i64_arg(args: &[Arg], i: usize) -> i64 {
+    f64_arg(args, i) as i64
 }
 
-pub(super) fn method_frac_arg(ctx: &MethodContext<KPattern>, i: usize) -> Frac {
-    arg_to_frac(&method_arg(ctx, i))
-}
-
-pub(super) fn with_instance(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    let instance = ctx.instance()?;
-    Ok(KPattern::wrap(f(&instance.0)))
-}
-
-pub(super) fn with_pattern_arg(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    let arg = method_pattern_arg(ctx, 0);
-    with_instance(ctx, |pat| f(pat, arg))
-}
-
-pub(super) fn with_literal_or_pattern_arg(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    let arg = method_literal_or_pattern_arg(ctx, 0);
-    with_instance(ctx, |pat| f(pat, arg))
-}
-
-pub(super) fn with_i64_arg(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, i64) -> Pattern,
-) -> KotoResult<KValue> {
-    let n = method_i64_arg(ctx, 0);
-    with_instance(ctx, |pat| f(pat, n))
-}
-
-pub(super) fn with_frac_arg(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, Frac) -> Pattern,
-) -> KotoResult<KValue> {
-    let n = method_frac_arg(ctx, 0);
-    with_instance(ctx, |pat| f(pat, n))
-}
-
-pub(super) fn with_f64_arg(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, f64) -> Pattern,
-) -> KotoResult<KValue> {
-    let n = method_f64_arg(ctx, 0);
-    with_instance(ctx, |pat| f(pat, n))
-}
-
-pub(super) fn with_pattern_pattern_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, Pattern, Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_pattern_arg(ctx, 0);
-    let b = method_pattern_arg(ctx, 1);
-    with_instance(ctx, |pat| f(pat, a, b))
-}
-
-pub(super) fn with_frac_frac_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, Frac, Frac) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_frac_arg(ctx, 0);
-    let b = method_frac_arg(ctx, 1);
-    with_instance(ctx, |pat| f(pat, a, b))
-}
-
-pub(super) fn with_f64_f64_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, f64, f64) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_f64_arg(ctx, 0);
-    let b = method_f64_arg(ctx, 1);
-    with_instance(ctx, |pat| f(pat, a, b))
-}
-
-pub(super) fn with_i64_frac_f64_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, i64, Frac, f64) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_i64_arg(ctx, 0);
-    let b = method_frac_arg(ctx, 1);
-    let c = method_f64_arg(ctx, 2);
-    with_instance(ctx, |pat| f(pat, a, b, c))
-}
-
-pub(super) fn with_i64_f64_frac_args(
-    ctx: &MethodContext<KPattern>,
-    f: impl FnOnce(&Pattern, i64, f64, Frac) -> Pattern,
-) -> KotoResult<KValue> {
-    let a = method_i64_arg(ctx, 0);
-    let b = method_f64_arg(ctx, 1);
-    let c = method_frac_arg(ctx, 2);
-    with_instance(ctx, |pat| f(pat, a, b, c))
-}
-
-/// Run `body` with the method's instance pattern and its extra args, for the
-/// dynamically-inserted methods that arrive as a plain `CallContext` rather
-/// than through `#[koto_method]`.
-pub(super) fn with_method_instance(
-    ctx: &mut CallContext,
-    body: impl FnOnce(&MethodContext<KPattern>, &Pattern) -> Pattern,
-) -> KotoResult<KValue> {
-    match ctx.instance_and_args(|i| matches!(i, KValue::Object(_)), KPattern::type_static())? {
-        (KValue::Object(o), extra_args) => {
-            let mctx = MethodContext::new(o, extra_args, ctx.vm);
-            with_instance(&mctx, |pat| body(&mctx, pat))
-        }
-        _ => runtime_error!(ErrorKind::UnexpectedError),
-    }
+pub(super) fn frac_arg(args: &[Arg], i: usize) -> Frac {
+    arg_to_frac(arg(args, i))
 }

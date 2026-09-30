@@ -1,9 +1,10 @@
 # rudel-lang
 
-Koto scripting bindings for live-coding Rudel patterns.
+JavaScript scripting bindings for live-coding Rudel patterns.
 
-`rudel-lang` evaluates Koto scripts into `rudel-core::Pattern` values. It is the
-live layer used by `rudel-app` and the `rudel-audio` live example.
+`rudel-lang` evaluates Strudel's JavaScript into `rudel-core::Pattern` values,
+running it on [Boa](https://boajs.dev). It is the live layer used by `rudel-app`
+and the `rudel-audio` live example.
 
 ## What Is Bound
 
@@ -19,6 +20,8 @@ live layer used by `rudel-app` and the `rudel-audio` live example.
   `superimpose`, `chunk`, `inside`, and `when`.
 - Controls for audio, samples, filters, effects, MIDI, and OSC-facing event
   data.
+- The engine's own vocabulary — `Pattern`, `Hap`, `Fraction`, `TimeSpan` — so a
+  script can patch `Pattern.prototype` and write combinators, as Strudel's can.
 
 ## Example
 
@@ -26,13 +29,14 @@ live layer used by `rudel-app` and the `rudel-audio` live example.
 let pat = rudel_lang::eval(r#"
 stack(
   s("bd ~ sd ~"),
-  note("c4 e4 g4").s("triangle").every(4, |x| x.fast(2))
+  note("c4 e4 g4").s("triangle").every(4, x => x.fast(2))
 )
 "#)?;
 ```
 
-Koto strings are parsed as mini-notation when converted into patterns, while
-`pure("text")` keeps a literal string value.
+As in Strudel, double-quoted and backtick strings are mini-notation, while
+single-quoted strings stay plain strings and `pure("text")` keeps a literal
+string value.
 
 ## Tests
 

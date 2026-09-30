@@ -30,12 +30,13 @@ reference behaviour to port. They are not available in Rudel:
 If a future Strudel bump introduces them, `crates/rudel-lang/tests/reference_parity.rs`
 fails on the new name and points here.
 
-### `compressSpan`, `focusSpan`, `zoomArc` — internal, not exposed
+### `compressSpan`, `focusSpan`, `zoomArc` — internal upstream, exposed for combinators
 
 Upstream these take a `TimeSpan` **object** (with `.begin`/`.end`) and throw on a
-plain array, so they are internal helpers rather than user API. Rudel has no Koto
-span type and exposes the user-facing two-argument forms instead: `compress(a, b)`,
-`focus(a, b)`, `zoom(a, b)`.
+plain array, so they are internal helpers rather than user API. Rudel exposes
+them for a script that builds its own combinator with `TimeSpan(begin, end)`;
+everyday code wants the two-argument forms: `compress(a, b)`, `focus(a, b)`,
+`zoom(a, b)`.
 
 ## Drawing and visuals
 
@@ -62,9 +63,9 @@ Rudel's native Rust drawing code, not user-supplied callbacks.
 callbacks (`Pattern.draw(ctx => …)`, `onPaint`) and does not maintain a global
 full-screen draw context. (The `_shader` and `_hydra` widgets below are not
 exceptions: the user supplies WGSL, or a hydra chain that compiles to WGSL, and
-it runs on the GPU — never a Koto callback on the query path.) By design the Koto VM is never invoked from the
-real-time/draw query path, so a pattern cannot register a Koto closure that runs
-every animation frame. Only the built-in inline visualisers are available. The
+it runs on the GPU — never a script callback on the query path.) By design the
+draw query path never waits on the script engine, so a pattern cannot register a
+script closure that runs every animation frame. Only the built-in inline visualisers are available. The
 full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
 lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
 `cleanupDraw`/`cleanupDrawContext` lifecycle are not ported; the inline widget
@@ -126,14 +127,14 @@ sends these through `logger()` into the REPL's side menu; Rudel's scheduler
 writes them to a process-global ring which the app drains into a **console
 panel** below the editor (hidden until something logs, with a clear button).
 Both accept a formatting callback (`logValues(v => 'saw ' + v.s)`); since the
-Koto VM cannot run in the realtime path, the callback is applied ahead of time
+script does not run in the realtime path, the callback is applied ahead of time
 over a 16-cycle probe and the resulting message is carried on the event — the
 same probe-and-bake `filter`/`fmap` use, so a callback that depends on
 something other than the hap will not see later changes.
 
-`pat.onTriggerTime(f)` fires a Koto callback as each event's onset passes. This
-is the one callback that has to run *later* rather than at build time, so the
-evaluation's Koto VM is kept alive past `eval` and the app fires the hooks from
+`pat.onTriggerTime(f)` fires a script callback as each event's onset passes.
+This is a callback that has to run *later* rather than at build time, so the
+evaluation's engine is kept alive past `eval` and the app fires the hooks from
 its frame loop (`crates/rudel-lang/src/triggers.rs`). Timing is therefore
 frame-accurate rather than sample-accurate — the same caveat upstream carries,
 where the hook is a `window.setTimeout` and its own docs call it "innacurate
@@ -153,7 +154,7 @@ not ported.
 ### `clearScope` — accepted, no-op
 
 `clearScope()` deletes the user variables Strudel's block-based eval leaks into
-its shared `strudelScope`. Rudel evaluates each script in a fresh Koto VM, so
+its shared `strudelScope`. Rudel evaluates each script in a fresh engine, so
 nothing accumulates across evaluations and there is nothing to delete. It is
 accepted and returns silence, like `registerSoundfonts()`.
 
@@ -475,13 +476,13 @@ to `c2.r += fract(r)`, which does not. Rudel follows 1.4.0.
 **What works.** 51 of hydra's 52 functions, as a chain that compiles to WGSL and
 renders in an inline widget:
 
-```koto
+```js
 s("bd*4").hydra({ chain: Hydra.osc(20, 0.1, 0.8).kaleid(5).colorama(0.02) })
 ```
 
 The chain is folded into a shader once per evaluation — hydra's own five-way
-composition rule from `generate-glsl.js`, ported — so the Koto VM never runs on
-the draw path. Every function's WGSL is checked by `naga` in a test, and every
+composition rule from `generate-glsl.js`, ported — so no script runs on the
+draw path. Every function's WGSL is checked by `naga` in a test, and every
 signature (name, composition type, input names, input defaults) is compared
 against the pinned table, so a chain written for hydra means the same thing
 here.
@@ -500,7 +501,7 @@ output-buffer half of hydra:
 is bound to one by the option it is written under, `src` reads any of them, and
 `render` picks which is displayed:
 
-```koto
+```js
 s("bd*4").hydra({
   o0: Hydra.osc(15, 0.1, 0.7).kaleid(4),
   o1: Hydra.voronoi(10, 0.4).thresh(0.45, 0.1),
@@ -553,7 +554,7 @@ fixed prelude giving it `uv` (0..1 across the widget, y down) and a `u` uniform
 block carrying `res`, `time` (cycles), `gain`, `note` and `voices` from the
 pattern's sounding events:
 
-```koto
+```js
 s("bd*4").shader({ code: '
   let d = length(uv - vec2<f32>(0.5, 0.5));
   return vec4<f32>(u.gain * (1.0 - d), 0.1, d, 1.0);
@@ -772,13 +773,14 @@ ways:
   `// mondo` on the first line and the rest of the script is read as mondo.
   (Upstream types those into a REPL switched to mondo mode; the marker line
   stands in for that mode here.) A script that is mondo *without* the marker
-  fails to compile as Koto, and the error says so rather than pointing at the
-  first `$`.
-- **One pattern inside a Koto script**, the surface upstream's library exposes:
+  fails to parse as JavaScript, and the error says so rather than pointing at
+  the first `$`.
+- **One pattern inside a JavaScript script**, the surface upstream's library
+  exposes:
   a tagged template, `` mondo`s hh*8` `` (or `mondolang`, or `mondi` for a
   bracketed sequence).
 
-It is compiled to Koto by
+It is compiled to JavaScript by
 `crates/rudel-lang/src/preprocess/mondo.rs`, which ports upstream's parser and
 plays the role of `mondough.mjs`'s evaluator, so every control, transform and
 signal Rudel exposes is reachable from mondo without a second dispatch table.
@@ -806,7 +808,7 @@ with ordinary patterns.
 Haskell-flavoured TidalCycles code — a third *source language* over the same
 pattern engine. Unlike Mondo, it is a different language rather than a different
 notation for the one Rudel already has, and it is experimental upstream. Rudel's
-authoring surface stays **Koto** plus Strudel-style **mini-notation**
+authoring surface stays Strudel's **JavaScript** plus **mini-notation**
 (`crates/rudel-mini`), with Mondo as the one alternative notation.
 
 ## Web embedding

@@ -377,9 +377,9 @@ impl RudelApp {
     /// Upstream schedules these with `window.setTimeout`, so frame-rate accuracy
     /// matches its own caveat that the hook is "innacurate for audio tasks".
     ///
-    /// Both run here because this is the thread that owns the Koto VM, and the
-    /// one that may block: speech is an OS call, not something to make the
-    /// audio callback wait on.
+    /// Both run here because this is a thread that may block: a hook waits on
+    /// the script engine's own thread, and speech is an OS call. Neither is
+    /// something to make the audio callback wait on.
     fn fire_trigger_hooks(&mut self) {
         if self.trigger_hooks.is_empty() && !self.speaks {
             return;
@@ -967,7 +967,7 @@ mod tests {
         // The callback throws for the *first* event of each cycle only, so the
         // error afterwards says whether that particular onset fired — which
         // presence of a log line could not, since every event logs alike.
-        let script = r#"n("0 1 2 3").onTriggerTime(|h| if h.value.n == 0 then throw 1)"#;
+        let script = r#"n("0 1 2 3").onTriggerTime(h => { if (h.value.n == 0) throw 1 })"#;
         let result = rudel_lang::eval_result(script).expect("script");
         let mut app = playing_app(Duration::from_secs_f64(pos), 1.0);
         app.trigger_hooks = result.trigger_hooks;

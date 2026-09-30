@@ -1,4 +1,4 @@
-//! Evaluates a Koto script into a pattern and plays it.
+//! Evaluates a Strudel script into a pattern and plays it.
 //! Pass a script as the first arg, or a default is used.
 //!
 //! Run with: `cargo run -p rudel-audio --example live -- 'note("c4 e4 g4 b4").fast(2).room(0.4)'`
@@ -33,7 +33,7 @@ fn main() {
     engine.set_cps(0.5);
     engine.set_pattern(pat);
 
-    println!("playing Koto-evaluated pattern for 8 seconds...");
+    println!("playing the evaluated pattern for 8 seconds...");
     std::thread::sleep(std::time::Duration::from_secs(8));
     println!("done");
 }

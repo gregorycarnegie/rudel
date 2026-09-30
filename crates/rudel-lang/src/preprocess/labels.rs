@@ -34,14 +34,15 @@ fn line_shape(src: &str) -> Vec<(i64, bool)> {
 }
 
 fn label_at_line(line: &str) -> Option<(String, String)> {
-    if line.chars().next().is_some_and(char::is_whitespace) {
-        return None;
-    }
+    // Indentation means nothing to JavaScript: ` $: s("bd")` is a label too.
+    // Outside every bracket (the callers' condition) no other statement
+    // starts with a name and a colon — a map key needs its braces.
+    let line = line.trim_start();
     let mut end = 0;
     for (i, c) in line.char_indices() {
         // JavaScript identifiers are Unicode, and tunes label their parts in
         // whatever language they are written in (`節奏:`, `armonía:`).
-        // `sanitize_label` still gives the Koto variable an ASCII name.
+        // `sanitize_label` still gives the variable an ASCII name.
         let ok = if i == 0 {
             c.is_alphabetic() || c == '_' || c == '$'
         } else {
@@ -65,8 +66,20 @@ fn label_at_line(line: &str) -> Option<(String, String)> {
         .map(|expr| (line[..end].to_string(), expr.trim_start().to_string()))
 }
 
-fn top_level_boundary(line: &str) -> bool {
-    !line.chars().next().is_some_and(char::is_whitespace) && !line.trim_start().starts_with('.')
+/// Whether `next` carries on the statement `prev` ended, outside every
+/// bracket. JavaScript's rule, near enough: a line break ends a statement
+/// unless one side of it cannot stand alone — the line before ends on an
+/// operator, or the line after starts with one (`.fast(2)`, `+ 1`, `? a`).
+/// Indentation plays no part.
+fn continues(prev: &str, next: &str) -> bool {
+    const OPERATORS: [char; 16] = [
+        '.', ',', '+', '-', '*', '/', '%', '&', '|', '=', '<', '>', '?', ':', '!', '^',
+    ];
+    let next = next.trim_start();
+    let starts =
+        next.starts_with(OPERATORS) && !next.starts_with('!') || next.starts_with(['(', '[', '`']);
+    let ends = prev.trim_end().ends_with(OPERATORS) || prev.trim_end().ends_with(['(', '[', '{']);
+    starts || ends
 }
 
 fn sanitize_label(name: &str) -> String {
@@ -113,12 +126,27 @@ pub(super) fn rewrite_labels(src: &str) -> String {
             continue;
         };
 
+        // `$:` alone on its line labels the statement on the next one, as a
+        // JavaScript label does, so the expression has not started yet.
+        let mut started = !rest.trim().is_empty();
         let mut expr_lines = vec![rest];
         let mut depth = delta(i);
         i += 1;
         while i < lines.len() {
             let line = lines[i];
+            if !started {
+                started = !line.trim().is_empty();
+                expr_lines.push(line.to_string());
+                depth += delta(i);
+                i += 1;
+                continue;
+            }
             if depth <= 0 && !in_string(i) {
+                let last = expr_lines
+                    .iter()
+                    .rev()
+                    .find(|l| !l.trim().is_empty())
+                    .map_or("", String::as_str);
                 if line.trim().is_empty() {
                     // A blank line ends the label's expression — unless the
                     // chain merely has a gap in it and picks up again with a
@@ -129,7 +157,7 @@ pub(super) fn rewrite_labels(src: &str) -> String {
                     let resumes = lines[i + 1..]
                         .iter()
                         .find(|l| !l.trim().is_empty())
-                        .is_some_and(|l| l.trim_start().starts_with('.'));
+                        .is_some_and(|next| continues(last, next));
                     if !resumes {
                         i += 1;
                         break;
@@ -138,7 +166,7 @@ pub(super) fn rewrite_labels(src: &str) -> String {
                     i += 1;
                     continue;
                 }
-                if label_at_line(line).is_some() || top_level_boundary(line) {
+                if label_at_line(line).is_some() || !continues(last, line) {
                     break;
                 }
             }
@@ -149,8 +177,10 @@ pub(super) fn rewrite_labels(src: &str) -> String {
 
         open = depth.max(0);
         let var = format!("rudel_label_{}_{}", labels.len(), sanitize_label(&name));
-        let expr = expr_lines.join("\n").trim().to_string();
-        out.push(format!("{var} = rudel_label({name:?}, {expr})"));
+        // A statement's own `;` would land inside the call it is wrapped in.
+        let expr = expr_lines.join("\n");
+        let expr = expr.trim().trim_end_matches(';').trim_end();
+        out.push(format!("const {var} = rudel_label({name:?}, {expr})"));
         labels.push(var);
     }
 
@@ -175,7 +205,7 @@ mod tests {
     fn a_labelled_line_becomes_a_named_pattern_and_a_stack() {
         assert_eq!(
             rewrite_labels(r#"a: s("bd")"#),
-            "rudel_label_0_a = rudel_label(\"a\", s(\"bd\"))\nstack(rudel_label_0_a)"
+            "const rudel_label_0_a = rudel_label(\"a\", s(\"bd\"))\nstack(rudel_label_0_a)"
         );
         // Several labels stack in source order, each with its own index.
         let two = rewrite_labels("a: s(\"bd\")\nb: s(\"sd\")");
@@ -200,9 +230,20 @@ mod tests {
         // A name broken by punctuation is not a label at all.
         let dashed = r#"my-label: s("bd")"#;
         assert_eq!(rewrite_labels(dashed), dashed);
-        // An indented line is a continuation, never a label.
-        let indented = "  a: s(\"bd\")";
-        assert_eq!(rewrite_labels(indented), indented);
+        // Indentation does not matter: an indented label is a label, and it
+        // ends the label before it rather than joining its expression.
+        let indented = rewrite_labels("a: s(\"bd\")\n  b: s(\"sd\")");
+        assert!(
+            indented.contains("rudel_label(\"a\", s(\"bd\"))"),
+            "{indented}"
+        );
+        assert!(
+            indented.contains("rudel_label(\"b\", s(\"sd\"))"),
+            "{indented}"
+        );
+        // Inside brackets a `name:` line is still a key, however indented.
+        let keyed = "f({\n  a: 1\n})";
+        assert_eq!(rewrite_labels(keyed), keyed);
         // A colon with no name before it is a map key, not a label.
         let keyed = r#": s("bd")"#;
         assert_eq!(rewrite_labels(keyed), keyed);
@@ -234,7 +275,7 @@ mod tests {
 
     #[test]
     fn the_generated_variable_name_carries_the_label_through_sanitising() {
-        // Only characters Koto rejects in an identifier are replaced, and the
+        // Only characters outside ASCII identifiers are replaced, and the
         // rest of the name has to survive — a blanket replacement would collide
         // every label onto the same variable.
         assert!(rewrite_labels(r#"$a: s("bd")"#).contains("rudel_label_0__a = "));
@@ -286,8 +327,8 @@ mod tests {
 
     #[test]
     fn a_dot_continuation_extends_the_label_but_a_new_statement_ends_it() {
-        // An unindented `.fast(2)` is still part of the chain above — the same
-        // rule `indent_dot_continuations` exists to support.
+        // An unindented `.fast(2)` is still part of the chain above, as
+        // JavaScript reads it.
         let out = rewrite_labels("a: s(\"bd\")\n.fast(2)");
         assert!(
             out.contains(".fast(2))"),
@@ -300,7 +341,28 @@ mod tests {
 
         // Neither is another label.
         let out = rewrite_labels("a: s(\"bd\")\nb: s(\"sd\")");
-        assert!(out.contains("s(\"bd\"))\nrudel_label_1_b"), "{out}");
+        assert!(out.contains("s(\"bd\"))\nconst rudel_label_1_b"), "{out}");
+    }
+
+    #[test]
+    fn a_label_alone_on_its_line_labels_the_next_statement() {
+        let out = rewrite_labels("$:\n\ns(\"bd\")\n.fast(2)\nplain");
+        assert!(
+            out.contains("rudel_label(\"$\", s(\"bd\")\n.fast(2))"),
+            "{out}"
+        );
+        assert!(out.contains("\nplain\n"), "{out}");
+    }
+
+    #[test]
+    fn a_labels_own_semicolon_stays_outside_the_call() {
+        assert_eq!(
+            rewrite_labels("$: s(\"bd\").midi();"),
+            "const rudel_label_0__ = rudel_label(\"$\", s(\"bd\").midi())\nstack(rudel_label_0__)"
+        );
+        // Only the one ending the statement: a `;` inside the expression is
+        // the script's.
+        assert!(rewrite_labels("a: f(() => { x(); y() });").contains("{ x(); y() })"));
     }
 
     #[test]
@@ -310,7 +372,7 @@ mod tests {
         let out = rewrite_labels("a: s(\"bd\")\n\nplain");
         assert_eq!(
             out,
-            "rudel_label_0_a = rudel_label(\"a\", s(\"bd\"))\nplain\nstack(rudel_label_0_a)"
+            "const rudel_label_0_a = rudel_label(\"a\", s(\"bd\"))\nplain\nstack(rudel_label_0_a)"
         );
         assert!(!out.contains("\n\n"), "no blank line should remain: {out}");
     }
@@ -352,13 +414,28 @@ mod tests {
     }
 
     #[test]
-    fn top_level_boundary_admits_only_an_unindented_non_continuation() {
-        assert!(top_level_boundary("s(\"bd\")"));
-        // Indented, so a continuation of the line above.
-        assert!(!top_level_boundary("  s(\"bd\")"));
-        // Leading dot, so a method chained onto the line above...
-        assert!(!top_level_boundary(".fast(2)"));
-        // ...whether or not it is also indented.
-        assert!(!top_level_boundary("  .fast(2)"));
+    fn a_statement_runs_on_only_across_an_operator() {
+        // A new statement, however it is indented.
+        assert!(!continues("s(\"bd\")", "s(\"sd\")"));
+        assert!(!continues("s(\"bd\")", "    n(\"0 1\")"));
+        // A leading dot chains onto the line above, indented or not...
+        assert!(continues("s(\"bd\")", ".fast(2)"));
+        assert!(continues("s(\"bd\")", "  .fast(2)"));
+        // ...as does any other operator, on either side of the break.
+        assert!(continues("s(\"bd\")", "  + 1"));
+        assert!(continues("x =", "  1"));
+        assert!(continues("f(a,", "b)"));
+        // `!` starts a new statement rather than continuing one.
+        assert!(!continues("s(\"bd\")", "!x"));
+    }
+
+    #[test]
+    fn an_indented_statement_after_a_label_is_not_part_of_it() {
+        // `f()` then an indented `n(...)` is two statements to JavaScript.
+        let out = rewrite_labels("$: s(\"bd\").delay(\".5\")\n  n(\"0 1\")");
+        assert!(
+            out.contains("s(\"bd\").delay(\".5\"))\n  n(\"0 1\")"),
+            "{out}"
+        );
     }
 }

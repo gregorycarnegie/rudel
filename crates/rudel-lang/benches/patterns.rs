@@ -3,7 +3,7 @@
 //!   cargo bench -p rudel-lang
 //!
 //! Measures the two hot paths of the live-coding loop separately:
-//!   * **eval** — preprocess + Koto compile/run + mini-notation parse to build a
+//!   * **eval** — preprocess + JavaScript run + mini-notation parse to build a
 //!     `Pattern` (what runs on every keystroke-eval), and
 //!   * **query** — `query_arc` over a window of cycles (what the scheduler runs
 //!     ~100ms ahead on every audio window).
@@ -34,7 +34,7 @@ const PATTERNS: &[(&str, &str)] = &[
     ),
     (
         "melody.hof",
-        r#"note("c e g b").fast(2).every(3, |x| x.rev()).add(note("<0 12>")).lpf(800)"#,
+        r#"note("c e g b").fast(2).every(3, x => x.rev()).add(note("<0 12>")).lpf(800)"#,
     ),
     ("scale.run", r#"n("0 .. 7").scale("c:major").s("piano")"#),
 ];
@@ -62,7 +62,7 @@ fn time<F: FnMut() -> usize>(label: &str, iters: u32, mut f: F) {
 }
 
 fn main() {
-    println!("# eval (preprocess + Koto + mini -> Pattern)");
+    println!("# eval (preprocess + JavaScript + mini -> Pattern)");
     for (label, src) in PATTERNS {
         // Confirm it evaluates before timing, with a clear message if not.
         eval(src).unwrap_or_else(|e| panic!("bench pattern {label:?} failed to eval: {e}"));

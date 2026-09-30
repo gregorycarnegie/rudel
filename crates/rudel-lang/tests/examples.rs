@@ -40,18 +40,18 @@ const EXAMPLES: &[(&str, &str, &str)] = &[
     (
         "pattern-fx",
         "every + rev",
-        r#"note("c e g").every(3, |x| x.rev())"#,
+        r#"note("c e g").every(3, x => x.rev())"#,
     ),
     ("pattern-fx", "jux", r#"s("bd sd").jux(rev)"#),
     (
         "pattern-fx",
         "off + add",
-        r#"note("c").off(0.25, |x| x.add(note(7)))"#,
+        r#"note("c").off(0.25, x => x.add(note(7)))"#,
     ),
     (
         "pattern-fx",
         "sometimesBy",
-        r#"s("hh*8").sometimesBy(0.4, |x| x.speed(2))"#,
+        r#"s("hh*8").sometimesBy(0.4, x => x.speed(2))"#,
     ),
     (
         "pattern-fx",

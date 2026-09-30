@@ -136,7 +136,7 @@ pub const GAIN_CURVE_MAX: f64 = 8.0;
 /// `probe_patternify` tabulates its callback. Linear interpolation between
 /// samples and linear extrapolation past the end; a curve with a step in it
 /// gets that step rounded over. Calling the function directly would mean
-/// giving the audio path a Koto VM.
+/// giving the audio path a script engine.
 static GAIN_CURVE: LazyLock<RwLock<Option<Arc<Vec<f64>>>>> = LazyLock::new(|| RwLock::new(None));
 
 /// Samples across `0..=GAIN_CURVE_MAX`.

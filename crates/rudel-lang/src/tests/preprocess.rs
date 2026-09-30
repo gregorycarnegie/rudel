@@ -1,38 +1,13 @@
 use super::common::*;
-use proptest::prelude::*;
 
 // --- Transpilation / preprocessing parity -------------------------------------
-
-#[test]
-fn preprocess_rewrites_arrow_functions_to_koto_lambdas() {
-    // bare single identifier parameter
-    assert_eq!(preprocess_strudel("f(x => x.fast(2))"), "f(|x| x.fast(2))");
-    // parenthesised single parameter
-    assert_eq!(
-        preprocess_strudel("f((x) => x.fast(2))"),
-        "f(|x| x.fast(2))"
-    );
-    // multiple parameters
-    assert_eq!(preprocess_strudel("f((a, b) => a)"), "f(|a, b| a)");
-    // zero parameters -> Koto's `||`
-    assert_eq!(preprocess_strudel("f(() => 1)"), "f(|| 1)");
-    // an `=>` inside a string literal is left intact; the string is wrapped in
-    // `m(literal, offset)` for source-location tracking (offset 6 = the byte
-    // position of the content just after `note("`).
-    assert_eq!(
-        preprocess_strudel(r#"note("a => b")"#),
-        r#"note(m("a => b", 6))"#
-    );
-    // a comparison operator is never mistaken for an arrow
-    assert_eq!(preprocess_strudel("f(x >= 2)"), "f(x >= 2)");
-}
 
 #[test]
 fn preprocess_flattens_alignment_getters() {
     assert_eq!(preprocess_strudel("p.add.out(1)"), "p.add_out(1)");
     // `in` is the default alignment and *is* the plain method
     assert_eq!(preprocess_strudel("p.mul.in(1)"), "p.mul(1)");
-    // spelling normalisation: `mod` is a Koto keyword, and the camelCase and
+    // spelling normalisation: `mod` is bound as `modulo`, and the camelCase and
     // `squeezein` forms are the same cell
     assert_eq!(preprocess_strudel("p.mod.poly(1)"), "p.modulo_poly(1)");
     assert_eq!(preprocess_strudel("p.add.squeezeIn(1)"), "p.add_squeeze(1)");
@@ -51,9 +26,9 @@ fn preprocess_flattens_alignment_getters() {
 
 #[test]
 fn empty_or_commented_out_script_falls_back_to_silence() {
-    assert_eq!(preprocess_strudel(""), "silence()");
-    assert_eq!(preprocess_strudel("   \n  \n"), "silence()");
-    assert_eq!(preprocess_strudel("// just a comment\n"), "silence()");
+    assert_eq!(preprocess_strudel(""), "silence");
+    assert_eq!(preprocess_strudel("   \n  \n"), "silence");
+    assert_eq!(preprocess_strudel("// just a comment\n"), "silence");
     // and it evaluates to an actually-empty pattern
     let pat = eval("// nothing here\n").expect("eval");
     assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
@@ -131,7 +106,7 @@ slider(0.4)
 #[test]
 fn public_visualizer_names_rewrite_to_inline_widget() {
     // The public `pianoroll` / `pitchwheel` / `wordfall` spellings create the
-    // same widget (canonical `_`-prefixed type, rewritten to the same koto host
+    // same widget (canonical `_`-prefixed type, rewritten to the same host
     // call) as their `_`-prefixed inline variants.
     for (call, widget_type, host) in [
         ("pianoroll", "_pianoroll", "rudel_widget_pianoroll"),
@@ -390,17 +365,23 @@ drums: stack(
             .collect::<Vec<_>>(),
         vec!["_punchcard"]
     );
-    // The continuation is written onto the line that closed the `stack(`, which
-    // is the only place Koto will take it — left on a line of its own it reads
-    // as a new statement however far it is indented.
+    // The label's expression runs on through the continuation, so the widget
+    // hangs off the stack rather than off nothing.
     assert!(
-        result.source.contains(").rudel_widget_punchcard("),
+        result.source.contains("\n.rudel_widget_punchcard("),
         "{}",
         result.source
     );
-    assert!(!result.source.contains("\n.rudel_widget_punchcard("));
 
-    eval_result(script).expect("labelled stack with trailing widget should eval");
+    let result = eval_result(script).expect("labelled stack with trailing widget should eval");
+    let id = &result.meta.widgets[0].id;
+    assert!(
+        result
+            .pattern
+            .query_arc(Frac::zero(), Frac::one())
+            .iter()
+            .all(|hap| hap.has_tag(id))
+    );
 }
 
 #[test]
@@ -421,91 +402,7 @@ fn visual_widget_methods_pass_the_pattern_through_and_tag_haps() {
     );
 }
 
-#[test]
-fn arrow_and_pipe_callbacks_are_equivalent() {
-    // Differential check: arrow-function and Koto-lambda spellings of the same
-    // callback must produce identical haps across the combinator surface.
-    let pairs = [
-        (
-            r#"seq(0).every(2, x => x.add(10))"#,
-            r#"seq(0).every(2, |x| x.add(10))"#,
-        ),
-        (
-            r#"seq(0).superimpose((x) => x.add(7))"#,
-            r#"seq(0).superimpose(|x| x.add(7))"#,
-        ),
-        (
-            r#"seq(0, 1, 2, 3).within(0, 0.4, x => x.add(10))"#,
-            r#"seq(0, 1, 2, 3).within(0, 0.4, |x| x.add(10))"#,
-        ),
-        (
-            r#"seq(0).layer([x => x.add(0), x => x.add(7)])"#,
-            r#"seq(0).layer([|x| x.add(0), |x| x.add(7)])"#,
-        ),
-    ];
-    for (arrow, pipe) in pairs {
-        let a = eval(arrow).unwrap_or_else(|e| panic!("arrow eval {arrow}: {e}"));
-        let b = eval(pipe).unwrap_or_else(|e| panic!("pipe eval {pipe}: {e}"));
-        assert_eq!(values(&a, 0, 2), values(&b, 0, 2), "mismatch for {arrow}");
-    }
-}
-
-proptest! {
-    #[test]
-    fn bare_arrow_rewrites_generated_identifiers(param in "[a-z][a-z0-9_]{0,8}") {
-        let src = format!("f({param} => {param}.fast(2))");
-        let expected = format!("f(|{param}| {param}.fast(2))");
-
-        prop_assert_eq!(preprocess_strudel(&src), expected);
-    }
-
-    #[test]
-    fn parenthesized_arrow_rewrites_generated_identifiers(param in "[a-z][a-z0-9_]{0,8}") {
-        let src = format!("f(({param}) => {param}.rev())");
-        let expected = format!("f(|{param}| {param}.rev())");
-
-        prop_assert_eq!(preprocess_strudel(&src), expected);
-    }
-
-    #[test]
-    fn generated_comparison_is_not_rewritten_as_arrow(
-        lhs in "[a-z][a-z0-9_]{0,8}",
-        rhs in 0i32..128,
-    ) {
-        let src = format!("f({lhs} >= {rhs})");
-
-        prop_assert_eq!(preprocess_strudel(&src), src);
-    }
-}
-
 // --- JavaScript literal/operator conveniences ---------------------------------
-
-#[test]
-fn leading_dot_decimals_become_koto_numbers() {
-    // JS allows `.5`; Koto requires `0.5`. The dot starts a number only where a
-    // value cannot already be sitting to its left.
-    assert_eq!(preprocess_strudel("f(.5)"), "f(0.5)");
-    assert_eq!(preprocess_strudel("f(1, .25)"), "f(1, 0.25)");
-    assert_eq!(preprocess_strudel("x = -.5"), "x = -0.5");
-    assert_eq!(preprocess_strudel("f(a * .5)"), "f(a * 0.5)");
-    // Method access and ordinary decimals are untouched.
-    assert_eq!(preprocess_strudel("pat.fast(2)"), "pat.fast(2)");
-    assert_eq!(preprocess_strudel("f(1.5)"), "f(1.5)");
-    assert_eq!(preprocess_strudel("f(x).gain(1)"), "f(x).gain(1)");
-    assert_eq!(preprocess_strudel("f(l[0].gain)"), "f(l[0].gain)");
-    // Inside a string literal it is mini-notation, not code. (Strings get
-    // wrapped in `m(literal, offset)` for source-location tracking.)
-    assert_eq!(preprocess_strudel(r#"f(".5")"#), r#"f(m(".5", 3))"#);
-}
-
-#[test]
-fn strict_equality_becomes_kotos_equality() {
-    assert_eq!(preprocess_strudel("f(a === b)"), "f(a == b)");
-    assert_eq!(preprocess_strudel("f(a !== b)"), "f(a != b)");
-    // Already-Koto spellings and string contents are untouched.
-    assert_eq!(preprocess_strudel("f(a == b)"), "f(a == b)");
-    assert_eq!(preprocess_strudel(r#"f('a === b')"#), r#"f('a === b')"#);
-}
 
 #[test]
 fn await_is_stripped() {
@@ -602,7 +499,7 @@ fn computed_widget_options_reach_the_widget_config() {
     );
 
     // Running the script fills it in: the transpiler passes the option map
-    // through to the widget method, which records what Koto evaluated.
+    // through to the widget method, which records what the script evaluated.
     let widget = &crate::eval_result(script).expect("eval").meta.widgets[0];
     assert_eq!(
         widget.options.get("cycles"),
@@ -644,197 +541,6 @@ fn computed_widget_options_reach_the_widget_config() {
     assert!(plain.meta.widgets[0].options.is_empty());
 }
 
-// --- JavaScript constructs the songs corpus leans on -------------------------
-//
-// Each of these is a whole cluster of real scripts that would not evaluate
-// without it, so the assertions pin the *shape* of the emitted Koto rather than
-// just "it parses" — a pass that quietly stops firing still produces valid Koto,
-// and only the shape says whether the construct survived.
-
-#[test]
-fn a_ternary_becomes_a_parenthesised_if_expression() {
-    assert_eq!(
-        preprocess_strudel("f(a ? b : c)"),
-        "f((if a then b else c))"
-    );
-    // Nested in both branches, and in the condition.
-    assert_eq!(
-        preprocess_strudel("f(a ? (b ? c : d) : e)"),
-        "f((if a then ((if b then c else d)) else e))"
-    );
-    assert_eq!(
-        preprocess_strudel("f(a ? b : c ? d : e)"),
-        "f((if a then b else (if c then d else e)))"
-    );
-    // `return` is a statement keyword, not part of the condition.
-    assert_eq!(
-        preprocess_strudel("f(x => { return a ? b : c })"),
-        "f(|x|
-  (if a then b else c)
-)"
-    );
-    // A `?` inside a string is pattern text; the string becomes `m(literal, n)`.
-    assert!(preprocess_strudel(r#"s("a?b")"#).contains(r#"m("a?b""#));
-}
-
-#[test]
-fn a_block_bodied_arrow_becomes_an_indented_koto_block() {
-    // The closing bracket has to end up on its own line: Koto will not let the
-    // enclosing call close on the body's last line.
-    assert_eq!(
-        preprocess_strudel("f(x => { const a = 1; return a })"),
-        "f(|x|\n  a = 1\n  a\n)"
-    );
-    // `if (c) stmt` takes Koto's `then`, and a non-tail `return` stays.
-    assert_eq!(
-        preprocess_strudel("f(x => { if(x) return 1; return 2 })"),
-        "f(|x|\n  if x then return 1\n  2\n)"
-    );
-    // A `function` declaration binds its name.
-    assert_eq!(
-        preprocess_strudel("function arr(p, l) { return [l, p] }"),
-        "arr = |p, l|\n  [l, p]"
-    );
-    // A further argument after the body — `reduce(fn, seed)` — has to close the
-    // lambda with a bracket, or Koto reads the `, []` as part of the block.
-    assert_eq!(
-        preprocess_strudel("xs.reduce((a, x) => { a.push(x); return a }, [])"),
-        "xs.reduce((|a, x|\n  a.push(x)\n  a\n), [])"
-    );
-    // The anonymous `function` spelling of the same shape.
-    assert_eq!(
-        preprocess_strudel("xs.reduce(function (a, x) { return a }, [])"),
-        "xs.reduce((|a, x|\n  a\n), [])"
-    );
-}
-
-#[test]
-fn line_continuations_that_koto_would_end_at_the_newline_are_joined() {
-    // A value on the line after `=`...
-    assert_eq!(preprocess_strudel("const x =\n  [1, 2]"), "x = [1, 2]");
-    // ...and an arrow body on the line after `=>`. Left on its own line the
-    // body becomes an indented block, which the enclosing `)` cannot close.
-    assert_eq!(preprocess_strudel("f((v) =>\n  v)"), "f(|v| v)");
-    // A comparison is not an assignment.
-    assert_eq!(preprocess_strudel("a ==\nb"), "a ==\nb");
-}
-
-#[test]
-fn js_operators_and_punctuation_take_their_koto_spelling() {
-    assert_eq!(preprocess_strudel("f(a && b || !c)"), "f(a and b or not c)");
-    assert_eq!(preprocess_strudel("f(a != b)"), "f(a != b)");
-    // A trailing `;` is dropped; `!` inside mini-notation is replication.
-    assert_eq!(preprocess_strudel("f(1);"), "f(1)");
-    assert!(preprocess_strudel(r#"s("bd!4")"#).contains("bd!4"));
-}
-
-#[test]
-fn js_object_and_declaration_forms_become_koto_ones() {
-    // Numeric keys have to be quoted; Koto's map declaration takes a name.
-    assert_eq!(
-        preprocess_strudel("x = {0: a, 1: b}"),
-        "x = {'0': a, '1': b}"
-    );
-    // Two declarations on one line: the keyword is dropped from both, not just
-    // the one that opens the line.
-    assert_eq!(preprocess_strudel("var a = 1; var b = 2"), "a = 1\nb = 2");
-    // Spread has no Koto syntax, so it becomes a merge call.
-    assert_eq!(
-        preprocess_strudel("x = {...v, n: 1}"),
-        "x = rudel_spread(v, {n: 1})"
-    );
-    // One declaration per name.
-    assert_eq!(preprocess_strudel("const a = 1, b = 2"), "a = 1\nb = 2");
-    // A comma inside the value is not a separator.
-    assert_eq!(preprocess_strudel("const a = [1, 2]"), "a = [1, 2]");
-}
-
-#[test]
-fn js_properties_become_the_calls_koto_needs() {
-    assert_eq!(preprocess_strudel("f(v.length)"), "f(v.length())");
-    // Already a call, or a longer name: left alone.
-    assert_eq!(preprocess_strudel("f(v.length(1))"), "f(v.length(1))");
-    assert_eq!(preprocess_strudel("f(v.lengthen)"), "f(v.lengthen)");
-    // `.value` reads as JS does — absent rather than an error — so a helper can
-    // test it to tell a control map from a bare value.
-    assert_eq!(
-        preprocess_strudel("f(v.value)"),
-        "f(rudel_prop(v, 'value'))"
-    );
-    assert_eq!(preprocess_strudel("f(v.value(1))"), "f(v.value(1))");
-}
-
-#[test]
-fn control_blocks_and_js_globals_become_koto() {
-    // `if (c) { … } else …` is an indented block under the condition, not a
-    // `then`, and a `return` inside an arm returns from the function.
-    assert_eq!(
-        preprocess_strudel("f(x => { if (x) { return 1 } else { return 2 } })"),
-        "f(|x|\n  if x\n    return 1\n  else\n    return 2\n)"
-    );
-    // A brace on its own line is still the same arm.
-    assert_eq!(
-        preprocess_strudel("f(x => { if (x)\n{ return 1 }\n})"),
-        "f(|x|\n  if x\n    return 1\n)"
-    );
-    // `typeof` is an operator in JS and a call here, answering with JS's names
-    // so the comparison the script wrote still matches.
-    assert_eq!(
-        preprocess_strudel("f(typeof v == 'string')"),
-        "f(rudel_typeof(v) == 'string')"
-    );
-    assert_eq!(
-        preprocess_strudel("f(typeof (a) )"),
-        "f(rudel_typeof((a)) )"
-    );
-    // A name that only looks like the operator is left alone.
-    assert_eq!(preprocess_strudel("f(typeofx)"), "f(typeofx)");
-}
-
-#[test]
-fn a_name_koto_reserves_is_renamed_where_the_script_binds_it() {
-    // `as` is a Koto keyword and an ordinary JS identifier.
-    let out = preprocess_strudel("const as = register('as', f)\nx.as(1)");
-    assert!(out.starts_with("as_ = register('as', f)"), "{out}");
-    // The method call is a property, not a binding, so it keeps the name.
-    assert!(out.contains("x.as(1)"), "{out}");
-    // A keyword the script never binds is untouched, so `loop` still reaches
-    // the built-in of that name.
-    assert_eq!(preprocess_strudel("x.loop(1)"), "x.loop(1)");
-}
-
-#[test]
-fn a_declaration_moves_above_the_code_that_uses_it() {
-    // JavaScript resolves a name inside a function when it runs, so the helper
-    // may be written above the data it reads.
-    assert_eq!(
-        preprocess_strudel("f = |x| x + n\nn = 2"),
-        "n = 2\nf = |x| x + n"
-    );
-    // Anything with no dependency between it and its neighbours stays put.
-    assert_eq!(preprocess_strudel("a = 1\nb = 2"), "a = 1\nb = 2");
-    // Two names that need each other are a cycle, and keep source order rather
-    // than being reordered arbitrarily.
-    assert_eq!(
-        preprocess_strudel("f = |x| g(x)\ng = |x| f(x)"),
-        "f = |x| g(x)\ng = |x| f(x)"
-    );
-}
-
-#[test]
-fn line_breaks_koto_cannot_read_are_taken_out() {
-    // A nested call spanning lines is only allowed in final position, so one
-    // followed by another argument is folded onto a line...
-    assert_eq!(preprocess_strudel("stack(a(\n1),\nb)"), "stack(a( 1), b)");
-    // ...and the last argument keeps its layout, so long as the list did not
-    // also start on the opening line, which Koto cannot carry either.
-    assert!(preprocess_strudel("stack(\nb,\na(\n1))").contains("a(\n"));
-    assert_eq!(preprocess_strudel("stack(b,\na(\n1))"), "stack(b, a( 1))");
-    // A call whose `(` opens the next line is one expression; left split, the
-    // parentheses become a tuple.
-    assert_eq!(preprocess_strudel("stack\n(a, b)"), "stack(a, b)");
-}
-
 #[test]
 fn widget_options_coerce_between_their_three_shapes() {
     use crate::WidgetOption::{Bool, Number, String as Str};
@@ -863,57 +569,101 @@ fn widget_options_coerce_between_their_three_shapes() {
     assert_eq!(Bool(true).as_str(), None);
 }
 
+// --- JavaScript the songs corpus leans on -----------------------------------
+//
+// Each of these was once a whole cluster of real scripts that would not
+// evaluate, back when a script was translated into another language before it
+// ran. The engine reads JavaScript itself now; these pin that the constructs
+// still mean what they say by *running* them.
+
+/// The single value `script` evaluates to, wrapped in `pure(...)`.
+fn js_value(script: &str) -> Value {
+    let pat = eval(script).unwrap_or_else(|e| panic!("{script}: {e}"));
+    let vals = values(&pat, 0, 1);
+    assert_eq!(vals.len(), 1, "{script}: {vals:?}");
+    vals.into_iter().next().unwrap()
+}
+
 #[test]
-fn a_c_style_for_loop_becomes_a_while_loop() {
-    // The counter's declaration is mid-line, where the declaration pass never
-    // sees it, and `i++` has no Koto spelling.
+fn javascript_expressions_mean_what_javascript_says() {
+    for (script, want) in [
+        ("pure(1 ? 2 : 3)", Value::Int(2)),
+        ("pure(0 ? 2 : 1 ? 3 : 4)", Value::Int(3)),
+        ("pure(true && false || !false)", Value::Bool(true)),
+        ("pure(1 === 1 && 1 !== 2)", Value::Bool(true)),
+        ("pure(2 ** 3 ** 2)", Value::Int(512)),
+        ("pure(1 << 4 | 1 >> 1)", Value::Int(16)),
+        (
+            "pure(typeof 'x' + typeof 1)",
+            Value::Str("stringnumber".into()),
+        ),
+        ("pure([1, 2, 3].length)", Value::Int(3)),
+        ("pure('abc'.length)", Value::Int(3)),
+        ("pure({0: 'a', 1: 'b'}[1])", Value::Str("b".into())),
+        ("pure({...{a: 1}, b: 2}.b)", Value::Int(2)),
+        ("pure(Math.max(...[1, 5, 3]))", Value::Int(5)),
+        ("pure(.5 + .25)", Value::F64(0.75)),
+        ("pure('a' + 1 + 2)", Value::Str("a12".into())),
+        ("pure(1 + 2 + 'a')", Value::Str("3a".into())),
+        ("pure(JSON.parse('[1, 2]')[1])", Value::Int(2)),
+        ("pure(Object.entries({a: 1})[0][0])", Value::Str("a".into())),
+        ("pure([1, 2].flatMap(v => [v, v]).length)", Value::Int(4)),
+        ("pure((5).toString(2))", Value::Str("101".into())),
+    ] {
+        assert_eq!(js_value(script), want, "{script}");
+    }
+}
+
+#[test]
+fn block_bodies_declarations_and_loops_run() {
+    // A block-bodied arrow with an early return.
     assert_eq!(
-        preprocess_strudel("for (let i = 0; i < 3; i++) {\n  t += i\n}"),
-        "i = 0\nwhile i < 3\n  t += i\n  i += 1"
+        js_value("const f = x => { if (x) { return 1 } else { return 2 } }\npure(f(0))"),
+        Value::Int(2)
     );
-    // `for (x of xs)` is a different construct and is left for Koto's own.
-    assert!(preprocess_strudel("for (x in xs)\n  f(x)").starts_with("for (x in xs)"));
-    // Running it end to end: the loop counts, and the mini string it builds a
-    // piece at a time plays as three notes rather than one.
+    // A function declared below the code that calls it is hoisted.
+    assert_eq!(
+        js_value("pure(g(3))\nfunction g(n) { return n * 2 }"),
+        Value::Int(6)
+    );
+    // `let` and `+=` on a string, built up a piece at a time.
     let script = "let melo = '['\nfor (let i = 0; i < 3; i++) {\n  melo += ' ' + (48+i)\n}\nmelo += ']'\nnote(mini(melo))";
     let pat = eval(script).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 3);
-    // And inside a function body, where the block is already indented.
+    // A C-style loop inside a function body.
     let script = "function f(n) {\n  let t = 0\n  for (let i = 0; i < n; i++) {\n    t += i\n  }\n  return t\n}\npure(f(4))";
+    assert_eq!(js_value(script), Value::Int(6));
+    // `reduce` with a seed after a block body.
     assert_eq!(
-        values(&eval(script).expect("eval"), 0, 1),
-        vec![Value::Int(6)]
+        js_value("pure([1, 2, 3].reduce((a, x) => { a.push(x); return a }, []).length)"),
+        Value::Int(3)
+    );
+    // Names that were keywords in the old scripting language are ordinary ones.
+    assert_eq!(
+        js_value("const as = 1, loop = 2, match = 3\npure(as + loop + match)"),
+        Value::Int(6)
     );
 }
 
 #[test]
-fn appending_a_string_with_plus_equals_becomes_an_assignment() {
-    // Koto has no `+=` for strings at all.
-    assert_eq!(
-        preprocess_strudel("melo += ' x'"),
-        "melo = rudel_concat(melo, ' x')"
-    );
-    // Numbers keep their arithmetic: no literal, no concatenation.
-    assert_eq!(preprocess_strudel("total += n"), "total += n");
-    // A statement that reads the name it assigns is an update, so the
-    // declaration sort must not lift it above the line that first bound it.
-    assert_eq!(
-        preprocess_strudel("let s = 'a'\ns += 'b'\npure(s)"),
-        "s = 'a'\ns = rudel_concat(s, 'b')\npure(s)"
-    );
+fn a_statement_split_across_lines_is_one_statement() {
+    // A value on the line after `=`, a chain continued by a leading dot, and a
+    // call broken across lines are all one expression to JavaScript.
+    assert_eq!(js_value("const x =\n  [1, 2]\npure(x[1])"), Value::Int(2));
+    let pat =
+        eval("s(\"bd sd\")\n  .fast(2)\n\n  // a comment in the chain\n  .gain(.5)").expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
+    let pat = eval("stack(s(\"a\"),\n  s(\"b\")\n)").expect("eval");
+    assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
 }
 
 #[test]
-fn a_bare_silence_statement_is_called() {
-    // Upstream's `silence` is the pattern, not a factory, and a scratch pad ends
-    // with the bare word to go quiet.
-    assert_eq!(
-        preprocess_strudel("s(\"bd\")\nsilence"),
-        "s(m(\"bd\", 3))\nsilence()"
-    );
+fn a_bare_silence_statement_is_silence() {
+    // Upstream's `silence` is the pattern, not a factory, and a scratch pad
+    // ends with the bare word to go quiet.
     let pat = eval("s(\"bd\")\nsilence").expect("eval");
     assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
-    // Only when it is the whole statement, and only when it is code.
-    assert_eq!(preprocess_strudel("silence.fast(2)"), "silence.fast(2)");
+    assert!(eval("silence.fast(2)").is_ok());
+    // In a string it is a sample name.
     assert!(preprocess_strudel(r#"s("silence")"#).contains(r#"m("silence""#));
 }

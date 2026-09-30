@@ -22,8 +22,8 @@ fn d_slot_registers_and_tags_a_single_pattern() {
 
 #[test]
 fn multiple_slots_stack() {
-    // Two slots across two statements stack into one pattern, even though Koto
-    // only returns the last expression.
+    // Two slots across two statements stack into one pattern, even though a
+    // script's value is only its last expression.
     let pat = eval("note(\"c\").d1()\nnote(\"e\").d2()").expect("eval");
     let vals = values(&pat, 0, 1);
     assert_eq!(vals.len(), 2);
@@ -43,7 +43,7 @@ fn p_and_p_slot_use_the_given_id() {
 #[test]
 fn a_numeric_slot_id_renders_without_a_decimal_point() {
     // The id becomes a control value and a registry key, so `p(1)` has to read
-    // as "1" rather than "1.0" — Koto hands numbers over as floats.
+    // as "1" rather than "1.0", whatever number type it arrives as.
     let id = |script: &str| id_of(&values(&eval(script).expect("eval"), 0, 1)[0]).expect("an id");
     assert_eq!(id(r#"note("c").p(1)"#), "1");
     assert_eq!(id(r#"note("c").p(12)"#), "12");
@@ -101,7 +101,7 @@ fn slots_do_not_leak_between_evaluations() {
 fn all_transforms_the_stacked_patterns() {
     // `all(f)` applies `f` to the whole stack: two one-event slots stacked and
     // fast(2)'d yield four events per cycle.
-    let src = "note(\"c\").d1()\nnote(\"e\").d2()\nall(|x| x.fast(2))";
+    let src = "note(\"c\").d1()\nnote(\"e\").d2()\nall(x => x.fast(2))";
     let pat = eval(src).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 4);
 }
@@ -109,7 +109,7 @@ fn all_transforms_the_stacked_patterns() {
 #[test]
 fn all_on_labels_transforms_the_stack() {
     // `$:` labels are picked up by `all`, just like slots.
-    let src = "$: note(\"c\")\n$: note(\"e\")\nall(|x| x.fast(2))";
+    let src = "$: note(\"c\")\n$: note(\"e\")\nall(x => x.fast(2))";
     let pat = eval(src).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 4);
 }
@@ -118,7 +118,7 @@ fn all_on_labels_transforms_the_stack() {
 fn each_transforms_every_pattern_separately() {
     // `each(f)` applies `f` to each registered pattern before stacking: two
     // slots, each fast(2)'d, give four events.
-    let src = "note(\"c\").d1()\nnote(\"e\").d2()\neach(|x| x.fast(2))";
+    let src = "note(\"c\").d1()\nnote(\"e\").d2()\neach(x => x.fast(2))";
     let pat = eval(src).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 4);
 }
@@ -126,7 +126,7 @@ fn each_transforms_every_pattern_separately() {
 #[test]
 fn each_without_slots_transforms_the_script_pattern() {
     // With no registered slots, `each` applies to the script's own pattern.
-    let src = "each(|x| x.fast(2))\nnote(\"c\")";
+    let src = "each(x => x.fast(2))\nnote(\"c\")";
     let pat = eval(src).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 2);
 }
@@ -158,7 +158,7 @@ fn solo_keeps_all_soloed_patterns() {
 #[test]
 fn combiners_do_not_leak_between_evaluations() {
     // An `all` transform set in one eval must not affect the next.
-    let _ = eval("note(\"c\").d1()\nall(|x| x.fast(4))").expect("eval");
+    let _ = eval("note(\"c\").d1()\nall(x => x.fast(4))").expect("eval");
     let pat = eval(r#"note("e")"#).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 1, "all() must not carry over");
 }

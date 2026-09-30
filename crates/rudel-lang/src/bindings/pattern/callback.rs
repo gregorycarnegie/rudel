@@ -1,19 +1,15 @@
 use super::{
-    KPattern,
-    args::method_arg,
-    convert::{arg_to_f64, arg_to_pattern, arg_to_value, koto_to_value, value_to_koto},
+    args::arg,
+    convert::{arg_to_f64, arg_to_pattern, to_value, value_to_arg},
     methods::value_sig,
 };
-use koto::{
-    prelude::*,
-    runtime::{Error as KotoError, Result as KotoResult},
-};
+use crate::js::{self, Arg, NULL, Res, Scope};
 use rudel_core::{Frac, Pattern, Value};
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 /// Patternify a callback combinator's leading argument when it is a pattern
-/// rather than a scalar (`chunk("<2 4>", f)`, `inside("<2 3>", f)`). The Koto
-/// VM can't run in the query path, so the combinator result is built eagerly
+/// rather than a scalar (`chunk("<2 4>", f)`, `inside("<2 3>", f)`). The script
+/// is not run on the query path, so the combinator result is built eagerly
 /// for each distinct argument value seen over a probe window, then selected per
 /// cycle with `innerJoin` — matching Strudel's `register` patternification
 /// (`arg.fmap(v => combinator(v, f, pat)).innerJoin()`). Values first appearing
@@ -42,219 +38,139 @@ where
     .inner_join()
 }
 
-/// Method-side helper for `pat.combinator(n, f)` where the leading numeric arg
-/// may be a scalar (fast path) or a pattern (probed). `conv` maps a value to the
-/// scalar type the core combinator expects; `build` applies the combinator.
-fn with_cb_scalar<T, C, F>(ctx: &MethodContext<KPattern>, conv: C, build: F) -> KotoResult<KValue>
+/// `combinator(n, f)` where the leading numeric `n` may be a scalar (fast path)
+/// or a pattern (probed). `conv` maps a value to the scalar type the core
+/// combinator expects; `build` applies the combinator.
+fn with_cb_scalar<T, C, F>(pat: &Pattern, n: &Arg, func: &Arg, conv: C, build: F) -> Res
 where
     C: Fn(&Value) -> T,
     F: Fn(&Pattern, T, &Callback) -> Pattern,
 {
-    let pat = ctx.instance()?.0.clone();
-    let cb = Callback::new(ctx, method_arg(ctx, 1));
-    let arg = method_arg(ctx, 0);
-    let result = if let KValue::Number(_) = &arg {
-        build(&pat, conv(&arg_to_value(&arg)), &cb)
+    let cb = Callback::new(func.clone());
+    let result = if let Arg::Num(_) = n {
+        build(pat, conv(&to_value(n)), &cb)
     } else {
-        probe_patternify(arg_to_pattern(&arg), |v| build(&pat, conv(v), &cb))
+        probe_patternify(arg_to_pattern(n), |v| build(pat, conv(v), &cb))
     };
     cb.finish()?;
-    Ok(KPattern::wrap(result))
+    Ok(result.into())
 }
 
-pub(super) fn with_cb_i64<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+pub(super) fn with_cb_i64<F>(pat: &Pattern, n: &Arg, func: &Arg, build: F) -> Res
 where
     F: Fn(&Pattern, i64, &Callback) -> Pattern,
 {
-    with_cb_scalar(ctx, |v| v.as_f64().unwrap_or(0.0) as i64, build)
+    with_cb_scalar(pat, n, func, |v| v.as_f64().unwrap_or(0.0) as i64, build)
 }
 
-pub(super) fn with_cb_frac<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+pub(super) fn with_cb_frac<F>(pat: &Pattern, n: &Arg, func: &Arg, build: F) -> Res
 where
     F: Fn(&Pattern, Frac, &Callback) -> Pattern,
 {
-    with_cb_scalar(ctx, |v| v.to_frac(), build)
+    with_cb_scalar(pat, n, func, |v| v.to_frac(), build)
 }
 
-pub(super) fn with_cb_f64<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+pub(super) fn with_cb_f64<F>(pat: &Pattern, n: &Arg, func: &Arg, build: F) -> Res
 where
     F: Fn(&Pattern, f64, &Callback) -> Pattern,
 {
-    with_cb_scalar(ctx, |v| v.as_f64().unwrap_or(0.0), build)
+    with_cb_scalar(pat, n, func, |v| v.as_f64().unwrap_or(0.0), build)
 }
 
 /// Like [`with_cb_scalar`] but for the two-bound `within(a, b, f)`. When either
 /// bound is a pattern, `a` provides the structure and `b` is `appLeft`-sampled
 /// (Strudel's order), and the windowed result is probed per distinct `(a, b)`.
-pub(super) fn with_cb_frac2<F>(ctx: &MethodContext<KPattern>, build: F) -> KotoResult<KValue>
+pub(super) fn with_cb_frac2<F>(pat: &Pattern, a: &Arg, b: &Arg, func: &Arg, build: F) -> Res
 where
     F: Fn(&Pattern, Frac, Frac, &Callback) -> Pattern,
 {
-    let pat = ctx.instance()?.0.clone();
-    let cb = Callback::new(ctx, method_arg(ctx, 2));
-    let a = method_arg(ctx, 0);
-    let b = method_arg(ctx, 1);
-    let result = if matches!(&a, KValue::Number(_)) && matches!(&b, KValue::Number(_)) {
-        build(
-            &pat,
-            arg_to_value(&a).to_frac(),
-            arg_to_value(&b).to_frac(),
-            &cb,
-        )
+    let cb = Callback::new(func.clone());
+    let result = if matches!(a, Arg::Num(_)) && matches!(b, Arg::Num(_)) {
+        build(pat, to_value(a).to_frac(), to_value(b).to_frac(), &cb)
     } else {
-        let paired = arg_to_pattern(&a)
+        let paired = arg_to_pattern(a)
             .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
-            .app_left(&arg_to_pattern(&b));
+            .app_left(&arg_to_pattern(b));
         probe_patternify(paired, |pair| match pair {
-            Value::List(xy) if xy.len() == 2 => build(&pat, xy[0].to_frac(), xy[1].to_frac(), &cb),
+            Value::List(xy) if xy.len() == 2 => build(pat, xy[0].to_frac(), xy[1].to_frac(), &cb),
             _ => pat.clone(),
         })
     };
     cb.finish()?;
-    Ok(KPattern::wrap(result))
-}
-
-/// Like the prelude's `add_curried_fn`, but the handler also receives the
-/// `CallContext` (needed to spawn a VM for the [`Callback`]): calls with fewer
-/// than `arity` args return a partial application awaiting the rest, so
-/// `every(4, rev)` and `sometimes(fast(2))` are function values, matching
-/// Strudel's curried `register`.
-fn add_curried_cb_fn(
-    prelude: &KMap,
-    name: &str,
-    arity: usize,
-    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + Send + Sync + 'static,
-) {
-    prelude.add_fn(name, move |ctx| {
-        let args = ctx.args().to_vec();
-        if args.len() < arity {
-            return Ok(cb_curried(args, arity, f.clone()));
-        }
-        f(ctx, &args)
-    });
-}
-
-/// The [`Callback`]-flavoured twin of the prelude's `curried`: a partial
-/// application that appends each call's args and re-curries until `arity` is
-/// reached, so chained partial calls (`every(4)(rev)(pat)`) work.
-fn cb_curried(
-    held: Vec<KValue>,
-    arity: usize,
-    f: impl Fn(&mut CallContext, &[KValue]) -> KotoResult<KValue> + Clone + Send + Sync + 'static,
-) -> KValue {
-    KValue::NativeFunction(KNativeFunction::new(move |ctx| {
-        let mut all = held.clone();
-        all.extend_from_slice(ctx.args());
-        if all.len() < arity {
-            return Ok(cb_curried(all, arity, f.clone()));
-        }
-        f(ctx, &all)
-    }))
+    Ok(result.into())
 }
 
 /// Register the standalone (curried-style) forms of the higher-order callback
 /// combinators, taking the pattern last (`jux(rev, pat)`, `every(4, f, pat)`).
-/// The transform argument must be a function value: `rev`, `|x| x.fast(2)`, or
-/// a partially applied standalone transform (`fast(2)`, `ply("0")`) — the
-/// prelude's `add_curried_fn` turns those into functions, Strudel-style. The
+/// The transform argument must be a function value: `rev`, `x => x.fast(2)`, or
+/// a partially applied standalone transform (`fast(2)`, `ply("0")`). The
 /// combinators curry too: called without the trailing pattern they return a
-/// partial application (`every(4, rev)`), via [`add_curried_cb_fn`].
-pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
+/// partial application (`every(4, rev)`).
+pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
     // The pattern is the last arg and the transform function the one before it;
     // any leading args (count `n`, time `t`, bounds `a`/`b`) come first.
-    fn func_and_pat(a: &[KValue]) -> (KValue, Pattern) {
+    fn func_and_pat(a: &[Arg]) -> (&Arg, Pattern) {
         let func = a
             .len()
             .checked_sub(2)
             .and_then(|i| a.get(i))
-            .cloned()
-            .unwrap_or(KValue::Null);
-        (func, arg_to_pattern(a.last().unwrap_or(&KValue::Null)))
+            .unwrap_or(NULL);
+        (func, arg_to_pattern(a.last().unwrap_or(NULL)))
     }
-    // Leading arg `i` (before the function and pattern), or Null if absent.
-    fn lead(a: &[KValue], i: usize) -> &KValue {
+    // Leading arg `i` (before the function and pattern), or null if absent.
+    fn lead(a: &[Arg], i: usize) -> &Arg {
         let present = a.len().checked_sub(2).is_some_and(|leading| i < leading);
-        a.get(i).filter(|_| present).unwrap_or(&KValue::Null)
+        a.get(i).filter(|_| present).unwrap_or(NULL)
     }
 
     // Each macro registers a callback combinator group; `$name` is the
     // Strudel-facing name (snake or camelCase) and `$m` the core method.
     macro_rules! cb_only {
         ($($name:literal => $m:ident),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 2, |ctx, a| {
+            prelude.curried($name, 2, |a| {
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::from_call_ctx(ctx, func);
+                let cb = Callback::new(func.clone());
                 let out = pat.$m(|p| cb.apply(p));
                 cb.finish()?;
-                Ok(KPattern(out).into())
+                Ok(out.into())
             });
         )*};
     }
     // Standalone leading numeric arg: scalar fast path, else probe-patternify
-    // (`chunk("<2 4>", f, pat)`), mirroring the method-side `with_cb_*`.
+    // (`chunk("<2 4>", f, pat)`), the same helpers the methods use.
     macro_rules! cb_i64 {
         ($($name:literal => $m:ident),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 3, |ctx, a| {
-                let arg = lead(a, 0).clone();
+            prelude.curried($name, 3, |a| {
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::from_call_ctx(ctx, func);
-                let out = if let KValue::Number(_) = &arg {
-                    pat.$m(arg_to_f64(&arg) as i64, |p| cb.apply(p))
-                } else {
-                    probe_patternify(arg_to_pattern(&arg), |v| {
-                        pat.$m(v.as_f64().unwrap_or(0.0) as i64, |p| cb.apply(p))
-                    })
-                };
-                cb.finish()?;
-                Ok(KPattern(out).into())
+                with_cb_i64(&pat, lead(a, 0), func, |p, n, cb| p.$m(n, |p| cb.apply(p)))
             });
         )*};
     }
     macro_rules! cb_f64 {
         ($($name:literal => $m:ident),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 3, |ctx, a| {
-                let arg = lead(a, 0).clone();
+            prelude.curried($name, 3, |a| {
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::from_call_ctx(ctx, func);
-                let out = if let KValue::Number(_) = &arg {
-                    pat.$m(arg_to_f64(&arg), |p| cb.apply(p))
-                } else {
-                    probe_patternify(arg_to_pattern(&arg), |v| {
-                        pat.$m(v.as_f64().unwrap_or(0.0), |p| cb.apply(p))
-                    })
-                };
-                cb.finish()?;
-                Ok(KPattern(out).into())
+                with_cb_f64(&pat, lead(a, 0), func, |p, n, cb| p.$m(n, |p| cb.apply(p)))
             });
         )*};
     }
     macro_rules! cb_frac {
         ($($name:literal => $m:ident),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 3, |ctx, a| {
-                let arg = lead(a, 0).clone();
+            prelude.curried($name, 3, |a| {
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::from_call_ctx(ctx, func);
-                let out = if let KValue::Number(_) = &arg {
-                    pat.$m(Frac::from_f64(arg_to_f64(&arg)), |p| cb.apply(p))
-                } else {
-                    probe_patternify(arg_to_pattern(&arg), |v| {
-                        pat.$m(v.to_frac(), |p| cb.apply(p))
-                    })
-                };
-                cb.finish()?;
-                Ok(KPattern(out).into())
+                with_cb_frac(&pat, lead(a, 0), func, |p, n, cb| p.$m(n, |p| cb.apply(p)))
             });
         )*};
     }
     macro_rules! cb_pat {
         ($($name:literal => $m:ident),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 3, |ctx, a| {
+            prelude.curried($name, 3, |a| {
                 let x = arg_to_pattern(lead(a, 0));
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::from_call_ctx(ctx, func);
+                let cb = Callback::new(func.clone());
                 let out = pat.$m(x, |p| cb.apply(p));
                 cb.finish()?;
-                Ok(KPattern(out).into())
+                Ok(out.into())
             });
         )*};
     }
@@ -262,42 +178,13 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     // applied eagerly to the whole pattern, then placed by a patterned count).
     macro_rules! cb_cycles {
         ($($name:literal => $last:expr),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 3, |ctx, a| {
+            prelude.curried($name, 3, |a| {
                 let n = arg_to_pattern(lead(a, 0));
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::from_call_ctx(ctx, func);
+                let cb = Callback::new(func.clone());
                 let transformed = cb.apply(&pat);
                 cb.finish()?;
-                Ok(KPattern(pat.every_pat(n, transformed, $last)).into())
-            });
-        )*};
-    }
-    macro_rules! cb_frac2 {
-        ($($name:literal => $m:ident),* $(,)?) => {$(
-            add_curried_cb_fn(prelude, $name, 4, |ctx, args| {
-                let a = lead(args, 0).clone();
-                let b = lead(args, 1).clone();
-                let (func, pat) = func_and_pat(args);
-                let cb = Callback::from_call_ctx(ctx, func);
-                let out = if matches!(&a, KValue::Number(_)) && matches!(&b, KValue::Number(_)) {
-                    pat.$m(
-                        Frac::from_f64(arg_to_f64(&a)),
-                        Frac::from_f64(arg_to_f64(&b)),
-                        |p| cb.apply(p),
-                    )
-                } else {
-                    let paired = arg_to_pattern(&a)
-                        .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
-                        .app_left(&arg_to_pattern(&b));
-                    probe_patternify(paired, |pair| match pair {
-                        Value::List(xy) if xy.len() == 2 => {
-                            pat.$m(xy[0].to_frac(), xy[1].to_frac(), |p| cb.apply(p))
-                        }
-                        _ => pat.clone(),
-                    })
-                };
-                cb.finish()?;
-                Ok(KPattern(out).into())
+                Ok(pat.every_pat(n, transformed, $last).into())
             });
         )*};
     }
@@ -333,247 +220,216 @@ pub(crate) fn register_standalone_callbacks(prelude: &KMap) {
     // whenKey(names, f, pat): `pat.when(keyDown(names), f)`. Unlike `when`'s
     // plain boolean pattern, the condition reads the live keyboard at query
     // time, so holding a key changes what plays without re-evaluating.
-    add_curried_cb_fn(prelude, "whenKey", 3, |ctx, a| {
+    prelude.curried("whenKey", 3, |a| {
         let keys = super::super::prelude::key_down_pattern(lead(a, 0));
         let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
+        let cb = Callback::new(func.clone());
         let out = pat.when(keys, |p| cb.apply(p));
         cb.finish()?;
-        Ok(KPattern(out).into())
+        Ok(out.into())
     });
-    cb_frac2! { "within" => within }
+    prelude.curried("within", 4, |a| {
+        let (func, pat) = func_and_pat(a);
+        with_cb_frac2(&pat, lead(a, 0), lead(a, 1), func, |p, x, y, cb| {
+            p.within(x, y, |p| cb.apply(p))
+        })
+    });
 
     // applyN(n, f, pat): apply the callback `n` times.
-    add_curried_cb_fn(prelude, "applyN", 3, |ctx, a| {
+    prelude.curried("applyN", 3, |a| {
         let n = arg_to_f64(lead(a, 0)) as i64;
         let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
+        let cb = Callback::new(func.clone());
         let mut result = pat;
         for _ in 0..n.max(0) {
             result = cb.apply(&result);
         }
         cb.finish()?;
-        Ok(KPattern(result).into())
+        Ok(result.into())
     });
 
     // echoWith/stutWith(times, time, func, pat): indexed delayed copies.
-    let echo_with_fn = |ctx: &mut CallContext, a: &[KValue]| {
-        let times = arg_to_f64(lead(a, 0)) as i64;
-        let time = Frac::from_f64(arg_to_f64(lead(a, 1)));
-        let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = pat.echo_with(times, time, |p, i| cb.apply2(p, i));
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    };
     for name in ["echoWith", "echowith", "stutWith", "stutwith"] {
-        add_curried_cb_fn(prelude, name, 4, echo_with_fn);
+        prelude.curried(name, 4, |a| {
+            let times = arg_to_f64(lead(a, 0)) as i64;
+            let time = Frac::from_f64(arg_to_f64(lead(a, 1)));
+            let (func, pat) = func_and_pat(a);
+            let cb = Callback::new(func.clone());
+            let out = pat.echo_with(times, time, |p, i| cb.apply2(p, i));
+            cb.finish()?;
+            Ok(out.into())
+        });
     }
 
     // plyWith/plyForEach(factor, func, pat): repeat each event `factor` times,
     // transforming the copies (probed and baked, like `arp_with`).
     use super::methods::{ply_build, ply_for_each_parts, ply_with_parts};
-    let ply_with_fn = |ctx: &mut CallContext, a: &[KValue]| {
-        let factor = arg_to_f64(lead(a, 0)) as i64;
-        let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = ply_build(&pat, factor, &cb, ply_with_parts);
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    };
-    add_curried_cb_fn(prelude, "plyWith", 3, ply_with_fn);
-    add_curried_cb_fn(prelude, "plywith", 3, ply_with_fn);
-    let ply_for_each_fn = |ctx: &mut CallContext, a: &[KValue]| {
-        let factor = arg_to_f64(lead(a, 0)) as i64;
-        let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = ply_build(&pat, factor, &cb, ply_for_each_parts);
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    };
-    add_curried_cb_fn(prelude, "plyForEach", 3, ply_for_each_fn);
-    add_curried_cb_fn(prelude, "plyforeach", 3, ply_for_each_fn);
+    type Parts = fn(&Value, &Callback, i64) -> Vec<Pattern>;
+    for (names, parts) in [
+        (["plyWith", "plywith"], ply_with_parts as Parts),
+        (["plyForEach", "plyforeach"], ply_for_each_parts as Parts),
+    ] {
+        for name in names {
+            prelude.curried(name, 3, move |a| {
+                let factor = arg_to_f64(lead(a, 0)) as i64;
+                let (func, pat) = func_and_pat(a);
+                let cb = Callback::new(func.clone());
+                let out = ply_build(&pat, factor, &cb, parts);
+                cb.finish()?;
+                Ok(out.into())
+            });
+        }
+    }
 
     // into(pieces, func, pat) and chunkInto/chunkBackInto(n, func, pat).
     use super::methods::{chunk_pieces, into_build};
-    add_curried_cb_fn(prelude, "into", 3, |ctx, a| {
+    prelude.curried("into", 3, |a| {
         let pieces = arg_to_pattern(lead(a, 0));
         let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
+        let cb = Callback::new(func.clone());
         let out = into_build(&pat, pieces, &cb);
         cb.finish()?;
-        Ok(KPattern(out).into())
+        Ok(out.into())
     });
-    let chunk_into_fn = |ctx: &mut CallContext, a: &[KValue]| {
-        let n = arg_to_f64(lead(a, 0)) as i64;
-        let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = into_build(&pat, chunk_pieces(n).iter_back(n), &cb);
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    };
-    add_curried_cb_fn(prelude, "chunkInto", 3, chunk_into_fn);
-    add_curried_cb_fn(prelude, "chunkinto", 3, chunk_into_fn);
-    let chunk_back_into_fn = |ctx: &mut CallContext, a: &[KValue]| {
-        let n = arg_to_f64(lead(a, 0)) as i64;
-        let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
-        let out = into_build(&pat, chunk_pieces(n).iter(n)._early(Frac::one()), &cb);
-        cb.finish()?;
-        Ok(KPattern(out).into())
-    };
-    add_curried_cb_fn(prelude, "chunkBackInto", 3, chunk_back_into_fn);
-    add_curried_cb_fn(prelude, "chunkbackinto", 3, chunk_back_into_fn);
+    for (names, back) in [
+        (["chunkInto", "chunkinto"], false),
+        (["chunkBackInto", "chunkbackinto"], true),
+    ] {
+        for name in names {
+            prelude.curried(name, 3, move |a| {
+                let n = arg_to_f64(lead(a, 0)) as i64;
+                let (func, pat) = func_and_pat(a);
+                let cb = Callback::new(func.clone());
+                let pieces = if back {
+                    chunk_pieces(n).iter(n)._early(Frac::one())
+                } else {
+                    chunk_pieces(n).iter_back(n)
+                };
+                let out = into_build(&pat, pieces, &cb);
+                cb.finish()?;
+                Ok(out.into())
+            });
+        }
+    }
 
     // arpWith(func, pat): arpeggiate chords, transforming each chord pattern.
     use super::methods::arp_with_build;
-    add_curried_cb_fn(prelude, "arpWith", 2, |ctx, a| {
+    prelude.curried("arpWith", 2, |a| {
         let (func, pat) = func_and_pat(a);
-        let cb = Callback::from_call_ctx(ctx, func);
+        let cb = Callback::new(func.clone());
         let out = arp_with_build(&pat, &cb);
         cb.finish()?;
-        Ok(KPattern(out).into())
+        Ok(out.into())
     });
 }
 
-/// Marshals a Koto callable into the `Fn(&Pattern) -> Pattern` shape that the
+/// Marshals a script function into the `Fn(&Pattern) -> Pattern` shape that the
 /// engine's higher-order combinators (`every`, `jux`, `sometimes`, ...) expect.
 ///
-/// Those combinators apply their callback *eagerly* at construction time, so we
-/// can drive the callback synchronously on a VM spawned from the method's VM
-/// (the immutable `MethodContext` VM can't call functions itself). The first
-/// error raised by the callback is captured and surfaced once the combinator
-/// returns; on error the input pattern is passed through unchanged.
-pub(super) struct Callback {
-    vm: RefCell<KotoVm>,
-    func: KValue,
-    err: RefCell<Option<KotoError>>,
+/// Those combinators apply their callback *eagerly* at construction time, so
+/// the function is called right here, inside the native call that was handed
+/// it. The first error raised by the callback is captured and surfaced once the
+/// combinator returns; on error the input pattern is passed through unchanged.
+pub(crate) struct Callback {
+    func: Arg,
+    err: RefCell<Option<String>>,
 }
 
 impl Callback {
-    pub(super) fn new(ctx: &MethodContext<KPattern>, func: KValue) -> Self {
+    pub(crate) fn new(func: Arg) -> Self {
         Self {
-            vm: RefCell::new(ctx.vm.spawn_shared_vm()),
             func,
             err: RefCell::new(None),
         }
     }
 
-    /// Like [`Callback::new`] but built from a free-function call context, for
-    /// the standalone (curried-style) forms of the callback combinators.
-    pub(crate) fn from_call_ctx(ctx: &CallContext, func: KValue) -> Self {
-        Self {
-            vm: RefCell::new(ctx.vm.spawn_shared_vm()),
-            func,
-            err: RefCell::new(None),
-        }
-    }
-
-    /// Invoke the Koto function with `p` wrapped as a `KPattern`.
-    pub(super) fn apply(&self, p: &Pattern) -> Pattern {
-        let arg: KValue = KPattern(p.clone()).into();
-        let call = self
-            .vm
-            .borrow_mut()
-            .call_function(self.func.clone(), CallArgs::Single(arg));
-        match call {
-            Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
-                o.cast::<KPattern>().unwrap().0.clone()
-            }
-            Ok(_) => p.clone(),
+    /// Call the function, keeping the first error for [`Callback::finish`].
+    fn call(&self, args: Vec<Arg>) -> Option<Arg> {
+        match js::call(&self.func, args) {
+            Ok(value) => Some(value),
             Err(e) => {
-                if self.err.borrow().is_none() {
-                    *self.err.borrow_mut() = Some(e);
-                }
-                p.clone()
+                self.err.borrow_mut().get_or_insert(e);
+                None
             }
         }
     }
 
-    /// Invoke the Koto function with `(p, i)` for the indexed combinators
-    /// (`echoWith`/`stutWith`/`plyForEach`). Koto is strict about arity, so a
-    /// one-parameter callback (which ignores the index) is retried with a single
-    /// argument rather than erroring.
+    /// Invoke the function with `p`. Anything but a pattern coming back leaves
+    /// `p` as it was.
+    ///
+    /// The "function" may be a *pattern* of functions —
+    /// `sometimesBy(.2, choose(x => …, x => …))`, `apply(pick({…}))` — which
+    /// upstream's `register` samples per cycle like any other patterned
+    /// argument. Which function applies is then only known at query time, so
+    /// it is called from the query (see `convert::fn_to_value`). A value that
+    /// is not a function leaves the pattern as it was.
+    pub(crate) fn apply(&self, p: &Pattern) -> Pattern {
+        if let Arg::Pat(functions) = &self.func {
+            let p = p.clone();
+            return functions
+                .fmap(move |f| match f {
+                    Value::Func(_) => f.apply(Value::Pat(Box::new(p.clone()))),
+                    _ => Value::Pat(Box::new(p.clone())),
+                })
+                .inner_join();
+        }
+        match self.call(vec![Arg::Pat(p.clone())]) {
+            Some(Arg::Pat(out)) => out,
+            _ => p.clone(),
+        }
+    }
+
+    /// Invoke the function with `(p, i)` for the indexed combinators
+    /// (`echoWith`/`stutWith`/`plyForEach`).
     pub(super) fn apply2(&self, p: &Pattern, i: i64) -> Pattern {
-        let args = [KPattern(p.clone()).into(), KValue::Number(KNumber::from(i))];
-        let call = self
-            .vm
-            .borrow_mut()
-            .call_function(self.func.clone(), CallArgs::Separate(&args));
-        match call {
-            Ok(KValue::Object(o)) if o.is_a::<KPattern>() => {
-                o.cast::<KPattern>().unwrap().0.clone()
-            }
-            Ok(_) => p.clone(),
-            // The callback may take only the pattern; retry without the index.
-            Err(_) => self.apply(p),
+        match self.call(vec![Arg::Pat(p.clone()), Arg::Num(i as f64)]) {
+            Some(Arg::Pat(out)) => out,
+            _ => p.clone(),
         }
     }
 
-    /// Invoke the Koto function with a single Rudel value and convert the
-    /// result back into a Rudel value.
+    /// Invoke the function with a single rudel value and convert the result
+    /// back into one.
     pub(super) fn apply_value(&self, value: Value) -> Value {
-        let fallback = value.clone();
-        let call = self
-            .vm
-            .borrow_mut()
-            .call_function(self.func.clone(), CallArgs::Single(value_to_koto(value)));
-        match call {
-            Ok(value) => koto_to_value(&value),
-            Err(e) => {
-                if self.err.borrow().is_none() {
-                    *self.err.borrow_mut() = Some(e);
-                }
-                fallback
-            }
+        match self.call(vec![value_to_arg(value.clone())]) {
+            Some(out) => to_value(&out),
+            None => value,
         }
     }
 
-    /// Invoke the Koto function with an already-built argument and convert the
-    /// result back into a Rudel value. Used by `log`, whose callback is handed
-    /// the whole hap (as a map) and returns the message to write.
-    pub(super) fn apply_koto(&self, arg: KValue) -> Value {
-        let call = self
-            .vm
-            .borrow_mut()
-            .call_function(self.func.clone(), CallArgs::Single(arg));
-        match call {
-            Ok(value) => koto_to_value(&value),
-            Err(e) => {
-                if self.err.borrow().is_none() {
-                    *self.err.borrow_mut() = Some(e);
-                }
-                Value::Null
-            }
-        }
+    /// Invoke the function with an already-built argument and convert the
+    /// result back into a rudel value. Used by `log`, whose callback is handed
+    /// the whole hap and returns the message to write.
+    pub(super) fn apply_arg(&self, arg: Arg) -> Value {
+        self.call(vec![arg])
+            .map_or(Value::Null, |out| to_value(&out))
     }
 
-    /// Invoke the Koto function with an already-built argument and read the
-    /// result as a truth value. Used by the predicate combinators (`filter`,
+    /// Invoke the function with an already-built argument and read the result
+    /// as a truth value. Used by the predicate combinators (`filter`,
     /// `filterWhen`), which keep a hap when the callback says so; a callback
     /// that errors keeps the hap, so a broken predicate drops nothing.
-    pub(super) fn apply_predicate(&self, arg: KValue) -> bool {
-        let call = self
-            .vm
-            .borrow_mut()
-            .call_function(self.func.clone(), CallArgs::Single(arg));
-        match call {
-            Ok(value) => koto_to_value(&value).truthy(),
-            Err(e) => {
-                if self.err.borrow().is_none() {
-                    *self.err.borrow_mut() = Some(e);
-                }
-                true
-            }
-        }
+    pub(super) fn apply_predicate(&self, arg: Arg) -> bool {
+        self.call(vec![arg]).is_none_or(|out| truthy(&out))
     }
 
     /// Surface the first callback error (if any) after the combinator has run.
-    pub(super) fn finish(self) -> KotoResult<()> {
+    pub(crate) fn finish(self) -> Result<(), String> {
         match self.err.into_inner() {
             Some(e) => Err(e),
             None => Ok(()),
         }
+    }
+}
+
+/// JavaScript's truthiness, for what a predicate returns.
+fn truthy(value: &Arg) -> bool {
+    match value {
+        Arg::Null => false,
+        Arg::Bool(b) => *b,
+        Arg::Num(n) => *n != 0.0 && !n.is_nan(),
+        Arg::Str(s) => !s.is_empty(),
+        _ => true,
     }
 }
 
@@ -602,14 +458,16 @@ pub(super) fn static_period_pattern(
     .set_steps(steps)
 }
 
+/// `pat.method(..., f)`: run `body` with a [`Callback`] over argument
+/// `callback_arg`, then surface whatever the callback raised.
 pub(super) fn with_callback(
-    ctx: &MethodContext<KPattern>,
+    pat: &Pattern,
+    args: &[Arg],
     callback_arg: usize,
-    f: impl FnOnce(Pattern, &Callback) -> Pattern,
-) -> KotoResult<KValue> {
-    let pat = ctx.instance()?.0.clone();
-    let cb = Callback::new(ctx, method_arg(ctx, callback_arg));
-    let result = f(pat, &cb);
+    body: impl FnOnce(&Pattern, &Callback) -> Pattern,
+) -> Res {
+    let cb = Callback::new(arg(args, callback_arg).clone());
+    let result = body(pat, &cb);
     cb.finish()?;
-    Ok(KPattern::wrap(result))
+    Ok(result.into())
 }

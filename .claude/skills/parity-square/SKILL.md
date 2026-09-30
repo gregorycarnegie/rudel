@@ -87,13 +87,15 @@ this stays fast and the output stays readable.
 
 What the buckets look like, and what to do with them:
 
-- **The same Koto message on many sources** is nearly always *one*
-  preprocessor shape, not many. The message names where the parser gave up,
-  which is rarely where the problem is — `expected end of arguments ')'` was a
-  blank line eight lines earlier. Read the caret line, then go back to the
-  original `.js` and look at the *layout*, not the identifiers.
-- **`'name' not found`** is a missing binding: cheap, and usually real Strudel
-  API worth adding.
+- **The same `SyntaxError` on many sources** is nearly always *one*
+  preprocessor shape, not many: the engine reads JavaScript itself, so a
+  syntax error in a script Strudel runs means one of the Strudel passes (labels,
+  mini-notation, widgets, `await`) rewrote it into something else. Run the
+  preprocessor over the original `.js` and read the output at the reported
+  line and column.
+- **`ReferenceError: name is not defined`** is a missing binding: cheap, and
+  usually real Strudel API worth adding. `not a callable function` is the same
+  for a missing method, though the engine does not say which one.
 - **A message naming a browser global** (`document`, `window`) or a
   browser-only engine is not a gap. Leave it and say so.
 - Fixing one bucket routinely moves patterns *into* another, so the totals move

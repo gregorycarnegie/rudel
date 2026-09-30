@@ -1,16 +1,16 @@
 use super::common::*;
 
-/// Every mondo spelling must produce the same haps as the Koto/mini spelling it
+/// Every mondo spelling must produce the same haps as the JavaScript spelling it
 /// stands for — the two front-ends share one pattern engine, so any difference
 /// is a compiler bug rather than a dialect.
-fn same(mondo: &str, koto: &str) {
+fn same(mondo: &str, js: &str) {
     let a = eval(&format!("mondo`{mondo}`")).unwrap_or_else(|e| panic!("mondo `{mondo}`: {e}"));
-    let b = eval(koto).unwrap_or_else(|e| panic!("koto `{koto}`: {e}"));
-    assert_eq!(shape(&a, 2), shape(&b, 2), "`{mondo}` vs `{koto}`");
+    let b = eval(js).unwrap_or_else(|e| panic!("js `{js}`: {e}"));
+    assert_eq!(shape(&a, 2), shape(&b, 2), "`{mondo}` vs `{js}`");
 }
 
 #[test]
-fn calls_and_chains_match_their_koto_spelling() {
+fn calls_and_chains_match_their_javascript_spelling() {
     same("s hh*8", r#"s("hh*8")"#);
     same("s jazz # fast 2", r#"s("jazz").fast(2)"#);
     same(
@@ -43,7 +43,7 @@ fn brackets_match_mini_notation() {
 }
 
 #[test]
-fn stacks_and_defs_match_their_koto_spelling() {
+fn stacks_and_defs_match_their_javascript_spelling() {
     same(
         "$ s [bd rim] $ n 0 # s sawtooth",
         r#"stack(s("bd rim"), n("0").s("sawtooth"))"#,
@@ -125,14 +125,14 @@ fn a_marked_script_is_read_as_mondo() {
 
 #[test]
 fn an_unmarked_mondo_script_is_told_what_it_needs() {
-    // Koto's `unexpected token` at the first `$` says nothing about why, and
+    // A syntax error at the first `$` says nothing about why, and
     // pasting the notation bare is the obvious first thing to try.
     let Err(err) = eval(DOC_EXAMPLE) else {
-        panic!("mondo is not valid Koto");
+        panic!("mondo is not valid JavaScript");
     };
     assert!(err.contains("Mondo Notation"), "{err}");
     assert!(err.contains("// mondo"), "{err}");
-    // A Koto script with an ordinary mistake keeps its own error.
+    // A script with an ordinary mistake keeps its own error.
     let Err(err) = eval(r#"s("bd sd".fast(2)"#) else {
         panic!("unbalanced parens");
     };
@@ -147,16 +147,16 @@ fn an_unmarked_mondo_script_is_told_what_it_needs() {
 /// The two spellings the README puts side by side, so the claim that they are
 /// the same pattern stays true.
 #[test]
-fn the_readme_example_matches_its_koto_spelling() {
+fn the_readme_example_matches_its_javascript_spelling() {
     let mondo = "// mondo
 $ s [bd rim [~ bd] rim] # bank tr707
 $ n <0 2 4 [3 1] -1>*4 # scale C4:minor # jux rev # dec .2 # delay .5
 ";
-    let koto = r#"stack(
+    let js = r#"stack(
   s("bd rim [~ bd] rim").bank("tr707"),
   n("<0 2 4 [3 1] -1>*4").scale("C4:minor").jux(rev).dec(0.2).delay(0.5)
 )"#;
     let a = eval(mondo).unwrap_or_else(|e| panic!("mondo: {e}"));
-    let b = eval(koto).unwrap_or_else(|e| panic!("koto: {e}"));
+    let b = eval(js).unwrap_or_else(|e| panic!("js: {e}"));
     assert_eq!(shape(&a, 2), shape(&b, 2));
 }
