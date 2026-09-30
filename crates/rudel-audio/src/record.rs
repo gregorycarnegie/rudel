@@ -199,12 +199,6 @@ mod tests {
     use super::*;
     use encode::{to_i16, wav_header};
 
-    fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("rudel-rec-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
     /// A second of a 440 Hz tone, interleaved stereo, as the mixer would hand
     /// it over: real signal, so an encoder that drops it is visible in the
     /// output size.
@@ -222,7 +216,8 @@ mod tests {
 
     /// Record `tone` to `name` and return the bytes written.
     fn take(name: &str, sample_rate: u32) -> Vec<u8> {
-        let path = temp_dir().join(name);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
         let rec = Recorder::default();
         rec.start(&path, sample_rate as f32)
             .unwrap_or_else(|e| panic!("start {name}: {e}"));
@@ -230,9 +225,7 @@ mod tests {
             rec.push(chunk);
         }
         rec.stop().unwrap_or_else(|e| panic!("stop {name}: {e}"));
-        let bytes = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).ok();
-        bytes
+        std::fs::read(&path).unwrap()
     }
 
     #[test]
@@ -249,9 +242,10 @@ mod tests {
 
     #[test]
     fn an_unwritable_format_is_refused_at_start() {
+        let dir = tempfile::tempdir().unwrap();
         let rec = Recorder::default();
         let err = rec
-            .start(temp_dir().join("take.aiff"), 48_000.0)
+            .start(dir.path().join("take.aiff"), 48_000.0)
             .unwrap_err();
         assert!(
             err.contains("wav"),
@@ -262,7 +256,8 @@ mod tests {
 
     #[test]
     fn a_wav_take_round_trips_with_patched_lengths() {
-        let path = temp_dir().join("take.wav");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("take.wav");
         let rec = Recorder::default();
         rec.start(&path, 48_000.0).unwrap();
         assert!(rec.is_recording());
@@ -290,8 +285,6 @@ mod tests {
         assert_eq!(sample(1), -i16::MAX);
         assert_eq!(sample(2), 0);
         assert_eq!(sample(3), i16::MAX / 2);
-
-        std::fs::remove_file(&path).ok();
     }
 
     /// Decode a take back through the same symphonia path rudel loads samples
@@ -381,11 +374,12 @@ mod tests {
 
     #[test]
     fn a_take_shorter_than_one_opus_frame_still_closes_the_stream() {
+        let dir = tempfile::tempdir().unwrap();
         // Opus encodes 20 ms frames; a take shorter than one has nothing but a
         // padded final frame, and the granule position of that frame used to be
         // computed by adding a whole frame and subtracting it back — which goes
         // below zero when no whole frame was ever encoded.
-        let path = temp_dir().join("blip.opus");
+        let path = dir.path().join("blip.opus");
         let rec = Recorder::default();
         rec.start(&path, 48_000.0).unwrap();
         rec.push(&[(0.5, -0.5); 100]); // ~2 ms, a twentieth of a frame
@@ -394,18 +388,17 @@ mod tests {
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(&bytes[0..4], b"OggS");
         assert!(bytes[28..].starts_with(b"OpusHead"));
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn a_take_with_no_audio_at_all_still_writes_a_readable_file() {
-        let path = temp_dir().join("empty.opus");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.opus");
         let rec = Recorder::default();
         rec.start(&path, 48_000.0).unwrap();
         rec.stop().unwrap();
         let bytes = std::fs::read(&path).unwrap();
         assert!(bytes[28..].starts_with(b"OpusHead"), "headers at least");
-        std::fs::remove_file(&path).ok();
     }
 
     /// Decode an Ogg Opus file back to a mono mixdown, and report the strength
@@ -440,6 +433,7 @@ mod tests {
 
     #[test]
     fn an_opus_take_decodes_back_to_the_tone_it_was_given() {
+        let dir = tempfile::tempdir().unwrap();
         // Opus is lossy, so this is the closest thing to the exactness FLAC
         // gets: the tone has to come back at roughly the amplitude it went in
         // with, and nothing else with it. It is the check that caught `opus-rs`
@@ -450,7 +444,7 @@ mod tests {
         // through this one as inflated noise. Encoding is all rudel does, so
         // the rate stays — it just cannot check itself without a C decoder.
         for rate in [8_000u32, 16_000, 48_000] {
-            let path = temp_dir().join(format!("tone-{rate}.opus"));
+            let path = dir.path().join(format!("tone-{rate}.opus"));
             let rec = Recorder::default();
             rec.start(&path, rate as f32).unwrap();
             let tone: Vec<(f32, f32)> = (0..rate)
@@ -480,24 +474,24 @@ mod tests {
                 (0.15..0.6).contains(&rms),
                 "{rate} Hz: rms {rms} is not a 0.4 sine"
             );
-            std::fs::remove_file(&path).ok();
         }
     }
 
     #[test]
     fn opus_refuses_a_rate_it_cannot_encode() {
+        let dir = tempfile::tempdir().unwrap();
         // 44.1 kHz is not an Opus rate and resampling is out of scope, so this
         // has to say so rather than write a file that plays at the wrong speed.
         let rec = Recorder::default();
         let err = rec
-            .start(temp_dir().join("wrong-rate.opus"), 44_100.0)
+            .start(dir.path().join("wrong-rate.opus"), 44_100.0)
             .unwrap_err();
         assert!(err.contains("44100"), "name the offending rate: {err}");
         assert!(!rec.is_recording());
         // 24 kHz *is* an Opus rate, but `opus-rs` encodes noise at it, so it is
         // refused the same way rather than writing a file that is not audio.
         let err = rec
-            .start(temp_dir().join("broken-rate.opus"), 24_000.0)
+            .start(dir.path().join("broken-rate.opus"), 24_000.0)
             .unwrap_err();
         assert!(err.contains("24000"), "name the offending rate: {err}");
         // The other formats take it happily.
@@ -520,13 +514,14 @@ mod tests {
 
     #[test]
     fn a_take_dropped_without_a_stop_is_still_finalised() {
+        let dir = tempfile::tempdir().unwrap();
         // Closing the app mid-recording drops the recorder; if that does not
         // join the writer thread the container never gets its lengths patched
         // and the file will not decode.
         // Five seconds through a codec that does real work: at the drop the
         // writer thread still has a backlog, so the file is only whole if the
         // drop waited for it.
-        let path = temp_dir().join("dropped.mp3");
+        let path = dir.path().join("dropped.mp3");
         {
             let rec = Recorder::default();
             rec.start(&path, 48_000.0).unwrap();
@@ -542,12 +537,12 @@ mod tests {
             "{seconds}s, not the five given"
         );
         assert!((0.1..0.5).contains(&rms), "rms {rms}: not the tone");
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn a_take_the_encoder_keeps_up_with_drops_nothing() {
-        let path = temp_dir().join("kept-up.wav");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kept-up.wav");
         let rec = Recorder::default();
         rec.start(&path, 48_000.0).unwrap();
         for chunk in tone(48_000, 1).chunks(1024) {
@@ -555,7 +550,6 @@ mod tests {
         }
         rec.stop().unwrap();
         assert_eq!(rec.dropped_blocks(), 0, "a WAV encoder cannot fall behind");
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -567,16 +561,16 @@ mod tests {
 
     #[test]
     fn a_second_start_is_refused_rather_than_replacing_the_take() {
-        let path = temp_dir().join("busy.wav");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("busy.wav");
         let rec = Recorder::default();
         rec.start(&path, 44_100.0).unwrap();
         let err = rec
-            .start(temp_dir().join("other.wav"), 44_100.0)
+            .start(dir.path().join("other.wav"), 44_100.0)
             .unwrap_err();
         assert!(err.contains("already recording"), "{err}");
         // The original take is untouched and still the one that stops.
         assert_eq!(rec.stop().unwrap().as_deref(), Some(path.as_path()));
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]

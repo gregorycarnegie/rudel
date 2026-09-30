@@ -3817,6 +3817,7 @@ dependencies = [
  "rudel-lang",
  "rudel-midi",
  "rudel-osc",
+ "tempfile",
  "windows",
  "winresource",
 ]

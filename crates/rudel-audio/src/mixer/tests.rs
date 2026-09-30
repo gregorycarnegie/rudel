@@ -2661,9 +2661,8 @@ fn an_armed_recorder_gets_the_frames_the_callback_rendered() {
     // The `record` tests cover the WAV file; this covers the wiring — that
     // `render_block` hands the master mix over, and that an idle recorder
     // stays idle.
-    let dir = std::env::temp_dir().join(format!("rudel-mixhook-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("hook.wav");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hook.wav");
 
     let (_tx, rx) = mpsc::channel::<NoteEvent>();
     let mut mixer = test_mixer(rx);
@@ -2686,6 +2685,4 @@ fn an_armed_recorder_gets_the_frames_the_callback_rendered() {
         44 + 2 * 32 * 2 * 2,
         "both blocks reached the file"
     );
-
-    std::fs::remove_dir_all(&dir).ok();
 }

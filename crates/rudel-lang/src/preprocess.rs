@@ -19,6 +19,22 @@ use mondo::rewrite_mondo_templates;
 use syntax::{rewrite_alignment_getters, rewrite_tagged_templates, strip_await, strip_comments};
 use widgets::rewrite_editor_widgets_with_context;
 
+/// How deep a script's brackets may nest. boa's parser recurses once per
+/// level with large frames, and on the engine thread's stack it overflows —
+/// aborting the process, where no error can be caught — a few hundred levels
+/// in. Real scripts nest a dozen deep.
+const MAX_NESTING: usize = 128;
+
+/// Refuse a script nested deeper than the engine can parse without crashing.
+pub(crate) fn check_nesting(source: &str) -> Result<(), String> {
+    match scanner::bracket_depth(source) {
+        depth if depth > MAX_NESTING => Err(format!(
+            "SyntaxError: brackets nested {depth} levels deep (max {MAX_NESTING})"
+        )),
+        _ => Ok(()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PreprocessResult {
     pub source: String,

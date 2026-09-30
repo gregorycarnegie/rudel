@@ -63,6 +63,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
   `sort(() => Math.random() - 0.5)` shuffle idiom is.
 - `pat.filter(x)` with something other than a predicate plays the pattern
   unfiltered, as upstream does, rather than failing.
+- **Three ways to crash the app from the editor, found by property tests:**
+  Mondo's `..` or `&` with an operand missing panicked, and brackets nested a
+  few hundred deep — in Mondo or in the script — overflowed the stack, which
+  aborts the process rather than failing the evaluation. All three are now a
+  `SyntaxError`. Scripts may nest 128 brackets deep, Mondo 64.
 
 Measured against real Strudel over the 8,004 patterns shared on strudel.cc,
 patterns that play in Strudel but fail in Rudel went from 83 to 27, eleven of
@@ -81,6 +86,17 @@ which reach for the browser's `window`/`document`.
   `.add(4)`/`.div(48)`.
 - `Number('wat')` is `NaN` rather than `0`, and whole numbers reach a pattern
   as integers (`2.0` is `2`), since JavaScript has one number type.
+
+### Internal
+
+- Property tests for the script path: the preprocessor, Mondo and the source
+  scanner never panic and return ranges that slice, `evaluate` never fails by
+  panicking, mini-notation offsets point at their literal, and a literal
+  reaches a control unchanged. `PROPTEST_CASES=3000` soaks them.
+- nextest kills a test after two minutes (`.config/nextest.toml`), so a
+  script callback that never returns fails its test instead of hanging CI.
+- Tests that write files use `tempfile` directories rather than a hand-made
+  one under the system temp directory that a failed test left behind.
 
 [Boa]: https://boajs.dev
 

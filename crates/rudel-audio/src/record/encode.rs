@@ -613,7 +613,8 @@ mod tests {
     fn a_wav_stops_growing_before_its_riff_size_wraps() {
         // ~6 hours of 48 kHz stereo reaches the 32-bit ceiling. The data chunk
         // used to be capped there but the RIFF size, 36 bytes larger, was not.
-        let path = std::env::temp_dir().join(format!("rudel-wav-cap-{}.wav", std::process::id()));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cap.wav");
         let mut wav = Wav::open(&path, 48_000).unwrap();
         wav.data_len = MAX_WAV_DATA - 2;
         // Four samples, of which only the first still fits.
@@ -627,7 +628,6 @@ mod tests {
             u32::MAX,
             "the largest data chunk is exactly the largest RIFF size"
         );
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]

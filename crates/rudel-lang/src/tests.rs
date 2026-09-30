@@ -9,6 +9,7 @@ mod modulate;
 mod mondo;
 mod pick;
 mod preprocess;
+mod props;
 mod repl;
 mod routing;
 mod samples;

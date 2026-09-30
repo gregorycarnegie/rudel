@@ -58,7 +58,7 @@ jobs:
       # fails here instead of hiding behind a shared process. The workspace has
       # no doctests, so nextest not running them costs nothing.
       - name: Test
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --profile ci
 
   # The workspace publishes `rust-version = "1.96"`; without this nothing
   # checks it, and a dependency bump or a newly stabilised API can raise the

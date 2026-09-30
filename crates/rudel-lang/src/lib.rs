@@ -223,6 +223,7 @@ fn eval_result_with_preprocessor(
     // A script that panics mid-evaluation must not wedge every later one.
     let _guard = EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let preprocessed = preprocess();
+    preprocess::check_nesting(&preprocessed.source)?;
     let original = original.to_string();
     // The engine can panic on a script it should have rejected — boa's
     // `Array.prototype.sort` does on a comparator that is not a total order,

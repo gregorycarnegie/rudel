@@ -45,3 +45,4 @@ winresource = "0.1.31"
 
 [dev-dependencies]
 egui_kittest = { version = "0.36.2", features = ["eframe"] }
+tempfile = "3.27.0"

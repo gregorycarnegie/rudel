@@ -179,9 +179,11 @@ fn jobs() -> &'static mpsc::Sender<Job> {
         let (tx, rx) = mpsc::channel::<Job>();
         std::thread::Builder::new()
             .name("rudel-js".into())
-            // A script recursing through native calls uses this stack, and the
-            // default 2 MB is less than the main thread it used to run on.
-            .stack_size(16 << 20)
+            // boa's parser takes tens of kilobytes of stack per level of
+            // nesting (hundreds in a debug build), and an overflow aborts the
+            // process. This is address space reserved, not memory committed:
+            // a page is only backed once the stack actually reaches it.
+            .stack_size(256 << 20)
             .spawn(move || {
                 ON_JS_THREAD.set(true);
                 for job in rx {

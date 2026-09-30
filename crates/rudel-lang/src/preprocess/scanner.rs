@@ -33,6 +33,23 @@ pub(super) fn code_mask(src: &str) -> Vec<u8> {
     mask
 }
 
+/// The deepest the brackets in `src`'s code nest. Strings and comments do not
+/// count.
+pub(super) fn bracket_depth(src: &str) -> usize {
+    let (mut depth, mut deepest) = (0usize, 0usize);
+    for &byte in &code_mask(src) {
+        match byte {
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
+}
+
 pub(super) fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
@@ -611,5 +628,54 @@ mod boundary_tests {
             top_level_ranges("🌸, b", ','),
             vec![(0, 4), (5, "🌸, b".len())]
         );
+    }
+}
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Source built from the characters the scanner branches on, plus
+    /// multi-byte ones, so quotes, comment openers and brackets collide in
+    /// every order — including unterminated ones.
+    fn source() -> impl Strategy<Value = String> {
+        r#"[a-z ()\[\]{},:;"'`/*\\n.$é🌸]{0,120}"#
+    }
+
+    proptest! {
+        /// Every pass copies the runs it does not rewrite, so the split has to
+        /// lose nothing and cut only on character boundaries: whatever the
+        /// input, the runs join back into it.
+        #[test]
+        fn the_chunks_partition_the_source(src in source()) {
+            let runs = chunks(&src);
+            let joined: String = runs.iter().map(|&(_, a, b)| &src[a..b]).collect();
+            prop_assert_eq!(joined, src.clone());
+            // In order, without gaps, and no run is empty.
+            let mut at = 0;
+            for &(_, a, b) in &runs {
+                prop_assert_eq!(a, at);
+                prop_assert!(b > a);
+                at = b;
+            }
+        }
+
+        /// The splitters never panic, and never hand back a range that does
+        /// not slice.
+        #[test]
+        fn the_splitters_return_ranges_that_slice(src in source()) {
+            for (a, b) in top_level_ranges(&src, ',') {
+                prop_assert!(src.get(a..b).is_some());
+            }
+            if let Some(at) = top_level_split(&src, ':') {
+                prop_assert!(src.is_char_boundary(at));
+            }
+            if let Some(call) = src.find('(').and_then(|open| parse_call(&src, open)) {
+                for (a, b) in call.args {
+                    prop_assert!(src.get(a..b).is_some());
+                }
+            }
+        }
     }
 }

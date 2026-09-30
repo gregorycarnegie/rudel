@@ -223,3 +223,23 @@ fn register_takes_an_array_of_names() {
     let pat = eval(r#"s("bd sd").filter(500)"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
 }
+
+#[test]
+fn a_script_nested_past_what_the_parser_survives_is_refused() {
+    // boa's parser overflows the engine thread's stack a few hundred levels
+    // in, and an overflow aborts the process. The limit sits well inside what
+    // it survives, even in a debug build.
+    let nested = |n: usize| format!("pure({}1{})", "(".repeat(n), ")".repeat(n));
+    // `pure(` is one level of its own.
+    assert_eq!(
+        values(&eval(&nested(127)).expect("at the limit"), 0, 1),
+        vec![Value::Int(1)]
+    );
+    let Err(err) = eval(&nested(5000)) else {
+        panic!("far past the limit, it should be refused");
+    };
+    assert!(err.contains("nested"), "{err}");
+    // Brackets inside a string are text, not nesting.
+    let quoted = format!("pure('{}')", "(".repeat(5000));
+    assert!(eval(&quoted).is_ok());
+}

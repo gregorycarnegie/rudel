@@ -243,11 +243,53 @@ impl Parser {
     }
 }
 
+/// How deep a mondo expression may nest — brackets, plus chained operators and
+/// pipes, which nest the tree just as deeply. The parser, the desugaring, the
+/// code generator and the tree's own drop all recurse once per level, and a
+/// stack overflow aborts the process rather than returning an error; the
+/// editor's thread overflows a little past a thousand. Real patterns nest a
+/// handful deep, the same budget `rudel-mini` allows.
+const MAX_NESTING: usize = 64;
+
+fn check_nesting(tokens: &[Token]) -> Result<(), String> {
+    // `chain` is a run of infix operators (`a*2*3`), which two operands side
+    // by side end — they are siblings; `pipes` counts the `#`s at this level,
+    // each wrapping everything before it.
+    let (mut depth, mut chain, mut pipes, mut deepest) = (0usize, 0usize, 0usize, 0usize);
+    let mut after_operand = false;
+    for token in tokens {
+        match token.kind {
+            Kind::OpenList | Kind::OpenAngle | Kind::OpenSquare | Kind::OpenCurly => {
+                depth += 1;
+                (chain, pipes, after_operand) = (0, 0, false);
+            }
+            Kind::CloseList | Kind::CloseAngle | Kind::CloseSquare | Kind::CloseCurly => {
+                depth = depth.saturating_sub(1);
+                (chain, pipes, after_operand) = (0, 0, true);
+            }
+            Kind::Op => (chain, after_operand) = (chain + 1, false),
+            Kind::Pipe => (chain, pipes, after_operand) = (0, pipes + 1, false),
+            Kind::Stack | Kind::Or => (chain, pipes, after_operand) = (0, 0, false),
+            Kind::Comment => {}
+            _ => {
+                if after_operand {
+                    chain = 0;
+                }
+                after_operand = true;
+            }
+        }
+        deepest = deepest.max(depth + chain + pipes);
+    }
+    if deepest > MAX_NESTING {
+        return Err(format!("nested {deepest} levels deep (max {MAX_NESTING})"));
+    }
+    Ok(())
+}
+
 fn parse(code: &str) -> Result<Node, String> {
-    let mut parser = Parser {
-        tokens: tokenize(code)?,
-        pos: 0,
-    };
+    let tokens = tokenize(code)?;
+    check_nesting(&tokens)?;
+    let mut parser = Parser { tokens, pos: 0 };
     let mut expressions = Vec::new();
     while parser.pos < parser.tokens.len() {
         expressions.push(parser.parse_expr()?);
@@ -620,6 +662,9 @@ impl Gen {
             "fn" => self.emit_lambda(args),
             "def" => self.emit_def(args),
             ":" => Ok(mini_string(&colon_chain(&children)?.join(":"))),
+            // Both need two operands; a bare `..` or `&` is an operator with
+            // nothing to apply to, and says so rather than indexing past them.
+            ".." | "&" if args.len() != 2 => Err(format!("\"{head}\" needs two operands")),
             ".." => {
                 let (from, to) = (literal_of(&args[1])?, literal_of(&args[0])?);
                 Ok(mini_string(&format!("{from} .. {to}")))
@@ -1183,6 +1228,44 @@ mod tests {
         );
     }
     #[test]
+    fn absurd_nesting_is_refused_before_it_can_overflow_the_stack() {
+        // Brackets, operator chains and pipes all nest the tree. Each is
+        // refused well short of what a 1 MB stack — the editor's — survives;
+        // before the guard, 1000 brackets aborted the process.
+        let deep = [
+            format!("{}a{}", "[".repeat(5000), "]".repeat(5000)),
+            format!("a{}", "*2".repeat(5000)),
+            format!("s a{}", " # fast 2".repeat(5000)),
+        ];
+        for src in deep {
+            let refused = std::thread::Builder::new()
+                .stack_size(1 << 20)
+                .spawn(move || compile(&src).is_err_and(|e| e.contains("nested")))
+                .unwrap()
+                .join()
+                .expect("no stack overflow");
+            assert!(refused);
+        }
+        // Width is not depth: many siblings, each with an operator, is fine.
+        let wide = format!("[{}]", "a*2 ".repeat(500));
+        assert!(compile(&wide).is_ok());
+        // Nor is an ordinary pattern anywhere near the limit.
+        assert!(compile("s [bd [hh [sd [cp rim]]]]*2 # fast 2 # room .5").is_ok());
+    }
+
+    #[test]
+    fn an_operator_with_no_operands_is_an_error_not_a_panic() {
+        // Found by the property test over arbitrary scripts: `..` alone
+        // compiled by indexing two operands that were not there. The hint
+        // asks mondo about every script the engine rejects, so this reached
+        // plain JavaScript typos too.
+        for src in ["..", "&", "(..)", "(&)"] {
+            assert!(compile(src).is_err(), "{src}");
+        }
+        assert!(!looks_like_mondo(".."));
+    }
+
+    #[test]
     fn an_unclosed_bracket_is_reported_rather_than_guessed_at() {
         for src in ["[c", "(c", "<c", "{c"] {
             assert_eq!(
@@ -1228,5 +1311,23 @@ mod tests {
             rewrite_mondo_templates("x = f(mondo`s bd`, `plain`)"),
             "x = f(pure('bd').s(), `plain`)"
         );
+    }
+}
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// `looks_like_mondo` hands mondo every script the engine refused, so
+        /// the compiler meets arbitrary text, not just mondo. It may reject
+        /// it; it may not panic on it.
+        #[test]
+        fn compiling_arbitrary_text_never_panics(
+            src in r#"[a-z0-9 ()<>\[\]{}*/:!@%?+&.,$|#_~'"\n-]{0,60}"#
+        ) {
+            let _ = compile(&src);
+        }
     }
 }

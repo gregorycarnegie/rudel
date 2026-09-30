@@ -237,9 +237,8 @@ mod tests {
 
     #[test]
     fn a_round_trip_through_a_real_file_preserves_the_buffer() {
-        let dir = std::env::temp_dir().join(format!("rudel-files-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("pattern.js");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pattern.js");
 
         let mut app = RudelApp::headless();
         app.code = "s(\"bd sd\")".to_string();
@@ -252,8 +251,6 @@ mod tests {
         app.load_path(&path);
         assert_eq!(app.code, "s(\"bd sd\")");
         assert!(app.status.contains("pattern.js"), "status: {}", app.status);
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -268,9 +265,8 @@ mod tests {
 
     #[test]
     fn the_buffer_is_dirty_only_between_a_change_and_the_next_write() {
-        let dir = std::env::temp_dir().join(format!("rudel-dirty-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("pattern.js");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pattern.js");
 
         let mut app = RudelApp::headless();
         assert!(!app.is_dirty(), "an untouched buffer is not dirty");
@@ -285,8 +281,6 @@ mod tests {
         app.code = "s(\"hh\")".to_string();
         app.load_path(Path::new("no/such/rudel/pattern.js"));
         assert!(app.is_dirty(), "a failed open must not pretend it saved");
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
