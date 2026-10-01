@@ -38,6 +38,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   hooks — are handed to it from whichever thread asks. The engine for the next
   evaluation is built while the current one plays, so a short pattern still
   evaluates in well under a millisecond.
+- **Querying a pattern is 2–2.7× faster.** Over a third of query time went on
+  software 128-bit division inside the rational time type; its arithmetic now
+  takes a 64-bit path whenever the numbers fit, with identical results. Haps
+  are also no longer deep-copied on every source-location and context layer.
 
 ### Added
 

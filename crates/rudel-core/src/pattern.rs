@@ -249,11 +249,11 @@ impl Pattern {
     /// fast-path metadata, like Strudel.
     pub fn with_context<F>(&self, f: F) -> Pattern
     where
-        F: Fn(&Context) -> Context + Send + Sync + 'static,
+        F: Fn(Context) -> Context + Send + Sync + 'static,
     {
-        let mut result = self.with_hap(move |hap| {
-            let context = f(&hap.context);
-            hap.set_context(context)
+        let mut result = self.with_hap(move |mut hap| {
+            hap.context = f(std::mem::take(&mut hap.context));
+            hap
         });
         result.steps = self.steps;
         result.pure_value = self.pure_value.clone();
@@ -264,8 +264,7 @@ impl Pattern {
     /// Tag every hap with a source location (`withLoc`), used by mini-notation
     /// so editors can map events back to the code that produced them.
     pub fn with_loc(&self, start: usize, end: usize) -> Pattern {
-        let mut result = self.with_context(move |context| {
-            let mut context = context.clone();
+        let mut result = self.with_context(move |mut context| {
             context.locations.push((start, end));
             context
         });
@@ -279,8 +278,7 @@ impl Pattern {
     /// editor-owned visual widgets to isolate each inline canvas branch.
     pub fn tag(&self, tag: impl Into<String>) -> Pattern {
         let tag = tag.into();
-        self.with_context(move |context| {
-            let mut context = context.clone();
+        self.with_context(move |mut context| {
             if !context.tags.contains(&tag) {
                 context.tags.push(tag.clone());
             }
@@ -379,10 +377,9 @@ impl Pattern {
                 let hap_vals = pat_val.query(&state.set_span(hf.whole_or_part()));
                 for hv in hap_vals {
                     if let Some(part) = hf.part.intersection(&hv.part) {
-                        let value = hf.value.apply(hv.value.clone());
-                        out.push(
-                            Hap::new(hf.whole, part, value).with_context(hv.combine_context(&hf)),
-                        );
+                        let context = hv.combine_context(&hf);
+                        let value = hf.value.apply(hv.value);
+                        out.push(Hap::new(hf.whole, part, value).with_context(context));
                     }
                 }
             }
@@ -431,7 +428,7 @@ impl Pattern {
                 for b in inner.query(&state.set_span(a.part)) {
                     let whole = choose_whole(a.whole, b.whole);
                     out.push(
-                        Hap::new(whole, b.part, b.value.clone())
+                        Hap::new(whole, b.part, b.value)
                             .with_context(a.context.combine(&b.context)),
                     );
                 }
@@ -482,13 +479,13 @@ impl Pattern {
     /// `squeezeJoin`: each outer hap's whole is filled with one cycle of the
     /// inner pattern (value-as-pattern), focused into that span.
     pub fn squeeze_join(&self) -> Pattern {
-        let pat_of_pats = self.clone();
+        let pat_of_pats = self.discrete_only();
         Pattern::new(move |state| {
-            let haps = pat_of_pats.discrete_only().query(state);
+            let haps = pat_of_pats.query(state);
             let mut out = Vec::new();
             for outer in haps {
                 let inner_pat =
-                    value_to_pattern(outer.value.clone())._focus_span(outer.whole_or_part());
+                    value_to_pattern(outer.value)._focus_span(outer.whole.unwrap_or(outer.part));
                 for inner in inner_pat.query(&state.set_span(outer.part)) {
                     let whole = match (inner.whole, outer.whole) {
                         (Some(i), Some(o)) => match i.intersection(&o) {
@@ -501,7 +498,7 @@ impl Pattern {
                         continue;
                     };
                     out.push(
-                        Hap::new(whole, part, inner.value.clone())
+                        Hap::new(whole, part, inner.value)
                             .with_context(inner.context.combine(&outer.context)),
                     );
                 }
@@ -522,17 +519,17 @@ impl Pattern {
     /// inner pattern's cycle position to the onset; `restart` aligns the inner
     /// pattern's cycle zero to the onset.
     fn reset_join_impl(&self, restart: bool) -> Pattern {
-        let pat_of_pats = self.clone();
+        let pat_of_pats = self.discrete_only();
         Pattern::new(move |state| {
             let mut out = Vec::new();
-            for outer in pat_of_pats.discrete_only().query(state) {
+            for outer in pat_of_pats.query(state) {
                 let Some(owhole) = outer.whole else { continue };
                 let shift = if restart {
                     owhole.begin
                 } else {
                     owhole.begin.cycle_pos()
                 };
-                let inner_pat = value_to_pattern(outer.value.clone())._late(shift);
+                let inner_pat = value_to_pattern(outer.value)._late(shift);
                 for inner in inner_pat.query(state) {
                     let whole = match inner.whole {
                         Some(iw) => match iw.intersection(&owhole) {
@@ -545,7 +542,7 @@ impl Pattern {
                         continue;
                     };
                     out.push(
-                        Hap::new(whole, part, inner.value.clone())
+                        Hap::new(whole, part, inner.value)
                             .with_context(outer.context.combine(&inner.context)),
                     );
                 }

@@ -107,22 +107,15 @@ impl Hap {
         self.whole.unwrap_or(self.part)
     }
 
-    pub fn with_span(&self, f: impl Fn(TimeSpan) -> TimeSpan) -> Hap {
-        Hap {
-            whole: self.whole.map(&f),
-            part: f(self.part),
-            value: self.value.clone(),
-            context: self.context.clone(),
-        }
+    pub fn with_span(mut self, f: impl Fn(TimeSpan) -> TimeSpan) -> Hap {
+        self.whole = self.whole.map(&f);
+        self.part = f(self.part);
+        self
     }
 
-    pub fn with_value(&self, f: impl Fn(Value) -> Value) -> Hap {
-        Hap {
-            whole: self.whole,
-            part: self.part,
-            value: f(self.value.clone()),
-            context: self.context.clone(),
-        }
+    pub fn with_value(mut self, f: impl Fn(Value) -> Value) -> Hap {
+        self.value = f(self.value);
+        self
     }
 
     /// True if the hap contains its own onset (`whole.begin == part.begin`).
@@ -141,13 +134,9 @@ impl Hap {
         self.context.combine(&other.context)
     }
 
-    pub fn set_context(&self, context: Context) -> Hap {
-        Hap {
-            whole: self.whole,
-            part: self.part,
-            value: self.value.clone(),
-            context,
-        }
+    pub fn set_context(mut self, context: Context) -> Hap {
+        self.context = context;
+        self
     }
 
     /// Whole-span equality, treating two continuous haps (both `None`) as equal.
@@ -328,7 +317,7 @@ mod tests {
         // Combining keeps one copy of a shared tag and appends new ones.
         let b = hap.with_context(tagged("pianoroll"));
         assert_eq!(a.combine_context(&b).tags, vec!["pianoroll".to_string()]);
-        let c = a.set_context(tagged("spiral"));
+        let c = a.clone().set_context(tagged("spiral"));
         assert_eq!(
             a.combine_context(&c).tags,
             vec!["pianoroll".to_string(), "spiral".to_string()]

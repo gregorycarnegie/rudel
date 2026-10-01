@@ -7,8 +7,7 @@ pub(crate) fn push_loc(result: Pattern, loc: Option<(usize, usize)>) -> Pattern 
     let Some((start, end)) = loc else {
         return result;
     };
-    result.with_context(move |context: &Context| {
-        let mut context = context.clone();
+    result.with_context(move |mut context: Context| {
         context.locations.push((start, end));
         context
     })

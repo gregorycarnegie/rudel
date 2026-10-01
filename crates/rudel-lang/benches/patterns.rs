@@ -45,15 +45,23 @@ const QUERY_CYCLES: i64 = 16;
 fn time<F: FnMut() -> usize>(label: &str, iters: u32, mut f: F) {
     // Warm up (and sanity-check the closure produces work).
     let mut sink = 0usize;
+    let warmup = Instant::now();
     for _ in 0..(iters / 10).max(1) {
         sink = sink.wrapping_add(f());
+        if warmup.elapsed().as_secs_f64() > 0.2 {
+            break;
+        }
     }
+    // Capped at about a second per case: the heavy ones (`seq64.iter.fast`
+    // yields 65k haps per query) would otherwise take a quarter of an hour.
     let start = Instant::now();
-    for _ in 0..iters {
+    let mut done = 0u32;
+    while done < iters && start.elapsed().as_secs_f64() < 1.0 {
         sink = sink.wrapping_add(f());
+        done += 1;
     }
     let elapsed = start.elapsed();
-    let per = elapsed.as_secs_f64() / f64::from(iters);
+    let per = elapsed.as_secs_f64() / f64::from(done);
     println!(
         "{label:<28} {:>10.2} µs/iter {:>12.0} iter/s   (work={sink})",
         per * 1e6,

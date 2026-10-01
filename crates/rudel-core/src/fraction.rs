@@ -6,7 +6,9 @@ use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
 use std::{
+    cmp::Ordering,
     fmt,
+    hash::{Hash, Hasher},
     ops::{Add, Div, Mul, Neg, Rem, Sub},
 };
 
@@ -18,11 +20,33 @@ type Rat = Ratio<i128>;
 ///
 /// Wraps `Ratio<i128>`. Mirrors the `Fraction.prototype.*` helpers Strudel
 /// attaches in `fraction.mjs` (`sam`, `nextSam`, `cyclePos`, ...).
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// The arithmetic, comparison and `floor` below take a 64-bit path whenever the
+/// operands are small enough, which in pattern time is nearly always: `Ratio`
+/// on `i128` reduces and compares with software 128-bit division
+/// (`__divti3`), which was over a third of all query time. Results are the
+/// same reduced rationals either way.
+#[derive(Clone, Copy)]
 pub struct Frac(pub Rat);
 
 /// Largest denominator a converted `f64` may take.
 const MAX_FROM_F64_DENOM: i128 = 1_000_000;
+
+/// Small enough that a product of two, plus another such product, still fits
+/// in an `i128`.
+fn fits(x: i128) -> bool {
+    x.unsigned_abs() < 1 << 62
+}
+
+/// `n/d` in lowest terms, for `d > 0`.
+fn reduced(n: i128, d: i128) -> Frac {
+    if let (Ok(abs), Ok(den)) = (u64::try_from(n.unsigned_abs()), u64::try_from(d)) {
+        let g = abs.gcd(&den);
+        let abs = i128::from(abs / g);
+        return Frac(Rat::new_raw(if n < 0 { -abs } else { abs }, i128::from(den / g)));
+    }
+    Frac(Rat::new(n, d))
+}
 
 impl Frac {
     pub fn new(numer: i64, denom: i64) -> Self {
@@ -112,7 +136,7 @@ impl Frac {
 
     /// Returns the start of the cycle (floor).
     pub fn sam(&self) -> Frac {
-        Frac(self.0.floor())
+        self.floor()
     }
 
     /// Returns the start of the next cycle.
@@ -126,11 +150,17 @@ impl Frac {
     }
 
     pub fn floor(&self) -> Frac {
-        Frac(self.0.floor())
+        match (i64::try_from(self.numer()), i64::try_from(self.denom())) {
+            (Ok(n), Ok(d)) => Frac::int(n.div_euclid(d)),
+            _ => Frac(self.0.floor()),
+        }
     }
 
     pub fn ceil(&self) -> Frac {
-        Frac(self.0.ceil())
+        match (i64::try_from(self.numer()), i64::try_from(self.denom())) {
+            (Ok(n), Ok(d)) => Frac::int(n.div_euclid(d) + i64::from(n.rem_euclid(d) != 0)),
+            _ => Frac(self.0.ceil()),
+        }
     }
 
     pub fn abs(&self) -> Frac {
@@ -180,21 +210,92 @@ pub fn gcd_opt<I: IntoIterator<Item = Option<Frac>>>(iter: I) -> Option<Frac> {
     acc
 }
 
-macro_rules! impl_binop {
-    ($trait:ident, $method:ident) => {
-        impl $trait for Frac {
-            type Output = Frac;
-            fn $method(self, rhs: Frac) -> Frac {
-                Frac($trait::$method(self.0, rhs.0))
-            }
-        }
-    };
+impl Rem for Frac {
+    type Output = Frac;
+    fn rem(self, rhs: Frac) -> Frac {
+        Frac(self.0 % rhs.0)
+    }
 }
-impl_binop!(Add, add);
-impl_binop!(Sub, sub);
-impl_binop!(Mul, mul);
-impl_binop!(Div, div);
-impl_binop!(Rem, rem);
+
+impl Add for Frac {
+    type Output = Frac;
+    fn add(self, rhs: Frac) -> Frac {
+        let (a, b, c, d) = (self.numer(), self.denom(), rhs.numer(), rhs.denom());
+        if !(fits(a) && fits(b) && fits(c) && fits(d)) {
+            return Frac(self.0 + rhs.0);
+        }
+        if b == d {
+            reduced(a + c, b)
+        } else {
+            reduced(a * d + c * b, b * d)
+        }
+    }
+}
+
+impl Sub for Frac {
+    type Output = Frac;
+    fn sub(self, rhs: Frac) -> Frac {
+        self + -rhs
+    }
+}
+
+impl Mul for Frac {
+    type Output = Frac;
+    fn mul(self, rhs: Frac) -> Frac {
+        let (a, b, c, d) = (self.numer(), self.denom(), rhs.numer(), rhs.denom());
+        if !(fits(a) && fits(b) && fits(c) && fits(d)) {
+            return Frac(self.0 * rhs.0);
+        }
+        reduced(a * c, b * d)
+    }
+}
+
+impl Div for Frac {
+    type Output = Frac;
+    fn div(self, rhs: Frac) -> Frac {
+        let (a, b, c, d) = (self.numer(), self.denom(), rhs.numer(), rhs.denom());
+        // Division by zero is left to `Ratio`, which panics as it always did.
+        if c == 0 || !(fits(a) && fits(b) && fits(c) && fits(d)) {
+            return Frac(self.0 / rhs.0);
+        }
+        let (n, den) = (a * d, b * c);
+        if den < 0 { reduced(-n, -den) } else { reduced(n, den) }
+    }
+}
+
+impl Ord for Frac {
+    fn cmp(&self, other: &Frac) -> Ordering {
+        let (a, b, c, d) = (self.numer(), self.denom(), other.numer(), other.denom());
+        if b == d {
+            a.cmp(&c)
+        } else if fits(a) && fits(b) && fits(c) && fits(d) {
+            // Denominators are positive, so cross-multiplying keeps the order.
+            (a * d).cmp(&(c * b))
+        } else {
+            self.0.cmp(&other.0)
+        }
+    }
+}
+
+impl PartialOrd for Frac {
+    fn partial_cmp(&self, other: &Frac) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Frac {
+    fn eq(&self, other: &Frac) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for Frac {}
+
+impl Hash for Frac {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
 
 impl Neg for Frac {
     type Output = Frac;
@@ -303,6 +404,30 @@ mod tests {
                 (got - x).abs() <= 0.000001,
                 "expected {x} to round-trip within the fixed grid, got {got}"
             );
+        }
+
+        #[test]
+        fn fast_paths_agree_with_ratio(
+            (a, b, c, d) in prop_oneof![
+                (-1000i128..=1000, 1i128..=1000, -1000i128..=1000, 1i128..=1000),
+                // Past `fits`, onto the `Ratio` fallback (but not so far that
+                // `Ratio` itself overflows).
+                (any::<i64>(), 1i128..=1 << 20, -1i128 << 20..=1 << 20, 1i128..=1 << 20)
+                    .prop_map(|(a, b, c, d)| (i128::from(a) << 8, b, c, d)),
+            ]
+        ) {
+            let (x, y) = (Rat::new(a, b), Rat::new(c, d));
+            let (fx, fy) = (Frac(x), Frac(y));
+            for (got, want) in [(fx + fy, x + y), (fx - fy, x - y), (fx * fy, x * y)] {
+                prop_assert_eq!((got.numer(), got.denom()), (*want.numer(), *want.denom()));
+            }
+            if c != 0 {
+                let (got, want) = (fx / fy, x / y);
+                prop_assert_eq!((got.numer(), got.denom()), (*want.numer(), *want.denom()));
+            }
+            prop_assert_eq!(fx.cmp(&fy), x.cmp(&y));
+            prop_assert_eq!(fx.floor().0, x.floor());
+            prop_assert_eq!(fx.ceil().0, x.ceil());
         }
 
         #[test]

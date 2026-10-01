@@ -446,7 +446,7 @@ pub(super) fn static_period_pattern(
         for repeat in first_repeat..last_repeat {
             let offset = period * Frac::int(repeat);
             for template in &haps {
-                let mut hap = template.with_span(|span| span.with_time(|t| t + offset));
+                let mut hap = template.clone().with_span(|span| span.with_time(|t| t + offset));
                 if let Some(part) = hap.part.intersection(&state.span) {
                     hap.part = part;
                     out.push(hap);
