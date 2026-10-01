@@ -61,86 +61,6 @@ pub(super) fn rewrite_tagged_templates(src: &str) -> String {
     out
 }
 
-/// Operators that carry an alignment, and the method each is bound as. `mod`
-/// is bound as `modulo`, the spelling Rust can use.
-const ALIGNED_OPS: &[(&str, &str)] = &[
-    ("add", "add"),
-    ("sub", "sub"),
-    ("mul", "mul"),
-    ("div", "div"),
-    ("set", "set"),
-    ("keep", "keep"),
-    ("mod", "modulo"),
-    ("modulo", "modulo"),
-    ("pow", "pow"),
-];
-
-/// Alignments, and the suffix each becomes. `in` is the default and *is* the
-/// plain method, so it collapses to nothing; the camelCase and `squeezein`
-/// spellings normalise here rather than needing an alias apiece.
-const ALIGNMENTS: &[(&str, &str)] = &[
-    ("in", ""),
-    ("out", "_out"),
-    ("mix", "_mix"),
-    ("squeeze", "_squeeze"),
-    ("squeezein", "_squeeze"),
-    ("squeezeIn", "_squeeze"),
-    ("squeezeout", "_squeezeout"),
-    ("squeezeOut", "_squeezeout"),
-    ("reset", "_reset"),
-    ("restart", "_restart"),
-    ("poly", "_poly"),
-];
-
-/// Rewrite Strudel's alignment *getters* (`.add.out(x)`) into the single method
-/// Rudel binds them as (`.add_out(x)`).
-///
-/// In Strudel `pat.add` is a function whose properties are the aligned
-/// variants, so the alignment is reached by a second property access. Here the
-/// matrix is bound flat — one method per cell — and the two spellings differ
-/// only in that dot.
-///
-/// Only `.op.align(` is rewritten: the alignment has to be immediately applied,
-/// which is the only form that means anything on either side. String literals
-/// and comments are skipped.
-pub(super) fn rewrite_alignment_getters(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    for (kind, start, end) in chunks(src) {
-        let text = &src[start..end];
-        if kind != Chunk::Code {
-            out.push_str(text);
-            continue;
-        }
-        let mut rest = text;
-        'scan: while let Some(dot) = rest.find('.') {
-            for (js, bound) in ALIGNED_OPS {
-                let Some(after_op) = rest[dot..].strip_prefix(&format!(".{js}.")) else {
-                    continue;
-                };
-                for (align, suffix) in ALIGNMENTS {
-                    // The `(` is what tells `.add.out(x)` from a chain that
-                    // merely happens to read `.add.outSomething`.
-                    if after_op
-                        .strip_prefix(align)
-                        .is_some_and(|tail| tail.starts_with('('))
-                    {
-                        out.push_str(&rest[..dot]);
-                        out.push('.');
-                        out.push_str(bound);
-                        out.push_str(suffix);
-                        rest = &after_op[align.len()..];
-                        continue 'scan;
-                    }
-                }
-            }
-            out.push_str(&rest[..dot + 1]);
-            rest = &rest[dot + 1..];
-        }
-        out.push_str(rest);
-    }
-    out
-}
-
 /// Strip JavaScript `await`. Strudel's async helpers (`samples`, `midin`,
 /// `loadSoundfont`) return promises the browser REPL awaits; Rudel's equivalents
 /// are synchronous host effects, so the keyword is simply dropped — the same
@@ -221,13 +141,8 @@ mod tests {
     }
 
     #[test]
-    fn every_rewriter_spares_strings_and_both_comments() {
-        for (f, snippet) in [
-            (strip_await as fn(&str) -> String, "await foo"),
-            (rewrite_alignment_getters, "x.add.out(1)"),
-        ] {
-            leaves_quoted_and_commented_alone(f, snippet);
-        }
+    fn strip_await_spares_strings_and_both_comments() {
+        leaves_quoted_and_commented_alone(strip_await, "await foo");
     }
 
     #[test]
@@ -291,26 +206,5 @@ mod tests {
             rewrite_tagged_templates("x = tag`a ${b} c`\ny = `plain ${d}`"),
             "x = tag(`a ${b} c`)\ny = `plain ${d}`"
         );
-    }
-
-    #[test]
-    fn an_alignment_getter_becomes_its_flat_method() {
-        assert_eq!(rewrite_alignment_getters("x.add.out(1)"), "x.add_out(1)");
-        assert_eq!(
-            rewrite_alignment_getters("x.mod.squeeze(1)"),
-            "x.modulo_squeeze(1)"
-        );
-        // `in` is the plain operator, and the camelCase spellings normalise.
-        assert_eq!(rewrite_alignment_getters("x.add.in(1)"), "x.add(1)");
-        assert_eq!(
-            rewrite_alignment_getters("x.set.squeezeIn(1)"),
-            "x.set_squeeze(1)"
-        );
-        // Only an alignment that is called: a longer name is something else.
-        assert_eq!(
-            rewrite_alignment_getters("x.add.outer(1)"),
-            "x.add.outer(1)"
-        );
-        assert_eq!(rewrite_alignment_getters("x.add.out"), "x.add.out");
     }
 }

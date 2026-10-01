@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1095 methods=1144 controls=668
+# functions=1106 methods=1165 controls=668
 
 [functions]
 AggregateError
@@ -101,6 +101,7 @@ binary
 binaryL
 binaryN
 binaryNL
+bind
 binshift
 bite
 bjork
@@ -649,6 +650,7 @@ imag
 inhabit
 inhabitmod
 initHydra
+innerBind
 inside
 into
 inv
@@ -780,6 +782,7 @@ often
 orbit
 oschost
 oscport
+outerBind
 outside
 overgain
 overshape
@@ -836,6 +839,7 @@ plyWith
 plyforeach
 plywith
 pm
+polyBind
 polyTouch
 polymeter
 polyrhythm
@@ -899,6 +903,7 @@ s
 s_alt
 s_cat
 s_polymeter
+s_taperlist
 s_zip
 samples
 saw
@@ -916,6 +921,7 @@ seg
 segment
 semitone
 seq
+seqPLoop
 sequence
 set
 setCpm
@@ -930,6 +936,7 @@ setcps
 shape
 shapevol
 shrink
+shrinklist
 shuffle
 signal
 silence
@@ -965,6 +972,7 @@ spread
 square
 square2
 squeeze
+squeezeBind
 squiz
 src
 stack
@@ -974,6 +982,7 @@ stackCentre
 stackLeft
 stackRight
 steady
+stepBind
 stepalt
 stepcat
 stepsPerOctave
@@ -1001,6 +1010,7 @@ time
 timeCat
 timecat
 timeline
+tokenizeNote
 tour
 trans
 transient
@@ -1040,6 +1050,7 @@ vibrato
 vmod
 voice
 voicing
+voicingRegistry
 vowel
 warp
 warpatt
@@ -1164,6 +1175,7 @@ begin
 bendRange
 bend_range
 bgain
+bind
 binshift
 bite
 bjork
@@ -1724,6 +1736,7 @@ i
 imag
 inhabit
 inhabitmod
+innerBind
 innerJoin
 inner_join
 inside
@@ -1756,6 +1769,13 @@ keep_squeeze
 keep_squeezein
 keep_squeezeout
 keepif
+keepif_mix
+keepif_out
+keepif_poly
+keepif_reset
+keepif_restart
+keepif_squeeze
+keepif_squeezeout
 keyDown
 key_down
 krush
@@ -1875,6 +1895,7 @@ osc
 oschost
 oscport
 out
+outerBind
 outerJoin
 outer_join
 outside
@@ -1952,7 +1973,10 @@ ply_with
 plyforeach
 plywith
 poly
+polyBind
+polyJoin
 polyTouch
+poly_join
 postgain
 pow
 pow_mix
@@ -2033,6 +2057,7 @@ s_expand
 s_extend
 s_sub
 s_taper
+s_taperlist
 s_tour
 scale
 scaleTrans
@@ -2066,6 +2091,7 @@ shader
 shape
 shapevol
 shrink
+shrinklist
 shuffle
 sinefold
 size
@@ -2099,6 +2125,7 @@ splitQueries
 split_queries
 spread
 squeeze
+squeezeBind
 squeezeIn
 squeezeJoin
 squeezeOut
@@ -2108,6 +2135,9 @@ squeezeout
 squiz
 src
 stack
+stepBind
+stepJoin
+step_join
 steps
 stepsPerOctave
 strans
@@ -2209,6 +2239,8 @@ when
 whenKey
 when_key
 withBase
+withHap
+withHaps
 withValue
 with_base
 within

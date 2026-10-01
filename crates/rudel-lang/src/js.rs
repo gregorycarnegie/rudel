@@ -734,6 +734,16 @@ impl Scope {
     }
 }
 
+/// Run `source` in the lent context, for the part of the prelude written in
+/// the script's own language. It is ours, so failing to run is a bug.
+pub(crate) fn run_lent(source: &str) {
+    lent(|ctx| {
+        if let Err(e) = ctx.eval(Source::from_bytes(source)) {
+            panic!("the prelude failed: {}", error_text(&e, ctx));
+        }
+    });
+}
+
 /// Wrap `func` as a method: called as `pat.name(...args)`, it runs
 /// `call(func, patternify, args, pat)`.
 pub(crate) fn method_calling(call: Arg, func: &Arg, patternify: bool) -> Arg {

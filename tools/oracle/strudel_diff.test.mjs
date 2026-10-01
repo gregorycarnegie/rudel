@@ -3,7 +3,8 @@
 //   node ../../strudel/node_modules/vitest/vitest.mjs run \
 //     --config tools/oracle/strudel_diff.config.mjs
 //
-// Emits `<OK|EMPTY|ERR>\t<id>\t<haps|message>` per pattern, which pairs with the
+// Emits `<OK|EMPTY|ERR>\t<id>\t<haps|message>` per pattern (an error Strudel
+// caught and logged while querying is ERR, not EMPTY), which pairs with the
 // same shape from rudel to say which failures are ours. Without a comparison
 // like this an absolute pass rate over user-written patterns means nothing:
 // plenty of them do not work in Strudel either.
@@ -16,7 +17,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { it } from 'vitest';
-import { evalScope } from '@strudel/core';
+import { evalScope, logger } from '@strudel/core';
 import { queryCode } from './test/runtime.mjs';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -31,9 +32,24 @@ const CYCLES = Number(process.env.DIFF_CYCLES ?? 8);
 // unstubbed is a real difference in what the two engines understand.
 const noop = () => {};
 const anoop = async () => {};
+
+// Strudel's `queryArc` catches an error thrown while querying, logs it and
+// returns no haps, so a pattern that throws on every query would read as
+// EMPTY. The logger reaches the page through `document.dispatchEvent`; this
+// stub is where the harness hears about it, and counts it as the failure it
+// is. Without `dispatchEvent` the logger itself threw, which made the verdict
+// depend on whether the same message had been logged in the last second.
+let queryError;
+const document = {
+  dispatchEvent(event) {
+    const message = String(event?.detail?.message ?? '');
+    if (message.startsWith('[query] error:')) queryError ??= message;
+  },
+};
+
 await evalScope({
   samples: anoop, initHydra: anoop, H: noop, hydra: noop, P5: noop, p5: noop,
-  speak: noop, window: {}, document: {}, location: {},
+  speak: noop, window: {}, document, location: {},
   setGainCurve: noop, theme: noop, strudelMirror: {}, dough: noop, fetch: anoop,
 });
 
@@ -43,8 +59,14 @@ it('runs the corpus through strudel', async () => {
   const lines = [];
   for (const f of files.slice(FROM, TO)) {
     const id = f.replace(/\.js$/, '');
+    queryError = undefined;
+    // The logger drops a message repeated within a second, so one pattern's
+    // error would hide the same error in a near-copy run next to it. Logging
+    // something else first resets that.
+    logger(`[diff] ${id}`);
     try {
       const haps = await queryCode(readFileSync(CORPUS + '/' + f, 'utf8'), CYCLES);
+      if (queryError) throw new Error(queryError);
       lines.push(`${haps.length > 0 ? 'OK' : 'EMPTY'}\t${id}\t${haps.length}`);
     } catch (e) {
       const msg = String(e?.message ?? e).split('\n')[0].slice(0, 200);

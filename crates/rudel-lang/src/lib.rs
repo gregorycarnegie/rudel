@@ -163,6 +163,13 @@ pub(crate) fn registered_names() -> &'static HashSet<String> {
     })
 }
 
+/// The script as the engine runs it, after the Strudel passes. An engine
+/// error's line and column point into this, not into what was typed.
+#[doc(hidden)]
+pub fn preprocessed(script: &str) -> String {
+    preprocess_strudel_with_meta(script).source
+}
+
 /// Evaluate a script and extract the resulting pattern.
 pub fn eval(script: &str) -> Result<Pattern, String> {
     eval_result(script).map(|result| result.pattern)
@@ -315,6 +322,10 @@ fn evaluate(
     let combined = value.and_then(|value| {
         let script_pattern = match &value {
             Arg::Pat(p) => Some(p.clone()),
+            // A script that ends on a statement (`let cpm = 30;`) has no
+            // value; upstream's REPL plays silence for it. Any other
+            // non-pattern is still an error, which says more than silence.
+            Arg::Null => Some(rudel_core::silence()),
             _ => None,
         };
         js::lend(&mut ctx, || {

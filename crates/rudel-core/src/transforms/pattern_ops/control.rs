@@ -211,6 +211,30 @@ mod tests {
     }
 
     #[test]
+    fn keepif_out_takes_the_mask_s_structure_and_keeps_maps_whole() {
+        // `keepif.out` is what upstream's `struct` is: the mask's onsets.
+        let mask = fastcat(&[
+            pure(Value::Bool(true)),
+            pure(Value::Bool(false)),
+            pure(Value::Bool(true)),
+        ]);
+        let sound = crate::controls::s(pure(Value::Str("bd".into())));
+        let kept = sound.keepif_out(mask.clone());
+        let haps = kept.query_arc(Frac::zero(), Frac::one());
+        assert_eq!(haps.len(), 2, "one per true step");
+        assert_eq!(haps[1].whole.unwrap().begin, Frac::new(2, 3));
+        // The map comes through as it was, with nothing of the mask in it.
+        assert_eq!(
+            haps[0].value,
+            sound.query_arc(Frac::zero(), Frac::one())[0].value
+        );
+        assert_eq!(
+            kept.query_arc(Frac::zero(), Frac::one()),
+            sound.struct_pat(mask).query_arc(Frac::zero(), Frac::one())
+        );
+    }
+
+    #[test]
     fn invert_swaps_both_ways() {
         let flipped = two().invert();
         let truthy: Vec<bool> = flipped

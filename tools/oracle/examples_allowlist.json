@@ -15,6 +15,5 @@
   "rotationAlpha#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
   "rotationBeta#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
   "rotationGamma#0": "unsupported: @strudel/motion device sensors have no desktop equivalent (docs/UNSUPPORTED.md). Upstream's own examples.test.mjs skips these too.",
-  "seqPLoop#0": "unsupported: not defined in the pinned Strudel checkout.",
   "setDefaultJoin#0": "unsupported: a global switch over the bind/join family, which Rudel does not expose standalone."
 }

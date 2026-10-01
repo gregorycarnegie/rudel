@@ -404,6 +404,20 @@ pub(crate) fn register(prelude: &Scope) {
         rudel_core::voicing::add_voicings(&name, entries);
         done()
     });
+    // `voicingRegistry` (tonal/voicings.mjs): `{name: {dictionary}}`, read by
+    // a script extending a dictionary rather than starting one from nothing.
+    let strings = |list: Vec<String>| Arg::List(list.into_iter().map(Arg::Str).collect());
+    let registry = rudel_core::voicing::voicing_dictionaries()
+        .into_iter()
+        .map(|(name, table)| {
+            let table = table.into_iter().map(|(k, v)| (k, strings(v))).collect();
+            (
+                name,
+                Arg::Map(vec![("dictionary".to_string(), Arg::Map(table))]),
+            )
+        })
+        .collect();
+    prelude.value("voicingRegistry", Arg::Map(registry));
     // `setDefaultVoicings(name)` (tonal/voicings.mjs) picks the dictionary a
     // later bare `.voicing()` reads. Process-global upstream and here; songs
     // call it once at the top.
@@ -543,8 +557,15 @@ pub(crate) fn register(prelude: &Scope) {
     }
 
     // `reify(x)`: anything as a pattern. Strudel's own coercion, exposed
-    // because scripts call it directly when building patterns by hand.
-    prelude.func("reify", |a| Ok(arg_to_pattern(arg0(a)).into()));
+    // because scripts call it directly when building patterns by hand. The
+    // result forgets the mini text it was parsed from: that text is what lets
+    // `pure("x")` hold a string, and a script asking for a pattern means one —
+    // `pure(reify(pat))` is a pattern of patterns, as `seqPLoop` builds it.
+    prelude.func("reify", |a| {
+        let mut pat = arg_to_pattern(arg0(a));
+        pat.source = None;
+        Ok(pat.into())
+    });
     // `chooseWith(signal, [a, b, ...])` / `chooseInWith`: index the list with an
     // arbitrary 0..1 signal, taking structure from the signal or from the
     // chosen patterns respectively.
@@ -858,6 +879,8 @@ pub(crate) fn register(prelude: &Scope) {
     // Registered last and only for names the prelude has not already claimed,
     // so hand-written bindings (`note`, `n`, `s`, `i`, `freq`, …) win.
     register_control_factories(prelude);
+    // What upstream writes in JavaScript over the methods above, kept in it.
+    crate::js::run_lent(include_str!("prelude.js"));
 }
 
 /// Register a pattern-valued factory for every control name that is not already

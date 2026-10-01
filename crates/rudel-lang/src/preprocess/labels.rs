@@ -99,7 +99,39 @@ fn sanitize_label(name: &str) -> String {
     out
 }
 
+/// Put a label that follows a `;` on its own line: `…;$: n("0")` is two
+/// statements, and the pass below finds labels only where a line starts.
+/// Only outside every bracket, where no map key can be.
+fn break_before_labels(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut depth = 0i64;
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind != Chunk::Code {
+            out.push_str(text);
+            continue;
+        }
+        for (i, c) in text.char_indices() {
+            out.push(c);
+            depth += match c {
+                '(' | '[' | '{' => 1,
+                ')' | ']' | '}' => -1,
+                _ => 0,
+            };
+            if c != ';' || depth > 0 {
+                continue;
+            }
+            let line = src[start + i + 1..].split('\n').next().unwrap_or("");
+            if !line.trim().is_empty() && label_at_line(line).is_some() {
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
 pub(super) fn rewrite_labels(src: &str) -> String {
+    let src = &break_before_labels(src);
     let lines: Vec<&str> = src.lines().collect();
     let shape = line_shape(src);
     let delta = |i: usize| shape.get(i).map_or(0, |s| s.0);
@@ -247,6 +279,20 @@ mod tests {
         // A colon with no name before it is a map key, not a label.
         let keyed = r#": s("bd")"#;
         assert_eq!(rewrite_labels(keyed), keyed);
+    }
+
+    #[test]
+    fn a_label_after_a_semicolon_starts_its_own_statement() {
+        // Minified one-liners put every `$:` on the first line.
+        let two = rewrite_labels(r#"$:s("bd");$:s("sd");"#);
+        assert!(two.contains(r#"rudel_label("$", s("bd"))"#), "{two}");
+        assert!(two.contains(r#"rudel_label("$", s("sd"))"#), "{two}");
+        // Not inside brackets, where `;x:` cannot be a label, nor after a `;`
+        // that ends a statement which is no label.
+        let braced = "f(() => {a();b: 1})";
+        assert_eq!(rewrite_labels(braced), braced);
+        let ternary = "x();a ? b : c";
+        assert_eq!(rewrite_labels(ternary), ternary);
     }
 
     #[test]

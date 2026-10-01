@@ -243,3 +243,70 @@ fn a_script_nested_past_what_the_parser_survives_is_refused() {
     let quoted = format!("pure('{}')", "(".repeat(5000));
     assert!(eval(&quoted).is_ok());
 }
+
+#[test]
+fn seq_p_loop_lays_sections_out_by_start_and_stop_as_strudel_does() {
+    // Each `(begin end s)` below is what real Strudel's `seqPLoop` gives over
+    // three cycles, queried from `@strudel/core` directly.
+    let haps = |src: &str| -> Vec<String> {
+        let mut out: Vec<String> = eval(src)
+            .expect(src)
+            .query_arc(Frac::zero(), Frac::int(3))
+            .iter()
+            .map(|h| {
+                let whole = h.whole.unwrap();
+                let s = match &h.value {
+                    Value::Map(m) => m.get("s").and_then(|v| v.as_str()).unwrap_or(""),
+                    _ => "",
+                };
+                // Strudel prints a whole number without its `/1`.
+                let frac = |f: Frac| f.to_string().trim_end_matches("/1").to_string();
+                format!("{} {} {s}", frac(whole.begin), frac(whole.end))
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let sorted = |lines: &[&str]| {
+        let mut v: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+        v.sort();
+        v
+    };
+    // Overlapping sections: `cp` starts while `bd` is still playing.
+    assert_eq!(
+        haps(r#"seqPLoop([0, 2, "bd(3,8)"], [1, 3, "cp(3,8)"]).sound()"#),
+        sorted(&[
+            "0 1/8 bd",
+            "3/8 1/2 bd",
+            "3/4 7/8 bd",
+            "1 9/8 bd",
+            "11/8 3/2 bd",
+            "7/4 15/8 bd",
+            "1 9/8 cp",
+            "11/8 3/2 cp",
+            "7/4 15/8 cp",
+            "2 17/8 cp",
+            "19/8 5/2 cp",
+            "11/4 23/8 cp",
+        ])
+    );
+    // A two-element part starts where the one before it stopped.
+    assert_eq!(
+        haps(r#"seqPLoop([1, "a b"], [2, "c"]).sound()"#),
+        sorted(&["0 1/2 a", "1/2 1 b", "2 5/2 a", "5/2 3 b", "1 2 c"])
+    );
+}
+
+#[test]
+fn a_one_argument_method_called_with_none_is_silence() {
+    // Upstream's `register` makes the missing argument `sequence()`, which is
+    // silence; a method with more arguments missing still fails.
+    for method in ["rarely", "sometimes", "jux"] {
+        let pat = eval(&format!(r#"s("bd*4").{method}()"#)).expect(method);
+        assert!(
+            pat.query_arc(Frac::zero(), Frac::one()).is_empty(),
+            "{method}"
+        );
+    }
+    assert!(eval(r#"s("bd*4").every(2)"#).is_err());
+}

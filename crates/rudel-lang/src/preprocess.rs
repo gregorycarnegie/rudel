@@ -16,7 +16,7 @@ use labels::rewrite_labels;
 use mini::annotate_mini_offsets;
 pub(crate) use mondo::looks_like_mondo;
 use mondo::rewrite_mondo_templates;
-use syntax::{rewrite_alignment_getters, rewrite_tagged_templates, strip_await, strip_comments};
+use syntax::{rewrite_tagged_templates, strip_await, strip_comments};
 use widgets::rewrite_editor_widgets_with_context;
 
 /// How deep a script's brackets may nest. boa's parser recurses once per
@@ -65,7 +65,6 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = strip_comments(&script);
     let script = scope_kabelsalat_calls(&script);
     let script = rewrite_tagged_templates(&script);
-    let script = rewrite_alignment_getters(&script);
     let script = strip_await(&script);
     let script = rewrite_labels(&script);
     // Mirror the transpiler's empty-body fallback: an empty (or fully

@@ -3,24 +3,38 @@ use super::common::*;
 // --- Transpilation / preprocessing parity -------------------------------------
 
 #[test]
-fn preprocess_flattens_alignment_getters() {
-    assert_eq!(preprocess_strudel("p.add.out(1)"), "p.add_out(1)");
-    // `in` is the default alignment and *is* the plain method
-    assert_eq!(preprocess_strudel("p.mul.in(1)"), "p.mul(1)");
-    // spelling normalisation: `mod` is bound as `modulo`, and the camelCase and
-    // `squeezein` forms are the same cell
-    assert_eq!(preprocess_strudel("p.mod.poly(1)"), "p.modulo_poly(1)");
-    assert_eq!(preprocess_strudel("p.add.squeezeIn(1)"), "p.add_squeeze(1)");
-    assert_eq!(
-        preprocess_strudel("p.set.squeezeOut(1)"),
-        "p.set_squeezeout(1)"
+fn an_alignment_getter_is_its_flat_method_even_passed_on_uncalled() {
+    let haps = |src: &str| eval(src).expect(src).query_arc(Frac::zero(), Frac::one());
+    let same = |a: &str, b: &str| assert_eq!(haps(a), haps(b), "{a} against {b}");
+    same(
+        r#"n("0 1").add.out("10 20 30")"#,
+        r#"n("0 1").add_out("10 20 30")"#,
     );
-    // the alignment has to be applied — a chain that merely reads that way is
-    // not an alignment, and neither is a string
-    assert_eq!(preprocess_strudel("p.add.output"), "p.add.output");
-    assert_eq!(
-        preprocess_strudel(r#"note("add.out(1)")"#),
-        r#"note(m("add.out(1)", 6))"#
+    // `in` is the default alignment and *is* the plain method.
+    same(r#"n("0 1").mul.in(3)"#, r#"n("0 1").mul(3)"#);
+    // `mod` is bound as `modulo`; the camelCase and `squeezein` forms are
+    // the same cell.
+    same(
+        r#"n("5 6").mod.poly("2 3 4")"#,
+        r#"n("5 6").modulo_poly("2 3 4")"#,
+    );
+    same(
+        r#"n("0 1").add.squeezeIn("1 2")"#,
+        r#"n("0 1").add_squeeze("1 2")"#,
+    );
+    same(
+        r#"n("0 1").set.squeezeOut(n("3 4"))"#,
+        r#"n("0 1").set_squeezeout(n("3 4"))"#,
+    );
+    // `keepif.out` is what `struct` is upstream.
+    same(
+        r#"s("bd").keepif.out("1 0 1")"#,
+        r#"s("bd").struct("1 0 1")"#,
+    );
+    // Uncalled, it is still bound to the pattern it was read from.
+    same(
+        r#"n("0 1").apply(n("5 6 7").keep.out)"#,
+        r#"n("5 6 7").keep_out(n("0 1"))"#,
     );
 }
 

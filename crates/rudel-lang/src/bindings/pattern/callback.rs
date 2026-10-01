@@ -466,6 +466,12 @@ pub(super) fn with_callback(
     callback_arg: usize,
     body: impl FnOnce(&Pattern, &Callback) -> Pattern,
 ) -> Res {
+    // `pat.rarely()`: upstream's `register` turns a one-argument method's
+    // missing argument into `sequence()`, which is silence, so the method
+    // plays nothing rather than failing.
+    if callback_arg == 0 && args.is_empty() {
+        return Ok(rudel_core::silence().into());
+    }
     let cb = Callback::new(arg(args, callback_arg).clone());
     let result = body(pat, &cb);
     cb.finish()?;

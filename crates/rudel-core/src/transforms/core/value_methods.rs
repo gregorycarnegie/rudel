@@ -44,6 +44,34 @@ macro_rules! aligned_variants {
     };
 }
 
+/// `keepif` in the other alignments. Upstream applies its op bare, not
+/// through `_composeOp`, so a map on either side is kept or dropped whole
+/// rather than merged key by key. Boxing each value in a one-element list is
+/// what hides it from `compose_op`, which only spreads over maps.
+macro_rules! keepif_variants {
+    ($($name:ident => $align:expr),* $(,)?) => {
+        $(
+            #[doc = concat!("`keepif` with the `", stringify!($name), "` alignment.")]
+            pub fn $name(&self, other: impl IntoPattern) -> Pattern {
+                let boxed = |v: Value| Value::List(vec![v]);
+                let align = $align;
+                align(&self.fmap(boxed), other.into_pattern().fmap(boxed))
+                    .filter_values(|v| !v.is_nothing())
+            }
+        )*
+    };
+}
+
+/// Keep the left value where the right is truthy; both arrive boxed.
+fn keepif_op(a: &Value, b: &Value) -> Value {
+    match (a, b) {
+        (Value::List(a), Value::List(b)) if b.first().is_some_and(Value::truthy) => {
+            a.first().cloned().unwrap_or(Value::Null)
+        }
+        _ => Value::Null,
+    }
+}
+
 macro_rules! op_in_methods {
     ($($(
         #[$attr:meta]
@@ -72,6 +100,15 @@ impl Pattern {
         keep_out keep_mix keep_squeeze keep_squeezeout keep_reset keep_restart keep_poly);
     aligned_variants!(num_mod; modulo_out modulo_mix modulo_squeeze modulo_squeezeout modulo_reset modulo_restart modulo_poly);
     aligned_variants!(num_pow; pow_out pow_mix pow_squeeze pow_squeezeout pow_reset pow_restart pow_poly);
+    keepif_variants! {
+        keepif_out => |this: &Pattern, other| this.op_out(other, keepif_op),
+        keepif_mix => |this: &Pattern, other| this.op_mix(other, keepif_op),
+        keepif_squeeze => |this: &Pattern, other| this.op_squeeze(other, keepif_op),
+        keepif_squeezeout => |this: &Pattern, other| this.op_squeeze_out(other, keepif_op),
+        keepif_reset => |this: &Pattern, other| this.op_reset_impl(other, keepif_op, false),
+        keepif_restart => |this: &Pattern, other| this.op_reset_impl(other, keepif_op, true),
+        keepif_poly => |this: &Pattern, other| this.op_poly(other, keepif_op),
+    }
 
     // -- Math / value ops --------------------------------------------------
 

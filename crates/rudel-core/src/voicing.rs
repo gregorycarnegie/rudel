@@ -153,6 +153,16 @@ pub fn add_voicings(name: &str, dictionary: impl IntoIterator<Item = (String, Ve
     dictionaries::register(name, dictionary.into_iter().collect());
 }
 
+/// One dictionary's chord symbols, each with the voicings it lists.
+pub type DictionaryEntries = Vec<(String, Vec<String>)>;
+
+/// Every dictionary by name, as upstream's `voicingRegistry` holds them: chord
+/// symbol -> voicings. `addVoicings` extends one by spreading it —
+/// `{...voicingRegistry.ireal.dictionary, Mb6: [...]}`.
+pub fn voicing_dictionaries() -> Vec<(String, DictionaryEntries)> {
+    dictionaries::all()
+}
+
 impl Default for VoicingOpts {
     fn default() -> Self {
         VoicingOpts {

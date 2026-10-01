@@ -151,7 +151,7 @@ impl Pattern {
     /// and [`grow`](Self::grow). A positive `amount` drops steps from the start,
     /// a negative one from the end; the number of slices defaults to the step
     /// count (`shrinklist`).
-    fn shrink_list(&self, amount: i64) -> Vec<Pattern> {
+    pub fn shrink_list(&self, amount: i64) -> Vec<Pattern> {
         let Some(steps) = self.steps else {
             return vec![self.clone()];
         };

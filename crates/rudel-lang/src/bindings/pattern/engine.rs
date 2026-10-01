@@ -23,7 +23,7 @@ use super::{
     args::{arg, method},
     convert::{arg_to_pattern, to_value, value_to_arg},
 };
-use crate::js::{self, Arg, NULL, Scope};
+use crate::js::{self, Arg, NULL, Res, Scope};
 use rudel_core::{Frac, Hap, Pattern, State, TimeSpan};
 
 /// A fraction from whatever a script passed: another fraction, or a number.
@@ -235,6 +235,48 @@ pub(super) fn register_engine_methods(proto: &Scope) {
             pat.query(&state).iter().map(hap_to_arg).collect(),
         ))
     });
+    // `pat.withHaps((haps, state) => haps)`: every query's haps, through a
+    // script function; `withHap(hap => hap)` maps them one at a time.
+    for (name, each) in [("withHaps", false), ("withHap", true)] {
+        method(proto, name, move |pat, a| {
+            let Some(func) = a.first().and_then(js::keep) else {
+                return Ok(pat.clone().into());
+            };
+            let pat = pat.clone();
+            let steps = pat.steps;
+            Ok(Pattern::new(move |state| {
+                let (pat, state) = (pat.clone(), state.clone());
+                func.run(move |f| {
+                    let haps: Vec<Arg> = pat.query(&state).iter().map(hap_to_arg).collect();
+                    let back = |r: Res| match r {
+                        Ok(Arg::List(haps)) => haps.iter().filter_map(hap_from_arg).collect(),
+                        Ok(hap) => hap_from_arg(&hap).into_iter().collect(),
+                        Err(_) => Vec::new(),
+                    };
+                    if each {
+                        haps.into_iter()
+                            .flat_map(|hap| back(js::call(f, vec![hap])))
+                            .collect()
+                    } else {
+                        back(js::call(f, vec![Arg::List(haps), state_to_arg(&state)]))
+                    }
+                })
+                .unwrap_or_default()
+            })
+            .set_steps(steps)
+            .into())
+        });
+    }
+    // `pat.shrinklist(n)` / `s_taperlist`: the views `shrink` concatenates,
+    // as a list for the script to lay out itself.
+    for name in ["shrinklist", "s_taperlist"] {
+        method(proto, name, |pat, a| {
+            let amount = super::convert::arg_to_f64(arg(a, 0)) as i64;
+            Ok(Arg::List(
+                pat.shrink_list(amount).into_iter().map(Arg::from).collect(),
+            ))
+        });
+    }
     // `pat.splitQueries()`: ask one cycle at a time, so a query function that
     // reasons about "this cycle" only ever sees one.
     for name in ["splitQueries", "split_queries"] {

@@ -123,7 +123,7 @@ fn run(corpus: &std::path::Path, cycles: i64) -> Vec<Outcome> {
             })) {
                 Ok(Ok(0)) => ("EMPTY", String::new(), String::new()),
                 Ok(Ok(haps)) => ("OK", haps.to_string(), String::new()),
-                Ok(Err(e)) => ("ERR", first_line(&e), e),
+                Ok(Err(e)) => ("ERR", first_line(&e), with_caret(&src, e)),
                 Err(panic) => {
                     let message = panic
                         .downcast_ref::<String>()
@@ -142,6 +142,33 @@ fn run(corpus: &std::path::Path, cycles: i64) -> Vec<Outcome> {
             }
         })
         .collect()
+}
+
+/// `error` with the line it names, from the *preprocessed* source the engine
+/// ran, and a caret under the column: `(unknown at :6:70)` alone does not say
+/// which call was not a function.
+fn with_caret(src: &str, error: String) -> String {
+    let at = error.rfind("at :").map(|i| &error[i + 4..]);
+    let Some((line, col)) = at.and_then(|rest| {
+        let mut nums = rest.split(|c: char| !c.is_ascii_digit());
+        Some((
+            nums.next()?.parse::<usize>().ok()?,
+            nums.next()?.parse::<usize>().ok()?,
+        ))
+    }) else {
+        return error;
+    };
+    let source = rudel_lang::preprocessed(src);
+    let Some(text) = source.lines().nth(line.saturating_sub(1)) else {
+        return error;
+    };
+    // Long lines are cut to a window around the column.
+    let start = col.saturating_sub(60);
+    let shown: String = text.chars().skip(start).take(120).collect();
+    format!(
+        "{error}\n  {shown}\n  {}^",
+        " ".repeat(col.saturating_sub(1) - start)
+    )
 }
 
 fn first_line(message: &str) -> String {

@@ -24,6 +24,46 @@ pub(super) fn register(name: &str, table: CustomTable) {
         .insert(name.to_string(), Arc::new(table));
 }
 
+/// Every dictionary, built in and registered, by name.
+pub(super) fn all() -> Vec<(String, super::DictionaryEntries)> {
+    let builtin = [
+        ("lefthand", &LEFTHAND),
+        ("triads", &TRIADS),
+        ("guidetones", &GUIDETONES),
+        ("legacy", &LEGACY),
+        ("ireal", &IREAL),
+        ("ireal-ext", &IREAL_EXT),
+    ]
+    .map(|(name, table)| {
+        let entries = table
+            .entries()
+            .map(|(symbol, defs)| {
+                (
+                    symbol.to_string(),
+                    defs.iter().map(|d| d.to_string()).collect(),
+                )
+            })
+            .collect();
+        (name.to_string(), entries)
+    });
+    let custom = CUSTOM
+        .read()
+        .unwrap()
+        .iter()
+        .map(|(name, table)| {
+            let entries = table.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            (name.clone(), entries)
+        })
+        .collect::<Vec<_>>();
+    // A registered name shadows a built-in one, as `Object.assign` does.
+    let mut all: Vec<_> = builtin
+        .into_iter()
+        .filter(|(name, _)| !custom.iter().any(|(c, _)| c == name))
+        .collect();
+    all.extend(custom);
+    all
+}
+
 /// Where a dictionary's voicings live: compiled in, or registered at runtime.
 enum Table {
     Builtin(&'static VoicingTable),

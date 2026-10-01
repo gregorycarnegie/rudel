@@ -48,6 +48,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - `register([names…], fn)`, which registers each name and returns them as an
   object; `signal(t => …)`; `id`; and `pat.queryArc(begin, end)` /
   `pat.firstCycle()` for scripts that read a pattern's haps.
+- `bind`, `innerBind`, `outerBind`, `squeezeBind`, `stepBind` and `polyBind`
+  (with `stepJoin`/`polyJoin`); `withHaps`/`withHap`; `shrinklist` /
+  `s_taperlist`; `keepif` in every alignment (`keepif.out` is `struct`);
+  `voicingRegistry`, for extending a built-in dictionary with `addVoicings`;
+  `tokenizeNote`; and `seqPLoop`, which arranges sections by start and stop
+  cycle so they may overlap.
+- **The unpatterned `_name` twin of every method** (`_scramble(4)`,
+  `_fast(2)`), which upstream's `register` makes for each one.
 
 ### Fixed
 
@@ -63,6 +71,19 @@ This file starts at 0.7.0. Earlier history is in the git log.
   `sort(() => Math.random() - 0.5)` shuffle idiom is.
 - `pat.filter(x)` with something other than a predicate plays the pattern
   unfiltered, as upstream does, rather than failing.
+- **`pat.add.out` and the other alignments are real getters,** so
+  `.chunk(4, room(1).keep.out)` passes a function bound to its pattern. They
+  used to be a text rewrite that only recognised the called form.
+- **Labels after a `;` on the same line** (`…;$: n("0")`, the minified
+  one-liner) are labels, not part of the statement before.
+- **A script that ends on a statement plays silence,** as upstream's REPL
+  does, rather than failing with "did not return a pattern". Any other
+  non-pattern value is still an error.
+- **A one-argument method called with none plays silence** (`.rarely()`,
+  `.jux()`), as upstream's `register` makes it, rather than failing.
+- **`reify(x)` is always a pattern.** Given a mini-notation string it kept the
+  text as well, so `pure(reify("a b"))` held the string `"a b"` rather than
+  the pattern. `pure("text")` still holds the text.
 - **Three ways to crash the app from the editor, found by property tests:**
   Mondo's `..` or `&` with an operand missing panicked, and brackets nested a
   few hundred deep — in Mondo or in the script — overflowed the stack, which
@@ -70,8 +91,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   `SyntaxError`. Scripts may nest 128 brackets deep, Mondo 64.
 
 Measured against real Strudel over the 8,004 patterns shared on strudel.cc,
-patterns that play in Strudel but fail in Rudel went from 83 to 27, eleven of
-which reach for the browser's `window`/`document`.
+patterns that play in Strudel but fail in Rudel went from 83 to 15, every one
+of which reaches for the browser's `window`/`document`. (The Strudel side was
+corrected along the way — see Internal — so 5,198 patterns now count as
+working in Strudel rather than 4,975; the 83 was against the old count.)
 
 ### Removed
 
@@ -97,6 +120,15 @@ which reach for the browser's `window`/`document`.
   script callback that never returns fails its test instead of hanging CI.
 - Tests that write files use `tempfile` directories rather than a hand-made
   one under the system temp directory that a failed test left behind.
+- **The differential harness (`tools/oracle/strudel_diff.test.mjs`) reads
+  Strudel correctly.** Its stub `document` had no `dispatchEvent`, so anything
+  Strudel logged threw, and about 230 patterns that work in Strudel were
+  recorded as failing. An error Strudel catches while querying, and only logs,
+  now counts as a failure rather than as an empty pattern; and the logger's
+  one-second de-duplication no longer lets one pattern's error hide the same
+  error in a near-copy run after it, which made a verdict depend on run order.
+- `sweep --errors` shows the line an engine error points at, as the engine
+  ran it, with a caret under the column.
 
 [Boa]: https://boajs.dev
 
