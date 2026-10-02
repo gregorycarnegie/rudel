@@ -58,7 +58,7 @@ All three take well under the few milliseconds it would take to notice. Rudel 0.
 
 This only matters for batch work, such as checking every song in a collection. `cargo bench -p rudel-lang` times this case.
 
-**Scripts that do a lot of JavaScript work.** Rudel runs scripts on [Boa](https://boajs.dev), which interprets JavaScript, while V8 in Strudel's browser compiles it to machine code. Pattern code spends little time in JavaScript, so the difference rarely shows. A script that does a lot of plain JavaScript computation can still evaluate several times slower than in Strudel. One song in our test collection, which builds its music from JavaScript helper functions, takes about 35 ms to evaluate, against 3 ms on 0.21.0.
+**Scripts that do a lot of JavaScript work.** Rudel runs scripts on [Boa](https://boajs.dev), which interprets JavaScript, while V8 in Strudel's browser compiles it to machine code. Pattern code spends little time in JavaScript, so the difference rarely shows. A script that does a lot of plain JavaScript computation can still evaluate several times slower than in Strudel. One song in our test collection, which builds its music from JavaScript helper functions, takes about 5.5 ms to evaluate, against 3 ms on 0.21.0.
 
 ## Caveats
 

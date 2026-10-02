@@ -423,9 +423,36 @@ fn pick_with_two_arrays_reads_the_first_as_the_lookup() {
 }
 
 #[test]
-fn a_probed_callback_repeats_its_window_past_the_probe() {
-    // `fmap` maps 16 cycles eagerly and repeats them; cycle 20 is cycle 4.
-    let pat = eval(r#"n("<0 1 2 3 4>").fmap(v => v)"#).expect("eval");
-    assert!(!values(&pat, 20, 21).is_empty());
-    assert_eq!(values(&pat, 20, 21), values(&pat, 4, 5));
+fn fmap_maps_at_query_time_however_far_the_pattern_runs() {
+    // Upstream maps each hap as it is queried. An eager 16-cycle probe used to
+    // repeat its window, so cycle 20 of `<0 1 2 3 4>` came out as cycle 4.
+    let plain = eval(r#"n("<0 1 2 3 4>")"#).expect("eval");
+    let mapped = eval(r#"n("<0 1 2 3 4>").fmap(v => v)"#).expect("eval");
+    for cycle in [0, 4, 16, 20, 21, 99] {
+        assert_eq!(
+            values(&mapped, cycle, cycle + 1),
+            values(&plain, cycle, cycle + 1),
+            "cycle {cycle}"
+        );
+    }
+    let shifted = eval(r#"n("<0 1 2 3 4>").withValue(v => ({ n: v.n + 10 }))"#).expect("eval");
+    assert_eq!(
+        values(&shifted, 20, 21),
+        values(&eval(r#"n(10)"#).unwrap(), 0, 1)
+    );
+}
+
+#[test]
+fn a_value_fmap_throws_on_is_kept_and_the_error_logged() {
+    rudel_core::drain_log();
+    let pat = eval(r#"n("0 1").fmap(v => { throw new Error('nope') })"#).expect("eval");
+    assert_eq!(
+        values(&pat, 0, 1),
+        values(&eval(r#"n("0 1")"#).unwrap(), 0, 1)
+    );
+    assert!(
+        rudel_core::drain_log()
+            .iter()
+            .any(|l| l == "withValue: nope")
+    );
 }

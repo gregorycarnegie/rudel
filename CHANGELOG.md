@@ -13,6 +13,16 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`withValue` (and `fmap`) map values as the pattern plays,** as upstream
+  does. They used to map the first 16 cycles at evaluation and repeat them, so
+  any pattern longer than that replayed its opening from cycle 16 on. One song
+  in the eefano collection now gives Strudel's exact 1,001 events over 128
+  cycles rather than 855, and evaluates in 5.5 ms rather than 27. A callback
+  that throws leaves the value as it was and logs `withValue: <message>` to
+  the console; it used to fail the evaluation.
+
 ## [0.22.0] — 2026-10-02
 
 ### Changed

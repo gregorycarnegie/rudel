@@ -444,18 +444,44 @@ pub(super) fn kpattern_superimpose(pat: &Pattern, a: &[Arg]) -> Res {
     Ok(rudel_core::stack(&results).into())
 }
 
-/// `pat.fmap(f)`: Strudel's value-level mapper. The script does not run on the
-/// query path, so map one probe window eagerly and repeat that shape.
+/// `pat.fmap(f)` / `pat.withValue(f)`: map every value through `f` when the
+/// pattern is queried, as upstream does — one trip to the JS thread per query,
+/// however many haps it holds. A value `f` throws on stays as it was, and the
+/// error goes to the console, since a query has no caller to report it to.
 pub(super) fn kpattern_fmap(pat: &Pattern, a: &[Arg]) -> Res {
-    const PROBE: i64 = 16;
-    let cb = Callback::new(arg(a, 0).clone());
-    let haps = pat
-        .query_arc(Frac::zero(), Frac::int(PROBE))
-        .into_iter()
-        .map(|hap| hap.with_value(|v| cb.apply_value(v)))
-        .collect();
-    cb.finish()?;
-    Ok(static_period_pattern(haps, pat.steps, Frac::int(PROBE)).into())
+    let Some(func) = crate::js::keep(arg(a, 0)) else {
+        return Ok(pat.clone().into());
+    };
+    Ok(pat
+        .with_haps(move |haps, _| {
+            let values: Vec<Value> = haps.iter().map(|hap| hap.value.clone()).collect();
+            let mapped = func.run(move |f| {
+                values
+                    .into_iter()
+                    .map(
+                        |v| match crate::js::call(f, vec![value_to_arg(v.clone())]) {
+                            Ok(out) => to_value(&out),
+                            Err(e) => {
+                                rudel_core::log_line(format!("withValue: {e}"));
+                                v
+                            }
+                        },
+                    )
+                    .collect::<Vec<_>>()
+            });
+            match mapped {
+                Some(values) => haps
+                    .into_iter()
+                    .zip(values)
+                    .map(|(mut hap, v)| {
+                        hap.value = v;
+                        hap
+                    })
+                    .collect(),
+                None => haps,
+            }
+        })
+        .into())
 }
 
 /// `pat.soundfont(name, n)`: play this pattern with preset `n` of a loaded
