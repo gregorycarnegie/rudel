@@ -341,7 +341,7 @@ fn next_rand01() -> f64 {
     // the same audio callback would otherwise read the same state and draw the
     // same "random" detune.
     let previous = ZZFX_RNG
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| Some(step(x)))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |x| Some(step(x)))
         .unwrap_or(0);
     (step(previous) as f64) / (u32::MAX as f64 + 1.0)
 }
