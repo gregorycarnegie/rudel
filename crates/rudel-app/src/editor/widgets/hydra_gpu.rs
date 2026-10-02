@@ -24,7 +24,7 @@ use rudel_core::Hap;
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash as _, Hasher as _},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 /// Copies the finished output buffer into the widget rect.
@@ -163,8 +163,6 @@ struct Surface {
     write: usize,
     used: Instant,
 }
-
-const IDLE_EVICTION: Duration = Duration::from_secs(30);
 
 /// Pipelines and output buffers, living in the wgpu renderer's callback
 /// resources.
@@ -566,10 +564,7 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
         if stale {
             let surface = build_surface(store, device, self);
             store.surfaces.insert(self.id.clone(), surface);
-            let cutoff = Instant::now() - IDLE_EVICTION;
-            store
-                .surfaces
-                .retain(|key, s| key == &self.id || s.used > cutoff);
+            super::evict_idle(&mut store.surfaces, &self.id, |s| s.used);
         }
         let Some(surface) = store.surfaces.get_mut(&self.id) else {
             return Vec::new();

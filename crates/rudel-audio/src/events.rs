@@ -452,6 +452,60 @@ mod tests {
     }
 
     #[test]
+    fn a_worklet_takes_its_frequency_inputs_and_release_from_the_hap() {
+        // The smallest program there is: one constant node, heard on channel 0.
+        let program = Value::Map(rudel_core::ValueMap::from([
+            ("types".into(), Value::List(vec![Value::Str("n".into())])),
+            ("values".into(), Value::List(vec![Value::F64(1.0)])),
+            ("ins".into(), Value::List(vec![Value::List(Vec::new())])),
+            (
+                "outs".into(),
+                Value::List(vec![Value::List(vec![Value::Int(0), Value::Int(0)])]),
+            ),
+        ]));
+        let worklet = |extra: &[(&str, Value)]| {
+            let mut controls = rudel_core::ValueMap::from([
+                ("worklet".to_string(), program.clone()),
+                ("release".to_string(), Value::F64(0.25)),
+            ]);
+            controls.extend(extra.iter().map(|(k, v)| ((*k).to_string(), v.clone())));
+            let events = collect_events(
+                &pure(Value::Map(controls)),
+                1.0,
+                0.0,
+                1.0,
+                &SampleBank::new(),
+            );
+            events
+                .into_iter()
+                .next()
+                .and_then(|e| e.worklet)
+                .expect("a worklet")
+        };
+        let w = worklet(&[
+            ("note", Value::Int(69)),
+            ("workletInputs", Value::List(vec![Value::F64(0.5)])),
+        ]);
+        assert!((w.freq - 440.0).abs() < 1e-3, "{}", w.freq);
+        assert_eq!(w.inputs, [0.5]);
+        // A one-cycle hap at cps 1 gates off at 1s and rings out its release.
+        assert!(
+            (w.end - (w.gate_end + 0.25)).abs() < 1e-6,
+            "{} {}",
+            w.gate_end,
+            w.end
+        );
+        // `freq` wins over `note`, and `n` is read as a note when nothing else is.
+        assert_eq!(
+            worklet(&[("freq", Value::F64(220.0)), ("note", Value::Int(69))]).freq,
+            220.0
+        );
+        assert!((worklet(&[("n", Value::Int(57))]).freq - 220.0).abs() < 1e-3);
+        assert_eq!(worklet(&[]).freq, 440.0);
+        assert!(worklet(&[]).inputs.is_empty());
+    }
+
+    #[test]
     fn events_have_correct_onsets() {
         let bank = SampleBank::new();
         let events = collect_events(&seq3(), 1.0, 0.0, 1.0, &bank);

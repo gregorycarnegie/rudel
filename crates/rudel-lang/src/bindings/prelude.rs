@@ -765,10 +765,11 @@ pub(crate) fn register(prelude: &Scope) {
     ] {
         for name in names {
             prelude.curried(name, if rotated { 4 } else { 3 }, move |a| {
-                let last = a.len().saturating_sub(1);
-                let pat = arg_to_pattern(a.get(last).unwrap_or(NULL));
-                let count = |i: usize| a.get(i).filter(|_| last > i);
-                let counts = [count(0), count(1), count(2)];
+                // Curried, so there is always a count per slot before the
+                // pattern; a plain euclid's third slot is the pattern, which
+                // `euclid_call` never reads as a count.
+                let pat = arg_to_pattern(a.last().unwrap_or(NULL));
+                let counts = [a.first(), a.get(1), a.get(2)];
                 Ok(euclid_call(&pat, counts, rotated, build).into())
             });
         }

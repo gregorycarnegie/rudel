@@ -202,17 +202,16 @@ impl Pattern {
         self.press_by(Frac::new(1, 2))
     }
 
-    /// Repeat the first `t` of the cycle to fill it (`linger`). Negative `t`
-    /// lingers on the *end* of the cycle.
+    /// Repeat the first `t` of the cycle to fill it (`linger`).
     pub fn linger(&self, t: Frac) -> Pattern {
-        if t == Frac::zero() {
+        // ponytail: a negative `t` is silence. Upstream's branch for it
+        // throws (it is handed a plain number where it wants a Fraction), so
+        // there is no behaviour to port; lingering on the end of the cycle
+        // would be `zoom(t + 1, 1)._slow(-t)` if that is ever wanted.
+        if t <= Frac::zero() {
             return silence();
         }
-        if t < Frac::zero() {
-            self.zoom(t + Frac::one(), Frac::one())._slow(t)
-        } else {
-            self.zoom(Frac::zero(), t)._slow(t)
-        }
+        self.zoom(Frac::zero(), t)._slow(t)
     }
 
     /// Replicate the pattern `factor` times within the cycle, growing the step

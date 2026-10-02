@@ -663,3 +663,87 @@ mod tests {
         assert_eq!(to_48k(2, 0), 96_000);
     }
 }
+
+#[cfg(test)]
+mod round_trips {
+    use super::*;
+    use std::path::Path;
+
+    /// Decode a recorded file the way a sample is loaded: mono, averaged.
+    fn decode(path: &Path) -> Vec<f32> {
+        let json = path.with_extension("json");
+        let file = path.file_name().unwrap().to_str().unwrap();
+        std::fs::write(&json, format!(r#"{{"x": "{file}"}}"#)).unwrap();
+        let mut bank = crate::samples::SampleBank::new();
+        bank.load_samples_source(json.to_str().unwrap())
+            .expect("decodes");
+        bank.get("x", 0).expect("loaded").data.clone()
+    }
+
+    /// `frames` of stereo: a ramp on the left, silence on the right, so a
+    /// channel slip shows in the mono average.
+    fn ramp(frames: usize) -> Vec<f32> {
+        (0..frames)
+            .flat_map(|i| [i as f32 / frames as f32 * 0.8, 0.0])
+            .collect()
+    }
+
+    fn record(name: &str, frames: usize, block: usize) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        let format = Format::from_path(&path).expect("a known extension");
+        let mut encoder = format.open(&path, 48_000).expect("opens");
+        for chunk in ramp(frames).chunks(block * CHANNELS as usize) {
+            encoder.write(chunk).expect("encodes");
+        }
+        encoder.finish().expect("finishes");
+        (dir, path)
+    }
+
+    #[test]
+    fn flac_keeps_every_sample_across_whole_and_partial_blocks() {
+        let frames = FLAC_BLOCK * 5 / 2;
+        let (_dir, path) = record("take.flac", frames, 1000);
+        let got = decode(&path);
+        assert_eq!(got.len(), frames);
+        for i in [
+            0,
+            FLAC_BLOCK - 1,
+            FLAC_BLOCK,
+            FLAC_BLOCK * 2 + 7,
+            frames - 1,
+        ] {
+            let want = i as f32 / frames as f32 * 0.4;
+            assert!(
+                (got[i] - want).abs() < 1e-3,
+                "frame {i}: {} vs {want}",
+                got[i]
+            );
+        }
+    }
+
+    #[test]
+    fn lossy_takes_decode_to_their_whole_length_once_finished() {
+        // The tail only reaches the file when the encoder is flushed.
+        for name in ["take.mp3", "take.ogg"] {
+            let (_dir, path) = record(name, 48_000, 4_800);
+            let got = decode(&path);
+            assert!(got.len() + 200 >= 48_000, "{name}: {} frames", got.len());
+        }
+    }
+
+    #[test]
+    fn opus_granules_run_to_the_real_length_past_the_pre_skip() {
+        // One whole 20ms frame and half another: 960 then 1440 at 48k.
+        let (_dir, path) = record("take.opus", 1_440, 1_440);
+        let mut reader = ogg::PacketReader::new(std::fs::File::open(&path).unwrap());
+        let mut granules = Vec::new();
+        while let Some(packet) = reader.read_packet().expect("reads") {
+            granules.push(packet.absgp_page());
+        }
+        // Packets share pages, so only the page granule of the last one is
+        // certain: the whole take, pre-skip included.
+        let skip = u64::from(OPUS_PRE_SKIP);
+        assert_eq!(granules.last(), Some(&(1_440 + skip)), "{granules:?}");
+    }
+}

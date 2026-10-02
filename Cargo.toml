@@ -51,3 +51,15 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 [profile.profiling]
 inherits = "release"
 debug = 1
+
+# Optimise dependencies (not the workspace crates) in dev and test builds. Most
+# test time is boa running scripts; this halves the suite (30s -> 17s) for a
+# one-off dependency rebuild that rust-cache keeps in CI. The workspace crates
+# stay unoptimised, so they still debug and rebuild quickly.
+#
+# No `[profile.release]` tuning, on measurement: fat LTO + codegen-units = 1
+# tripled the release build and moved the pattern and mixer benches by less
+# than their run-to-run noise. `panic = "abort"` is out regardless — eval
+# relies on `catch_unwind` to turn an engine panic into a script error.
+[profile.dev.package."*"]
+opt-level = 2

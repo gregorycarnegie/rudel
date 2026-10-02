@@ -133,6 +133,8 @@ fn public_visualizer_names_rewrite_to_inline_widget() {
         ("fscope", "_fscope", "rudel_widget_fscope"),
         ("spectrum", "_spectrum", "rudel_widget_spectrum"),
         ("claviature", "_claviature", "rudel_widget_claviature"),
+        ("shader", "_shader", "rudel_widget_shader"),
+        ("hydra", "_hydra", "rudel_widget_hydra"),
     ] {
         let result = preprocess_strudel_with_meta(&format!(r#"s("bd sd").{call}()"#));
         assert_eq!(result.widgets.len(), 1, "{call}");

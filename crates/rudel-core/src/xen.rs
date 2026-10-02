@@ -72,8 +72,8 @@ fn edo_divisions(name: &str) -> Option<usize> {
     if digits.is_empty() || digits.starts_with('0') || !digits.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
-    let n = digits.parse::<usize>().ok()?;
-    (n > 0).then_some(n)
+    // Non-empty, all digits, no leading zero: at least 1.
+    digits.parse::<usize>().ok()
 }
 
 /// Octave-normalised ratios for a named tune.js scale, pre-divided at generation
@@ -244,7 +244,7 @@ fn numeral(v: &Value) -> f64 {
 
 fn base_pair(value: &Value) -> (f64, f64) {
     match value {
-        Value::List(items) if !items.is_empty() => {
+        Value::List(items) => {
             let base = items
                 .first()
                 .and_then(Value::as_f64)

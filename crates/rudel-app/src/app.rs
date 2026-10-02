@@ -58,6 +58,8 @@ pub(crate) struct RudelApp {
     /// The buffer as it last was on disk (or as it started, with no file yet).
     /// Anything else in `code` is an unsaved edit; see `RudelApp::is_dirty`.
     saved_code: String,
+    /// The Open/Save/confirm dialogs; a test swaps in its own answers.
+    dialogs: files::Dialogs,
     /// The file the buffer came from, when Open or Save named one.
     /// `None` is an unsaved scratch buffer (still autosaved by eframe).
     file_path: Option<PathBuf>,
@@ -180,6 +182,7 @@ impl RudelApp {
             audio_error: None,
             code: DEFAULT_CODE.to_string(),
             saved_code: DEFAULT_CODE.to_string(),
+            dialogs: files::Dialogs::default(),
             file_path: None,
             window_title: String::new(),
             eval_error: None,
@@ -305,6 +308,26 @@ fn window_icon() -> egui::IconData {
     eframe::icon_data::from_png_bytes(include_bytes!("../icon.png")).expect("icon.png is valid")
 }
 
+/// Give the GPU widgets their pipeline stores. Shader widgets compile against
+/// the window's format, and only the creation context knows it; without a wgpu
+/// render state (the glow backend, or a test with no renderer) the widgets fall
+/// back to drawing on the CPU.
+pub(crate) fn install_gpu_stores(cc: &eframe::CreationContext<'_>) {
+    if let Some(render_state) = &cc.wgpu_render_state {
+        let format = render_state.target_format;
+        let mut renderer = render_state.renderer.write();
+        renderer
+            .callback_resources
+            .insert(crate::editor::ShaderStore::new(format));
+        renderer
+            .callback_resources
+            .insert(crate::editor::SpiralStore::new(format));
+        renderer
+            .callback_resources
+            .insert(crate::editor::HydraStore::new(format));
+    }
+}
+
 pub(crate) fn run() -> eframe::Result {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -317,21 +340,7 @@ pub(crate) fn run() -> eframe::Result {
         native_options,
         Box::new(|cc| {
             crate::theme::apply(&cc.egui_ctx);
-            // Shader widgets compile their pipelines against the window's
-            // format, and only the creation context knows it.
-            if let Some(render_state) = &cc.wgpu_render_state {
-                let format = render_state.target_format;
-                let mut renderer = render_state.renderer.write();
-                renderer
-                    .callback_resources
-                    .insert(crate::editor::ShaderStore::new(format));
-                renderer
-                    .callback_resources
-                    .insert(crate::editor::SpiralStore::new(format));
-                renderer
-                    .callback_resources
-                    .insert(crate::editor::HydraStore::new(format));
-            }
+            install_gpu_stores(cc);
             let mut app = RudelApp::new();
             // Restore the last autosaved buffer, so closing the window (or
             // losing it) does not lose what was typed, plus the file it came
@@ -475,5 +484,57 @@ slider(0.5, 0, 1)"#
                 app.code.find("0.5").unwrap() + 3
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    struct MemoryStorage(HashMap<String, String>);
+
+    impl eframe::Storage for MemoryStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.0.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.0.insert(key.to_string(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
+        }
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn saving_keeps_the_buffer_and_the_file_it_came_from() {
+        let mut app = RudelApp::headless();
+        app.code = "s(\"bd\")".to_string();
+        app.file_path = Some(std::path::PathBuf::from("song.js"));
+        let mut storage = MemoryStorage::default();
+        eframe::App::save(&mut app, &mut storage);
+        assert_eq!(
+            storage.0.get(panels::SAVED_CODE_KEY).map(String::as_str),
+            Some("s(\"bd\")")
+        );
+        assert_eq!(
+            storage.0.get(panels::SAVED_PATH_KEY).map(String::as_str),
+            Some("song.js")
+        );
+    }
+
+    #[test]
+    fn highlight_idents_are_the_reference_plus_the_keywords() {
+        let reference = rudel_lang::Reference {
+            functions: vec!["fnname".into()],
+            methods: vec!["methname".into()],
+            controls: vec!["ctlname".into()],
+        };
+        let idents = RudelApp::build_highlight_idents(&reference);
+        for name in ["fnname", "methname", "ctlname"] {
+            assert!(idents.contains(name), "{name}");
+        }
     }
 }

@@ -561,3 +561,12 @@ fn a_note_block_stays_visible_however_wide_the_value_range() {
     assert_eq!(keep_note_visible(roomy, false), roomy);
     assert_eq!(keep_note_visible(roomy, true), roomy);
 }
+
+#[test]
+fn a_synced_widget_has_a_surface_and_an_unknown_one_does_not() {
+    let mut host = WidgetHostState::default();
+    let known = widget("_pianoroll", "w1", 0, 5);
+    host.sync(std::slice::from_ref(&known));
+    assert!(host.surface(&known).is_some());
+    assert!(host.surface(&widget("_pianoroll", "w2", 0, 5)).is_none());
+}

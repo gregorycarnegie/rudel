@@ -430,3 +430,595 @@ fn any_one_connection_in_flight_holds_the_frame_loop_open() {
         drop(keep);
     }
 }
+
+#[test]
+fn without_a_filter_the_collapsed_sections_stay_shut() {
+    // Tall enough that nothing in the reference list is scrolled out of view,
+    // so a missing entry is collapsed, not just off screen.
+    let mut harness = Harness::builder()
+        .with_size(eframe::egui::vec2(1100.0, 30_000.0))
+        .build_eframe(|cc| {
+            crate::theme::apply(&cc.egui_ctx);
+            RudelApp::headless()
+        });
+    harness.run();
+    harness.get_by_label_contains("sounds");
+    assert!(
+        harness.query_by_label_contains("perlin").is_none(),
+        "signals should start collapsed when nothing is being filtered"
+    );
+}
+
+#[test]
+fn the_menu_indents_and_outdents_the_line() {
+    let mut harness = harness();
+    harness.state_mut().code = "s(\"bd\")".to_string();
+    harness.run_steps(2);
+    let open_menu = |harness: &mut Harness<'_, RudelApp>| {
+        let code = harness.state().code.clone();
+        harness
+            .get_all_by_value(&code)
+            .next()
+            .expect("the code editor")
+            .click_secondary();
+        harness.run_steps(2);
+    };
+    open_menu(&mut harness);
+    harness.get_by_label_contains("Indent").click();
+    harness.run_steps(2);
+    let indented = harness.state().code.clone();
+    assert!(
+        indented.starts_with(' ') && indented.trim_start() == "s(\"bd\")",
+        "{indented:?}"
+    );
+    open_menu(&mut harness);
+    harness.get_by_label_contains("Outdent").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().code, "s(\"bd\")");
+}
+
+#[test]
+fn the_status_bar_says_when_there_is_no_audio_device() {
+    let mut harness = harness();
+    harness.state_mut().audio_error = Some("no device".to_string());
+    harness.state_mut().status = "status-text".to_string();
+    harness.run_steps(2);
+    harness.get_by_label("no audio");
+    harness.get_by_label("status-text");
+}
+
+// --- the GPU widgets, rendered for real ------------------------------------
+//
+// kittest's wgpu renderer hands the app a render state, so the shader, hydra
+// and spiral widgets take their GPU paths, and `render()` reads the frame
+// back. A fake audio engine that nothing pulls holds the playhead at 0, so
+// two renders of the same pattern see the same moment.
+
+/// The app on a GPU renderer, playing `code` at a frozen playhead.
+fn gpu_app<'a>(code: &str) -> Harness<'a, RudelApp> {
+    gpu_app_at(code, 1.0)
+}
+
+/// [`gpu_app`] on a display of `pixels_per_point`.
+fn gpu_app_at<'a>(code: &str, pixels_per_point: f32) -> Harness<'a, RudelApp> {
+    let mut harness = Harness::builder()
+        .with_size(eframe::egui::vec2(1100.0, 640.0))
+        .with_pixels_per_point(pixels_per_point)
+        .wgpu()
+        .build_eframe(|cc| {
+            crate::theme::apply(&cc.egui_ctx);
+            super::install_gpu_stores(cc);
+            let mut app = RudelApp::headless();
+            let (engine, output) = rudel_audio::Engine::with_fake_output(48_000.0);
+            app.engine = Some(engine);
+            // Kept alive with the app, never pulled.
+            std::mem::forget(output);
+            app
+        });
+    harness.state_mut().code = code.to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(harness.state().eval_error, None, "{code}");
+    harness.get_by_label_contains("Play").click();
+    harness.run_steps(4);
+    harness
+}
+
+/// Pixels of `image` close to a pure colour (each channel within 40).
+fn count(rgba: &[u8], rgb: [u8; 3]) -> usize {
+    rgba.chunks(4)
+        .filter(|p| (0..3).all(|c| (i32::from(p[c]) - i32::from(rgb[c])).abs() < 40))
+        .count()
+}
+
+const RED: [u8; 3] = [255, 0, 0];
+const GREEN: [u8; 3] = [0, 255, 0];
+const BLUE: [u8; 3] = [0, 0, 255];
+/// The widget surface is 200x200.
+const SURFACE: usize = 200 * 200;
+
+#[test]
+fn a_shader_widget_paints_its_body_and_recompiles_when_it_changes() {
+    let mut harness =
+        gpu_app("s(\"bd\").shader({ code: 'return vec4<f32>(1.0, 0.0, 0.0, 1.0);' })");
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), RED) > SURFACE * 9 / 10,
+        "{}",
+        count(image.as_raw(), RED)
+    );
+    // A new body is a new program, not the cached one.
+    harness.state_mut().code =
+        "s(\"bd\").shader({ code: 'return vec4<f32>(0.0, 1.0, 0.0, 1.0);' })".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(4);
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), GREEN) > SURFACE * 9 / 10,
+        "{}",
+        count(image.as_raw(), GREEN)
+    );
+    assert!(count(image.as_raw(), RED) < 100);
+
+    // A body that does not compile says why, written over the widget's area.
+    // The same length as the last, so the widget keeps its id and its cached
+    // check has to notice the change.
+    let green = |p: &[u8]| (0..3).all(|c| (i32::from(p[c]) - i32::from(GREEN[c])).abs() < 40);
+    let (mut lo, mut hi) = ((u32::MAX, u32::MAX), (0, 0));
+    for (x, y, p) in image.enumerate_pixels() {
+        if green(&p.0) {
+            (lo, hi) = ((lo.0.min(x), lo.1.min(y)), (hi.0.max(x), hi.1.max(y)));
+        }
+    }
+    harness.state_mut().code =
+        "s(\"bd\").shader({ code: 'return nothing_by_this_name_at_all__;' })".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(4);
+    let image = harness.render().expect("renders");
+    let area: Vec<[u8; 4]> = (lo.1..=hi.1)
+        .flat_map(|y| (lo.0..=hi.0).map(move |x| (x, y)))
+        .map(|(x, y)| image.get_pixel(x, y).0)
+        .collect();
+    let mut tally = std::collections::HashMap::new();
+    for p in &area {
+        *tally.entry(*p).or_insert(0) += 1;
+    }
+    let background = tally.into_iter().max_by_key(|&(_, n)| n).map(|(p, _)| p);
+    let text = area.iter().filter(|&&p| Some(p) != background).count();
+    assert!(text > 500, "{text} pixels of error text");
+}
+
+#[test]
+fn a_shader_sees_its_surface_size_in_physical_pixels() {
+    // Green only if `u.res` is the 200x200-point surface at 2 pixels a point,
+    // and `u.note` is negative for a sound with no pitch.
+    let harness_code = "s(\"bd\").shader({ code: 'let ok = abs(u.res.x - 400.0) < 0.5 && abs(u.res.y - 400.0) < 0.5 && u.note < 0.0; return select(vec4<f32>(1.0, 0.0, 0.0, 1.0), vec4<f32>(0.0, 1.0, 0.0, 1.0), ok);' })";
+    let mut harness = gpu_app_at(harness_code, 2.0);
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), GREEN) > 4 * SURFACE * 9 / 10,
+        "green {} red {}",
+        count(image.as_raw(), GREEN),
+        count(image.as_raw(), RED)
+    );
+}
+
+#[test]
+fn a_hydra_widget_renders_its_chain_and_reads_other_outputs() {
+    let mut harness = gpu_app("s(\"bd\").hydra({ chain: Hydra.solid(0, 1, 0) })");
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), GREEN) > SURFACE * 9 / 10,
+        "{}",
+        count(image.as_raw(), GREEN)
+    );
+    // A new chain at the same size is a new surface, not the cached one.
+    harness.state_mut().code = "s(\"bd\").hydra({ chain: Hydra.solid(1, 0, 0) })".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(4);
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), RED) > SURFACE * 9 / 10,
+        "{}",
+        count(image.as_raw(), RED)
+    );
+    // `src(o1)` reads the buffer `o1` drew into last frame, so it shows from
+    // the second GPU frame on (kittest paints only when asked to render).
+    let mut harness =
+        gpu_app("s(\"bd\").hydra({ chain: Hydra.src(Hydra.o1), o1: Hydra.solid(0, 0, 1) })");
+    let first = harness.render().expect("renders");
+    assert!(
+        count(first.as_raw(), BLUE) < 100,
+        "nothing to read on the first frame"
+    );
+    harness.run_steps(1);
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), BLUE) > SURFACE * 9 / 10,
+        "{}",
+        count(image.as_raw(), BLUE)
+    );
+}
+
+#[test]
+fn a_hydra_widget_draws_at_its_size_in_physical_pixels() {
+    // `modulateHue` against solid green shifts by 80 pixels on each axis, a
+    // fifth of the 400-pixel surface, which leaves the centred half-size
+    // square in view. Sized wrong, the shift grows and the square slides off.
+    const WHITE: [u8; 3] = [255, 255, 255];
+    let white = |amount: u32| {
+        let code = format!(
+            "s(\"bd\").hydra({{ chain: Hydra.shape(4, 0.5).modulateHue(Hydra.solid(0, 1, 0), {amount}) }})"
+        );
+        count(
+            gpu_app_at(&code, 2.0).render().expect("renders").as_raw(),
+            WHITE,
+        )
+    };
+    let (still, shifted) = (white(0), white(80));
+    assert!(shifted > still * 95 / 100, "{shifted} of {still}");
+}
+
+#[test]
+fn a_hydra_buffer_read_back_scaled_is_filtered_smoothly() {
+    // A hard-edged red circle in `o1`, read back zoomed in and then out: a
+    // linear sampler leaves partly-red pixels along the edge, a nearest one
+    // only full red and black.
+    let partly_red = |rgba: &[u8]| {
+        rgba.chunks(4)
+            .filter(|p| (50..205).contains(&p[0]) && p[1] < 20 && p[2] < 20)
+            .count()
+    };
+    for scale in ["1.5", "0.5"] {
+        let mut harness = gpu_app(&format!(
+            "s(\"bd\").hydra({{ chain: Hydra.src(Hydra.o1).scale({scale}), o1: Hydra.shape(60, 0.5, 0).color(1, 0, 0) }})"
+        ));
+        harness.render().expect("renders");
+        harness.run_steps(1);
+        let n = partly_red(harness.render().expect("renders").as_raw());
+        assert!(n > 40, "scale {scale}: {n}");
+    }
+}
+
+#[test]
+fn a_hydra_widget_shows_the_output_it_is_told_to_or_all_four() {
+    let mut harness = gpu_app(
+        "s(\"bd\").hydra({ chain: Hydra.solid(0, 1, 0), o2: Hydra.solid(1, 0, 0), render: 2 })",
+    );
+    let image = harness.render().expect("renders");
+    assert!(
+        count(image.as_raw(), RED) > SURFACE * 9 / 10,
+        "{}",
+        count(image.as_raw(), RED)
+    );
+    let mut harness = gpu_app(
+        "s(\"bd\").hydra({ chain: Hydra.solid(0, 1, 0), o1: Hydra.solid(0, 0, 1), o2: Hydra.solid(1, 0, 0), render: 'all' })",
+    );
+    let image = harness.render().expect("renders");
+    // A quarter each; o3 has no chain and stays dark.
+    for (name, rgb) in [("o0", GREEN), ("o1", BLUE), ("o2", RED)] {
+        let n = count(image.as_raw(), rgb);
+        assert!(n > SURFACE / 5 && n < SURFACE / 3, "{name}: {n}");
+    }
+}
+
+#[test]
+fn the_gpu_spiral_draws_what_the_cpu_spiral_draws() {
+    // The tessellated painter is the oracle: same pattern, same moment, and
+    // the two frames should differ only at the edges of the strokes.
+    // At 2 pixels a point, so lengths the shader takes in physical pixels
+    // have to have been scaled to them.
+    let render = |code: &str| gpu_app_at(code, 2.0).render().expect("renders").into_raw();
+    let differing = |a: &[u8], b: &[u8]| {
+        a.chunks(4)
+            .zip(b.chunks(4))
+            .filter(|(a, b)| (0..3).any(|c| (i32::from(a[c]) - i32::from(b[c])).abs() > 60))
+            .count()
+    };
+    let none = render("note(\"c4 e4 g4 b4\")");
+    let gpu = render("note(\"c4 e4 g4 b4\")._spiral({ gpu: true })");
+    let cpu = render("note(\"c4 e4 g4 b4\")._spiral({ gpu: false })");
+    let drawn = differing(&cpu, &none);
+    let off = differing(&gpu, &cpu);
+    assert!(off * 10 < drawn, "{off} pixels differ, of {drawn} drawn");
+}
+
+/// The completion popup's rows: each reads `"<name>  <kind>"`, which nothing
+/// else on screen does. Returns `(label, selected)` per row.
+fn completion_rows(harness: &Harness<'_, RudelApp>) -> Vec<(String, bool)> {
+    use egui_kittest::kittest::NodeT;
+    harness
+        .query_all_by_label_contains("  ")
+        .filter_map(|n| {
+            let node = n.accesskit_node();
+            let label = node.label()?;
+            let kind = label.rsplit("  ").next()?;
+            matches!(
+                kind,
+                "function" | "method" | "control" | "keyword" | "sound"
+            )
+            .then(|| {
+                (
+                    label.to_string(),
+                    node.toggled() == Some(egui::accesskit::Toggled::True),
+                )
+            })
+        })
+        .collect()
+}
+
+/// Focus the editor holding `code` and put the cursor at its end.
+fn focus_editor(harness: &mut Harness<'_, RudelApp>, code: &str) {
+    harness.state_mut().code = code.to_string();
+    harness.run_steps(2);
+    harness
+        .get_all_by_value(code)
+        .next()
+        .expect("the code editor")
+        .click();
+    harness.run_steps(1);
+    harness.key_press(Key::End);
+    harness.run_steps(1);
+}
+
+fn type_chars(harness: &mut Harness<'_, RudelApp>, text: &str) {
+    for ch in text.chars() {
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::Text(ch.to_string()));
+        harness.run_steps(1);
+    }
+    harness.run_steps(2);
+}
+
+#[test]
+fn typing_opens_completions_for_the_word_with_the_first_selected() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "s(\"bd\")");
+    // The cursor sits on a word, but nothing was typed: no popup.
+    harness.key_press(Key::Home);
+    harness.key_press(Key::ArrowRight);
+    harness.run_steps(2);
+    assert!(
+        completion_rows(&harness).is_empty(),
+        "{:?}",
+        completion_rows(&harness)
+    );
+    harness.key_press(Key::End);
+    type_chars(&mut harness, ".fas");
+    let rows = completion_rows(&harness);
+    assert!(
+        rows.iter().any(|(label, _)| label.starts_with("fastGap")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().all(|(label, _)| label.starts_with("fas")),
+        "{rows:?}"
+    );
+    // The first row is the selected one, and only it.
+    assert_eq!(
+        rows.iter().filter(|(_, selected)| *selected).count(),
+        1,
+        "{rows:?}"
+    );
+    assert!(rows[0].1, "{rows:?}");
+}
+
+#[test]
+fn holding_ctrl_on_a_name_shows_what_it_is_beside_the_editor() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "arpWith(x => x)");
+    harness.key_press(Key::Home);
+    harness.key_press(Key::ArrowRight);
+    harness.run_steps(2);
+    let tip = |harness: &Harness<'_, RudelApp>| harness.query_by_label("arpWith").map(|n| n.rect());
+    assert!(tip(&harness).is_none(), "no tooltip without Ctrl");
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::ModifiersChanged(Modifiers::CTRL));
+    harness.run_steps(2);
+    let editor = harness
+        .get_all_by_value("arpWith(x => x)")
+        .next()
+        .expect("the editor")
+        .rect();
+    let tip = tip(&harness).expect("a tooltip for the name under the cursor");
+    assert!(
+        tip.min.x >= editor.max.x,
+        "the tooltip sits right of the editor: {tip:?} vs {editor:?}"
+    );
+}
+
+#[test]
+fn the_arrows_step_through_completions_and_tab_takes_the_selected_one() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "s(\"bd\")");
+    type_chars(&mut harness, ".fas");
+    harness.key_press(Key::ArrowDown);
+    harness.run_steps(2);
+    let rows = completion_rows(&harness);
+    assert!(rows.len() > 1 && rows[1].1 && !rows[0].1, "{rows:?}");
+    let second = rows[1].0.split("  ").next().unwrap().to_string();
+    harness.key_press(Key::Tab);
+    harness.run_steps(2);
+    let code = &harness.state().code;
+    assert!(code.starts_with(&format!("s(\"bd\").{second}")), "{code}");
+    assert!(completion_rows(&harness).is_empty(), "taken, so closed");
+}
+
+#[test]
+fn moving_the_cursor_through_a_word_keeps_its_completions_open() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "s(\"bd\")");
+    type_chars(&mut harness, ".fas");
+    harness.key_press(Key::ArrowLeft);
+    harness.run_steps(2);
+    assert!(
+        !completion_rows(&harness).is_empty(),
+        "refreshed, not closed"
+    );
+}
+
+#[test]
+fn with_autocomplete_off_typing_opens_nothing() {
+    let mut harness = harness();
+    harness.state_mut().editor_settings.autocomplete = false;
+    focus_editor(&mut harness, "s(\"bd\")");
+    type_chars(&mut harness, ".fas");
+    assert!(
+        completion_rows(&harness).is_empty(),
+        "{:?}",
+        completion_rows(&harness)
+    );
+}
+
+#[test]
+fn the_editor_grows_to_fill_its_panel() {
+    let mut harness = harness();
+    harness.state_mut().code = "s(\"bd\")".to_string();
+    harness.run_steps(2);
+    let editor = harness
+        .get_all_by_value("s(\"bd\")")
+        .next()
+        .expect("the editor")
+        .rect();
+    // A 640-point window; the minimum is four rows.
+    assert!(editor.height() > 300.0, "{editor:?}");
+}
+
+#[test]
+fn the_menu_cuts_the_selection_and_pastes_over_it() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "s(\"bd\")");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run_steps(1);
+    let menu = |harness: &mut Harness<'_, RudelApp>, code: &str, entry: &str| {
+        harness
+            .get_all_by_value(code)
+            .next()
+            .expect("the editor")
+            .click_secondary();
+        harness.run_steps(2);
+        harness.get_by_label_contains(entry).click();
+        harness.step();
+    };
+    menu(&mut harness, "s(\"bd\")", "Cut");
+    harness.run_steps(2);
+    assert_eq!(harness.state().code, "", "the whole selection cut");
+
+    harness.state_mut().code = "s(\"bd\")".to_string();
+    harness.run_steps(1);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run_steps(1);
+    menu(&mut harness, "s(\"bd\")", "Paste");
+    let asked = harness
+        .output()
+        .viewport_output
+        .values()
+        .any(|v| v.commands.contains(&egui::ViewportCommand::RequestPaste));
+    assert!(asked, "the menu asks the platform for the clipboard");
+    // ...which eframe answers with a paste event.
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Paste("n(\"0\")".to_string()));
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().code,
+        "n(\"0\")",
+        "pasted over the selection"
+    );
+}
+
+/// The editor holding `code`, focused with the cursor at its end, rendered.
+fn rendered_editor(
+    code: &str,
+    settings: impl FnOnce(&mut crate::editor::settings::EditorSettings),
+) -> Vec<u8> {
+    let mut harness = Harness::builder()
+        .with_size(eframe::egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_eframe(|cc| {
+            crate::theme::apply(&cc.egui_ctx);
+            RudelApp::headless()
+        });
+    settings(&mut harness.state_mut().editor_settings);
+    focus_editor(&mut harness, code);
+    harness.run_steps(4);
+    harness.render().expect("renders").into_raw()
+}
+
+#[test]
+fn bracket_matching_and_the_active_line_follow_the_cursor() {
+    let plain = rendered_editor("n(\"0\")", |_| {});
+    let brackets = rendered_editor("n(\"0\")", |s| s.bracket_matching = true);
+    let line = rendered_editor("n(\"0\")", |s| s.active_line = true);
+    assert_ne!(plain, brackets, "the brackets around the cursor are marked");
+    assert_ne!(plain, line, "the cursor's line is marked");
+}
+
+#[test]
+fn dragging_the_cps_slider_sets_the_tempo() {
+    let mut harness = harness();
+    harness.get_by_role(egui::accesskit::Role::Slider).click();
+    harness.run_steps(2);
+    // Clicked at its middle: halfway along 0.1..=2.0.
+    assert!(
+        (harness.state().cps - 1.05).abs() < 0.1,
+        "{}",
+        harness.state().cps
+    );
+}
+
+#[test]
+fn choosing_an_output_reroutes_the_pattern_to_it() {
+    let mut harness = harness();
+    harness.get_by_label_contains("Play").click();
+    harness.run_steps(2);
+    assert!(harness.state().midi_pending.is_none());
+    harness.get_by_role(egui::accesskit::Role::ComboBox).click();
+    harness.run_steps(2);
+    harness.get_by_label("MIDI").click();
+    // On the frame it changes, not just eventually.
+    harness.step();
+    assert!(
+        harness.state().midi_pending.is_some(),
+        "playing on MIDI, so it connects"
+    );
+}
+
+#[test]
+fn clicking_an_inline_slider_writes_its_value_into_the_code() {
+    let mut harness = harness();
+    harness.state_mut().code = "note(\"c4\").gain(slider(0.2, 0, 1))".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(harness.state().eval_error, None);
+    harness.get_by_label_contains("Play").click();
+    harness.run_steps(4);
+    // The cps slider sits in the transport bar above; the inline one is lower.
+    let inline = harness
+        .query_all_by_role(egui::accesskit::Role::Slider)
+        .max_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y))
+        .expect("the inline slider");
+    inline.click();
+    harness.run_steps(4);
+    let code = &harness.state().code;
+    assert!(!code.contains("slider(0.2,"), "{code}");
+    assert!(code.contains("slider(0.5"), "{code}");
+}
+
+#[test]
+fn a_gpu_spiral_that_gains_bands_gets_room_for_them() {
+    // The same length of source, so the widget keeps its id and its buffers,
+    // but eight times the notes.
+    let mut harness = gpu_app("note(\"c4 e4 g4 b4\")._spiral({ gpu: true })");
+    let sparse = harness.render().expect("renders").into_raw();
+    harness.state_mut().code = "note(\"c4*16 e4*16\")._spiral({ gpu: true })".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(4);
+    let dense = harness.render().expect("renders").into_raw();
+    assert_ne!(sparse, dense);
+}

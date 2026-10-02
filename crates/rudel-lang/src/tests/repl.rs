@@ -162,3 +162,64 @@ fn combiners_do_not_leak_between_evaluations() {
     let pat = eval(r#"note("e")"#).expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 1, "all() must not carry over");
 }
+
+#[test]
+fn a_label_alone_on_its_line_takes_a_multi_line_statement_below_it() {
+    // The bracket the statement opens on its first line has to count, or the
+    // label would end there with the bracket unclosed.
+    let pat = eval("$:\nstack(\n  s(\"bd\"),\n  s(\"hh\")\n)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+}
+
+#[test]
+fn a_blank_line_inside_a_label_s_chain_does_not_end_it() {
+    // The chain picks up again with a leading dot, so the gap is part of it.
+    let pat = eval("$: s(\"bd\")\n\n  .fast(2)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+}
+
+#[test]
+fn each_anonymous_label_gets_its_own_id() {
+    let pat = eval("$: s(\"a\")\n$: s(\"b\")").expect("eval");
+    let mut ids: Vec<_> = values(&pat, 0, 1)
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("id").cloned(),
+            _ => None,
+        })
+        .collect();
+    ids.dedup();
+    assert_eq!(ids.len(), 2, "{ids:?}");
+}
+
+#[test]
+fn only_a_longer_name_starting_with_s_solos() {
+    // `S` alone and `bc` are ordinary names; neither silences the others.
+    for src in ["S: s(\"x\")\nd: s(\"y\")", "bc: s(\"x\")\nd: s(\"y\")"] {
+        let pat = eval(src).expect("eval");
+        assert_eq!(values(&pat, 0, 1).len(), 2, "{src}");
+    }
+}
+
+#[test]
+fn a_label_s_name_mutes_and_solos_as_a_slot_id_does() {
+    // The name reaches the slot registry from generated code, so a label
+    // starting `_` mutes and one starting `S` solos.
+    let muted = eval("_a: s(\"x\")\nb: s(\"y\")").expect("eval");
+    assert_eq!(values(&muted, 0, 1).len(), 1);
+    let soloed = eval("a: s(\"x\")\nSb: s(\"y\")").expect("eval");
+    assert_eq!(values(&soloed, 0, 1).len(), 1);
+}
+
+#[test]
+fn a_label_s_statement_runs_until_its_brackets_close() {
+    // Neither line looks like a continuation (`)` is not one), so only the
+    // bracket count keeps the closing line in the label. Cut short, the code
+    // would still parse — the label's own `)` closes `stack(` — but the
+    // `.fast(2)` would apply outside the label and never be heard.
+    let pat = eval("$:\nstack(s(\"bd\"), s(\"hh\")\n).fast(2)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 4);
+    // A line ending in `.` carries on to the next.
+    let pat = eval("$: s(\"bd\").\n  fast(2)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+}

@@ -354,7 +354,7 @@ fn parallel_map<J: Send + Sync, R: Send>(
 /// sample loads instant. Raw bytes are cached (not decoded audio) so format
 /// sniffing in `decode_sample_bytes` still applies. The sample-map JSON is
 /// deliberately *not* cached, so updated remote maps are always picked up.
-fn cache_path(url: &str) -> Option<PathBuf> {
+pub(super) fn cache_path(url: &str) -> Option<PathBuf> {
     use std::hash::{Hash, Hasher};
     // ponytail: DefaultHasher isn't stable across Rust releases; a toolchain
     // bump just re-downloads the cache once.
@@ -456,7 +456,7 @@ pub(super) fn fetch_and_decode(url: &str) -> Result<Sample, String> {
 }
 
 /// Helper to check if a file extension represents a supported audio format.
-fn is_audio_file(path: &Path) -> bool {
+pub(super) fn is_audio_file(path: &Path) -> bool {
     matches!(
         path.extension()
             .and_then(|e| e.to_str())

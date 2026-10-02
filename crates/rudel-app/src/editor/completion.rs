@@ -859,6 +859,19 @@ mod tests {
     }
 
     #[test]
+    fn fallback_completion_starts_only_on_a_word_that_could_be_a_name() {
+        // A number is not the start of a name, even if something is spelled
+        // like one.
+        let reference = reference(&["8bit", "bit"]);
+        let idents = HashSet::new();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+        assert_eq!(completion_at_bytes("8b", 2, &catalog), None);
+        let (_, _, items) = completion_at_bytes("bi", 2, &catalog).unwrap();
+        assert_eq!(labels(items), vec!["bit"]);
+    }
+
+    #[test]
     fn sound_completion_matches_builtins_and_loaded_samples_inside_s() {
         let reference = reference(&[]);
         let idents = HashSet::new();

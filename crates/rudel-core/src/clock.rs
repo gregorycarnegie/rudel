@@ -71,6 +71,10 @@ mod tests {
 
     #[test]
     fn origin_clock_is_plain_seconds_times_cps() {
+        let mut clock = Clock::new(0.5);
+        assert_eq!(clock.cps(), 0.5);
+        clock.set_cps(1.0, 2.0);
+        assert_eq!(clock.cps(), 2.0);
         let clock = Clock::new(0.5);
         assert!((clock.cycle_at(10.0) - 5.0).abs() < 1e-12);
         assert!((clock.seconds_at(5.0) - 10.0).abs() < 1e-12);

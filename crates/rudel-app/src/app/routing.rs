@@ -355,3 +355,97 @@ mod tests {
         settle(&mut app);
     }
 }
+
+#[cfg(test)]
+mod backend_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// A MIDI sink that keeps what it was sent.
+    #[derive(Clone, Default)]
+    struct Recorder(Arc<Mutex<Vec<Vec<u8>>>>);
+
+    impl rudel_midi::MidiSink for Recorder {
+        fn send(&mut self, bytes: &[u8]) {
+            self.0.lock().unwrap().push(bytes.to_vec());
+        }
+    }
+
+    fn note_ons(rec: &Recorder) -> usize {
+        rec.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m[0] & 0xF0 == 0x90)
+            .count()
+    }
+
+    /// Pull frames from the fake device for `secs`, giving the scheduler room
+    /// between blocks, and return the loudest sample.
+    fn listen(output: &rudel_audio::FakeOutput, secs: f64) -> f32 {
+        let deadline = Instant::now() + Duration::from_secs_f64(secs);
+        let mut peak = 0.0f32;
+        while Instant::now() < deadline {
+            for (l, r) in output.pull(480) {
+                peak = peak.max(l.abs()).max(r.abs());
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        peak
+    }
+
+    #[test]
+    fn the_selected_output_gets_the_untagged_pattern_and_the_others_do_not() {
+        let mut app = RudelApp::headless();
+        let (engine, output) = rudel_audio::Engine::with_fake_output(48_000.0);
+        app.engine = Some(engine);
+        let midi = Recorder::default();
+        app.midi = Some(rudel_midi::MidiEngine::start(
+            midi.clone(),
+            rudel_core::silence(),
+            2.0,
+        ));
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let target = socket.local_addr().unwrap().to_string();
+        let out = rudel_osc::OscOut::connect(&target).unwrap();
+        app.osc = Some(rudel_osc::OscEngine::start(out, rudel_core::silence(), 2.0));
+        let osc_messages = |socket: &std::net::UdpSocket, secs: f64| {
+            let deadline = Instant::now() + Duration::from_secs_f64(secs);
+            let mut buf = [0u8; 2048];
+            let mut n = 0;
+            while Instant::now() < deadline {
+                if socket.recv(&mut buf).is_ok() {
+                    n += 1;
+                }
+            }
+            n
+        };
+        app.current = Some(rudel_lang::eval(r#"note("c4*4").s("sine")"#).unwrap());
+        app.playing = true;
+
+        app.output = Output::Audio;
+        app.route();
+        assert!(listen(&output, 1.0) > 1e-3, "audio should play");
+        assert_eq!(note_ons(&midi), 0, "MIDI is not selected");
+        assert_eq!(osc_messages(&socket, 0.3), 0, "OSC is not selected");
+
+        app.output = Output::Midi;
+        app.route();
+        let before = note_ons(&midi);
+        listen(&output, 1.0); // lets the scheduled audio drain
+        assert!(note_ons(&midi) > before, "MIDI should play");
+        assert!(listen(&output, 0.3) < 1e-4, "audio should stop");
+
+        app.output = Output::Osc;
+        app.route();
+        assert!(osc_messages(&socket, 1.0) > 0, "OSC should play");
+
+        // The volume slider reaches the engine as a fraction of 100%.
+        app.set_volume_percent(50.0);
+        assert_eq!(app.engine.as_ref().unwrap().volume(), 0.5);
+    }
+}

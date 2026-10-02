@@ -921,6 +921,8 @@ fn the_shaping_nodes_wire_their_inlets_in_upstreams_order() {
     close(once("distort", &[0.5, 0.5]), 0.745);
     close(once("fold", &[1.5, 1.0]), -1.0);
     assert_eq!(once("pick", &[1.0, 7.0, 8.0, 9.0]), 8.0);
+    // A negative index wraps from the end, however far below zero it is.
+    assert_eq!(once("pick", &[-5.0, 7.0, 8.0]), 8.0);
     // A sequence's first inlet is its clock; the rest are the steps.
     assert_eq!(once("seq", &[1.0, 10.0, 20.0, 30.0]), 10.0);
     assert_eq!(once("hold", &[5.0, 1.0]), 5.0);

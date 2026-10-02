@@ -202,7 +202,6 @@ pub(super) fn tokenize(code: &str, idents: &HashSet<String>) -> Vec<(usize, usiz
                 i += 1;
             }
         } else if c.is_ascii_digit() {
-            i += 1;
             while i < bytes.len() {
                 let b = bytes[i] as char;
                 if b.is_ascii_alphanumeric() || matches!(b, '.' | '_' | '/') {
@@ -213,7 +212,6 @@ pub(super) fn tokenize(code: &str, idents: &HashSet<String>) -> Vec<(usize, usiz
             }
             tokens.push((start, i, Token::Number));
         } else if c.is_ascii_alphabetic() || matches!(c, '_' | '$') {
-            i += 1;
             while i < bytes.len() {
                 let b = bytes[i] as char;
                 if b.is_ascii_alphanumeric() || matches!(b, '_' | '$') {
@@ -275,7 +273,6 @@ fn tokenize_mini(body: &str, offset: usize, tokens: &mut Vec<(usize, usize, Toke
             }
             tokens.push((offset + start, offset + i, Token::Number));
         } else if c.is_ascii_alphabetic() || c == '_' || c == '#' {
-            i += 1;
             while i < bytes.len() {
                 let b = bytes[i] as char;
                 if b.is_ascii_alphanumeric() || matches!(b, '#' | '_' | '\'') {

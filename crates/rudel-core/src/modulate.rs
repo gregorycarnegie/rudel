@@ -84,7 +84,7 @@ fn id_key(id: &Value) -> String {
     match id {
         Value::Str(s) => s.clone(),
         Value::Int(n) => n.to_string(),
-        Value::F64(n) if n.fract() == 0.0 => (*n as i64).to_string(),
+        // `{}` prints a whole f64 without a decimal point: `2`, `2.5`.
         Value::F64(n) => n.to_string(),
         other => other.as_f64().map(|n| n.to_string()).unwrap_or_default(),
     }
@@ -279,6 +279,32 @@ mod tests {
             Some(Value::Map(e)) => e,
             other => panic!("expected entry `{id}`, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_control_name_is_canonicalised_and_bmod_has_its_own_aliases() {
+        let pat = modulate(
+            &cmap(&[("s", Value::Str("saw".into()))]),
+            "lfo",
+            vec![("control".to_string(), pure(Value::Str("lpf".into())))],
+            pure(Value::Null),
+        );
+        let m = first_map(&pat);
+        let e = entry(modulator(&m, "lfo"), "0");
+        assert_eq!(e.get("control"), Some(&Value::Str("cutoff".into())));
+        // So is a sub-control's.
+        let pat = modulate(
+            &cmap(&[("s", Value::Str("saw".into()))]),
+            "lfo",
+            vec![("subControl".to_string(), pure(Value::Str("lpf".into())))],
+            pure(Value::Null),
+        );
+        let m = first_map(&pat);
+        let e = entry(modulator(&m, "lfo"), "0");
+        assert_eq!(e.get("subControl"), Some(&Value::Str("cutoff".into())));
+        assert_eq!(main_subcontrol_name("bmod", "b"), "bus");
+        assert_eq!(id_key(&Value::F64(2.0)), "2");
+        assert_eq!(id_key(&Value::F64(2.5)), "2.5");
     }
 
     #[test]

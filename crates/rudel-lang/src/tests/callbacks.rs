@@ -374,3 +374,58 @@ fn a_pattern_of_functions_is_a_callback_too() {
     let pat = eval(r#"s("bd sd").sometimes(n("0 1"))"#).expect("eval");
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 2);
 }
+
+#[test]
+fn a_patterned_count_first_seen_mid_cycle_still_applies() {
+    // The probe has to cover whole cycles, not just their first instant: the
+    // `2` here only starts half way through.
+    // (`chunk` goes through the shared probe; `every` has its own binding.)
+    let pat = eval(r#"s("a b c d").chunk("4 2", x => x)"#).expect("eval");
+    assert_eq!(pat.query_arc(Frac::new(1, 2), Frac::one()).len(), 2);
+    let arp = eval(r#"note("[c,e] [d,f]").arpWith(p => p)"#).expect("eval");
+    assert!(!arp.query_arc(Frac::new(1, 2), Frac::one()).is_empty());
+}
+
+#[test]
+fn ply_with_multiplies_the_step_count() {
+    // Six steps of `plyWith` then one of `c`: `c` takes the last seventh.
+    let pat = eval(r#"stepcat(s("a b").plyWith(3, x => x), s("c"))"#).expect("eval");
+    let c = pat
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .find(|h| matches!(&h.value, Value::Map(m) if m.get("s") == Some(&Value::Str("c".into()))))
+        .expect("a c");
+    assert_eq!(c.whole.unwrap().begin, Frac::new(6, 7));
+}
+
+#[test]
+fn pick_f_takes_its_lookup_first_or_second() {
+    let a = eval(r#"s("a").pickF("0", [x => x.fast(2), x => x])"#).expect("eval");
+    let b = eval(r#"s("a").pickF([x => x.fast(2), x => x], "0")"#).expect("eval");
+    assert_eq!(values(&a, 0, 1).len(), 2);
+    assert_eq!(values(&a, 0, 1), values(&b, 0, 1));
+    // Two arrays: the first is the selector, as written.
+    let c = eval(r#"s("a").pickF([0, 1], [x => x.fast(2), x => x.fast(3)])"#).expect("eval");
+    assert!(!values(&c, 0, 1).is_empty());
+}
+
+#[test]
+fn pick_with_two_arrays_reads_the_first_as_the_lookup() {
+    let pat = eval(r#"pick([s("a"), s("b")], [1, 0])"#).expect("eval");
+    let names: Vec<_> = values(&pat, 0, 1)
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("s").cloned(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, [Value::Str("b".into()), Value::Str("a".into())]);
+}
+
+#[test]
+fn a_probed_callback_repeats_its_window_past_the_probe() {
+    // `fmap` maps 16 cycles eagerly and repeats them; cycle 20 is cycle 4.
+    let pat = eval(r#"n("<0 1 2 3 4>").fmap(v => v)"#).expect("eval");
+    assert!(!values(&pat, 20, 21).is_empty());
+    assert_eq!(values(&pat, 20, 21), values(&pat, 4, 5));
+}

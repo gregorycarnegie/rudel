@@ -505,3 +505,35 @@ mod tests {
         assert_eq!(wgsl_f32(f64::NAN), "0.0");
     }
 }
+
+#[cfg(test)]
+mod argument_tests {
+    use super::*;
+
+    fn func(name: &str) -> &'static HydraFn {
+        lookup(name).expect("in the table")
+    }
+
+    #[test]
+    fn transforms_are_equal_only_with_the_same_function_and_arguments() {
+        let t = |name: &str, n: f64| Transform {
+            func: func(name),
+            args: vec![Arg::Number(n)],
+        };
+        assert_eq!(t("osc", 1.0), t("osc", 1.0));
+        assert_ne!(t("osc", 1.0), t("osc", 2.0));
+        assert_ne!(t("osc", 1.0), t("noise", 1.0));
+    }
+
+    #[test]
+    fn a_gap_takes_the_default_and_a_chain_stands_in_for_a_number() {
+        // osc(frequency = 60, sync = 0.1, offset = 0).
+        let gap = Chain::source(func("osc"), vec![Arg::Number(f64::NAN), Arg::Number(0.5)]);
+        assert!(compile(&gap, 0).contains("h_osc(st, 60.0, 0.5, 0.0)"));
+        let nested = Chain::source(
+            func("osc"),
+            vec![Arg::Chain(Chain::source(func("noise"), Vec::new()))],
+        );
+        assert!(compile(&nested, 0).contains("h_osc(st, h_noise(st"));
+    }
+}

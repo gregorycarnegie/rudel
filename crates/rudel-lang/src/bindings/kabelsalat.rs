@@ -72,10 +72,10 @@ fn args(values: &[Arg]) -> Vec<Inlet> {
 /// `module` and alias definitions, which expand into primitives at graph time
 /// rather than reaching the interpreter as nodes of their own.
 ///
-/// ponytail: the eleven that patches actually reach for. `fork`, `pan`,
-/// `rangex`, `split`, `scope` and the `mouse*` pair are not here yet; they
-/// build as unknown types, which the compiler resolves to `thru`. Add one by
-/// naming its expansion below — each is two or three lines in `lib.js`.
+/// ponytail: the ones patches actually reach for. `split`, `scope` and the
+/// `mouse*` pair are not here; they build as unknown types, which the compiler
+/// resolves to `thru`. Add one by naming its expansion below and in
+/// [`MODULES`] — each is two or three lines in `lib.js`.
 fn expand(name: &str, mut args: Vec<Inlet>) -> Option<NodeId> {
     // `n` marks a constant node, whose value some expansions need at graph time.
     // Pad to `n` arguments with the module's own defaults, since these are
@@ -324,10 +324,8 @@ fn take_source(name: &str, values: &[Arg]) -> Option<String> {
     if !CODED.contains(&name) {
         return None;
     }
-    match values.last() {
-        Some(Arg::Str(text)) => Some(text.clone()),
-        _ => None,
-    }
+    // A string literal arrives wrapped as a pattern; its raw text is the code.
+    values.last().and_then(crate::bindings::arg_to_raw_str)
 }
 
 /// `expand` consumes its arguments, so hand it the node ids and keep the

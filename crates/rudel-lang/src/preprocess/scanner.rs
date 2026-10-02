@@ -97,26 +97,10 @@ pub(super) fn previous_non_ws(src: &str, at: usize) -> Option<char> {
     src[..at].chars().rev().find(|c| !c.is_whitespace())
 }
 
-pub(super) fn trim_range(src: &str, mut start: usize, mut end: usize) -> (usize, usize) {
-    while start < end {
-        let Some(c) = src[start..end].chars().next() else {
-            break;
-        };
-        if !c.is_whitespace() {
-            break;
-        }
-        start += c.len_utf8();
-    }
-    while start < end {
-        let Some(c) = src[start..end].chars().next_back() else {
-            break;
-        };
-        if !c.is_whitespace() {
-            break;
-        }
-        end -= c.len_utf8();
-    }
-    (start, end)
+pub(super) fn trim_range(src: &str, start: usize, end: usize) -> (usize, usize) {
+    let text = &src[start..end];
+    let start = start + (text.len() - text.trim_start().len());
+    (start, start + text.trim().len())
 }
 
 /// Just past the string literal `quote` opens at `at`. An unterminated literal
@@ -371,6 +355,12 @@ mod tests {
         assert_eq!(previous_non_ws(src, 0), None);
         // Immediately after 'a' it is 'a' itself, not skipped past.
         assert_eq!(previous_non_ws(src, 1), Some('a'));
+    }
+
+    #[test]
+    fn sibling_brackets_are_one_level_deep() {
+        assert_eq!(bracket_depth("(a)[b]{c}"), 1);
+        assert_eq!(bracket_depth("((a)(b))"), 2);
     }
 
     #[test]

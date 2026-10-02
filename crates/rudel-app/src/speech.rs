@@ -376,6 +376,20 @@ mod tests {
                 .any(|(locale, name)| { locale.contains('-') && !name.is_empty() }),
             "expected a BCP-47 tag and a name, got {voices:?}"
         );
+        // The tag stops before the buffer's terminating nul.
+        assert!(
+            voices.iter().all(|(locale, _)| !locale.contains('\0')),
+            "{voices:?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_synthesiser_is_reported_once_and_then_left_alone() {
+        let mut speech = Speech {
+            engine: None,
+            failed: Some("no synthesiser".to_string()),
+        };
+        assert_eq!(speech.say("hello", None, None), None);
     }
 
     #[test]
@@ -393,5 +407,13 @@ mod tests {
         let sound = ValueMap::from([("s".to_string(), Value::Str("bd".into()))]);
         assert_eq!(request(&Value::Map(sound)), None);
         assert_eq!(request(&Value::Str("bd".into())), None);
+        // A voice index has to be a finite, non-negative number.
+        for bad in [f64::INFINITY, -1.0] {
+            let map = ValueMap::from([
+                (SPEAK.to_string(), Value::Str("hi".into())),
+                (SPEAK_VOICE.to_string(), Value::F64(bad)),
+            ]);
+            assert_eq!(request(&Value::Map(map)).and_then(|r| r.2), None, "{bad}");
+        }
     }
 }

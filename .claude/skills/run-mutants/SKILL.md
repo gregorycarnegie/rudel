@@ -8,10 +8,16 @@ description: Run cargo-mutants on rudel — a whole-workspace baseline, one pack
 Two scripts do the work. Both must run from the repo root.
 
 ```powershell
-pwsh -File scripts/full-run.ps1                              # all 8 packages, ~6h30m
+pwsh -File scripts/full-run.ps1                              # all 8 packages, ~10h30m
 pwsh -File scripts/full-run.ps1 -Packages rudel-core,rudel-app   # resume / subset
 pwsh -File scripts/check-file.ps1 rudel-core euclid.rs choice.rs # re-check files, minutes
+pwsh -File scripts/verify-missed.ps1 rudel-dsp                   # re-test only last run's misses
 ```
+
+After a full run, `verify-missed.ps1` is the cheap way to check new tests: it
+re-tests just the mutants `mutants-full/<pkg>/mutants.out/missed.txt` lists,
+by name. dsp's 139 misses take minutes; re-checking their files is ~4800
+mutants and hours.
 
 Run them with `run_in_background: true` — even `check-file.ps1` pays a tree copy
 and a baseline build.
@@ -29,6 +35,22 @@ and a baseline build.
   source when sharded.
 - `--file` matches on the **basename**, so `--file lib.rs` hits every `lib.rs`
   in the package.
+
+## Hung builds
+
+A full run is ~10.5 hours now (2026-10-01: lang 4h30m, dsp 2h20m). Five times
+in that run a mutant's `rustc` sat idle — 0 CPU, empty working set — for hours,
+holding its slot; cargo-mutants has no build timeout of its own. Both scripts
+now pass `--build-timeout 900`. In a run started without it, kill the idle
+`rustc` *and* its parent `cargo test --no-run`; killing only the `rustc` leaves
+the `cargo` hung too. The mutant is then recorded as a failed build.
+
+## Csound must be required where it is installed
+
+Csound's tests skip when the library does not load, so a mutant that breaks
+starting it turns every test into a skip and survives. Both scripts set
+`RUDEL_CSOUND_REQUIRED=1` when `csound64.dll` is in its default location;
+before that, every `csound.rs` mutant on the start path read as missed.
 
 ## While a run is in flight
 
@@ -66,9 +88,27 @@ tests spawn blocked threads, so a mutant can be caught *flakily*.
 A large equivalent-mutant population is normal and is not worth chasing:
 comparisons inside continuous piecewise envelopes where `<` and `<=` agree at
 the boundary, `if b.len() < n { resize }` guards, fast-path predicates whose two
-paths agree by contract, and clamps nothing reaches. What is left in
-`audio/mixer/engine.rs` needs a live cpal device and `midi/output.rs` needs a
-real port; leave both.
+paths agree by contract, `|` vs `^` on disjoint bit flags, and clamps nothing
+reaches.
+
+Devices are not a reason to leave a mutant. Each has a fake or a real
+stand-in already:
+
+- **Audio:** `Engine::with_fake_output(sr)` returns a `FakeOutput` whose
+  `pull(frames)` renders on demand; the playhead moves only when it is pulled.
+- **GPU:** `ui_tests::gpu_app_at(code, pixels_per_point)` renders the shader,
+  hydra and spiral widgets on this machine's adapter. Run at 2.0 so `* ppp`
+  cannot pass as `/ ppp`. Hydra reads other outputs from the previous frame, so
+  render twice. A widget's id carries its source span, so an edit that keeps
+  the length keeps the id and its caches.
+- **MIDI:** the Windows "Microsoft GS Wavetable Synth" is a real output port on
+  every install. A `MidiSink` recorder covers the scheduler. This machine has
+  no input ports, so an input list that comes back empty is the truth here.
+- **File dialogs:** `RudelApp::dialogs` answers Open, Save and confirm in
+  tests. `rfd::FileDialog` is `Debug`, so its filters can be asserted.
+
+What genuinely needs other hardware is the non-Windows `say`/`spd-say` speech
+backend.
 
 After writing tests, re-check with `check-file.ps1`, one invocation per package
 listing every file at once, and expect two or three rounds before a file

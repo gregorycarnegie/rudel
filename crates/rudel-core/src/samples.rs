@@ -547,3 +547,30 @@ mod tests {
         assert_eq!(speed_of(&query_cps(&faster, 0.5)[0]), 0.5);
     }
 }
+
+#[cfg(test)]
+mod bite_past_the_slices {
+    use crate::{Frac, Value, pure, s, sequence, slowcat};
+
+    #[test]
+    fn an_index_past_the_slice_count_wraps_within_the_cycle() {
+        // Index 3 of 2 slices is slice 1 of *this* cycle, not of one two cycles
+        // on; a three-cycle source tells the two apart.
+        let source = slowcat(&[
+            sequence(&[s("a"), s("b")]),
+            sequence(&[s("c"), s("d")]),
+            sequence(&[s("e"), s("f")]),
+        ]);
+        let haps = source
+            .bite(2, pure(Value::Int(3)))
+            .query_arc(Frac::zero(), Frac::one());
+        let names: Vec<_> = haps
+            .iter()
+            .filter_map(|h| match &h.value {
+                Value::Map(m) => m.get("s").cloned(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, [Value::Str("b".into())]);
+    }
+}

@@ -164,21 +164,14 @@ impl Pattern {
         let mut out = Vec::new();
         for i in 0..times {
             let (s, e) = if from_start {
-                let s = seg * Frac::int(i);
-                if s > Frac::one() {
-                    break;
-                }
-                (s, Frac::one())
+                (seg * Frac::int(i), Frac::one())
             } else {
-                let e = Frac::one() - seg * Frac::int(i);
-                if e < Frac::zero() {
-                    break;
-                }
-                (Frac::zero(), e)
+                (Frac::zero(), Frac::one() - seg * Frac::int(i))
             };
+            // Past the end of the cycle every later slice is empty too.
             let d = e - s;
             if d <= Frac::zero() {
-                continue;
+                break;
             }
             out.push(self.zoom(s, e).set_steps(Some(steps * d)));
         }

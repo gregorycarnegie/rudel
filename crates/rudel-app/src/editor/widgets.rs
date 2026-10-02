@@ -26,3 +26,38 @@ pub(crate) use paint::{WidgetPaintInput, draw_widget_hosts};
 pub(crate) use shader::ShaderStore;
 pub(crate) use spiral_gpu::SpiralStore;
 pub(crate) use style::mark_color;
+
+/// How long a GPU widget's cached pipeline or buffers outlive its last paint.
+/// Editing a widget's source shifts its id, so ids do accumulate.
+const IDLE_EVICTION: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Drop every cache entry but `keep`'s that has not painted within
+/// [`IDLE_EVICTION`]; `used` reads an entry's last paint.
+fn evict_idle<T>(
+    cache: &mut std::collections::HashMap<String, T>,
+    keep: &str,
+    used: impl Fn(&T) -> std::time::Instant,
+) {
+    let cutoff = std::time::Instant::now() - IDLE_EVICTION;
+    cache.retain(|key, entry| key == keep || used(entry) > cutoff);
+}
+
+#[cfg(test)]
+mod evict_tests {
+    use super::*;
+    use std::{collections::HashMap, time::Instant};
+
+    #[test]
+    fn an_idle_entry_is_evicted_but_a_recent_one_and_the_kept_one_stay() {
+        let long_ago = Instant::now() - IDLE_EVICTION * 2;
+        let mut cache = HashMap::from([
+            ("idle".to_string(), long_ago),
+            ("recent".to_string(), Instant::now()),
+            ("kept".to_string(), long_ago),
+        ]);
+        evict_idle(&mut cache, "kept", |&used| used);
+        let mut left: Vec<&str> = cache.keys().map(String::as_str).collect();
+        left.sort();
+        assert_eq!(left, ["kept", "recent"]);
+    }
+}

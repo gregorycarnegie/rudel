@@ -266,3 +266,73 @@ fn gain_method_merges_key() {
         other => panic!("expected map, got {other:?}"),
     }
 }
+
+fn first_map(pat: crate::Pattern) -> crate::ValueMap {
+    match pat
+        .query_arc(crate::Frac::zero(), crate::Frac::one())
+        .remove(0)
+        .value
+    {
+        Value::Map(m) => m,
+        other => panic!("expected map, got {other:?}"),
+    }
+}
+
+fn map_of(pairs: &[(&str, Value)]) -> Value {
+    Value::Map(
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect(),
+    )
+}
+
+#[test]
+fn a_carried_value_is_written_under_the_control_and_a_bare_map_is_nested() {
+    // `{value, delay}` is a value with its own controls riding along.
+    let carried = map_of(&[("value", Value::F64(0.5)), ("delay", Value::F64(0.6))]);
+    let m = first_map(control_dyn("gain", crate::pure(carried.clone())));
+    assert_eq!(m.get("gain"), Some(&Value::F64(0.5)));
+    assert_eq!(m.get("delay"), Some(&Value::F64(0.6)));
+    // A map with no `value` is a pattern of events stored whole.
+    let melody = map_of(&[("note", Value::Int(60))]);
+    let m = first_map(control_dyn("anchor", crate::pure(melody.clone())));
+    assert_eq!(m.get("anchor"), Some(&melody));
+    // The `:`-list controls apply the same rule around their own parsing.
+    let carried = map_of(&[
+        ("value", Value::Str("bd".into())),
+        ("delay", Value::F64(0.6)),
+    ]);
+    let m = first_map(s(crate::pure(carried)));
+    assert_eq!(m.get("s"), Some(&Value::Str("bd".into())));
+    assert_eq!(m.get("delay"), Some(&Value::F64(0.6)));
+    // An already-built control map passes through `s` untouched.
+    let built = map_of(&[("s", Value::Str("x".into()))]);
+    assert_eq!(
+        first_map(s(crate::pure(built))).get("s"),
+        Some(&Value::Str("x".into()))
+    );
+}
+
+#[test]
+fn an_empty_list_is_a_plain_value_and_mode_splits_off_its_anchor() {
+    let empty = Value::List(Vec::new());
+    assert_eq!(
+        first_map(s(crate::pure(empty.clone()))).get("s"),
+        Some(&empty)
+    );
+    assert_eq!(
+        first_map(mode(crate::pure(empty.clone()))).get("mode"),
+        Some(&empty)
+    );
+    let m = first_map(mode(crate::pure(Value::Str("below:G4".into()))));
+    assert_eq!(m.get("mode"), Some(&Value::Str("below".into())));
+    assert_eq!(m.get("anchor"), Some(&Value::Str("G4".into())));
+}
+
+#[test]
+fn the_registry_lists_every_control_and_aliases_resolve_to_their_key() {
+    assert!(control_builders().any(|(name, _)| name == "lpf"));
+    assert_eq!(control_name("bbst"), "byteBeatStartTime");
+    assert_eq!(control_name("fxr"), "FXrelease");
+}

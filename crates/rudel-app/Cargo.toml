@@ -21,9 +21,6 @@ rudel-osc.workspace = true
 # the editor buffer across a crash or a close. No file dialogs, no autosave
 # thread of our own.
 eframe = { version = "0.36.2", features = ["persistence"] }
-# egui exposes `copy_text` but no clipboard *read*, so the context menu's Paste
-# has to go to the platform itself. Already in the tree via egui-winit.
-arboard = "3.6.1"
 # Native Open/Save dialogs; egui has no file picker of its own.
 rfd = "0.17.2"
 # Parses and validates a widget's WGSL *before* handing it to wgpu, whose
@@ -44,5 +41,5 @@ windows = { version = "0.62.2", features = [
 winresource = "0.1.31"
 
 [dev-dependencies]
-egui_kittest = { version = "0.36.2", features = ["eframe"] }
+egui_kittest = { version = "0.36.2", features = ["eframe", "wgpu"] }
 tempfile = "3.27.0"

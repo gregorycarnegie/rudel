@@ -97,3 +97,31 @@ pub fn trigger_id(value: &Value) -> Option<i64> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rudel_core::Frac;
+
+    #[test]
+    fn the_hooks_keep_the_engine_alive_and_dropping_them_releases_it() {
+        let result =
+            crate::eval_result(r#"s("bd").onTriggerTime(hap => { throw 'boom' })"#).expect("eval");
+        let mut hooks = result.trigger_hooks;
+        let hap = result
+            .pattern
+            .query_arc(Frac::zero(), Frac::one())
+            .remove(0);
+        // The pattern goes first: the hooks alone must keep the evaluation's
+        // engine parked, or the host's later firing finds nothing to call.
+        drop(result.pattern);
+        let err = hooks.fire(&hap).expect("the callback still runs");
+        assert!(err.contains("boom"), "{err}");
+        // Once nothing holds the engine it is released, and the function with it.
+        let func = *hooks.hooks.values().next().expect("one hook");
+        drop(hooks);
+        assert!(
+            func.run(|_| ()).is_none(),
+            "the engine outlived its last holder"
+        );
+    }
+}

@@ -295,7 +295,6 @@ fn parse(code: &str) -> Result<Node, String> {
         expressions.push(parser.parse_expr()?);
     }
     match expressions.len() {
-        0 => Ok(Node::List(Vec::new())),
         // A single bracketed expression is already the whole program; anything
         // else is an implicit top-level list.
         1 if matches!(expressions[0], Node::List(_)) => Ok(expressions.pop().unwrap()),
@@ -657,7 +656,6 @@ impl Gen {
                 joined(self.emit_args(args)?)
             )),
             "curly" => Ok(format!("stepcat({})", joined(self.emit_args(args)?))),
-            "stack" => Ok(format!("stack({})", joined(self.emit_args(args)?))),
             "or" => Ok(format!("chooseIn({})", joined(self.emit_args(args)?))),
             "fn" => self.emit_lambda(args),
             "def" => self.emit_def(args),
@@ -804,7 +802,7 @@ pub(super) fn rewrite_mondo_templates(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut last = 0;
     for (kind, start, end) in chunks(src) {
-        if kind != Chunk::Str || start < last {
+        if kind != Chunk::Str {
             continue;
         }
         let Some((name, name_start, is_call)) = tag_before(src, start) else {
@@ -1329,5 +1327,48 @@ mod props {
         ) {
             let _ = compile(&src);
         }
+    }
+}
+
+#[cfg(test)]
+mod survivor_tests {
+    use super::compile;
+
+    #[test]
+    fn a_backslash_and_the_quote_are_escaped_too() {
+        assert_eq!(compile(r#"s "a\b""#).unwrap(), r"pure('a\\b').s()");
+        assert_eq!(compile(r#"s "it's""#).unwrap(), r"pure('it\'s').s()");
+    }
+
+    #[test]
+    fn an_underscore_inside_a_parameter_name_keeps_it() {
+        assert_eq!(compile("(fn (a_b) (s a_b))").unwrap(), "((a_b) => a_b.s())");
+    }
+
+    #[test]
+    fn two_ops_in_a_row_are_named_in_the_order_written() {
+        // `&` is the only operator in the second precedence group, so it is
+        // the one that can sit unprocessed to the left of the operator found.
+        for (src, pair) in [("a + * b", "+*"), ("a & * b", "&*")] {
+            let err = compile(src).unwrap_err();
+            assert!(err.contains(&format!("\"{pair}\"")), "{src}: {err}");
+        }
+    }
+
+    #[test]
+    fn nesting_counts_depth_not_how_many_brackets_there_are() {
+        // Siblings close before the next opens.
+        let siblings = compile(&format!("s [{}]", "[a] ".repeat(100)));
+        assert!(siblings.is_ok(), "{siblings:?}");
+        // The limit itself is allowed; one past it is not.
+        let nested = |n: usize| format!("{}a{}", "[".repeat(n), "]".repeat(n));
+        assert!(compile(&nested(64)).is_ok());
+        assert!(compile(&nested(65)).unwrap_err().contains("levels deep"));
+        // A `,` starts a fresh member, so the `#`s before it do not pile up.
+        let members = vec!["s a # fast 2"; 100].join(", ");
+        assert!(compile(&format!("[{members}]")).is_ok());
+        // A comment between links does not break an operator chain.
+        let chain = format!("a{}", "\n* 2 // x".repeat(100));
+        assert!(compile(&chain).unwrap_err().contains("levels deep"));
     }
 }

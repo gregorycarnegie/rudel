@@ -24,16 +24,6 @@ pub(super) enum MenuChoice {
     SelectAll,
 }
 
-/// The clipboard text, or `None` when there is none (or no clipboard at all, as
-/// on a headless test harness). egui only offers `copy_text`, so reading goes
-/// straight to the platform.
-pub(super) fn clipboard_text() -> Option<String> {
-    arboard::Clipboard::new()
-        .and_then(|mut clipboard| clipboard.get_text())
-        .ok()
-        .filter(|text| !text.is_empty())
-}
-
 pub(super) fn editor_context_menu(
     response: &egui::Response,
     has_selection: bool,
@@ -76,7 +66,7 @@ pub(super) fn editor_context_menu(
         }
         // Read once, on open, so the entry can grey out when there is nothing
         // to paste rather than being a no-op.
-        if item(ui, "Paste", "Ctrl+V", clipboard_text().is_some()) {
+        if item(ui, "Paste", "Ctrl+V", true) {
             choice = Some(MenuChoice::Paste);
         }
         if item(ui, "Select all", "Ctrl+A", true) {

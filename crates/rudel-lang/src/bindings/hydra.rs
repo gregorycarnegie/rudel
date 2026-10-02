@@ -87,6 +87,25 @@ mod tests {
     }
 
     #[test]
+    fn a_chain_argument_is_kept_as_a_chain() {
+        let chain = Chain::source(hydra::lookup("noise").expect("noise"), Vec::new());
+        assert_eq!(
+            args(&[Arg::Hydra(chain.clone())]),
+            [hydra::Arg::Chain(chain)]
+        );
+    }
+
+    #[test]
+    fn only_sources_start_a_chain_and_every_function_continues_one() {
+        crate::eval("const c = Hydra.osc().rotate(1)\ns(\"bd\")")
+            .expect("osc starts, rotate continues");
+        let err = crate::eval("const c = Hydra.rotate(1)\ns(\"bd\")")
+            .err()
+            .expect("rotate is not a source");
+        assert!(err.contains("not a callable function"), "{err}");
+    }
+
+    #[test]
     fn every_hydra_function_is_in_the_table() {
         // The methods are generated from the table, so its size is the one
         // thing to pin: `src`/`prev`/`sum` are the documented gaps.

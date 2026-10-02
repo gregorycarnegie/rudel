@@ -4,7 +4,7 @@ mod engine;
 #[cfg(test)]
 mod tests;
 
-pub use engine::{CsoundSource, Engine};
+pub use engine::{CsoundSource, Engine, FakeOutput};
 
 use crate::{NoteEvent, csound::Csound, scope::ScopeTaps, sync::read_lock};
 use rudel_dsp::{Convolver, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig, VoiceLike};
@@ -452,13 +452,11 @@ impl Mixer {
                 // instead; creating it means the duck still lands once that
                 // orbit's own pattern starts).
                 for d in &ev.duck {
-                    let send = OrbitSend {
-                        orbit: d.orbit,
-                        ..OrbitSend::default()
-                    };
+                    // A bus only reads the effect settings, which the target
+                    // takes from its own pattern once that starts.
                     self.orbits
                         .entry(d.orbit)
-                        .or_insert_with(|| OrbitBus::new(sample_rate, &send))
+                        .or_insert_with(|| OrbitBus::new(sample_rate, &OrbitSend::default()))
                         .duck(d);
                 }
                 if let Some(b) = ev.send.bus {
@@ -761,13 +759,17 @@ fn build_reverb(sample_rate: f32, cfg: &ReverbConfig) -> Convolver {
 /// per-frame rendering repeated the event drain, the csound lock and the onset
 /// scan once per sample. `buf` is owned by the stream callback and only ever
 /// grown, so a steady buffer size allocates nothing on the audio thread.
-fn write_frames<T>(data: &mut [T], channels: usize, mixer: &mut Mixer, buf: &mut Vec<(f32, f32)>)
-where
+fn write_frames<T>(
+    data: &mut [T],
+    channels: usize,
+    render: &mut impl FnMut(&mut [(f32, f32)]),
+    buf: &mut Vec<(f32, f32)>,
+) where
     T: cpal::Sample + cpal::FromSample<f32>,
 {
     let channels = channels.max(1);
     buf.resize(data.len().div_ceil(channels), (0.0, 0.0));
-    mixer.render_block(buf);
+    render(buf);
     for (frame, &(l, r)) in data.chunks_mut(channels).zip(buf.iter()) {
         match frame {
             [] => {}

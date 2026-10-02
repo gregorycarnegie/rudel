@@ -692,6 +692,17 @@ fn set_max_polyphony_installs_the_cap_it_was_given() {
         rudel_core::max_polyphony(),
         rudel_core::DEFAULT_MAX_POLYPHONY
     );
+    // A string's leading digits count; a negative or infinite cap does not.
+    eval("setMaxPolyphony('12 voices')\ns(\"bd\")").expect("eval");
+    assert_eq!(rudel_core::max_polyphony(), 12);
+    for nonsense in ["-5", "Infinity"] {
+        eval(&format!("setMaxPolyphony({nonsense})\ns(\"bd\")")).expect("eval");
+        assert_eq!(
+            rudel_core::max_polyphony(),
+            rudel_core::DEFAULT_MAX_POLYPHONY,
+            "{nonsense}"
+        );
+    }
 }
 
 #[test]
@@ -751,4 +762,114 @@ fn the_javascript_collection_builtins_helpers_call() {
         let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
         assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
     }
+}
+
+#[test]
+fn stack_by_repeat_is_polymeter() {
+    let by = eval(r#"stackBy("repeat", "a b", "c d e")"#).expect("eval");
+    let poly = eval(r#"polymeter("a b", "c d e")"#).expect("eval");
+    assert_eq!(values(&by, 0, 2), values(&poly, 0, 2));
+    let stacked = eval(r#"stack("a b", "c d e")"#).expect("eval");
+    assert_ne!(values(&by, 0, 2), values(&stacked, 0, 2));
+}
+
+#[test]
+fn register_with_a_list_of_names_returns_each_as_a_function() {
+    let pat = eval(
+        "const {twice} = register(['twice', 'twice2'], (pat) => pat.fast(2))\ntwice(s(\"bd\"))",
+    )
+    .expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+}
+
+#[test]
+fn morph_takes_its_rhythms_as_arrays() {
+    // An array is one rhythm, not a sequence of four one-step patterns.
+    let pat = eval("morph([1, 0, 1, 1], [1, 1, 0, 1], 0).s('bd')").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 3);
+}
+
+#[test]
+fn ccin_with_a_channel_reads_only_that_channel() {
+    // CC 94 is used by no other test; the bus is process-global.
+    let pat = eval("note(\"c3\").lpf(ccin(94, 3).range(200, 2000))").expect("eval");
+    let lpf = || match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => m.get("cutoff").and_then(Value::as_f64).unwrap(),
+        other => panic!("{other:?}"),
+    };
+    rudel_core::set_cc(5, 94, 1.0);
+    assert_eq!(lpf(), 200.0);
+    rudel_core::set_cc(3, 94, 1.0);
+    assert_eq!(lpf(), 2000.0);
+}
+
+#[test]
+fn a_number_too_big_to_be_an_exact_integer_stays_a_float() {
+    let pat = eval("pure(9e15)").expect("eval");
+    assert!(matches!(values(&pat, 0, 1)[0], Value::F64(_)));
+    let pat = eval("pure(8e15)").expect("eval");
+    assert!(matches!(values(&pat, 0, 1)[0], Value::Int(_)));
+}
+
+#[test]
+fn a_fraction_from_the_engine_works_wherever_a_number_does() {
+    // `whole.begin` of the second hap is the fraction 1/2.
+    let half = r#"s("a b").queryArc(0, 1)[1].whole.begin"#;
+    let pat = eval(&format!("pure({half})")).expect("eval");
+    assert!(
+        matches!(values(&pat, 0, 1)[0], Value::Frac(f) if f == Frac::new(1, 2)),
+        "{:?}",
+        values(&pat, 0, 1)
+    );
+    // A callback returning one keeps it exact too.
+    let pat = eval(&format!("pure(0).fmap(v => {half})")).expect("eval");
+    assert!(
+        matches!(values(&pat, 0, 1)[0], Value::Frac(f) if f == Frac::new(1, 2)),
+        "{:?}",
+        values(&pat, 0, 1)
+    );
+    let slow = eval(&format!(r#"s("hh").fast({half})"#)).expect("eval");
+    assert_eq!(
+        slow.query_arc(Frac::zero(), Frac::one())[0]
+            .whole
+            .unwrap()
+            .end,
+        Frac::int(2)
+    );
+    let (_, effects) = crate::eval_with_samples(&format!("setcps({half})")).expect("eval");
+    assert_eq!(effects.cps, Some(0.5));
+}
+
+#[test]
+fn stepcat_reads_a_longer_array_as_a_pattern_not_a_weight() {
+    let pat = eval(r#"stepcat(["a", "b", "c"], "d")"#).expect("eval");
+    assert!(values(&pat, 0, 1).contains(&Value::Str("c".into())));
+}
+
+#[test]
+fn as_takes_its_names_as_an_array_too() {
+    let a = eval(r#"n("0:0.5").as("note:clip")"#).expect("eval");
+    let b = eval(r#"n("0:0.5").as(["note", "clip"])"#).expect("eval");
+    assert_eq!(values(&a, 0, 1), values(&b, 0, 1));
+}
+
+#[test]
+fn all_still_transforms_a_script_that_ends_on_something_else() {
+    eval("all(x => x.fast(2))\n5").expect("`all` plays silence through its transform");
+}
+
+#[test]
+fn a_filter_predicate_is_read_with_javascript_truthiness() {
+    // null, 0, NaN and "" are false; a non-empty string and a non-zero number
+    // are true.
+    let pat = eval(r#"n("0 1 2 3 4 5").filter(h => [null, 0, NaN, '', 'x', 7][h.value.n])"#)
+        .expect("eval");
+    let kept: Vec<_> = values(&pat, 0, 1)
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("n").and_then(Value::as_f64),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kept, [4.0, 5.0]);
 }

@@ -40,7 +40,6 @@ pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
 /// (`pianoroll`) map to the same type as their inline variant (`_pianoroll`).
 fn canonical_widget_type(method: &str) -> &'static str {
     match method {
-        "pianoroll" | "_pianoroll" => "_pianoroll",
         "punchcard" | "_punchcard" => "_punchcard",
         "spiral" | "_spiral" => "_spiral",
         "scope" | "tscope" | "_scope" => "_scope",
@@ -51,6 +50,7 @@ fn canonical_widget_type(method: &str) -> &'static str {
         "claviature" | "_claviature" => "_claviature",
         "shader" | "_shader" => "_shader",
         "hydra" | "_hydra" => "_hydra",
+        // `pianoroll` itself, and the fallback for anything unlisted.
         _ => "_pianoroll",
     }
 }
@@ -268,7 +268,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
             }
             out.push(')');
             last = local_to;
-            i = call.close + 1;
+            i = last;
             continue;
         }
         if !src[i..].starts_with(NAME) {
@@ -334,7 +334,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
         }
         out.push(')');
         last = call.close + 1;
-        i = call.close + 1;
+        i = last;
     }
     if widgets.is_empty() {
         return (src.to_string(), widgets, Vec::new());

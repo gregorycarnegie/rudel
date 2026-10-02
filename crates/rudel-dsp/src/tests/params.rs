@@ -88,3 +88,17 @@ fn a_gain_curve_rescales_the_voice_gain() {
     assert!((curved - 0.25).abs() < 1e-3, "quadratic gain: {curved}");
     assert!((params(0.5) - 0.5).abs() < 1e-6, "cleared again");
 }
+
+#[test]
+fn a_wavetable_lfo_is_locked_to_the_cycle_clock() {
+    // Cycle 2 at 0.5 cps is four seconds in, and that is where the LFO's
+    // phase starts.
+    let map: ValueMap = [
+        ("wt".to_string(), Value::F64(0.5)),
+        ("wtrate".to_string(), Value::F64(1.0)),
+    ]
+    .into_iter()
+    .collect();
+    let p = VoiceParams::from_controls_at(&map, 1.0, 0.5, 2.0);
+    assert_eq!(p.wt.lfo.expect("an LFO").time, 4.0);
+}

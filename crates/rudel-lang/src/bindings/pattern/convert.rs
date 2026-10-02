@@ -216,6 +216,7 @@ pub(in crate::bindings) fn arg_to_value(value: &Arg) -> Value {
             Some(s) => Value::Str(s.clone()),
             None => Value::Pat(Box::new(pat.clone())),
         },
+        Arg::Frac(f) => Value::Frac(*f),
         _ => Value::Null,
     }
 }

@@ -106,3 +106,17 @@ fn a_voice_is_only_wrapped_when_something_downstream_wants_it() {
         "a post-fx modulation has to be wrapped even with an inert chain"
     );
 }
+
+#[test]
+fn an_fx_stage_reads_its_effects_filters_and_length_from_the_controls() {
+    let map: ValueMap = [
+        ("shape".to_string(), Value::F64(0.5)),
+        ("cutoff".to_string(), Value::F64(800.0)),
+    ]
+    .into_iter()
+    .collect();
+    let stage = FxStage::from_controls(&map, 2.5);
+    assert_eq!(stage.fx.shape, Some(0.5));
+    assert_eq!(stage.filters.lp.freq, Some(800.0));
+    assert_eq!(stage.duration, 2.5);
+}

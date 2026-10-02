@@ -142,3 +142,34 @@ fn op_env(a: Option<f32>, d: Option<f32>, su: Option<f32>, r: Option<f32>) -> Op
         release: r.unwrap_or(0.0).max(0.01),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fm_is_active_only_with_an_operator_routed() {
+        assert!(!FmSpec::default().active());
+        let routed = FmSpec {
+            max_op: 1,
+            ..FmSpec::default()
+        };
+        assert!(routed.active());
+    }
+
+    #[test]
+    fn any_one_envelope_value_arms_an_operator_envelope() {
+        assert!(op_env(None, None, None, None).is_none());
+        for (a, d, s, r) in [
+            (Some(0.1), None, None, None),
+            (None, Some(0.1), None, None),
+            (None, None, Some(0.5), None),
+            (None, None, None, Some(0.2)),
+        ] {
+            assert!(op_env(a, d, s, r).is_some(), "{a:?} {d:?} {s:?} {r:?}");
+        }
+        // Attack alone holds at full; a decay without a sustain falls away.
+        assert_eq!(op_env(Some(0.1), None, None, None).unwrap().sustain, 1.0);
+        assert_eq!(op_env(None, Some(0.1), None, None).unwrap().sustain, 0.001);
+    }
+}

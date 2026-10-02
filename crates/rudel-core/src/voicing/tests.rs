@@ -314,3 +314,19 @@ fn root_notes_writes_into_a_control_map() {
     assert_eq!(m.get("note"), Some(&Value::Str("C4".into())));
     assert_eq!(m.get("chord"), Some(&Value::Str("C^7".into())));
 }
+
+#[test]
+fn an_offset_steps_through_the_voicings_in_its_own_direction() {
+    let at = |offset: i32| {
+        render_voicing(
+            "Am7",
+            &VoicingOpts {
+                offset,
+                ..VoicingOpts::default()
+            },
+        )
+    };
+    assert_eq!(at(0), Some(vec![57, 60, 64, 67, 72]));
+    assert_eq!(at(1), Some(vec![57, 64, 67, 72, 76]));
+    assert_eq!(at(-1), Some(vec![55, 60, 64, 69, 72]));
+}

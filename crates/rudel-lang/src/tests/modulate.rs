@@ -88,3 +88,10 @@ fn chained_lfos_increment_ids() {
         Some("lfo_0")
     );
 }
+
+#[test]
+fn the_generic_modulate_names_its_type() {
+    let a = eval(r#"s("saw").lpf(500).modulate("lfo", {rate: 2})"#).expect("eval");
+    let b = eval(r#"s("saw").lpf(500).lfo({rate: 2})"#).expect("eval");
+    assert_eq!(values(&a, 0, 1), values(&b, 0, 1));
+}

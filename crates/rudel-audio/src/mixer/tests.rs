@@ -2102,19 +2102,27 @@ fn write_frames_lays_out_mono_stereo_and_extra_channels() {
     );
 
     let mut mono = [0.0f32; 4];
-    write_frames(&mut mono, 1, &mut voice(), &mut Vec::new());
+    let mut m = voice();
+    write_frames(&mut mono, 1, &mut |b| m.render_block(b), &mut Vec::new());
     for (got, (l, r)) in mono.iter().zip(&want) {
         assert_eq!(*got, (l + r) * 0.5, "mono is the average of the pair");
     }
 
     let mut stereo = [0.0f32; 8];
-    write_frames(&mut stereo, 2, &mut voice(), &mut Vec::new());
+    let mut m = voice();
+    write_frames(&mut stereo, 2, &mut |b| m.render_block(b), &mut Vec::new());
     for (got, (l, r)) in stereo.chunks(2).zip(&want) {
         assert_eq!((got[0], got[1]), (*l, *r), "stereo is the pair verbatim");
     }
 
     let mut surround = [0.0f32; 12];
-    write_frames(&mut surround, 3, &mut voice(), &mut Vec::new());
+    let mut m = voice();
+    write_frames(
+        &mut surround,
+        3,
+        &mut |b| m.render_block(b),
+        &mut Vec::new(),
+    );
     for (got, (l, r)) in surround.chunks(3).zip(&want) {
         assert_eq!(
             (got[0], got[1], got[2]),
@@ -2685,4 +2693,23 @@ fn an_armed_recorder_gets_the_frames_the_callback_rendered() {
         44 + 2 * 32 * 2 * 2,
         "both blocks reached the file"
     );
+}
+
+#[test]
+fn an_orbit_stops_after_twice_its_tail_plus_a_second_of_silence() {
+    // `idle_frames` counts the silence and stops counting once `mix_into`
+    // starts returning early, so where it settles is where the orbit stopped.
+    // A 0.2s room and no delay is a 0.2 * 2 + 1 = 1.4s window: 61740 frames
+    // at 44.1kHz, passed by the 121st silent 512-frame block.
+    let mut bus = prompt_orbit();
+    bus.clear(2048);
+    bus.room_l[..2048].fill(0.5);
+    let mut burst = vec![(0.0f32, 0.0f32); 2048];
+    bus.mix_into(&mut burst);
+    for _ in 0..400 {
+        bus.clear(512);
+        let mut out = vec![(0.0f32, 0.0f32); 512];
+        bus.mix_into(&mut out);
+    }
+    assert_eq!(bus.idle_frames, (61_740 / 512 + 1) * 512);
 }

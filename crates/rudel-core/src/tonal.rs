@@ -265,7 +265,7 @@ fn scale_name_token(v: &Value) -> String {
             .collect::<Vec<_>>()
             .join(" "),
         other => match other.as_f64() {
-            Some(f) if f.fract() == 0.0 => (f as i64).to_string(),
+            // `{}` prints a whole f64 without a decimal point.
             Some(f) => f.to_string(),
             None => String::new(),
         },
@@ -424,7 +424,7 @@ fn chord_token(v: &Value) -> String {
     match v {
         Value::Str(s) => s.clone(),
         Value::Int(n) => n.to_string(),
-        Value::F64(x) if x.fract() == 0.0 => (*x as i64).to_string(),
+        // `{}` prints a whole f64 without a decimal point.
         Value::F64(x) => x.to_string(),
         Value::Frac(f) => chord_token(&Value::F64(f.to_f64())),
         _ => String::new(),
@@ -684,6 +684,21 @@ fn scale_transpose_hap(hap: Hap, offset: i32) -> Hap {
 mod tests {
     use super::*;
     use crate::{Frac, fastcat, n, pure, sequence};
+
+    #[test]
+    fn a_bare_root_is_its_major_scale_and_sus_is_not_a_sharp() {
+        assert_eq!(
+            parse_scale("D").map(|(_, ivs)| ivs.to_vec()),
+            parse_scale("D major").map(|(_, ivs)| ivs.to_vec())
+        );
+        assert!(parse_scale("D").is_some());
+        let sus = chord_notes("Csus4").expect("a chord");
+        let plain = chord_notes("C").expect("a chord");
+        assert_eq!(sus[0], plain[0], "sus4 is on C, not C#");
+        assert_eq!(sus[1] - sus[0], 5, "{sus:?}");
+        // A negative octave belongs to the root: C-1 is MIDI 0.
+        assert_eq!(chord_notes("C-1maj7"), Some(vec![0, 4, 7, 11]));
+    }
 
     fn notes(pat: &Pattern) -> Vec<f64> {
         let mut haps = pat.query_arc(Frac::zero(), Frac::one());

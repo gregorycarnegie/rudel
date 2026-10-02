@@ -15,10 +15,7 @@
 
 use super::{spiral::SpiralBand, style::WidgetDrawColors};
 use eframe::{egui, egui_wgpu, wgpu};
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, time::Instant};
 
 /// Bytes per `Band` in the storage buffer: three floats and a pad, then an
 /// `f32` colour that WGSL aligns to 16.
@@ -175,10 +172,6 @@ struct Surface {
     used: Instant,
 }
 
-/// Drop a widget's buffers once it has gone this long without painting. Editing
-/// a spiral's source shifts its widget id, so ids do accumulate.
-const IDLE_EVICTION: Duration = Duration::from_secs(30);
-
 /// The pipeline and per-widget buffers, living in the wgpu renderer's callback
 /// resources.
 pub(crate) struct SpiralStore {
@@ -302,10 +295,7 @@ impl egui_wgpu::CallbackTrait for SpiralCallback {
         };
         if let Some(surface) = surface {
             store.surfaces.insert(self.id.clone(), surface);
-            let cutoff = Instant::now() - IDLE_EVICTION;
-            store
-                .surfaces
-                .retain(|key, surface| key == &self.id || surface.used > cutoff);
+            super::evict_idle(&mut store.surfaces, &self.id, |s| s.used);
         }
         let Some(surface) = store.surfaces.get_mut(&self.id) else {
             return Vec::new();

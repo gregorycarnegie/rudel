@@ -554,6 +554,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_duck_dips_exponentially_to_its_floor_over_the_onset() {
+        // Depth 0.75 dips to 1 - sqrt(0.75), about 0.134. Half way through a
+        // 100-sample dip the gain is the geometric mean of 1 and that floor.
+        let mut env = DuckEnv::default();
+        let duck = Duck {
+            orbit: 0,
+            onset: 0.1,
+            attack: 0.002,
+            depth: 0.75,
+        };
+        env.trigger(1000.0, &duck);
+        let floor = 1.0 - 0.75f32.sqrt();
+        let gains: Vec<f32> = (0..100).map(|_| env.next_gain()).collect();
+        assert!(
+            (gains[49] - floor.sqrt()).abs() < 1e-3,
+            "{} vs {}",
+            gains[49],
+            floor.sqrt()
+        );
+        assert!((gains[99] - floor).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_duck_retriggered_mid_dip_dips_on_from_where_it_is() {
+        // The second dip starts from the current gain, not from unity: half
+        // way through it the gain is the geometric mean of that and the floor.
+        let mut env = DuckEnv::default();
+        let duck = Duck {
+            orbit: 0,
+            onset: 0.1,
+            attack: 0.002,
+            depth: 0.75,
+        };
+        env.trigger(1000.0, &duck);
+        let mut gain = 1.0;
+        for _ in 0..50 {
+            gain = env.next_gain();
+        }
+        env.trigger(1000.0, &duck);
+        let floor = 1.0 - 0.75f32.sqrt();
+        let gains: Vec<f32> = (0..50).map(|_| env.next_gain()).collect();
+        let want = (gain * floor).sqrt();
+        assert!((gains[49] - want).abs() < 1e-3, "{} vs {want}", gains[49]);
+    }
+
+    #[test]
     fn djf_centre_is_a_bypass() {
         let mut d = Djf::new(44100.0, 0.5);
         assert!(d.is_bypass());

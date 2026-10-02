@@ -277,6 +277,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_the_path_of_an_http_url_is_percent_encoded() {
+        assert_eq!(
+            encode_http_url_path("https://example.com/a b/c.wav?x=1 2"),
+            "https://example.com/a%20b/c.wav?x=1 2"
+        );
+        assert_eq!(
+            encode_http_url_path("https://example.com"),
+            "https://example.com"
+        );
+        // The path starts after the authority, port included: a short host
+        // puts the path inside where a misplaced search would begin.
+        assert_eq!(
+            encode_http_url_path("https://a.io/x y"),
+            "https://a.io/x%20y"
+        );
+        assert_eq!(
+            encode_http_url_path("https://a.io:8080/x y"),
+            "https://a.io:8080/x%20y"
+        );
+        // The brackets of an IPv6 host are not path characters, and the host
+        // is not part of the path.
+        assert_eq!(
+            encode_http_url_path("http://[::1]:8080/x y"),
+            "http://[::1]:8080/x%20y"
+        );
+    }
+
+    #[test]
     fn github_path_expands_defaults() {
         assert_eq!(
             github_path("github:tidalcycles/dirt-samples", "strudel.json").unwrap(),

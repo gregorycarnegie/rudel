@@ -151,10 +151,10 @@ pub fn superdirt_message(controls: &ValueMap, cps: f64, cycle: f64, delta: f64) 
     if let Some(Value::List(items)) = map.get("channels").cloned() {
         let parts: Vec<String> = items
             .iter()
-            .map(|v| match v.as_f64() {
-                Some(f) if f.fract() == 0.0 => format!("{}", f as i64),
-                Some(f) => format!("{f}"),
-                None => "null".to_string(),
+            // `{}` prints a whole f64 without a fraction: `[1,2.5]`.
+            .map(|v| {
+                v.as_f64()
+                    .map_or_else(|| "null".to_string(), |f| format!("{f}"))
             })
             .collect();
         map.insert(
@@ -341,49 +341,70 @@ fn run_scheduler(
     running: Arc<AtomicBool>,
 ) {
     let start = Instant::now();
-    let mut clock = Clock::new(*cps.lock().unwrap());
-    let mut scheduled_cycle = 0.0_f64;
-    let mut pending: Vec<TimedOsc> = Vec::new();
+    let mut scheduler = Scheduler::new(*cps.lock().unwrap());
     while running.load(Ordering::Relaxed) {
         let cps_set = *cps.lock().unwrap();
-        let now = start.elapsed().as_secs_f64();
-        if cps_set != clock.cps() {
-            // Re-anchor rather than rescale from the origin: without this a
-            // slower cps pushes the target cycle *behind* what is already
-            // scheduled (silence until the clock catches up) and a faster one
-            // jumps it forward (a burst of events at once).
-            clock.set_cps(now, cps_set);
-            pending.retain(|m| m.at_seconds <= now); // timed at the old rate
-            scheduled_cycle = clock.cycle_at(now);
-        }
-        let cps_now = clock.cps();
-        let target_cycle = clock.cycle_at(now + LOOKAHEAD);
-        if target_cycle > scheduled_cycle {
-            let pat = pattern.read().unwrap().clone();
-            // `schedule_window` times events as `cycle / cps`, i.e. from the
-            // origin; shifting by the anchor's origin time puts them back on
-            // this thread's `start` clock.
-            let shift = clock.seconds_at(0.0);
-            pending.extend(
-                schedule_window(&pat, cps_now, scheduled_cycle, target_cycle)
-                    .into_iter()
-                    .map(|mut m| {
-                        m.at_seconds += shift;
-                        m
-                    }),
-            );
-            pending.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
-            scheduled_cycle = target_cycle;
-        }
-        let now = start.elapsed().as_secs_f64();
-        while pending.first().is_some_and(|m| m.at_seconds <= now) {
-            let m = pending.remove(0);
+        for m in scheduler.tick(start.elapsed().as_secs_f64(), cps_set, &pattern) {
             let _ = match &m.target {
                 Some(target) => out.send_to(&m.message, target),
                 None => out.send(&m.message),
             };
         }
         std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The scheduler thread's state, stepped by the time it is handed rather than
+/// reading a clock of its own, so a test can drive it on a simulated one.
+struct Scheduler {
+    clock: Clock,
+    scheduled_cycle: f64,
+    pending: Vec<TimedOsc>,
+}
+
+impl Scheduler {
+    fn new(cps: f64) -> Scheduler {
+        Scheduler {
+            clock: Clock::new(cps),
+            scheduled_cycle: 0.0,
+            pending: Vec::new(),
+        }
+    }
+
+    /// One step at `now` seconds since the thread started: follow a tempo
+    /// change, queue the window up to the lookahead, and return what is due.
+    fn tick(&mut self, now: f64, cps_set: f64, pattern: &RwLock<Pattern>) -> Vec<TimedOsc> {
+        if cps_set != self.clock.cps() {
+            // Re-anchor rather than rescale from the origin: without this a
+            // slower cps pushes the target cycle *behind* what is already
+            // scheduled (silence until the clock catches up) and a faster one
+            // jumps it forward (a burst of events at once).
+            self.clock.set_cps(now, cps_set);
+            self.pending.retain(|m| m.at_seconds <= now); // timed at the old rate
+            self.scheduled_cycle = self.clock.cycle_at(now);
+        }
+        let cps_now = self.clock.cps();
+        let target_cycle = self.clock.cycle_at(now + LOOKAHEAD);
+        if target_cycle > self.scheduled_cycle {
+            let pat = pattern.read().unwrap().clone();
+            // `schedule_window` times events as `cycle / cps`, i.e. from the
+            // origin; shifting by the anchor's origin time puts them back on
+            // this thread's `start` clock.
+            let shift = self.clock.seconds_at(0.0);
+            self.pending.extend(
+                schedule_window(&pat, cps_now, self.scheduled_cycle, target_cycle)
+                    .into_iter()
+                    .map(|mut m| {
+                        m.at_seconds += shift;
+                        m
+                    }),
+            );
+            self.pending
+                .sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
+            self.scheduled_cycle = target_cycle;
+        }
+        let due = self.pending.partition_point(|m| m.at_seconds <= now);
+        self.pending.drain(..due).collect()
     }
 }
 
@@ -817,8 +838,8 @@ mod tests {
         };
 
         assert_eq!(msg(vec![Value::Int(1), Value::Int(2)]), "[1,2]");
-        // A whole float is written as an integer, not "1.0" — the `fract() == 0`
-        // guard is what does that.
+        // A whole float is written as an integer, not "1.0", which is how
+        // Rust's `{}` prints one.
         assert_eq!(msg(vec![Value::F64(1.0), Value::F64(2.0)]), "[1,2]");
         // ...and a fractional one keeps its decimals.
         assert_eq!(msg(vec![Value::F64(1.5)]), "[1.5]");
@@ -957,6 +978,40 @@ mod tests {
         engine.set_cps(8.0);
         let fast = count_for(&sock, 600);
         assert!(fast > slow, "cps 8 sent {fast}, cps 2 sent {slow}");
+    }
+
+    /// Step a scheduler over `0..until` seconds in 1ms ticks, switching to
+    /// `cps_after` at `change`, and return when each due message was timed.
+    fn simulate(pat: Pattern, cps: f64, change: f64, cps_after: f64, until: f64) -> Vec<f64> {
+        let pattern = RwLock::new(pat);
+        let mut scheduler = Scheduler::new(cps);
+        let mut times = Vec::new();
+        for ms in 0..(until * 1000.0) as u32 {
+            let now = f64::from(ms) / 1000.0;
+            let cps_now = if now < change { cps } else { cps_after };
+            for m in scheduler.tick(now, cps_now, &pattern) {
+                assert!(
+                    m.at_seconds <= now && now - m.at_seconds < 0.0015,
+                    "sent late"
+                );
+                times.push(m.at_seconds);
+            }
+        }
+        times
+    }
+
+    #[test]
+    fn a_tempo_change_carries_on_from_the_cycle_it_happened_in() {
+        // One event a cycle at cps 1 lands on 0 and 1. The change to cps 2 at
+        // 1.96s comes after cycle 2 was already queued for 2.0s at the old
+        // rate; that copy is dropped and cycle 2 lands 0.04 cycles later at
+        // the new rate, 1.98s, then every half second.
+        let times = simulate(s(pure(Value::Str("bd".into()))), 1.0, 1.96, 2.0, 3.0);
+        let want = [0.0, 1.0, 1.98, 2.48, 2.98];
+        assert_eq!(times.len(), want.len(), "{times:?}");
+        for (got, want) in times.iter().zip(want) {
+            assert!((got - want).abs() < 1e-9, "{times:?}");
+        }
     }
 
     #[test]

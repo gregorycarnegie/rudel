@@ -57,3 +57,27 @@ pub(super) fn i64_arg(args: &[Arg], i: usize) -> i64 {
 pub(super) fn frac_arg(args: &[Arg], i: usize) -> Frac {
     arg_to_frac(arg(args, i))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_plain_name_is_a_literal_and_mini_syntax_is_a_pattern() {
+        assert!(!looks_like_mini_pattern("31edo"));
+        for mini in ["a b", "<a b>", "[a b]", "a,b", "a|b", "a*2", "a!", "~"] {
+            assert!(looks_like_mini_pattern(mini), "{mini}");
+        }
+        // A string literal arrives wrapped, as it does from a script: a plain
+        // name stays one string, while mini text is read as the pattern.
+        let first = |s: &str| {
+            let wrapped = rudel_mini::parse(s).expect("parses").with_source(s);
+            literal_or_pattern_arg(&Arg::Pat(wrapped))
+                .query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one())
+                .remove(0)
+                .value
+        };
+        assert_eq!(first("31edo"), Value::Str("31edo".into()));
+        assert_eq!(first("<a b>"), Value::Str("a".into()));
+    }
+}

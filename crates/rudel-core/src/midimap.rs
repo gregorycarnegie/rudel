@@ -117,6 +117,12 @@ mod tests {
     }
 
     #[test]
+    fn a_range_not_starting_at_zero_is_offset_by_its_minimum() {
+        assert_eq!(normalize(6.0, 2.0, 10.0, 1.0), 0.5);
+        assert!(!has_midimap("never_registered"));
+    }
+
+    #[test]
     fn range_and_exponent_normalize_the_value() {
         let lpf = CcMapping {
             ccn: 74,

@@ -8,7 +8,8 @@ use crate::{
 /// The `s`/`sound` control, with `"name:index"` splitting into `{ s, n }`.
 pub fn s(pat: impl IntoPattern) -> Pattern {
     pat.into_pattern().fmap(carrying(|v| match v {
-        Value::Str(ref string) if string.contains(':') => {
+        // Without a `:` the split leaves `{s: name}`, as `single` would.
+        Value::Str(ref string) => {
             let mut parts = string.splitn(2, ':');
             let mut m = ValueMap::new();
             m.insert(
@@ -59,7 +60,7 @@ pub fn mode(pat: impl IntoPattern) -> Pattern {
             }
             Value::Map(m)
         }
-        Value::Str(ref s) if s.contains(':') => {
+        Value::Str(ref s) => {
             let mut parts = s.splitn(2, ':');
             let mut m = ValueMap::new();
             m.insert(

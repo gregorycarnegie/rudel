@@ -763,6 +763,24 @@ mod tests {
     /// as a fresh one does. (The idle stretch is a whole number of partitions,
     /// so both are at the same point in the block cycle.)
     #[test]
+    fn a_signal_on_one_side_only_is_not_silence() {
+        // Only both channels at zero count towards settling; a hard-panned
+        // source must keep the reverb running.
+        let sr = 44100.0;
+        let ir = generate_reverb_ir(sr, 0.3, 0.0, 8000.0, 1000.0);
+        let mut c = Convolver::new(&ir, sr);
+        let frames = c.settled_after * 3;
+        let mut late = 0.0f32;
+        for i in 0..frames {
+            let (l, _) = c.process((i as f32 * 0.37).sin(), 0.0);
+            if i > frames - PARTITION {
+                late = late.max(l.abs());
+            }
+        }
+        assert!(late > 0.0, "the left side went quiet");
+    }
+
+    #[test]
     fn skipping_settled_silence_leaves_the_response_unchanged() {
         let sr = 44100.0;
         let ir = generate_reverb_ir(sr, 0.3, 0.0, 8000.0, 1000.0);

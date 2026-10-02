@@ -673,7 +673,9 @@ impl Pattern {
 
     /// `compress`: squeeze each cycle into `[b, e]`, leaving a gap.
     pub fn _compress(&self, b: Frac, e: Frac) -> Pattern {
-        if b > e || b > Frac::one() || e > Frac::one() || b < Frac::zero() || e < Frac::zero() {
+        // `b <= e` given, `b <= 1` and `e >= 0` follow. `b == e` divides by
+        // zero below, as upstream's does.
+        if b > e || b < Frac::zero() || e > Frac::one() {
             return silence();
         }
         self._fast_gap(Frac::one() / (e - b))._late(b)
@@ -1009,5 +1011,42 @@ pub fn parse_string(s: &str) -> Pattern {
     match *STRING_PARSER.read().unwrap() {
         Some(parser) => parser(s),
         None => pure(Value::Str(s.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod survivor_tests {
+    use super::*;
+
+    fn count(pat: &Pattern) -> usize {
+        pat.query_arc(Frac::zero(), Frac::one()).len()
+    }
+
+    #[test]
+    fn compress_outside_the_unit_cycle_or_backwards_is_silence() {
+        let pat = pure(Value::Int(1));
+        assert_eq!(count(&pat._compress(Frac::new(1, 4), Frac::new(3, 4))), 1);
+        for (b, e) in [(3, 1), (-1, 2), (1, 6)] {
+            let squeezed = pat._compress(Frac::new(b, 4), Frac::new(e, 4));
+            assert_eq!(count(&squeezed), 0, "{b}/4..{e}/4");
+        }
+    }
+
+    #[test]
+    fn a_single_pattern_passes_through_fastcat_and_stack_with_unchanged() {
+        let three = pure(Value::Int(1)).set_steps(Some(Frac::int(3)));
+        assert_eq!(
+            fastcat(std::slice::from_ref(&three)).steps,
+            Some(Frac::int(3))
+        );
+        // `_stackWith` hands a lone pattern back as it is, `pure` and all.
+        assert!(stack_left(&[pure(Value::Int(1))]).pure_value.is_some());
+    }
+
+    #[test]
+    fn poly_join_with_a_stepless_inner_pattern_does_not_divide_by_zero() {
+        let inner = pure(Value::Int(1)).set_steps(Some(Frac::zero()));
+        let outer = pure(Value::Pat(Box::new(inner))).set_steps(Some(Frac::one()));
+        assert_eq!(count(&outer.poly_join()), 1);
     }
 }

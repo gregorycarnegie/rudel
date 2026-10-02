@@ -99,3 +99,17 @@ impl ScopeTaps {
         &self.master
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_removed_tap_is_gone_and_asking_again_makes_a_new_one() {
+        let taps = ScopeTaps::new();
+        let first = taps.get_or_create("w1");
+        assert!(Arc::ptr_eq(&first, &taps.get_or_create("w1")));
+        taps.remove("w1");
+        assert!(!Arc::ptr_eq(&first, &taps.get_or_create("w1")));
+    }
+}

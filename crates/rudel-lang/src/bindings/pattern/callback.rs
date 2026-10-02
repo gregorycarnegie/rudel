@@ -91,8 +91,9 @@ where
         let paired = arg_to_pattern(a)
             .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
             .app_left(&arg_to_pattern(b));
+        // Every value of `paired` is the two-element list built just above.
         probe_patternify(paired, |pair| match pair {
-            Value::List(xy) if xy.len() == 2 => build(pat, xy[0].to_frac(), xy[1].to_frac(), &cb),
+            Value::List(xy) => build(pat, xy[0].to_frac(), xy[1].to_frac(), &cb),
             _ => pat.clone(),
         })
     };
@@ -117,10 +118,10 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
             .unwrap_or(NULL);
         (func, arg_to_pattern(a.last().unwrap_or(NULL)))
     }
-    // Leading arg `i` (before the function and pattern), or null if absent.
+    // Leading arg `i` (before the function and pattern). Every caller is
+    // curried at an arity that puts its leading args in place.
     fn lead(a: &[Arg], i: usize) -> &Arg {
-        let present = a.len().checked_sub(2).is_some_and(|leading| i < leading);
-        a.get(i).filter(|_| present).unwrap_or(NULL)
+        a.get(i).unwrap_or(NULL)
     }
 
     // Each macro registers a callback combinator group; `$name` is the
@@ -446,7 +447,9 @@ pub(super) fn static_period_pattern(
         for repeat in first_repeat..last_repeat {
             let offset = period * Frac::int(repeat);
             for template in &haps {
-                let mut hap = template.clone().with_span(|span| span.with_time(|t| t + offset));
+                let mut hap = template
+                    .clone()
+                    .with_span(|span| span.with_time(|t| t + offset));
                 if let Some(part) = hap.part.intersection(&state.span) {
                     hap.part = part;
                     out.push(hap);

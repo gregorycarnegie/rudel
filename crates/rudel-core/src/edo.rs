@@ -161,14 +161,8 @@ impl Pitches {
     /// Frequency for the tonic in octave `oct` (`get_freq` with `index = tonic`,
     /// and the tonic is always degree 1, so the base ratio is 1).
     fn octave_base(&self, oct: i64) -> f64 {
-        let f = self.base_freq;
-        if oct < self.root_octave {
-            f / 2f64.powi((self.root_octave - oct) as i32)
-        } else if oct > self.root_octave {
-            f * 2f64.powi((oct - self.root_octave) as i32)
-        } else {
-            f
-        }
+        // A power of two scales exactly, whichever side of the root it is.
+        self.base_freq * 2f64.powi((oct - self.root_octave) as i32)
     }
 
     /// Map a 1-indexed degree to `(octave, degree-in-scale)`, wrapping octaves.

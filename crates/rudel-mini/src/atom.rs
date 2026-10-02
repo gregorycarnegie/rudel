@@ -78,12 +78,11 @@ fn is_js_decimal(s: &str) -> bool {
         if i < b.len() && (b[i] == b'-' || b[i] == b'+') {
             i += 1;
         }
-        let mut exp_digits = 0;
+        let digits_start = i;
         while i < b.len() && b[i].is_ascii_digit() {
             i += 1;
-            exp_digits += 1;
         }
-        if exp_digits == 0 {
+        if i == digits_start {
             return false;
         }
     }

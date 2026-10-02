@@ -748,7 +748,7 @@ fn id_key(id: &Value) -> String {
     match id {
         Value::Str(s) => s.clone(),
         Value::Int(n) => n.to_string(),
-        Value::F64(n) if n.fract() == 0.0 => (*n as i64).to_string(),
+        // `{}` prints a whole f64 without a decimal point.
         other => other.as_f64().map(|n| n.to_string()).unwrap_or_default(),
     }
 }
@@ -1053,6 +1053,52 @@ mod tests {
         assert!(lo < -0.45, "min not reached: {lo}");
         assert!(hi <= 0.5 + 1e-9, "max too high: {hi}");
         assert!(hi > 0.45, "max not reached: {hi}");
+    }
+
+    #[test]
+    fn an_lfo_that_does_not_retrigger_starts_at_the_cycle_clock() {
+        // Cycle 2 at 0.5 cps is four seconds in.
+        let map = descriptor(
+            "lfo",
+            &[
+                ("control", Value::Str("gain".into())),
+                ("rate", Value::F64(1.0)),
+            ],
+        );
+        let ctx = ModContext {
+            cps: 0.5,
+            cycle: 2.0,
+            note_seconds: 1.0,
+        };
+        let specs = ModSpecs::from_controls(&map, &ctx, |_| 1.0);
+        let SourceConfig::Lfo(cfg) = &specs.voice[0].source else {
+            panic!("expected an LFO");
+        };
+        assert_eq!(cfg.time, 4.0);
+    }
+
+    #[test]
+    fn a_bus_modulator_multiplies_by_its_gain() {
+        // `depthabs` 0.6 is a gain of 2, where `*` and `/` part ways.
+        let map = descriptor(
+            "bmod",
+            &[
+                ("control", Value::Str("gain".into())),
+                ("bus", Value::Int(1)),
+                ("depthabs", Value::F64(0.6)),
+                ("dc", Value::F64(0.5)),
+            ],
+        );
+        let specs = ModSpecs::from_controls(&map, &ModContext::default(), |_| 1.0);
+        let mut bank = ModBank::new(&specs.voice, 44100.0);
+        bank.set_bus_input(1, &[2.0], &[0.0]);
+        bank.tick();
+        // ((2 + 0) / 2 + 0.5) * 2: the bus sums to mono, then dc, then gain.
+        assert!(
+            (bank.get(ModTarget::Gain) - 3.0).abs() < 1e-6,
+            "{}",
+            bank.get(ModTarget::Gain)
+        );
     }
 
     #[test]

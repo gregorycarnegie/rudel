@@ -163,6 +163,15 @@ pub(crate) fn code_editor(
     // this still scrolls inside the surrounding ScrollArea.
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
     let desired_rows = ((ui.available_height() / row_height).floor() as usize).max(4);
+    // egui's TextEdit puts the cursor under the pointer on *any* button's
+    // press, so a right-click would drop the selection the menu it opens is
+    // there to copy or cut. Put it back afterwards.
+    let selection_before_right_click = ui
+        .input(|i| i.pointer.secondary_pressed())
+        .then(|| egui::TextEdit::load_state(ui.ctx(), editor_id))
+        .flatten()
+        .and_then(|state| state.cursor.char_range())
+        .filter(|range| !range.is_empty());
     let mut output = if settings.line_numbers {
         ui.horizontal_top(|ui| {
             draw_line_number_gutter(
@@ -198,6 +207,12 @@ pub(crate) fn code_editor(
             .desired_width(f32::INFINITY)
             .show(ui)
     };
+
+    if let Some(range) = selection_before_right_click.filter(|_| output.response.hovered()) {
+        output.state.cursor.set_char_range(Some(range));
+        output.state.clone().store(ui.ctx(), output.response.id);
+        output.cursor_range = Some(range);
+    }
 
     let mut cursor_byte = None;
     if output.response.has_focus()
@@ -327,20 +342,13 @@ pub(crate) fn code_editor(
                 text::replace_char_range(code, range.clone(), "");
                 egui::text::CCursorRange::one(egui::text::CCursor::new(range.start))
             }),
-            MenuChoice::Paste => menu::clipboard_text().map(|text| {
-                let range = selection.unwrap_or(
-                    output
-                        .cursor_range
-                        .map(|range| range.as_sorted_char_range())
-                        .unwrap_or(
-                            egui::text::CharIndex(code.chars().count())
-                                ..egui::text::CharIndex(code.chars().count()),
-                        ),
-                );
-                let after = range.start + text.chars().count();
-                text::replace_char_range(code, range, &text);
-                egui::text::CCursorRange::one(egui::text::CCursor::new(after))
-            }),
+            // eframe answers with the clipboard as a paste event, which the
+            // refocused editor takes like Ctrl+V: over the selection, if any.
+            MenuChoice::Paste => {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                None
+            }
             MenuChoice::SelectAll => Some(egui::text::CCursorRange::two(
                 egui::text::CCursor::new(egui::text::CharIndex(0)),
                 egui::text::CCursor::new(egui::text::CharIndex(code.chars().count())),

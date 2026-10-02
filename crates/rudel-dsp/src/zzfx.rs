@@ -707,3 +707,30 @@ mod tests {
         assert!(left.iter().any(|(l, _)| l.abs() > 1e-6));
     }
 }
+
+#[cfg(test)]
+mod filter_clock_tests {
+    use super::*;
+
+    #[test]
+    fn the_voice_s_own_clock_drives_its_filter_envelope() {
+        // A 4kHz z-sine under a 60Hz low-pass that opens seven octaves over
+        // 40ms: muffled at the start, through by the end.
+        let map: ValueMap = [
+            ("freq", 4000.0),
+            ("sustain", 1.0),
+            ("cutoff", 60.0),
+            ("lpenv", 7.0),
+            ("lpattack", 0.04),
+            ("lpsustain", 1.0),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Value::F64(v)))
+        .collect();
+        let mut voice = ZzfxVoice::new(ZzfxParams::from_controls("z_sine", &map, 0.1), 44100.0);
+        let out: Vec<f32> = (0..4410).map(|_| voice.tick().0).collect();
+        let peak = |r: std::ops::Range<usize>| out[r].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        let (early, late) = (peak(200..600), peak(2500..3500));
+        assert!(late > early * 2.0, "early {early}, late {late}");
+    }
+}

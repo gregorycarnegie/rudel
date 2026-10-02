@@ -208,6 +208,7 @@ mod tests {
         assert_eq!(convert_hex_to_number("#ffffff"), 16777215);
         // works without a leading '#' too (slice is a no-op then)
         assert_eq!(convert_hex_to_number("00ff00"), 65280);
+        assert_eq!(convert_hex_to_number("#zz"), -1);
     }
 
     #[test]

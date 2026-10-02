@@ -246,3 +246,199 @@ fn the_haps_own_frequency_and_gate_are_node_calls() {
     assert!(types.contains(&"sfreq".to_string()), "{types:?}");
     assert!(types.contains(&"sgate".to_string()), "{types:?}");
 }
+
+// --- module expansions and argument shapes ----------------------------------
+
+/// The constants a program carries, in register order.
+fn constants(types: &[String], values: &[Value]) -> Vec<f64> {
+    types
+        .iter()
+        .zip(values)
+        .filter(|(t, _)| *t == "n")
+        .filter_map(|(_, v)| v.as_f64())
+        .collect()
+}
+
+#[test]
+fn every_module_expands_into_its_primitives() {
+    // A module whose arm went missing would build as an unknown type, which
+    // the compiler resolves to `thru` — so each is pinned by a primitive only
+    // its own expansion produces.
+    for (src, wants) in [
+        ("K(Kabel.impulse(2).ar(0.1, 0.2).out())", &["adsr"][..]),
+        ("K(Kabel.lfnoise(4).out())", &["noise", "impulse", "hold"]),
+        ("K(Kabel.sine(1).bipolar().out())", &["mul", "sub"]),
+        ("K(Kabel.sine(1).unipolar().out())", &["range"]),
+        ("K(Kabel.sine(1).rangex(100, 1000).out())", &["log", "exp"]),
+        ("K(Kabel.midin().out())", &["MidiIn"]),
+        ("K(Kabel.rng().out())", &["lcgnoise"]),
+        ("K(Kabel.sine(1).gt(0.5).out())", &["greater"]),
+        ("K(Kabel.sine(1).lt(0.5).out())", &["lower"]),
+    ] {
+        let (types, ..) = program(src);
+        for want in wants {
+            assert!(types.iter().any(|t| t == want), "{src}: {types:?}");
+        }
+        assert!(!types.iter().any(|t| t == "thru"), "{src}: {types:?}");
+    }
+}
+
+#[test]
+fn each_biquad_preset_nails_down_its_own_filter_type() {
+    // `qf`'s second inlet is the filter type, 0..=4 in preset order. The q is
+    // chosen to collide with none of them.
+    for (name, kind) in [
+        ("qlpf", 0.0),
+        ("qhpf", 1.0),
+        ("qbpf", 2.0),
+        ("qnf", 3.0),
+        ("qapf", 4.0),
+    ] {
+        let src = format!("K(Kabel.saw(110).{name}(800, 7).out())");
+        let (types, values, ..) = program(&src);
+        assert!(types.iter().any(|t| t == "qf"), "{src}: {types:?}");
+        assert_eq!(
+            constants(&types, &values),
+            [110.0, kind, 800.0, 7.0],
+            "{src}"
+        );
+    }
+}
+
+#[test]
+fn fork_copies_the_signal_onto_as_many_channels_as_asked() {
+    // Three copies reaching a stereo `.out()` make three outputs, one per
+    // source; an unknown `fork` would be a mono `thru` heard twice.
+    let (_, _, _, outs) = program("K(Kabel.sine(220).fork(3).out())");
+    assert_eq!(outs.len(), 3, "{outs:?}");
+}
+
+#[test]
+fn out_takes_one_channel_or_a_list_of_them() {
+    let channels = |outs: &[Value]| -> Vec<i64> {
+        outs.iter()
+            .filter_map(|o| match o {
+                Value::List(pair) => pair[1].as_f64().map(|c| c as i64),
+                _ => None,
+            })
+            .collect()
+    };
+    let (_, _, _, outs) = program("K(Kabel.sine(220).out(1))");
+    assert_eq!(channels(&outs), [1]);
+    let (_, _, _, outs) = program("K(Kabel.sine(220).out([1]))");
+    assert_eq!(channels(&outs), [1]);
+    // An empty list marks nothing, which leaves the expression as its own
+    // stereo output rather than dividing by a channel count of zero.
+    let (_, _, _, outs) = program("K(Kabel.sine(220).out([]))");
+    assert_eq!(channels(&outs), [0, 1]);
+}
+
+#[test]
+fn a_feedback_function_may_return_a_number_or_a_multichannel_node() {
+    // A number closes the loop with that constant rather than the silence a
+    // throwing function leaves.
+    let (types, values, ..) = program("K(Kabel.sine(220).add(x => 0.25).out())");
+    assert!(
+        constants(&types, &values).contains(&0.25),
+        "{types:?} {values:?}"
+    );
+    // A function returning a two-channel node expands its owner, as any other
+    // multichannel argument does.
+    let (types, ..) = program("K(Kabel.sine(220).add(x => x.mul([0.5, 0.25])).out())");
+    assert_eq!(types.iter().filter(|t| *t == "add").count(), 2, "{types:?}");
+}
+
+#[test]
+fn an_empty_array_argument_is_one_channel_not_none() {
+    let (types, ..) = program("K(Kabel.sine([]).out())");
+    assert!(types.iter().any(|t| t == "sine"), "{types:?}");
+}
+
+#[test]
+fn a_coded_node_keeps_its_source_and_floatbeat_builds_a_bytebeat() {
+    let (types, values, ..) = program(r#"K(Kabel.bytebeat("t*2").out())"#);
+    let at = types
+        .iter()
+        .position(|t| t == "bytebeat")
+        .expect("a bytebeat node");
+    assert_eq!(values[at].as_str(), Some("t*2"), "{values:?}");
+    // `floatbeat` is a `bytebeat` node upstream; `raw` stays itself.
+    let (types, ..) = program(r#"K(Kabel.floatbeat("t/8").out())"#);
+    assert!(types.iter().any(|t| t == "bytebeat"), "{types:?}");
+    assert!(!types.iter().any(|t| t == "floatbeat"), "{types:?}");
+    let (types, ..) = program(r#"K(Kabel.raw("x").out())"#);
+    assert!(types.iter().any(|t| t == "raw"), "{types:?}");
+}
+
+#[test]
+fn an_evaluation_starts_from_an_empty_graph() {
+    // A script that marks an output and then fails leaves a root in the
+    // arena; the next evaluation must not compile it into its own graph.
+    let _ = eval("Kabel.sine(220).out(); throw new Error('stop')");
+    let (types, ..) = program("K(Kabel.saw(110))");
+    assert_eq!(types, ["n", "saw"], "{types:?}");
+}
+
+#[test]
+fn the_pass_finds_k_only_as_a_name_of_its_own() {
+    // `MK(...)` is some other function ending in K; `K (...)` with a space is
+    // still the call.
+    let other = preprocess_strudel("const MK = x => x; MK(sine(1))");
+    assert!(!other.contains("Kabel."), "{other}");
+    let spaced = preprocess_strudel("K (sine(1).out())");
+    assert!(spaced.contains("Kabel.sine(1)"), "{spaced}");
+}
+
+#[test]
+fn a_name_ending_the_k_argument_is_still_scoped() {
+    // The last identifier runs to the end of the region rather than to a
+    // following non-name character.
+    assert_eq!(preprocess_strudel("K(1 + sGate)"), "K(1 + Kabel.sgate())");
+}
+
+#[test]
+fn an_inlet_left_off_takes_kabelsalat_s_default_including_the_negative_ones() {
+    // The defaults land in the compiled `ins` as literals; the first inlet,
+    // where given, is a register and is skipped.
+    for (src, node, skip, want) in [
+        ("K(Kabel.midifreq().out())", "midifreq", 0, &[-1.0][..]),
+        ("K(Kabel.midigate().out())", "midigate", 0, &[-1.0]),
+        ("K(Kabel.midivel().out())", "midivel", 0, &[-1.0]),
+        ("K(Kabel.midicc().out())", "midicc", 0, &[-1.0, -1.0]),
+        ("K(Kabel.sine(1).clamp().out())", "clamp", 1, &[-1.0, 1.0]),
+        (
+            "K(Kabel.sine(1).remap().out())",
+            "remap",
+            1,
+            &[-1.0, 1.0, -1.0, 1.0],
+        ),
+        ("K(Kabel.sine(1).clip().out())", "clip", 1, &[-1.0, 1.0]),
+        ("K(Kabel.sine(1).trig().out())", "trig", 1, &[-1.0, 1.0]),
+    ] {
+        let (types, _, ins, _) = program(src);
+        let at = types
+            .iter()
+            .position(|t| t == node)
+            .unwrap_or_else(|| panic!("{src}: {types:?}"));
+        let Value::List(inlets) = &ins[at] else {
+            panic!("{src}: {ins:?}");
+        };
+        let got: Vec<f64> = inlets[skip..].iter().filter_map(Value::as_f64).collect();
+        assert_eq!(got, want, "{src}: {inlets:?}");
+    }
+}
+
+#[test]
+fn a_stereo_mix_spreads_the_channels_evenly_across_the_image() {
+    // Three channels sit at -1, 0 and +1; the middle one gets equal-power
+    // gains of 1/sqrt(2) on both sides.
+    let (types, values, ..) = program("K(Kabel.sine([220, 330, 440]).mix(2).out())");
+    let centred = constants(&types, &values)
+        .into_iter()
+        .filter(|g| (g - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12)
+        .count();
+    assert_eq!(centred, 2, "{values:?}");
+    // One channel's worth of output folds into a single `mix`.
+    let (types, ..) = program("K(Kabel.sine([220, 330]).mix().out())");
+    assert!(types.iter().any(|t| t == "mix"), "{types:?}");
+}

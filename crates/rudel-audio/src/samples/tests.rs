@@ -507,3 +507,104 @@ fn registering_a_map_defers_the_audio_until_something_plays_it() {
     // A second load is a no-op rather than an error.
     assert_eq!(bank.load_pending("bd").expect("already loaded"), 0);
 }
+
+#[test]
+fn resolve_skips_a_pitched_group_with_no_samples_and_an_unpitched_one() {
+    // The empty group sits right on the target; the playable one is a tone up.
+    let mut bank = SampleBank::new();
+    bank.map.insert(
+        "keys".to_string(),
+        vec![
+            SampleGroup {
+                note: None,
+                samples: vec![mk(0.1)],
+            },
+            SampleGroup {
+                note: Some(62),
+                samples: Vec::new(),
+            },
+            SampleGroup {
+                note: Some(64),
+                samples: vec![mk(0.64)],
+            },
+        ],
+    );
+    let (s, t) = bank.resolve("keys", 0, Some(62.0)).expect("a sample");
+    assert_eq!(s.data[0], 0.64);
+    assert_eq!(t, -2.0);
+}
+
+#[test]
+fn the_bank_knows_only_what_was_registered() {
+    let mut bank = SampleBank::new();
+    assert!(!bank.contains("never"));
+    assert!(!bank.has_font("gm_piano", 0));
+    bank.register_font("gm_piano", 0, crate::soundfont::Preset::default());
+    assert!(bank.has_font("gm_piano", 0));
+    assert!(!bank.has_font("gm_piano", 1));
+}
+
+#[test]
+fn a_wavetable_map_loads_only_its_wav_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_wav(&root.join("a.wav"), &[0.25; 4096], 44100);
+    std::fs::write(root.join("b.mp3"), b"not audio").unwrap();
+    let json = root.join("tables.json");
+    std::fs::write(&json, r#"{ "wt": ["a.wav", "b.mp3"] }"#).unwrap();
+    let tables = SampleBank::load_tables_entries(json.to_str().unwrap(), 2048).expect("loads");
+    assert_eq!(tables.len(), 1);
+    assert_eq!(tables[0].0, "wt");
+}
+
+#[test]
+fn loading_helpers_recognise_urls_audio_files_and_cache_by_url() {
+    use super::loading::{cache_path, is_audio_file, is_http};
+    assert!(is_http("http://x/a.wav") && is_http("https://x/a.wav"));
+    assert!(!is_http("github:tidalcycles/dirt-samples"));
+    assert!(is_audio_file(Path::new("a.WAV")) && !is_audio_file(Path::new("a.txt")));
+    let a = cache_path("https://x/a.wav").expect("a cache dir");
+    let b = cache_path("https://x/b.wav").expect("a cache dir");
+    assert_ne!(a, b);
+    assert!(
+        a.parent()
+            .is_some_and(|p| p.ends_with("rudel/sample-cache")),
+        "{a:?}"
+    );
+}
+
+/// A server on localhost that answers one request with `body`; its URL.
+fn serve_once(body: &'static str) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = stream.read(&mut [0u8; 4096]);
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+    });
+    format!("http://{addr}/strudel.json")
+}
+
+#[test]
+fn a_sample_map_is_fetched_over_http() {
+    assert_eq!(
+        fetch_text(&serve_once(r#"{"bd":"bd.wav"}"#)).unwrap(),
+        r#"{"bd":"bd.wav"}"#
+    );
+}
+
+#[test]
+fn a_cached_text_fetch_reads_a_local_path_directly() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("live.orc");
+    std::fs::write(&path, "instr 1\nendin\n").unwrap();
+    assert_eq!(
+        super::fetch_cached_text(path.to_str().unwrap()).unwrap(),
+        "instr 1\nendin\n"
+    );
+}

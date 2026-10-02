@@ -10,6 +10,12 @@
 param(
     [string] $Packages = 'rudel-mini,rudel-lang,rudel-osc,rudel-midi,rudel-core,rudel-audio,rudel-app,rudel-dsp'
 )
+# Csound's tests skip where the library is missing, so a mutant that breaks
+# starting it would read as caught-by-nothing. Where it is installed, a skip
+# has to be a failure.
+if ($env:RUDEL_CSOUND_LIB -or (Test-Path 'C:/Program Files/Csound6_x64/bin/csound64.dll')) {
+    $env:RUDEL_CSOUND_REQUIRED = '1'
+}
 $list = $Packages -split ','
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force mutants-full | Out-Null
@@ -20,11 +26,14 @@ $resuming = $list.Count -lt 8
 "START $start  [$($list -join ', ')]" |
     Tee-Object mutants-full/run.log -Append:$resuming
 
+# `--build-timeout`: cargo-mutants sets none of its own, and on 2026-10-01 one
+# mutant's `cargo test --no-run` hung with an idle rustc for 3.5 hours, holding
+# its slot until killed by hand. A normal build here takes 10-90s under load.
 foreach ($p in $list) {
     $scope = if ($p -eq 'rudel-core') { @('--test-package','rudel-core','--test-package','rudel-mini') } else { @() }
     $t0 = Get-Date
     "=== $p  $t0" | Tee-Object -Append mutants-full/run.log
-    cargo mutants --gitignore=true -j8 --package $p @scope --output "mutants-full/$p" 2>&1 |
+    cargo mutants --gitignore=true -j8 --build-timeout 900 --package $p @scope --output "mutants-full/$p" 2>&1 |
         Tee-Object -Append "mutants-full/$p.log" | Select-Object -Last 0
     "--- $p done in $((Get-Date) - $t0)" | Tee-Object -Append mutants-full/run.log
 }

@@ -432,19 +432,14 @@ impl<'a> Parser<'a> {
             return Some(inner);
         }
         let c = self.src[self.pos];
-        if c.is_ascii_digit() || (c == b'.' && self.peek_digit(1)) {
+        // A `.` with no digits after it fails in `number` just as it would here.
+        if c.is_ascii_digit() || c == b'.' {
             return self.number();
         }
         if c.is_ascii_alphabetic() || c == b'_' || c == b'$' {
             return self.identifier();
         }
         None
-    }
-
-    fn peek_digit(&self, ahead: usize) -> bool {
-        self.src
-            .get(self.pos + ahead)
-            .is_some_and(u8::is_ascii_digit)
     }
 
     fn number(&mut self) -> Option<Node> {

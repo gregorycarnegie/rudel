@@ -525,12 +525,13 @@ impl Csound {
             std::slice::from_raw_parts(p, self.ksmps * self.nchnls)
         };
         self.spare.clear();
-        self.spare.extend(spout.chunks_exact(self.nchnls).map(|f| {
-            // Mono orchestras feed both sides; anything wider than stereo keeps
-            // its first two channels, which is what a stereo device can carry.
-            let l = f[0] as f32;
-            (l, if self.nchnls > 1 { f[1] as f32 } else { l })
-        }));
+        // `header` makes every orchestra stereo; a wider one would keep its
+        // first two channels, which is what a stereo device can carry.
+        self.spare.extend(
+            spout
+                .chunks_exact(self.nchnls)
+                .map(|f| (f[0] as f32, f[1] as f32)),
+        );
         true
     }
 }
@@ -672,9 +673,48 @@ mod tests {
             err.contains("line 2"),
             "error should locate the fault: {err}"
         );
+        // The banner Csound prints first is not part of the diagnostic.
+        assert!(!err.contains("--Csound version"), "{err}");
         // And the instance survives it: a later, valid orchestra still compiles.
         cs.compile_orc("instr Fine\n  out(a(0), a(0))\nendin\n")
             .expect("a later compile should still work");
+    }
+
+    #[test]
+    fn a_stereo_orchestra_keeps_both_sides_at_the_right_pitch() {
+        // Right at half the left: a slice of `spout` read at the wrong length
+        // or the right channel copied from the left would both show.
+        let Some(mut cs) = csound(44100.0) else {
+            return;
+        };
+        cs.compile_orc("instr Beep\n  asig = oscili(0.5, 441)\n  out(asig, asig * 0.5)\nendin\n")
+            .expect("compile");
+        cs.input_message(r#"i "Beep" 0 1"#);
+        let mut out = vec![(0.0f32, 0.0f32); 4410]; // 100 ms: 44 periods
+        cs.render_into(&mut out);
+        assert!(out.iter().all(|(l, r)| (l * 0.5 - r).abs() < 1e-6));
+        let crossings = out
+            .windows(2)
+            .filter(|w| (w[0].0 < 0.0) != (w[1].0 < 0.0))
+            .count();
+        assert!(
+            (84..=92).contains(&crossings),
+            "{crossings} zero crossings for 441 Hz"
+        );
+    }
+
+    #[test]
+    fn the_header_sets_the_device_rate_and_the_message_buffer_is_capped() {
+        assert!(
+            header(48_000.0).starts_with("sr = 48000\n"),
+            "{}",
+            header(48_000.0)
+        );
+        let sink = Messages::default();
+        for i in 0..250 {
+            sink.push(&format!("line {i}\n"));
+        }
+        assert_eq!(sink.take().len(), 200);
     }
 
     #[test]

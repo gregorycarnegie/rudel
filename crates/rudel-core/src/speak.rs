@@ -95,6 +95,36 @@ mod tests {
     }
 
     #[test]
+    fn numbers_and_a_control_map_s_value_are_spoken_too() {
+        let spoken = |v: Value| {
+            let haps = pure(v)
+                .speak(Value::Null, Value::Null)
+                .query_arc(Frac::zero(), Frac::one());
+            match &haps[0].value {
+                Value::Map(m) => m.clone(),
+                other => panic!("expected a control map, got {other:?}"),
+            }
+        };
+        let said = |v: Value| {
+            spoken(v)
+                .get(SPEAK)
+                .and_then(|w| w.as_str().map(str::to_string))
+        };
+        assert_eq!(said(Value::Int(3)).as_deref(), Some("3"));
+        assert_eq!(said(Value::F64(2.5)).as_deref(), Some("2.5"));
+        assert_eq!(said(Value::Frac(Frac::new(1, 4))).as_deref(), Some("0.25"));
+        // A control map is spoken by its `value`, and keeps its other controls.
+        let mut controls = crate::value::ValueMap::new();
+        controls.insert("value".into(), Value::Str("hi".into()));
+        controls.insert("gain".into(), Value::F64(0.5));
+        let m = spoken(Value::Map(controls));
+        assert_eq!(m.get(SPEAK).and_then(|w| w.as_str()), Some("hi"));
+        assert_eq!(m.get("gain"), Some(&Value::F64(0.5)));
+        assert!(is_speech(&Value::Map(m)));
+        assert!(!is_speech(&Value::Str("hi".into())));
+    }
+
+    #[test]
     fn a_null_voice_leaves_the_choice_to_the_system() {
         let pat = pure(Value::Str("hello".into())).speak(Value::Null, Value::Null);
         let haps = pat.query_arc(Frac::zero(), Frac::one());

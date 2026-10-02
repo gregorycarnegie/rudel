@@ -105,11 +105,7 @@ pub(crate) struct WidgetDecoration {
 
 impl WidgetDecoration {
     pub(crate) fn placement(&self) -> usize {
-        if self.range.to > self.range.from {
-            self.range.to
-        } else {
-            self.range.from
-        }
+        self.range.to.max(self.range.from)
     }
 
     fn map(&mut self, change: TextChange) {

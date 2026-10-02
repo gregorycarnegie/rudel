@@ -140,6 +140,20 @@ mod tests {
     }
 
     #[test]
+    fn a_window_takes_only_the_onsets_inside_it() {
+        // A window starting at 0.33333334 is queried from 1/3, the nearest
+        // simple fraction, which would also take the onset at 1/3 that
+        // belongs to the window before it.
+        let pat = n(sequence(&[0, 1, 2].map(|i| pure(Value::Int(i)))));
+        let evs = query_controls(&pat, 1.0, 0.33333334, 1.0);
+        let ns: Vec<_> = evs
+            .iter()
+            .filter_map(|e| e.controls.get("n").and_then(Value::as_f64))
+            .collect();
+        assert_eq!(ns, [2.0]);
+    }
+
+    #[test]
     fn ctranspose_adds_semitones_to_note() {
         // note(60).ctranspose(7) -> 67, and the control is consumed.
         let pat = note(pure(Value::Int(60))).ctranspose(7);

@@ -634,3 +634,128 @@ mod tests {
         assert_eq!(run(0.0), run(20.0));
     }
 }
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+    use crate::voice::VoiceLike;
+    use std::sync::{Arc, Mutex};
+
+    /// The last bus a probe was fed: its number and both channels.
+    type BusLog = Arc<Mutex<Option<(i32, Vec<f32>, Vec<f32>)>>>;
+
+    /// A voice that plays whatever `next` yields and records the bus it is fed.
+    struct Probe {
+        next: Box<dyn FnMut() -> (f32, f32) + Send>,
+        done: bool,
+        bus: BusLog,
+    }
+
+    impl VoiceLike for Probe {
+        fn tick(&mut self) -> (f32, f32) {
+            (self.next)()
+        }
+        fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {
+            *self.bus.lock().unwrap() = Some((bus, left.to_vec(), right.to_vec()));
+        }
+        fn is_done(&self) -> bool {
+            self.done
+        }
+    }
+
+    fn probe(
+        next: impl FnMut() -> (f32, f32) + Send + 'static,
+        done: bool,
+    ) -> (Box<Probe>, BusLog) {
+        let bus = Arc::new(Mutex::new(None));
+        (
+            Box::new(Probe {
+                next: Box::new(next),
+                done,
+                bus: bus.clone(),
+            }),
+            bus,
+        )
+    }
+
+    fn lowpass(freq: f32) -> FilterSet {
+        FilterSet {
+            lp: FilterParams {
+                freq: Some(freq),
+                ..FilterParams::default()
+            },
+            ..FilterSet::default()
+        }
+    }
+
+    #[test]
+    fn a_filter_stage_filters_its_inner_voice_and_passes_the_rest_through() {
+        // A low-pass lets a constant through, on each side separately.
+        let (inner, bus) = probe(|| (1.0, 0.5), false);
+        let mut stage = FilterStageVoice::new(inner, &lowpass(1000.0), 44100.0, 1.0);
+        let mut last = (0.0, 0.0);
+        for _ in 0..4410 {
+            last = stage.tick();
+        }
+        assert!(
+            (last.0 - 1.0).abs() < 1e-3 && (last.1 - 0.5).abs() < 1e-3,
+            "{last:?}"
+        );
+        stage.set_bus_input(3, &[0.25], &[0.75]);
+        assert_eq!(*bus.lock().unwrap(), Some((3, vec![0.25], vec![0.75])));
+        assert!(!stage.is_done());
+        let (done, _) = probe(|| (0.0, 0.0), true);
+        assert!(FilterStageVoice::new(done, &lowpass(1000.0), 44100.0, 1.0).is_done());
+    }
+
+    #[test]
+    fn the_stage_s_own_clock_drives_the_filter_envelope() {
+        // A 2kHz tone under a 200Hz low-pass that opens five octaves over
+        // half a second: muffled at the start, through by the end.
+        let sr = 44100.0;
+        let mut phase = 0.0f32;
+        let (inner, _) = probe(
+            move || {
+                phase += 2000.0 / sr;
+                let s = (phase * std::f32::consts::TAU).sin();
+                (s, s)
+            },
+            false,
+        );
+        let mut set = lowpass(200.0);
+        set.lp.env = Some(5.0);
+        set.lp.attack = Some(0.5);
+        set.lp.sustain = Some(1.0);
+        let mut stage = FilterStageVoice::new(inner, &set, sr, 1.0);
+        let out: Vec<f32> = (0..24_000).map(|_| stage.tick().0).collect();
+        let peak =
+            |range: std::ops::Range<usize>| out[range].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        let (early, late) = (peak(400..1000), peak(23_000..24_000));
+        assert!(early < 0.2 && late > 0.6, "early {early}, late {late}");
+    }
+
+    #[test]
+    fn a_filter_set_is_active_when_any_one_slot_is() {
+        assert!(!FilterSet::default().is_active());
+        let on = FilterParams {
+            freq: Some(500.0),
+            ..FilterParams::default()
+        };
+        for set in [
+            FilterSet {
+                lp: on,
+                ..FilterSet::default()
+            },
+            FilterSet {
+                hp: on,
+                ..FilterSet::default()
+            },
+            FilterSet {
+                bp: on,
+                ..FilterSet::default()
+            },
+        ] {
+            assert!(set.is_active());
+        }
+    }
+}

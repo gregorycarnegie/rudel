@@ -43,7 +43,10 @@ fn reduced(n: i128, d: i128) -> Frac {
     if let (Ok(abs), Ok(den)) = (u64::try_from(n.unsigned_abs()), u64::try_from(d)) {
         let g = abs.gcd(&den);
         let abs = i128::from(abs / g);
-        return Frac(Rat::new_raw(if n < 0 { -abs } else { abs }, i128::from(den / g)));
+        return Frac(Rat::new_raw(
+            if n < 0 { -abs } else { abs },
+            i128::from(den / g),
+        ));
     }
     Frac(Rat::new(n, d))
 }
@@ -259,7 +262,11 @@ impl Div for Frac {
             return Frac(self.0 / rhs.0);
         }
         let (n, den) = (a * d, b * c);
-        if den < 0 { reduced(-n, -den) } else { reduced(n, den) }
+        if den < 0 {
+            reduced(-n, -den)
+        } else {
+            reduced(n, den)
+        }
     }
 }
 
@@ -456,6 +463,83 @@ mod tests {
         // Simple fractions stay simple.
         assert_eq!(Frac::from_f64(1.0 / 6.0), Frac::new(1, 6));
         assert_eq!(Frac::from_f64(-0.75), Frac::new(-3, 4));
+    }
+
+    #[test]
+    fn operands_past_64_bits_take_the_ratio_path_rather_than_overflowing() {
+        // Cross-multiplying any of these overflows an i128, while `Ratio`
+        // gets there through the lcm or by cross-reducing first; only the
+        // fallback can answer. The odd numerator keeps `x` from reducing.
+        let x = Frac(Rat::new((1 << 60) + 1, 1 << 70));
+        let tiny = Frac(Rat::new(1, 1 << 71));
+        assert_eq!(x + tiny, Frac(Rat::new((1 << 61) + 3, 1 << 71)));
+        assert_eq!(x - tiny, Frac(Rat::new((1 << 61) + 1, 1 << 71)));
+        assert_eq!(
+            x * Frac(Rat::new(1 << 70, 3)),
+            Frac(Rat::new((1 << 60) + 1, 3))
+        );
+        assert_eq!(x / tiny, Frac::int((1 << 61) + 2));
+        assert!(tiny < x);
+        assert!(Frac(Rat::new(1 << 125, 3)) > Frac(Rat::new(1 << 125, 5)));
+    }
+
+    #[test]
+    fn only_operands_that_all_fit_take_the_64_bit_path() {
+        // Two coprime 65-bit values: their product overflows an i128, but
+        // `Ratio` cross-reduces p/q * q/p to 1 before multiplying.
+        let (p, q) = ((1i128 << 64) + 1, (1i128 << 64) + 3);
+        assert_eq!(Frac(Rat::new(p, q)) * Frac(Rat::new(q, p)), Frac::one());
+        // Three components fit and one does not: the product of the
+        // denominators overflows, while `Ratio` only needs their lcm.
+        let sum = Frac::new(1, 2) + Frac(Rat::new(1, 1 << 126));
+        assert_eq!(sum, Frac(Rat::new((1 << 125) + 1, 1 << 126)));
+        // Each operator needs every component to fit, not just some: in each
+        // of these the fast path's products overflow, while `Ratio` reduces
+        // first and stays in range.
+        let big = 1i128 << 126;
+        assert_eq!(
+            Frac::new(3, 5) * Frac(Rat::new(big, 3)),
+            Frac(Rat::new(big, 5))
+        );
+        assert_eq!(
+            Frac::new(3, 5) / Frac(Rat::new(3, big)),
+            Frac(Rat::new(big, 5))
+        );
+        assert_eq!(
+            Frac(Rat::new(3, big)) / Frac::new(3, 4),
+            Frac(Rat::new(1, 1 << 124))
+        );
+        assert!(Frac(Rat::new(3, big)) < Frac::new(5, 7));
+        // Past nine quintillion `from_f64` stops treating a float as an integer.
+        assert_eq!(Frac::from_f64(9.0e18), Frac::zero());
+    }
+
+    #[test]
+    fn dividing_by_zero_still_panics() {
+        assert!(std::panic::catch_unwind(|| Frac::one() / Frac::zero()).is_err());
+    }
+
+    #[test]
+    fn remainder_and_hash_follow_the_value() {
+        use std::hash::{BuildHasher, RandomState};
+        assert_eq!(Frac::new(7, 2) % Frac::int(2), Frac::new(3, 2));
+        let state = RandomState::new();
+        assert_eq!(
+            state.hash_one(Frac::new(2, 4)),
+            state.hash_one(Frac::new(1, 2))
+        );
+        assert_ne!(
+            state.hash_one(Frac::new(1, 2)),
+            state.hash_one(Frac::new(1, 3))
+        );
+    }
+
+    #[test]
+    fn from_f64_takes_terms_and_denominators_up_to_its_limit_inclusive() {
+        // A term of exactly a million is allowed, and so is a denominator of
+        // exactly a million.
+        assert_eq!(Frac::from_f64(1_000_000.5), Frac::new(2_000_001, 2));
+        assert_eq!(Frac::from_f64(1e-6), Frac::new(1, 1_000_000));
     }
 
     #[test]

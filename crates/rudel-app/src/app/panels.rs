@@ -822,10 +822,13 @@ fn fuzzy_filter<'a>(
 /// visible range is arithmetic.
 fn reference_items(ui: &mut egui::Ui, items: &[(&str, Vec<usize>)]) -> Option<String> {
     let row = ui.text_style_height(&egui::TextStyle::Monospace) + ui.spacing().item_spacing.y;
-    let top = ui.cursor().top();
     let view = ui.clip_rect();
-    let first = (((view.top() - top) / row).floor().max(0.0) as usize).min(items.len());
-    let last = ((((view.bottom() - top) / row).ceil().max(0.0)) as usize + 1).min(items.len());
+    let (first, last) = visible_rows(
+        view.top() - ui.cursor().top(),
+        view.height(),
+        row,
+        items.len(),
+    );
 
     let mut insert = None;
     ui.add_space(first as f32 * row);
@@ -836,6 +839,15 @@ fn reference_items(ui: &mut egui::Ui, items: &[(&str, Vec<usize>)]) -> Option<St
     }
     ui.add_space((items.len() - last) as f32 * row);
     insert
+}
+
+/// The rows of a uniform list that land in a viewport `from` below the list's
+/// top and `height` tall, as `first..last`. One extra row is kept at the
+/// bottom so a row scrolling in is drawn before it shows.
+fn visible_rows(from: f32, height: f32, row: f32, len: usize) -> (usize, usize) {
+    let first = ((from / row).floor().max(0.0) as usize).min(len);
+    let last = ((((from + height) / row).ceil().max(0.0)) as usize + 1).min(len);
+    (first, last)
 }
 
 /// A reference list entry: draggable into the editor, double-click to insert
@@ -991,6 +1003,23 @@ mod tests {
         let mut app = triggering_app(1.1, 1.3);
         app.fire_trigger_hooks();
         assert_eq!(app.eval_error, None, "the event under way already fired");
+    }
+
+    #[test]
+    fn speech_alone_is_enough_to_follow_the_playhead() {
+        // No hooks, but `.speak` haps: the mark still has to move, or the
+        // first spoken frame would replay everything behind it.
+        let mut app = triggering_app(0.0, 1.1);
+        app.trigger_hooks = Default::default();
+        app.trigger_fired_upto = None;
+        app.fire_trigger_hooks();
+        assert_eq!(
+            app.trigger_fired_upto, None,
+            "nothing to fire, nothing to track"
+        );
+        app.speaks = true;
+        app.fire_trigger_hooks();
+        assert!(app.trigger_fired_upto.is_some());
     }
 
     #[test]
@@ -1350,9 +1379,11 @@ fn browser_key_name(key: egui::Key) -> String {
             // Letters are "A".."Z" in egui; the browser reports the unshifted
             // character, with `Shift` held separately (as it is here).
             let name = other.name();
-            match name.as_bytes() {
-                [c] if c.is_ascii_alphabetic() => name.to_lowercase(),
-                _ => name.to_string(),
+            // Lowercasing a one-character name that is not a letter leaves it.
+            if name.len() == 1 {
+                name.to_lowercase()
+            } else {
+                name.to_string()
             }
         }
     }
@@ -1413,5 +1444,76 @@ mod input_bus_tests {
         assert_eq!(browser_key_name(Key::ArrowDown), "ArrowDown");
         assert_eq!(browser_key_name(Key::Enter), "Enter");
         assert_eq!(browser_key_name(Key::Escape), "Escape");
+    }
+}
+
+#[cfg(test)]
+mod visible_rows_tests {
+    use super::visible_rows;
+
+    #[test]
+    fn only_the_rows_in_view_and_one_past_it_are_drawn() {
+        // 10px rows, a 35px view: from the top, rows 0..=3 show and 4 is kept.
+        assert_eq!(visible_rows(0.0, 35.0, 10.0, 100), (0, 5));
+        // Scrolled 25px down, rows 2..=5 show.
+        assert_eq!(visible_rows(25.0, 35.0, 10.0, 100), (2, 7));
+        // Above the list only the spare row is drawn; past its end, nothing.
+        assert_eq!(visible_rows(-50.0, 35.0, 10.0, 100), (0, 1));
+        assert_eq!(visible_rows(5000.0, 35.0, 10.0, 100), (100, 100));
+        // A short list is drawn whole.
+        assert_eq!(visible_rows(0.0, 35.0, 10.0, 2), (0, 2));
+    }
+}
+
+#[cfg(test)]
+mod reference_items_tests {
+    use super::reference_items;
+    use eframe::egui;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    /// A thousand entries in a scroll area scrolled to `offset`. The state is
+    /// the height the list laid out and the row height it should be built of:
+    /// a monospace line plus the item spacing.
+    fn list(offset: f32) -> Harness<'static, (f32, f32)> {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(300.0, 200.0))
+            .build_ui_state(
+                move |ui, state: &mut (f32, f32)| {
+                    state.1 = ui.text_style_height(&egui::TextStyle::Monospace)
+                        + ui.spacing().item_spacing.y;
+                    egui::ScrollArea::vertical()
+                        .vertical_scroll_offset(offset)
+                        .show(ui, |ui| {
+                            let names: Vec<String> =
+                                (0..1000).map(|i| format!("entry{i}")).collect();
+                            let items: Vec<(&str, Vec<usize>)> =
+                                names.iter().map(|n| (n.as_str(), Vec::new())).collect();
+                            let top = ui.cursor().top();
+                            reference_items(ui, &items);
+                            state.0 = ui.cursor().top() - top;
+                        });
+                },
+                (0.0, 0.0),
+            );
+        harness.run_steps(3);
+        harness
+    }
+
+    #[test]
+    fn a_culled_list_keeps_its_full_height_and_draws_what_is_in_view() {
+        let top = list(0.0);
+        let (height, row) = *top.state();
+        // The blank space stands in for every row not drawn.
+        // Within a row: the spacing after the last item is not laid out.
+        assert!(
+            (height - row * 1000.0).abs() < row,
+            "{height} for rows of {row}"
+        );
+        top.get_by_label("entry0");
+        assert!(top.query_by_label("entry999").is_none());
+        // Scrolled half way down, the rows there are the ones drawn.
+        let middle = list(row * 500.0);
+        middle.get_by_label("entry502");
+        assert!(middle.query_by_label("entry0").is_none());
     }
 }

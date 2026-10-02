@@ -255,6 +255,19 @@ mod tests {
     }
 
     #[test]
+    fn only_mode_polygon_draws_a_polygon() {
+        let polygon = |mode: &str| {
+            VisualWidgetOptions::from_widget(&widget(
+                "_spiral",
+                &[("mode", rudel_lang::WidgetOption::String(mode.into()))],
+            ))
+            .polygon
+        };
+        assert!(polygon("polygon"));
+        assert!(!polygon("dots"));
+    }
+
+    #[test]
     fn a_spiral_reads_its_size_on_a_different_scale() {
         // `_spiral` takes Strudel's radius, a fifth of the pixel size every
         // other widget uses, so the same number must not mean the same thing.

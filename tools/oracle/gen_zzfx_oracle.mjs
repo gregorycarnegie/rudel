@@ -144,6 +144,10 @@ const CASES = {
   volume_loud: [0.9, 0, 330, 0.001, 0.004, 0.003, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
   slide_down: [0.25, 0, 440, 0.001, 0.004, 0.003, 0, 1, -0.5, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
   deltaslide_only: [0.25, 0, 220, 0.001, 0.004, 0.003, 0, 1, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+  // `deltaSlide` is scaled by 500*2pi/sampleRate^3, so at 0.4 over a few
+  // hundred samples it bends the pitch by less than the comparison tolerance
+  // and its sign is invisible. This bends it by several times the base rate.
+  deltaslide_strong: [0.25, 0, 220, 0.001, 0.05, 0.003, 0, 1, 0, 1000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
   tremolo_only: [0.25, 0, 330, 0.001, 0.006, 0.003, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0.8],
   repeat_only: [0.25, 0, 330, 0.001, 0.006, 0.003, 0, 1, 0, 0, 0, 0, 0.0015, 0, 0, 0, 0, 1, 0, 0],
   sustainvol_only: [0.25, 0, 330, 0.001, 0.004, 0.003, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.3, 0, 0],

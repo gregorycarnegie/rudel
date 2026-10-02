@@ -971,3 +971,109 @@ fn dropping_the_engine_stops_its_thread() {
         "the thread outlived drop"
     );
 }
+
+/// Step a scheduler over `0..until` seconds in 1ms ticks, switching to
+/// `cps_after` at `change`, and return each due message as `(at, bytes)`.
+fn simulate(
+    pat: Pattern,
+    cps: f64,
+    change: f64,
+    cps_after: f64,
+    until: f64,
+) -> Vec<(f64, Vec<u8>)> {
+    let pattern = std::sync::RwLock::new(pat);
+    let mut scheduler = crate::output::Scheduler::new(cps);
+    let mut out = Vec::new();
+    for ms in 0..(until * 1000.0) as u32 {
+        let now = f64::from(ms) / 1000.0;
+        let cps_now = if now < change { cps } else { cps_after };
+        for m in scheduler.tick(now, cps_now, &pattern) {
+            assert!(
+                m.at_seconds <= now && now - m.at_seconds < 0.0015,
+                "sent late: {m:?} at {now}"
+            );
+            out.push((m.at_seconds, m.data));
+        }
+    }
+    out
+}
+
+#[test]
+fn a_tempo_change_keeps_the_sounding_note_s_off_and_requeues_the_rest() {
+    // "60 67" at cps 1: 60 sounds from 0, and by 0.45s the lookahead has
+    // queued 67's on (0.5s) and off. The change to cps 2 at 0.45s keeps 60's
+    // off (that note is sounding) and drops 67's queued pair, which is
+    // requeued at the new rate: cycle 0.5 is now 0.025s away, at 0.475s.
+    let pat = note(sequence(&[pure(Value::Int(60)), pure(Value::Int(67))]));
+    let got = simulate(pat, 1.0, 0.45, 2.0, 1.0);
+    let at = |status: u8, key: u8, from: f64, to: f64| {
+        got.iter()
+            .filter(|(t, d)| d[0] & 0xF0 == status && d[1] == key && (from..to).contains(t))
+            .map(|(t, _)| *t)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        at(NOTE_OFF, 60, 0.45, 0.6).len(),
+        1,
+        "60 was left sounding: {got:?}"
+    );
+    let ons = at(NOTE_ON, 67, 0.45, 0.6);
+    assert_eq!(ons.len(), 1, "67 should start once: {got:?}");
+    assert!((ons[0] - 0.475).abs() < 1e-9, "{got:?}");
+}
+
+#[test]
+fn set_cps_reaches_the_running_scheduler() {
+    // One note a cycle: about one in 600ms at cps 1, about five at cps 8.
+    let rec = Recorder::default();
+    let engine = MidiEngine::start(rec.clone(), note(pure(Value::Str("c3".into()))), 1.0);
+    std::thread::sleep(Duration::from_millis(50));
+    let before = rec.note_ons();
+    std::thread::sleep(Duration::from_millis(600));
+    let slow = rec.note_ons() - before;
+    engine.set_cps(8.0);
+    let before = rec.note_ons();
+    std::thread::sleep(Duration::from_millis(600));
+    let fast = rec.note_ons() - before;
+    engine.stop();
+    assert!(fast >= slow + 2, "cps 8 played {fast}, cps 1 played {slow}");
+}
+
+#[test]
+fn an_input_reports_its_port_and_its_clock_tempo() {
+    let input = crate::input::MidiIn::detached("Keystep 37", Some(120.0));
+    assert_eq!(input.port_name(), "Keystep 37");
+    assert_eq!(input.bpm(), Some(120.0));
+    // 120 bpm at four beats a cycle is half a cycle a second.
+    assert_eq!(input.cps(4.0), Some(0.5));
+    assert_eq!(crate::input::MidiIn::detached("x", None).cps(4.0), None);
+}
+
+/// Windows always has one output port, a software synth; other systems may
+/// have none, and then there is nothing to open.
+#[test]
+fn a_real_output_port_lists_opens_and_rejects_an_empty_message() {
+    let ports = MidiOut::list_ports().expect("the port list");
+    let Some(port) = ports.iter().find(|p| p.contains("GS Wavetable")) else {
+        // Every Windows install ships the GS synth; elsewhere it is optional.
+        if cfg!(windows) {
+            panic!("no Microsoft GS Wavetable Synth in {ports:?}");
+        }
+        eprintln!("skipping: no software synth port in {ports:?}");
+        return;
+    };
+    assert!(!port.is_empty());
+    let mut out = MidiOut::connect(Some("gs wavetable")).expect("opens");
+    // All notes off: a real message that makes no sound.
+    out.send(&[CONTROL_CHANGE, 123, 0]).expect("sends");
+    assert!(out.send(&[]).is_err(), "an empty message is not MIDI");
+}
+
+#[test]
+fn every_listed_input_port_is_named_and_opens_by_that_name() {
+    let ports = MidiIn::list_ports().expect("the port list");
+    for port in &ports {
+        assert!(!port.is_empty(), "{ports:?}");
+        MidiIn::connect(Some(port)).unwrap_or_else(|e| panic!("{port}: {e}"));
+    }
+}

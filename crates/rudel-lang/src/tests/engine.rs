@@ -310,3 +310,81 @@ fn a_one_argument_method_called_with_none_is_silence() {
     }
     assert!(eval(r#"s("bd*4").every(2)"#).is_err());
 }
+
+#[test]
+fn a_script_can_query_its_own_pattern_while_it_is_still_running() {
+    // The query function is the script's own, asked for back mid-evaluation —
+    // a different path from the scheduler's, which waits for the engine.
+    let pat = eval(
+        "const p = new Pattern(state => [new Hap(state.span, state.span, 7)])\n\
+         pure(p.firstCycle().length)",
+    )
+    .expect("eval");
+    assert_eq!(values(&pat, 0, 1), [Value::Int(1)]);
+}
+
+#[test]
+fn a_thrown_error_reads_as_its_message() {
+    let err = eval("throw new Error('boom')").err().expect("throws");
+    assert_eq!(err, "boom");
+}
+
+#[test]
+fn a_script_that_returns_a_non_pattern_says_what_it_got() {
+    let err = eval("5").err().expect("not a pattern");
+    assert!(err.ends_with("(got 5)"), "{err}");
+}
+
+#[test]
+fn a_script_ending_on_a_statement_plays_silence() {
+    let pat = eval("let cpm = 30;").expect("a statement is not an error");
+    assert!(values(&pat, 0, 1).is_empty());
+}
+
+#[test]
+fn calling_a_non_function_names_what_it_was() {
+    let err = eval("K(Kabel.sine(1).apply(3))")
+        .err()
+        .expect("3 is not a function");
+    assert!(err.contains("got a number"), "{err}");
+}
+
+#[test]
+fn a_self_referential_value_is_cut_off_rather_than_followed_forever() {
+    // The bridge descends a fixed depth, then gives up; a cycle must not
+    // overflow the stack.
+    let pat = eval("const a = [1]; a.push(a); pure(a)").expect("eval");
+    // An object refers back to itself just as well.
+    eval("const o = {x: 1}; o.self = o; pure(1).set(o)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 1);
+}
+
+#[test]
+fn a_built_in_method_is_never_replaced_by_register() {
+    // A polyfill registered over a built-in is ignored; the built-in wins.
+    let pat = eval("register('fast', (n, pat) => pat.slow(n))\ns(\"bd\").fast(2)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+}
+
+#[test]
+fn the_next_evaluation_s_engine_is_built_ahead_of_time() {
+    // Built on the engine thread after the evaluation returns, so the next
+    // one does not wait for it. Holding the lock keeps another evaluation
+    // from taking the spare between the two steps.
+    eval("s(\"bd\")").expect("eval");
+    let _guard = crate::EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let spare = crate::js::on_js_thread(|| {
+        let spare = crate::SPARE.take();
+        let ready = spare.is_some();
+        crate::SPARE.set(spare);
+        ready
+    });
+    assert!(spare, "no engine was prepared for the next evaluation");
+}
+
+#[test]
+fn preprocessed_is_the_source_the_engine_runs() {
+    let src = r#"s("bd sd")"#;
+    assert_eq!(crate::preprocessed(src), preprocess_strudel(src));
+    assert!(crate::preprocessed(src).contains("bd sd"));
+}

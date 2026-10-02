@@ -997,6 +997,29 @@ mod tests {
     }
 
     #[test]
+    fn the_lower_detuned_voice_goes_right_and_the_upper_left() {
+        // An octave of spread puts the two voices at half an octave either
+        // side; full pan spread sends the first (lower) right, the second left.
+        let sr = 44100.0;
+        let ramp: Vec<f32> = (0..64).map(|i| i as f32 / 64.0).collect();
+        let table = WaveTable {
+            frames: Arc::new(vec![ramp]),
+        };
+        let mut o = WavetableOsc::new(table, 2, 12.0, 1.0, 0.0, sr, || 0.0);
+        let out: Vec<(f32, f32)> = (0..4410)
+            .map(|_| o.tick(1000.0, 0.0, 0.0, WarpMode::None))
+            .collect();
+        // A saw wraps once a period: count the drops.
+        let wraps = |side: fn(&(f32, f32)) -> f32| {
+            out.windows(2)
+                .filter(|w| side(&w[0]) - side(&w[1]) > 0.3)
+                .count()
+        };
+        let (left, right) = (wraps(|f| f.0), wraps(|f| f.1));
+        assert!(right * 3 < left * 2, "right {right} wraps vs left {left}");
+    }
+
+    #[test]
     fn detune_and_pan_spread_separate_the_voices() {
         let sr = 44100.0;
         let ramp: Vec<f32> = (0..64).map(|i| i as f32 / 64.0).collect();

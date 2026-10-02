@@ -575,6 +575,22 @@ mod tests {
     }
 
     #[test]
+    fn a_gm_name_fetches_its_preset_file_and_parses_it() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let fetch = |url: &str| {
+            asked.borrow_mut().push(url.to_string());
+            Ok(PRESET.to_string())
+        };
+        let preset = load_gm_preset("gm_piano", 0, fetch, stub).expect("loads");
+        assert_eq!(preset.zones.len(), 2);
+        assert_eq!(
+            *asked.borrow(),
+            [preset_url(gm_preset("gm_piano", 0).unwrap())]
+        );
+        assert!(load_gm_preset("no_such_font", 0, fetch, stub).is_err());
+    }
+
+    #[test]
     fn preset_zones_parse_with_their_tuning() {
         let preset = parse_preset(PRESET, stub).expect("parse");
         assert_eq!(preset.zones.len(), 2);

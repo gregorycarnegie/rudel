@@ -120,6 +120,46 @@ mod tests {
     }
 
     #[test]
+    fn a_hydra_chain_compiles_bound_to_the_buffer_its_key_names() {
+        // `prev()` reads the buffer the chain draws into, so it is where the
+        // binding shows in the shader.
+        let prev = crate::hydra::lookup("prev").expect("prev is in the table");
+        for (key, index) in [("chain", 0), ("o0", 0), ("o1", 1), ("o2", 2), ("o3", 3)] {
+            let chain = crate::hydra::Chain::source(prev, Vec::new());
+            let options = options_from_arg(&Arg::Map(vec![(key.to_string(), Arg::Hydra(chain))]));
+            let Some(WidgetOption::String(wgsl)) = options.get(key) else {
+                panic!("{key}: {options:?}");
+            };
+            assert!(wgsl.contains(&format!("h_src(st, {index}.0)")), "{key}");
+        }
+    }
+
+    #[test]
+    fn an_evaluation_does_not_see_the_previous_one_s_options() {
+        // The id is the call's source range, so the two calls are the same
+        // length; the second evaluates to no option (`null` is skipped) and
+        // must not inherit the first one's.
+        let options = |src: &str| {
+            crate::eval_result(src)
+                .expect("eval")
+                .meta
+                .widgets
+                .into_iter()
+                .find(|w| w.widget_type == "_pianoroll")
+                .expect("a pianoroll")
+                .options
+        };
+        assert_eq!(
+            options(r#"s("bd").pianoroll({cycles: 2 * 2})"#).get("cycles"),
+            Some(&WidgetOption::Number(4.0))
+        );
+        assert_eq!(
+            options(r#"s("bd").pianoroll({cycles:  null})"#).get("cycles"),
+            None
+        );
+    }
+
+    #[test]
     fn recording_is_per_id_and_resettable() {
         // Same registry an evaluation uses, so take the same lock.
         let _guard = crate::EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());

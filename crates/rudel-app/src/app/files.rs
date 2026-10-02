@@ -59,6 +59,24 @@ fn audio_dialog(start: Option<&Path>) -> rfd::FileDialog {
     dialog(start, &filters)
 }
 
+/// The OS's modal dialogs, as a field rather than direct calls so a test can
+/// answer them; the [`Default`] asks the user.
+pub(super) struct Dialogs {
+    pub(super) pick: Box<dyn Fn(rfd::FileDialog) -> Option<PathBuf>>,
+    pub(super) save: Box<dyn Fn(rfd::FileDialog) -> Option<PathBuf>>,
+    pub(super) confirm: Box<dyn Fn(rfd::MessageDialog) -> rfd::MessageDialogResult>,
+}
+
+impl Default for Dialogs {
+    fn default() -> Self {
+        Dialogs {
+            pick: Box::new(|d| d.pick_file()),
+            save: Box::new(|d| d.save_file()),
+            confirm: Box::new(|d| d.show()),
+        }
+    }
+}
+
 impl RudelApp {
     /// Whether the buffer differs from what is on disk (or, with no file yet,
     /// from what it started as).
@@ -70,16 +88,16 @@ impl RudelApp {
     /// `true` means go ahead.
     pub(super) fn confirm_discard(&self, what: &str) -> bool {
         !self.is_dirty()
-            || rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Warning)
-                .set_title("Unsaved changes")
-                .set_description(format!(
-                    "{} has changes that are not saved. {what} anyway?",
-                    file_label(self.file_path.as_deref())
-                ))
-                .set_buttons(rfd::MessageButtons::YesNo)
-                .show()
-                == rfd::MessageDialogResult::Yes
+            || (self.dialogs.confirm)(
+                rfd::MessageDialog::new()
+                    .set_level(rfd::MessageLevel::Warning)
+                    .set_title("Unsaved changes")
+                    .set_description(format!(
+                        "{} has changes that are not saved. {what} anyway?",
+                        file_label(self.file_path.as_deref())
+                    ))
+                    .set_buttons(rfd::MessageButtons::YesNo),
+            ) == rfd::MessageDialogResult::Yes
     }
 
     /// Pick a file and load it into the editor.
@@ -87,7 +105,7 @@ impl RudelApp {
         if !self.confirm_discard("Open another file") {
             return;
         }
-        let Some(path) = pattern_dialog(self.file_path.as_deref()).pick_file() else {
+        let Some(path) = (self.dialogs.pick)(pattern_dialog(self.file_path.as_deref())) else {
             return; // cancelled
         };
         self.load_path(&path);
@@ -118,9 +136,8 @@ impl RudelApp {
     /// Pick a destination and write to it.
     pub(super) fn save_file_as(&mut self) {
         let name = file_label(self.file_path.as_deref());
-        let Some(path) = pattern_dialog(self.file_path.as_deref())
-            .set_file_name(&name)
-            .save_file()
+        let Some(path) =
+            (self.dialogs.save)(pattern_dialog(self.file_path.as_deref()).set_file_name(&name))
         else {
             return; // cancelled
         };
@@ -180,10 +197,9 @@ impl RudelApp {
             .and_then(|p| p.file_stem())
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "rudel-take".to_string());
-        let Some(path) = audio_dialog(self.file_path.as_deref())
-            .set_file_name(format!("{stem}.{AUDIO_EXTENSION}"))
-            .save_file()
-        else {
+        let dialog = audio_dialog(self.file_path.as_deref())
+            .set_file_name(format!("{stem}.{AUDIO_EXTENSION}"));
+        let Some(path) = (self.dialogs.save)(dialog) else {
             return; // cancelled
         };
         let path = match path.extension() {
@@ -234,6 +250,7 @@ pub(super) fn restore_path(stored: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{cell::RefCell, rc::Rc};
 
     #[test]
     fn a_round_trip_through_a_real_file_preserves_the_buffer() {
@@ -313,6 +330,107 @@ mod tests {
     fn the_save_as_name_falls_back_to_untitled() {
         assert_eq!(file_label(None), "untitled.js");
         assert_eq!(file_label(Some(Path::new("/tmp/beat.js"))), "beat.js");
+    }
+
+    /// Dialogs that answer `path` and `yes`, keeping a line per dialog shown.
+    fn answering(app: &mut RudelApp, path: Option<PathBuf>, yes: bool) -> Rc<RefCell<Vec<String>>> {
+        let shown = Rc::new(RefCell::new(Vec::new()));
+        let (pick, save, confirm) = (shown.clone(), shown.clone(), shown.clone());
+        let picked = path.clone();
+        app.dialogs = Dialogs {
+            pick: Box::new(move |d| {
+                pick.borrow_mut().push(format!("pick {d:?}"));
+                picked.clone()
+            }),
+            save: Box::new(move |d| {
+                save.borrow_mut().push(format!("save {d:?}"));
+                path.clone()
+            }),
+            confirm: Box::new(move |_| {
+                confirm.borrow_mut().push("confirm".to_string());
+                if yes {
+                    rfd::MessageDialogResult::Yes
+                } else {
+                    rfd::MessageDialogResult::No
+                }
+            }),
+        };
+        shown
+    }
+
+    #[test]
+    fn open_asks_before_discarding_edits_and_loads_what_was_picked() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.js");
+        std::fs::write(&path, "s(\"a\")").unwrap();
+        let mut app = RudelApp::headless();
+        app.code = "unsaved".to_string();
+
+        let shown = answering(&mut app, Some(path.clone()), false);
+        app.open_file();
+        assert_eq!(app.code, "unsaved", "declined, so kept");
+        assert_eq!(*shown.borrow(), ["confirm"], "and nothing picked");
+
+        let shown = answering(&mut app, Some(path.clone()), true);
+        app.open_file();
+        assert_eq!(app.code, "s(\"a\")");
+        let shown = shown.borrow();
+        assert_eq!(shown[0], "confirm");
+        assert!(
+            shown[1].starts_with("pick") && shown[1].contains("\"Pattern\""),
+            "{}",
+            shown[1]
+        );
+    }
+
+    #[test]
+    fn save_asks_for_a_name_once_and_then_writes_where_it_was_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = RudelApp::headless();
+        app.code = "s(\"bd\")".to_string();
+        // A name typed without its extension still saves a pattern.
+        let shown = answering(&mut app, Some(dir.path().join("beat")), true);
+        app.save_file();
+        let path = dir.path().join("beat.js");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "s(\"bd\")");
+        assert!(
+            shown.borrow()[0].contains("untitled.js"),
+            "{}",
+            shown.borrow()[0]
+        );
+
+        app.code = "s(\"sd\")".to_string();
+        app.save_file();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "s(\"sd\")");
+        assert_eq!(shown.borrow().len(), 1, "the file has a name now");
+
+        // Save As starts where the file is, offering its name.
+        app.save_file_as();
+        let dialog = &shown.borrow()[1];
+        let folder = format!("{:?}", dir.path());
+        assert!(dialog.contains(&folder[1..folder.len() - 1]), "{dialog}");
+        assert!(dialog.contains("beat.js"), "{dialog}");
+    }
+
+    #[test]
+    fn a_take_records_to_the_file_asked_for_until_toggled_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = RudelApp::headless();
+        let (engine, output) = rudel_audio::Engine::with_fake_output(48_000.0);
+        app.engine = Some(engine);
+        let shown = answering(&mut app, Some(dir.path().join("take")), true);
+        app.toggle_recording();
+        assert!(app.is_recording(), "{:?}", app.io_error);
+        let dialog = &shown.borrow()[0];
+        assert!(
+            dialog.contains("rudel-take.wav") && dialog.contains("\"FLAC audio\""),
+            "{dialog}"
+        );
+        output.pull(4_800);
+        app.toggle_recording();
+        assert!(!app.is_recording());
+        assert_eq!(app.status, "recorded take.wav");
+        assert!(dir.path().join("take.wav").exists());
     }
 
     #[test]

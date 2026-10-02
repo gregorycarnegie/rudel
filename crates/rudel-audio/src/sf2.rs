@@ -805,6 +805,30 @@ mod tests {
     }
 
     #[test]
+    fn the_terminal_record_is_not_a_preset_and_into_presets_names_each() {
+        let sf = parse(&tiny_sf2()).expect("parse");
+        // With one real preset, index 1 wraps to it rather than reaching EOP.
+        assert_eq!(sf.preset(1).expect("wraps").zones.len(), 1);
+        let presets = sf.into_presets();
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].0, "Tiny");
+    }
+
+    #[test]
+    fn the_header_must_be_riff_sfbk_and_a_bare_one_is_read() {
+        let err = parse(b"RIFX\0\0\0\0sfbk").err().expect("wrong magic");
+        assert!(err.contains("RIFF sfbk"), "{err}");
+        // Exactly the twelve header bytes gets past the header check.
+        let bare = parse(b"RIFF\0\0\0\0sfbk");
+        assert!(
+            bare.as_ref().err().is_none_or(|e| !e.contains("RIFF sfbk")),
+            "{:?}",
+            bare.err()
+        );
+        assert_eq!(Reader::new(&[7]).u8(), Some(7));
+    }
+
+    #[test]
     fn preset_index_wraps_like_a_sample_index() {
         let sf = parse(&tiny_sf2()).expect("parse");
         assert!(sf.preset(0).is_some());

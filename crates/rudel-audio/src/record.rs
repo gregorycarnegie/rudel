@@ -229,6 +229,23 @@ mod tests {
     }
 
     #[test]
+    fn a_take_still_running_when_the_recorder_drops_is_finalised() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dropped.wav");
+        let rec = Recorder::default();
+        rec.start(&path, 48_000.0).expect("start");
+        for chunk in tone(48_000, 1).chunks(1024) {
+            rec.push(chunk);
+        }
+        drop(rec);
+        // `finish` rewrites the RIFF size once the length is known.
+        let bytes = std::fs::read(&path).unwrap();
+        let riff = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        assert_eq!(riff, bytes.len() - 8);
+        assert!(bytes.len() > 44, "the audio reached the file");
+    }
+
+    #[test]
     fn an_extension_picks_the_format() {
         let of = |name: &str| Format::from_path(Path::new(name));
         assert_eq!(of("take.wav"), Some(Format::Wav));
@@ -550,6 +567,18 @@ mod tests {
         }
         rec.stop().unwrap();
         assert_eq!(rec.dropped_blocks(), 0, "a WAV encoder cannot fall behind");
+    }
+
+    #[test]
+    fn an_mp3_take_holds_a_block_a_second_long() {
+        // The encoder writes into a buffer sized for the block, which a block
+        // much bigger than a device callback has to fit too.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("long-block.mp3");
+        let rec = Recorder::default();
+        rec.start(&path, 48_000.0).unwrap();
+        rec.push(&tone(48_000, 1));
+        rec.stop().expect("the block fitted");
     }
 
     #[test]

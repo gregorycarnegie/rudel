@@ -236,3 +236,37 @@ note("c").s("gm_piano")
     .expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 1);
 }
+
+#[test]
+fn an_inline_map_keeps_integers_integral_and_other_numbers_as_floats() {
+    // strudel.json readers tell `3` from `3.0`; anything at or past 9e15 is
+    // too big to be an exact integer and stays a float.
+    let (_, effects) =
+        eval_with_samples(r#"samples({ bd: "a.wav", _n: 3, _neg: -4, _f: 1.5, _big: 9e15 }, "")"#)
+            .expect("eval");
+    let parsed: serde_json::Value = serde_json::from_str(&effects.maps[0].0).unwrap();
+    assert!(parsed["_n"].is_i64() && parsed["_n"] == 3, "{parsed}");
+    assert!(parsed["_neg"].is_i64() && parsed["_neg"] == -4, "{parsed}");
+    assert!(parsed["_f"].is_f64() && parsed["_f"] == 1.5, "{parsed}");
+    assert!(parsed["_big"].is_f64(), "{parsed}");
+}
+
+#[test]
+fn tables_takes_a_frame_length_of_at_least_one() {
+    let (_, effects) =
+        eval_with_samples(r#"tables("a", 1024); tables("b", 0.5); tables("c")"#).expect("eval");
+    assert_eq!(
+        effects.tables,
+        [
+            ("a".to_string(), 1024),
+            ("b".to_string(), 2048),
+            ("c".to_string(), 2048)
+        ]
+    );
+}
+
+#[test]
+fn set_cpm_in_camel_case_is_cycles_per_minute_too() {
+    let (_, effects) = eval_with_samples("setCpm(120)").expect("eval");
+    assert_eq!(effects.cps, Some(2.0));
+}

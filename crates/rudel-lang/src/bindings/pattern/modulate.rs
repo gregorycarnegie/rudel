@@ -6,7 +6,7 @@
 
 use super::{
     args::{arg, method},
-    convert::arg_to_pattern,
+    convert::{arg_to_pattern, arg_to_raw_str},
 };
 use crate::js::{Arg, Scope};
 use rudel_core::{Pattern, Value, modulate, pure};
@@ -41,10 +41,8 @@ pub(crate) fn insert_modulate_methods(proto: &Scope) {
     }
     // The generic `pat.modulate(type, config, id)`.
     method(proto, "modulate", |pat, a| {
-        let mod_type = match arg(a, 0) {
-            Arg::Str(s) => s.clone(),
-            _ => String::new(),
-        };
+        // A string literal arrives wrapped as a pattern; its raw text is the type.
+        let mod_type = arg_to_raw_str(arg(a, 0)).unwrap_or_default();
         let config = config_entries(arg(a, 1));
         Ok(modulate(pat, &mod_type, config, id_pattern(arg(a, 2))).into())
     });

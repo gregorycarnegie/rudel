@@ -281,6 +281,11 @@ mod tests {
     use proptest::prelude::*;
 
     #[test]
+    fn rotating_an_empty_rhythm_is_still_empty() {
+        assert!(euclid_rot(0, 0, 2).is_empty());
+    }
+
+    #[test]
     fn tresillo() {
         // euclid(3,8) is the Cuban tresillo: x . . x . . x .
         assert_eq!(

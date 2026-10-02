@@ -1746,3 +1746,45 @@ fn a_coarse_or_crush_modulator_pushes_its_amount_up() {
     let modulated = render(base, &positive_lfo("coarse", 6.0, 200.0));
     assert_ne!(modulated, plain, "a coarse modulation should be audible");
 }
+
+/// A sine with a fixed starting phase, so two renders can be compared sample
+/// for sample (the synth voices start at a random phase).
+struct FixedSine(u32);
+
+impl VoiceLike for FixedSine {
+    fn tick(&mut self) -> (f32, f32) {
+        self.0 += 1;
+        let s = 0.8 * (self.0 as f32 * TAU * 110.0 / 44100.0).sin();
+        (s, s)
+    }
+    fn is_done(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_positive_crush_modulator_adds_bits_and_so_lowers_the_error() {
+    // Counting distinct levels cannot tell more bits from fewer once the depth
+    // moves, but the distance from the uncrushed signal can.
+    let render = |fx: PostFx, mods: &[ModSpec]| -> Vec<f32> {
+        let mut v = PostFxVoice::with_mods(Box::new(FixedSine(0)), fx, 44100.0, mods);
+        (0..4410).map(|_| v.tick().0).collect()
+    };
+    let clean = render(PostFx::default(), &[]);
+    let error = |out: &[f32]| {
+        out.iter()
+            .zip(&clean)
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+    };
+    let crushed = PostFx {
+        crush: Some(4.0),
+        ..Default::default()
+    };
+    let base = error(&render(crushed, &[]));
+    let modulated = error(&render(crushed, &positive_lfo("crush", 4.0, 5.0).post));
+    assert!(
+        modulated < base * 0.8,
+        "modulated error {modulated} vs {base}"
+    );
+}

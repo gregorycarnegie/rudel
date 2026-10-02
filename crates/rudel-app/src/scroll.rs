@@ -249,3 +249,46 @@ mod tests {
         assert_eq!(scrolled(0.0, 0.5, 0.1), (0.5, false));
     }
 }
+
+#[cfg(test)]
+mod page_and_modifier_tests {
+    use super::*;
+
+    fn wheel(unit: egui::MouseWheelUnit, delta: f32, modifiers: egui::Modifiers) -> f64 {
+        let mut harness = egui_kittest::Harness::new_ui_state(
+            |ui, value: &mut f64| {
+                let (_, response) =
+                    ui.allocate_exact_size(egui::vec2(200.0, 200.0), egui::Sense::hover());
+                scroll_adjust(ui, &response, value, 0.0..=1.0, 0.0);
+            },
+            0.0,
+        );
+        harness.run();
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(20.0, 20.0)));
+        harness.input_mut().events.push(egui::Event::MouseWheel {
+            unit,
+            delta: egui::vec2(0.0, delta),
+            phase: egui::TouchPhase::Move,
+            modifiers,
+        });
+        harness.run();
+        *harness.state()
+    }
+
+    #[test]
+    fn half_a_page_moves_half_the_range() {
+        let got = wheel(egui::MouseWheelUnit::Page, 0.5, egui::Modifiers::NONE);
+        assert!((got - 0.5).abs() < 1e-9, "{got}");
+    }
+
+    #[test]
+    fn a_modified_wheel_is_left_to_whatever_else_wants_it() {
+        assert_eq!(
+            wheel(egui::MouseWheelUnit::Line, 3.0, egui::Modifiers::CTRL),
+            0.0
+        );
+    }
+}

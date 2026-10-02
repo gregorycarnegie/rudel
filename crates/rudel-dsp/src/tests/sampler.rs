@@ -574,6 +574,13 @@ fn the_filter_slot_carries_every_control_it_is_given() {
         cut < dry * 0.5,
         "the cutoff removes the 8k tone: {cut} {dry}"
     );
+    // And it is the cutoff asked for, not some default: one above the tone
+    // lets it through.
+    let open = energy(&|p| p.cutoff = Some(16_000.0));
+    assert!(
+        open > dry * 0.8,
+        "a 16k cutoff keeps the 8k tone: {open} {dry}"
+    );
 
     // Resonance, model and drive each change the result of the same cutoff.
     let base = energy(&|p| {

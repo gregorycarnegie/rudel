@@ -130,6 +130,23 @@ mod tests {
     }
 
     #[test]
+    fn a_timeline_first_seen_in_the_second_half_of_its_event_starts_at_the_next() {
+        // Id 15 is active over the second half of each cycle. A scheduler
+        // query starting at that event's midpoint is too late to start it
+        // cleanly, so the offset is the event's end, not its start.
+        let tpat = sequence(&[pure(Value::Int(0)), pure(Value::Int(15))]);
+        let span = TimeSpan::new(Frac::new(15, 4), Frac::int(4));
+        let controls = ValueMap::from([("cyclist".to_string(), Value::Str("cyclist".into()))]);
+        let _ = pure(Value::Int(7))
+            .timeline(tpat)
+            .query(&State::with_controls(span, controls));
+        assert_eq!(
+            TIMELINES.read().unwrap().get(&Frac::int(15)).copied(),
+            Some(Frac::int(4))
+        );
+    }
+
+    #[test]
     fn non_scheduler_query_does_not_mutate_state() {
         let pat = pure(Value::Int(0)).timeline(pure(Value::Int(12)));
         // A visualiser-style query (no cyclist marker) must not write state.

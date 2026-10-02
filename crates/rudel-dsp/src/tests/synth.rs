@@ -1114,3 +1114,67 @@ fn a_stereo_source_is_turned_down_by_the_same_gain_stage_as_a_mono_one() {
         "peak {peak} is not a turned-down full-scale table"
     );
 }
+
+#[test]
+fn a_synth_voice_hands_its_bus_input_to_its_modulators() {
+    let sr = 44100.0;
+    let mut entry = ValueMap::new();
+    entry.insert("control".to_string(), Value::from("gain"));
+    entry.insert("bus".to_string(), Value::F64(0.0));
+    entry.insert("depthabs".to_string(), Value::F64(0.5));
+    entry.insert("dcoffset".to_string(), Value::F64(0.0));
+    let mut desc = ValueMap::new();
+    desc.insert("__ids".to_string(), Value::List(vec![Value::from("0")]));
+    desc.insert("0".to_string(), Value::Map(entry));
+    let map: ValueMap = [("bmod".to_string(), Value::Map(desc))]
+        .into_iter()
+        .collect();
+    let ctx = ModContext {
+        cps: 0.5,
+        cycle: 0.0,
+        note_seconds: 1.0,
+    };
+    let specs = ModSpecs::from_controls(&map, &ctx, |_| 0.5);
+    assert!(!specs.voice.is_empty());
+    let peak_with = |feed: bool| {
+        let params = VoiceParams {
+            freq: 220.0,
+            gain: 0.5,
+            duration: 1.0,
+            ..Default::default()
+        };
+        let mut v = Voice::with_mods(params, sr, &specs.voice);
+        if feed {
+            let block = vec![1.0f32; 2048];
+            v.set_bus_input(0, &block, &block);
+        }
+        (0..2048).fold(0.0f32, |m, _| m.max(v.tick().0.abs()))
+    };
+    assert!(
+        peak_with(true) > peak_with(false),
+        "feeding the bus should reach the gain modulator"
+    );
+}
+
+#[test]
+fn a_supersaw_filters_its_right_channel_too() {
+    // The super-saw is stereo, so each side needs a filter bank of its own.
+    let sr = 44100.0;
+    let right = |cutoff: Option<f32>| {
+        let mut params = VoiceParams {
+            freq: 2000.0,
+            gain: 0.5,
+            duration: 1.0,
+            supersaw: true,
+            ..Default::default()
+        };
+        params.lp.freq = cutoff;
+        let mut v = Voice::new(params, sr);
+        (0..8820).map(|_| v.tick().1.powi(2)).sum::<f32>()
+    };
+    let (open, cut) = (right(None), right(Some(200.0)));
+    assert!(
+        cut < open * 0.2,
+        "right channel: {cut} filtered vs {open} open"
+    );
+}

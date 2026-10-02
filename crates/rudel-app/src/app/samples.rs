@@ -662,3 +662,47 @@ endin"
         );
     }
 }
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    #[test]
+    fn each_queued_load_runs_once_however_often_it_is_asked_for() {
+        // A fake engine: nothing plays, and the paths lead nowhere, so the
+        // jobs fail on the spot instead of reaching for the network.
+        let mut app = RudelApp::headless();
+        let (engine, _output) = rudel_audio::Engine::with_fake_output(48_000.0);
+        app.engine = Some(engine);
+        let missing = "Z:/rudel-test-does-not-exist";
+        for _ in 0..2 {
+            app.queue_sample_source_quiet(format!("{missing}/map.json"), true);
+            app.queue_sample_map("{}".to_string(), format!("{missing}/"));
+            app.queue_csound(false, String::new());
+            app.queue_tables(format!("{missing}/t.json"), 2048);
+            app.queue_soundfont(format!("{missing}/x.sf2"), "x".to_string());
+            // After each round, not just the last: a guard that queues on the
+            // second call instead of the first also ends with one job each.
+            assert_eq!(app.sample_jobs.len(), 5);
+        }
+    }
+
+    #[test]
+    fn a_sound_the_audio_thread_missed_is_fetched_once() {
+        let mut app = RudelApp::headless();
+        let (engine, _output) = rudel_audio::Engine::with_fake_output(48_000.0);
+        app.engine = Some(engine);
+        rudel_audio::set_soundfont_url("Z:/rudel-test-does-not-exist");
+        for _ in 0..2 {
+            rudel_audio::request_font("gm_piano", 0);
+            rudel_audio::request_sample("nothing_by_this_name");
+            app.poll_font_requests();
+            app.poll_sample_requests();
+            let keys: Vec<&str> = app.sample_jobs.iter().map(|j| j.key.as_str()).collect();
+            assert_eq!(
+                keys,
+                ["soundfont:gm_piano:0", "pending:nothing_by_this_name"]
+            );
+        }
+    }
+}

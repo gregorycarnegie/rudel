@@ -28,7 +28,7 @@ use rudel_core::Hap;
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash as _, Hasher as _},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 /// Declarations wrapped around the user's body. `uv` spans the widget with y
@@ -180,10 +180,6 @@ struct Entry {
     program: Program,
 }
 
-/// Evict a widget's pipeline once it has gone this long without painting —
-/// editing a shader's source shifts the widget id, so ids do accumulate.
-const IDLE_EVICTION: Duration = Duration::from_secs(30);
-
 /// The compiled pipelines, one per live shader widget, living in the wgpu
 /// renderer's callback resources.
 pub(crate) struct ShaderStore {
@@ -211,9 +207,7 @@ impl ShaderStore {
                     program,
                 },
             );
-            let cutoff = Instant::now() - IDLE_EVICTION;
-            self.programs
-                .retain(|key, entry| key == id || entry.used > cutoff);
+            super::evict_idle(&mut self.programs, id, |entry| entry.used);
         }
         let entry = self.programs.get_mut(id).expect("just inserted or present");
         entry.used = Instant::now();

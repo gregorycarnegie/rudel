@@ -100,44 +100,14 @@ pub(super) fn annotate_mini_offsets(
 }
 
 fn is_slider_id_literal(src: &str, quote_start: usize) -> bool {
-    let mut end = quote_start;
-    while end > 0 {
-        let Some(c) = src[..end].chars().next_back() else {
-            return false;
-        };
-        if !c.is_whitespace() {
-            break;
-        }
-        end -= c.len_utf8();
-    }
-    if end == 0 || !src[..end].ends_with('(') {
+    let Some(callee) = src[..quote_start].trim_end().strip_suffix('(') else {
         return false;
-    }
-    end -= '('.len_utf8();
-
-    while end > 0 {
-        let Some(c) = src[..end].chars().next_back() else {
-            return false;
-        };
-        if !c.is_whitespace() {
-            break;
-        }
-        end -= c.len_utf8();
-    }
-
-    let mut start = end;
-    while start > 0 {
-        let Some(c) = src[..start].chars().next_back() else {
-            break;
-        };
-        if !is_ident_char(c) {
-            break;
-        }
-        start -= c.len_utf8();
-    }
-    matches!(&src[start..end], "slider_with_id" | "sliderWithID")
-        || src[start..end].starts_with("rudel_widget_")
-        || VISUAL_WIDGET_METHODS.contains(&&src[start..end])
+    };
+    let callee = callee.trim_end();
+    let name = &callee[callee.trim_end_matches(is_ident_char).len()..];
+    matches!(name, "slider_with_id" | "sliderWithID")
+        || name.starts_with("rudel_widget_")
+        || VISUAL_WIDGET_METHODS.contains(&name)
 }
 
 #[cfg(test)]

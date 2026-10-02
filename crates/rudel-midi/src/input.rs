@@ -198,6 +198,17 @@ impl MidiIn {
         })
     }
 
+    /// A connection-less input carrying a fixed name and tempo, so the
+    /// accessors can be tested without a MIDI device.
+    #[cfg(test)]
+    pub(crate) fn detached(port_name: &str, bpm: Option<f64>) -> MidiIn {
+        MidiIn {
+            _conn: None,
+            bpm: Arc::new(Mutex::new(bpm)),
+            port_name: port_name.to_string(),
+        }
+    }
+
     /// The full name of the port this connection opened. `midin`/`midikeys`
     /// device names are matched against it.
     pub fn port_name(&self) -> &str {

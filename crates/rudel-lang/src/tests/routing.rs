@@ -140,6 +140,16 @@ fn midin_and_midikeys_read_their_own_device() {
     rudel_core::set_cc_from("keystep", 1, 91, 1.0);
     assert_eq!(lpf(&pat), 2000.0);
 
+    // A channel narrows it to that channel; a CC on another one is ignored.
+    let (chan, _) = crate::eval_with_samples(
+        "let cc = midin('keystep')\nnote(\"c3\").lpf(cc(92, 3).range(200, 2000))",
+    )
+    .expect("eval");
+    rudel_core::set_cc_from("keystep", 5, 92, 1.0);
+    assert_eq!(lpf(&chan), 200.0);
+    rudel_core::set_cc_from("keystep", 3, 92, 1.0);
+    assert_eq!(lpf(&chan), 2000.0);
+
     // `midikeys(name)` returns a `(noteLength?) -> pattern` factory of the
     // notes played on that port. Notes only surface on a scheduler query.
     let (keys, effects) =
