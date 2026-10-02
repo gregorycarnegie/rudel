@@ -24,7 +24,7 @@ pub(crate) use host::WidgetHostState;
 pub(crate) use hydra_gpu::HydraStore;
 pub(crate) use paint::{WidgetPaintInput, draw_widget_hosts};
 pub(crate) use shader::ShaderStore;
-pub(crate) use spiral_gpu::SpiralStore;
+pub(crate) use spiral_gpu::{SpiralStore, supported as spiral_gpu_supported};
 pub(crate) use style::mark_color;
 
 /// How long a GPU widget's cached pipeline or buffers outlive its last paint.

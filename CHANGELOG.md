@@ -72,6 +72,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **The GPU spiral no longer crashes the app on a GPU without storage buffers
+  in fragment shaders** (OpenGL-only and some software adapters). It reads its
+  bands from one, which wgpu refuses there, and the refusal is a panic. Those
+  devices now get the CPU spiral.
 - **Copy and Cut in the editor's right-click menu work.** They were always
   disabled: egui puts the cursor under the pointer on any button's press, so
   the right-click that opened the menu had already dropped the selection. The

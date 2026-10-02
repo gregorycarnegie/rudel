@@ -1053,7 +1053,9 @@ fn an_input_reports_its_port_and_its_clock_tempo() {
 /// have none, and then there is nothing to open.
 #[test]
 fn a_real_output_port_lists_opens_and_rejects_an_empty_message() {
-    let ports = MidiOut::list_ports().expect("the port list");
+    let Some(ports) = ports_or_skip(MidiOut::list_ports()) else {
+        return;
+    };
     let Some(port) = ports.iter().find(|p| p.contains("GS Wavetable")) else {
         // Every Windows install ships the GS synth; elsewhere it is optional.
         if cfg!(windows) {
@@ -1071,9 +1073,24 @@ fn a_real_output_port_lists_opens_and_rejects_an_empty_message() {
 
 #[test]
 fn every_listed_input_port_is_named_and_opens_by_that_name() {
-    let ports = MidiIn::list_ports().expect("the port list");
+    let Some(ports) = ports_or_skip(MidiIn::list_ports()) else {
+        return;
+    };
     for port in &ports {
         assert!(!port.is_empty(), "{ports:?}");
         MidiIn::connect(Some(port)).unwrap_or_else(|e| panic!("{port}: {e}"));
+    }
+}
+
+/// The port list, or `None` (with a note) where the OS has no MIDI subsystem to
+/// ask, as on a CI runner without ALSA's sequencer. Windows always has one.
+fn ports_or_skip(list: Result<Vec<String>, String>) -> Option<Vec<String>> {
+    match list {
+        Ok(ports) => Some(ports),
+        Err(e) if !cfg!(windows) => {
+            eprintln!("skipping: {e}");
+            None
+        }
+        Err(e) => panic!("the port list: {e}"),
     }
 }

@@ -403,9 +403,23 @@ pub(super) fn paint_spiral_gpu(
     ));
 }
 
+/// Whether a device can run the GPU spiral: its fragment shader reads the
+/// bands from a storage buffer, which downlevel adapters (OpenGL, some
+/// software rasterisers) allow none of. Binding one there is a validation
+/// error, which wgpu turns into a panic, so those fall back to the CPU spiral.
+pub(crate) fn supported(limits: &wgpu::Limits) -> bool {
+    limits.max_storage_buffers_per_shader_stage >= 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_device_with_no_fragment_storage_buffers_gets_the_cpu_spiral() {
+        assert!(supported(&wgpu::Limits::default()));
+        assert!(!supported(&wgpu::Limits::downlevel_webgl2_defaults()));
+    }
 
     #[test]
     fn the_shader_is_valid_wgsl() {

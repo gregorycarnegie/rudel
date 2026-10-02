@@ -381,18 +381,23 @@ mod backend_tests {
             .count()
     }
 
-    /// Pull frames from the fake device for `secs`, giving the scheduler room
-    /// between blocks, and return the loudest sample.
-    fn listen(output: &rudel_audio::FakeOutput, secs: f64) -> f32 {
-        let deadline = Instant::now() + Duration::from_secs_f64(secs);
-        let mut peak = 0.0f32;
+    fn peak(frames: &[(f32, f32)]) -> f32 {
+        frames
+            .iter()
+            .fold(0.0, |m, (l, r)| m.max(l.abs()).max(r.abs()))
+    }
+
+    /// Wait up to five seconds for `done`. A deadline rather than a fixed
+    /// pause, so a loaded machine is slow rather than failing.
+    fn eventually(mut done: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            for (l, r) in output.pull(480) {
-                peak = peak.max(l.abs()).max(r.abs());
+            if done() {
+                return true;
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        peak
+        false
     }
 
     #[test]
@@ -429,16 +434,22 @@ mod backend_tests {
 
         app.output = Output::Audio;
         app.route();
-        assert!(listen(&output, 1.0) > 1e-3, "audio should play");
+        // The fake device's playhead moves only as frames are pulled.
+        assert!(
+            eventually(|| peak(&output.pull(480)) > 1e-3),
+            "audio should play"
+        );
         assert_eq!(note_ons(&midi), 0, "MIDI is not selected");
         assert_eq!(osc_messages(&socket, 0.3), 0, "OSC is not selected");
 
         app.output = Output::Midi;
         app.route();
         let before = note_ons(&midi);
-        listen(&output, 1.0); // lets the scheduled audio drain
-        assert!(note_ons(&midi) > before, "MIDI should play");
-        assert!(listen(&output, 0.3) < 1e-4, "audio should stop");
+        assert!(eventually(|| note_ons(&midi) > before), "MIDI should play");
+        // Two seconds of device time plays out anything scheduled before the
+        // switch, however long the machine takes to render it.
+        output.pull(96_000);
+        assert!(peak(&output.pull(14_400)) < 1e-4, "audio should stop");
 
         app.output = Output::Osc;
         app.route();
