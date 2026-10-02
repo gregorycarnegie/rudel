@@ -456,3 +456,89 @@ fn a_value_fmap_throws_on_is_kept_and_the_error_logged() {
             .any(|l| l == "withValue: nope")
     );
 }
+
+/// The values `src` gives over cycle `cycle`.
+fn at(src: &str, cycle: i64) -> Vec<Value> {
+    let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    values(&pat, cycle, cycle + 1)
+}
+
+// Each of these once probed 16 cycles at evaluation and baked the result, so
+// past cycle 16 it repeated its window, or went silent on anything it had not
+// seen. Cycle 20 is where each would have been wrong.
+
+#[test]
+fn filter_values_and_filter_when_judge_every_cycle() {
+    let zero = at(r#"n(0)"#, 0);
+    let even = r#"n("<0 1 2 3 4>").filterValues(v => v.n == 0)"#;
+    assert_eq!(at(even, 20), zero);
+    assert!(at(even, 21).is_empty());
+    // Nothing in the old window passed, so this was silent for good.
+    let late = r#"n("<0 1 2 3 4>").filterWhen(t => t >= 20)"#;
+    assert!(at(late, 19).is_empty());
+    assert_eq!(at(late, 20), zero);
+}
+
+#[test]
+fn arp_with_plays_a_chord_first_heard_after_cycle_sixteen() {
+    let src = format!(
+        r#"note("<{}[64,67]>").arpWith(c => c)"#,
+        "[60,64] ".repeat(20)
+    );
+    assert_eq!(at(&src, 20), at(r#"note("64 67")"#, 0));
+}
+
+#[test]
+fn a_patterned_callback_argument_meets_new_values_late() {
+    // `4` first appears at cycle 20; the scalar form is the reference.
+    let patterned = at(r#"n("0 1 2 3").chunk("<2!20 4>", x => x.add(n(10)))"#, 20);
+    assert_ne!(
+        patterned,
+        at(r#"n("0 1 2 3")"#, 20),
+        "a chunk is transformed"
+    );
+    assert_eq!(
+        patterned,
+        at(r#"n("0 1 2 3").chunk(4, x => x.add(n(10)))"#, 20)
+    );
+}
+
+#[test]
+fn ply_with_copies_a_value_first_heard_after_cycle_sixteen() {
+    assert_eq!(
+        at(r#"n("<0!20 5>").plyWith(2, x => x.add(n(1)))"#, 20),
+        at(r#"n("5 6")"#, 0)
+    );
+}
+
+#[test]
+fn chunk_into_transforms_every_piece_however_late() {
+    let src = r#"n("0 1 2 3").chunkInto(4, x => x.add(n(10)))"#;
+    assert_ne!(
+        at(src, 0),
+        at(r#"n("0 1 2 3")"#, 0),
+        "the first piece is transformed"
+    );
+    // Four pieces, so cycle 20 is cycle 0 again.
+    assert_eq!(at(src, 20), at(src, 0));
+}
+
+#[test]
+fn log_values_logs_what_each_cycle_plays() {
+    let logged = |cycle| {
+        at(r#"n("<0 1 2 3 4>").logValues(v => v.n)"#, cycle)
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::Map(m) => m.get("_log").cloned(),
+                _ => None,
+            })
+            .collect::<Vec<Value>>()
+    };
+    assert_eq!(logged(20), vec![Value::Str("0".into())]);
+}
+
+#[test]
+fn a_registered_method_samples_a_patterned_argument_every_cycle() {
+    let src = r#"register('plus', (x, pat) => pat.add(n(x))); n("0").plus("<0!20 7>")"#;
+    assert_eq!(at(src, 20), at(r#"n(7)"#, 0));
+}

@@ -22,6 +22,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
   cycles rather than 855, and evaluates in 5.5 ms rather than 27. A callback
   that throws leaves the value as it was and logs `withValue: <message>` to
   the console; it used to fail the evaluation.
+- **`filter`, `filterValues`, `filterWhen`, `arpWith`, `plyWith`/`plyForEach`,
+  `into`/`chunkInto`, and `log`/`logValues` with a callback work past cycle
+  16,** and so do a patterned leading argument (`chunk("<2 4>", f)`,
+  `inside`, `within`) and a patterned argument to a `register`ed function.
+  Each worked out its result over the first 16 cycles at evaluation. Past
+  that, the filters and `log` repeated that window, and the rest went silent
+  on any value or chord first heard later; `chunkInto` stopped transforming.
+  They now decide as the pattern plays, and an error in a callback goes to
+  the console.
 
 ## [0.22.0] — 2026-10-02
 

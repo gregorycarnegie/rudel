@@ -5,100 +5,205 @@ use super::{
 };
 use crate::js::{self, Arg, NULL, Res, Scope};
 use rudel_core::{Frac, Pattern, Value};
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-/// Patternify a callback combinator's leading argument when it is a pattern
-/// rather than a scalar (`chunk("<2 4>", f)`, `inside("<2 3>", f)`). The script
-/// is not run on the query path, so the combinator result is built eagerly
-/// for each distinct argument value seen over a probe window, then selected per
-/// cycle with `innerJoin` — matching Strudel's `register` patternification
-/// (`arg.fmap(v => combinator(v, f, pat)).innerJoin()`). Values first appearing
-/// after the probe window fall back to silence (same limit as `fmap`/`arpWith`).
-pub(super) fn probe_patternify<F>(arg: Pattern, build: F) -> Pattern
-where
-    F: Fn(&Value) -> Pattern,
-{
-    const PROBE: i64 = 16;
-    let mut table: HashMap<String, Pattern> = HashMap::new();
-    for cycle in 0..PROBE {
-        for hap in arg.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
-            table
-                .entry(value_sig(&hap.value))
-                .or_insert_with(|| build(&hap.value));
+/// A callback kept for the query path, for combinators that cannot know the
+/// haps it applies to until they are queried. A script function is called on
+/// the JS thread, a batch of calls per trip; a pattern of functions applies
+/// where it stands. The first error in a batch goes to the console as
+/// `<name>: <message>`, since a query has no caller to report it to.
+#[derive(Clone)]
+pub(super) struct Deferred {
+    kept: Kept,
+    name: &'static str,
+}
+
+#[derive(Clone)]
+enum Kept {
+    Script(js::SendFn),
+    Functions(Pattern),
+}
+
+impl Deferred {
+    /// `None` when `func` is neither a script function nor a pattern of them.
+    pub(super) fn keep(name: &'static str, func: &Arg) -> Option<Deferred> {
+        let kept = match func {
+            Arg::Pat(functions) => Kept::Functions(functions.clone()),
+            _ => Kept::Script(js::keep(func)?),
+        };
+        Some(Deferred { kept, name })
+    }
+
+    /// [`Deferred::keep`], or the error a script gets for passing something
+    /// that cannot be called.
+    pub(super) fn require(name: &'static str, func: &Arg) -> Result<Deferred, String> {
+        Deferred::keep(name, func)
+            .ok_or_else(|| format!("{name}: expected a function, got {}", func.kind()))
+    }
+
+    /// Run `job` with the callback. `None` once the evaluation the function
+    /// came from has been dropped.
+    pub(super) fn run<R: Send + 'static>(
+        &self,
+        job: impl FnOnce(&Callback) -> R + Send + 'static,
+    ) -> Option<R> {
+        let name = self.name;
+        let with = move |func: Arg| {
+            let cb = Callback::new(func);
+            let out = job(&cb);
+            if let Err(e) = cb.finish() {
+                rudel_core::log_line(format!("{name}: {e}"));
+            }
+            out
+        };
+        match &self.kept {
+            Kept::Script(f) => f.run(move |f| with(f.clone())),
+            Kept::Functions(p) => Some(with(Arg::Pat(p.clone()))),
         }
     }
-    let table = Arc::new(table);
+}
+
+/// Patterns built from a [`Deferred`] callback, each the first time a query
+/// asks for its key: the lazy form of probing a window and baking a table,
+/// which went silent (or stale) on anything first seen past the window.
+pub(super) struct Memo {
+    callback: Deferred,
+    built: Mutex<HashMap<String, Pattern>>,
+}
+
+/// ponytail: a long session keyed on ever-new spans (`chunkInto`'s ribbons)
+/// would grow the table without end, so it starts over at this size. An LRU
+/// if rebuilding the hot keys after a clear ever shows up in a profile.
+const MEMO_CAPACITY: usize = 4096;
+
+impl Memo {
+    pub(super) fn new(callback: Deferred) -> Arc<Memo> {
+        Arc::new(Memo {
+            callback,
+            built: Mutex::new(HashMap::new()),
+        })
+    }
+
+    pub(super) fn get(
+        &self,
+        key: String,
+        build: impl FnOnce(&Callback) -> Pattern + Send + 'static,
+    ) -> Pattern {
+        let lock = || self.built.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pat) = lock().get(&key) {
+            return pat.clone();
+        }
+        // Not held across the build, which may query patterns of its own.
+        let Some(pat) = self.callback.run(build) else {
+            return rudel_core::silence();
+        };
+        let mut built = lock();
+        if built.len() >= MEMO_CAPACITY {
+            built.clear();
+        }
+        built.entry(key).or_insert(pat).clone()
+    }
+}
+
+/// Patternify a callback combinator's leading argument when it is a pattern
+/// rather than a scalar (`chunk("<2 4>", f)`, `inside("<2 3>", f)`): Strudel's
+/// `register` does `arg.fmap(v => combinator(v, f, pat)).innerJoin()`. The
+/// combinator is built once per distinct value, when a query first meets it.
+pub(super) fn patternify_deferred<F>(arg: Pattern, callback: Deferred, build: F) -> Pattern
+where
+    F: Fn(&Value, &Callback) -> Pattern + Send + Sync + 'static,
+{
+    let memo = Memo::new(callback);
+    let build = Arc::new(build);
     arg.fmap(move |v| {
-        let pat = table
-            .get(&value_sig(&v))
-            .cloned()
-            .unwrap_or_else(rudel_core::silence);
-        Value::Pat(Box::new(pat))
+        let build = build.clone();
+        let key = value_sig(&v);
+        Value::Pat(Box::new(memo.get(key, move |cb| build(&v, cb))))
     })
     .inner_join()
 }
 
 /// `combinator(n, f)` where the leading numeric `n` may be a scalar (fast path)
-/// or a pattern (probed). `conv` maps a value to the scalar type the core
-/// combinator expects; `build` applies the combinator.
+/// or a pattern. `conv` maps a value to the scalar type the core combinator
+/// expects; `build` applies the combinator.
 fn with_cb_scalar<T, C, F>(pat: &Pattern, n: &Arg, func: &Arg, conv: C, build: F) -> Res
 where
-    C: Fn(&Value) -> T,
-    F: Fn(&Pattern, T, &Callback) -> Pattern,
+    C: Fn(&Value) -> T + Send + Sync + 'static,
+    F: Fn(&Pattern, T, &Callback) -> Pattern + Send + Sync + 'static,
 {
-    let cb = Callback::new(func.clone());
-    let result = if let Arg::Num(_) = n {
-        build(pat, conv(&to_value(n)), &cb)
-    } else {
-        probe_patternify(arg_to_pattern(n), |v| build(pat, conv(v), &cb))
+    if let Arg::Num(_) = n {
+        let cb = Callback::new(func.clone());
+        let result = build(pat, conv(&to_value(n)), &cb);
+        cb.finish()?;
+        return Ok(result.into());
+    }
+    // Something that cannot be called leaves the pattern as it was, as on the
+    // scalar path.
+    let Some(callback) = Deferred::keep("callback", func) else {
+        return Ok(pat.clone().into());
     };
-    cb.finish()?;
-    Ok(result.into())
+    let pat = pat.clone();
+    Ok(
+        patternify_deferred(arg_to_pattern(n), callback, move |v, cb| {
+            build(&pat, conv(v), cb)
+        })
+        .into(),
+    )
 }
 
 pub(super) fn with_cb_i64<F>(pat: &Pattern, n: &Arg, func: &Arg, build: F) -> Res
 where
-    F: Fn(&Pattern, i64, &Callback) -> Pattern,
+    F: Fn(&Pattern, i64, &Callback) -> Pattern + Send + Sync + 'static,
 {
     with_cb_scalar(pat, n, func, |v| v.as_f64().unwrap_or(0.0) as i64, build)
 }
 
 pub(super) fn with_cb_frac<F>(pat: &Pattern, n: &Arg, func: &Arg, build: F) -> Res
 where
-    F: Fn(&Pattern, Frac, &Callback) -> Pattern,
+    F: Fn(&Pattern, Frac, &Callback) -> Pattern + Send + Sync + 'static,
 {
     with_cb_scalar(pat, n, func, |v| v.to_frac(), build)
 }
 
 pub(super) fn with_cb_f64<F>(pat: &Pattern, n: &Arg, func: &Arg, build: F) -> Res
 where
-    F: Fn(&Pattern, f64, &Callback) -> Pattern,
+    F: Fn(&Pattern, f64, &Callback) -> Pattern + Send + Sync + 'static,
 {
     with_cb_scalar(pat, n, func, |v| v.as_f64().unwrap_or(0.0), build)
 }
 
 /// Like [`with_cb_scalar`] but for the two-bound `within(a, b, f)`. When either
 /// bound is a pattern, `a` provides the structure and `b` is `appLeft`-sampled
-/// (Strudel's order), and the windowed result is probed per distinct `(a, b)`.
+/// (Strudel's order), and the windowed result is built per distinct `(a, b)`.
 pub(super) fn with_cb_frac2<F>(pat: &Pattern, a: &Arg, b: &Arg, func: &Arg, build: F) -> Res
 where
-    F: Fn(&Pattern, Frac, Frac, &Callback) -> Pattern,
+    F: Fn(&Pattern, Frac, Frac, &Callback) -> Pattern + Send + Sync + 'static,
 {
-    let cb = Callback::new(func.clone());
-    let result = if matches!(a, Arg::Num(_)) && matches!(b, Arg::Num(_)) {
-        build(pat, to_value(a).to_frac(), to_value(b).to_frac(), &cb)
-    } else {
-        let paired = arg_to_pattern(a)
-            .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
-            .app_left(&arg_to_pattern(b));
-        // Every value of `paired` is the two-element list built just above.
-        probe_patternify(paired, |pair| match pair {
-            Value::List(xy) => build(pat, xy[0].to_frac(), xy[1].to_frac(), &cb),
+    if matches!(a, Arg::Num(_)) && matches!(b, Arg::Num(_)) {
+        let cb = Callback::new(func.clone());
+        let result = build(pat, to_value(a).to_frac(), to_value(b).to_frac(), &cb);
+        cb.finish()?;
+        return Ok(result.into());
+    }
+    let Some(callback) = Deferred::keep("within", func) else {
+        return Ok(pat.clone().into());
+    };
+    let paired = arg_to_pattern(a)
+        .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
+        .app_left(&arg_to_pattern(b));
+    let pat = pat.clone();
+    // Every value of `paired` is the two-element list built just above.
+    Ok(
+        patternify_deferred(paired, callback, move |pair, cb| match pair {
+            Value::List(xy) => build(&pat, xy[0].to_frac(), xy[1].to_frac(), cb),
             _ => pat.clone(),
         })
-    };
-    cb.finish()?;
-    Ok(result.into())
+        .into(),
+    )
 }
 
 /// Register the standalone (curried-style) forms of the higher-order callback
@@ -263,7 +368,7 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
     }
 
     // plyWith/plyForEach(factor, func, pat): repeat each event `factor` times,
-    // transforming the copies (probed and baked, like `arp_with`).
+    // transforming the copies.
     use super::methods::{ply_build, ply_for_each_parts, ply_with_parts};
     type Parts = fn(&Value, &Callback, i64) -> Vec<Pattern>;
     for (names, parts) in [
@@ -274,10 +379,8 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
             prelude.curried(name, 3, move |a| {
                 let factor = arg_to_f64(lead(a, 0)) as i64;
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::new(func.clone());
-                let out = ply_build(&pat, factor, &cb, parts);
-                cb.finish()?;
-                Ok(out.into())
+                let callback = Deferred::require("plyWith", func)?;
+                Ok(ply_build(&pat, factor, callback, parts).into())
             });
         }
     }
@@ -287,10 +390,8 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
     prelude.curried("into", 3, |a| {
         let pieces = arg_to_pattern(lead(a, 0));
         let (func, pat) = func_and_pat(a);
-        let cb = Callback::new(func.clone());
-        let out = into_build(&pat, pieces, &cb);
-        cb.finish()?;
-        Ok(out.into())
+        let callback = Deferred::require("into", func)?;
+        Ok(into_build(&pat, pieces, callback).into())
     });
     for (names, back) in [
         (["chunkInto", "chunkinto"], false),
@@ -300,15 +401,13 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
             prelude.curried(name, 3, move |a| {
                 let n = arg_to_f64(lead(a, 0)) as i64;
                 let (func, pat) = func_and_pat(a);
-                let cb = Callback::new(func.clone());
+                let callback = Deferred::require("chunkInto", func)?;
                 let pieces = if back {
                     chunk_pieces(n).iter(n)._early(Frac::one())
                 } else {
                     chunk_pieces(n).iter_back(n)
                 };
-                let out = into_build(&pat, pieces, &cb);
-                cb.finish()?;
-                Ok(out.into())
+                Ok(into_build(&pat, pieces, callback).into())
             });
         }
     }
@@ -317,10 +416,8 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
     use super::methods::arp_with_build;
     prelude.curried("arpWith", 2, |a| {
         let (func, pat) = func_and_pat(a);
-        let cb = Callback::new(func.clone());
-        let out = arp_with_build(&pat, &cb);
-        cb.finish()?;
-        Ok(out.into())
+        let callback = Deferred::require("arpWith", func)?;
+        Ok(arp_with_build(&pat, callback).into())
     });
 }
 
@@ -389,6 +486,15 @@ impl Callback {
         }
     }
 
+    /// Invoke the function with a single rudel value for the pattern it
+    /// returns; anything else (or an error) is silence.
+    pub(super) fn pattern_of(&self, value: &Value) -> Pattern {
+        match self.call(vec![value_to_arg(value.clone())]) {
+            Some(Arg::Pat(p)) => p,
+            _ => rudel_core::silence(),
+        }
+    }
+
     /// Invoke the function with a single rudel value and convert the result
     /// back into one.
     pub(super) fn apply_value(&self, value: Value) -> Value {
@@ -432,33 +538,6 @@ fn truthy(value: &Arg) -> bool {
         Arg::Str(s) => !s.is_empty(),
         _ => true,
     }
-}
-
-pub(super) fn static_period_pattern(
-    mut haps: Vec<rudel_core::Hap>,
-    steps: Option<Frac>,
-    period: Frac,
-) -> Pattern {
-    haps.sort_by_key(|h| h.part.begin);
-    Pattern::new(move |state| {
-        let mut out = Vec::new();
-        let first_repeat = (state.span.begin / period).floor().numer() as i64;
-        let last_repeat = (state.span.end / period).ceil().numer() as i64;
-        for repeat in first_repeat..last_repeat {
-            let offset = period * Frac::int(repeat);
-            for template in &haps {
-                let mut hap = template
-                    .clone()
-                    .with_span(|span| span.with_time(|t| t + offset));
-                if let Some(part) = hap.part.intersection(&state.span) {
-                    hap.part = part;
-                    out.push(hap);
-                }
-            }
-        }
-        out
-    })
-    .set_steps(steps)
 }
 
 /// `pat.method(..., f)`: run `body` with a [`Callback`] over argument

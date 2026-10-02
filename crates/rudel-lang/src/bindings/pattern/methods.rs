@@ -1,6 +1,6 @@
 use super::{
     args::{arg, f64_arg, literal_or_pattern_arg, pattern_arg},
-    callback::{Callback, static_period_pattern, with_callback},
+    callback::{Callback, Deferred, Memo, with_callback},
     convert::{arg_to_f64, arg_to_frac, arg_to_pattern, arg_to_raw_str, to_value, value_to_arg},
     engine::hap_to_arg,
     pick::{is_lookup, lookup_from_arg, pick_from_lookup},
@@ -8,7 +8,7 @@ use super::{
 use crate::bindings::routing::IO_KEY;
 use crate::js::{Arg, Res};
 use rudel_core::{Frac, Pattern, PickJoin, Value};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// A stable string key for a chord value, used to memoise `arp_with` callback
 /// results so the script only runs at construction time.
@@ -94,33 +94,24 @@ pub(super) fn ply_for_each_parts(x: &Value, cb: &Callback, factor: i64) -> Vec<P
 
 /// Shared core of `plyWith`/`plyForEach`: per value, build a `cat` of `factor`
 /// transformed copies, speed it up to one cycle, and squeeze it into the
-/// value's span. The script does not run on the query path, so the per-value
-/// copies are probed and baked (as in `arp_with`).
+/// value's span. Each distinct value's copies are built when a query first
+/// meets it.
 pub(super) fn ply_build(
     pat: &Pattern,
     factor: i64,
-    cb: &Callback,
-    parts: impl Fn(&Value, &Callback, i64) -> Vec<Pattern>,
+    callback: Deferred,
+    parts: fn(&Value, &Callback, i64) -> Vec<Pattern>,
 ) -> Pattern {
-    const PROBE: i64 = 16;
-    let mut table: HashMap<String, Pattern> = HashMap::new();
-    if factor > 0 {
-        for cycle in 0..PROBE {
-            for hap in pat.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
-                table.entry(value_sig(&hap.value)).or_insert_with(|| {
-                    rudel_core::cat(&parts(&hap.value, cb, factor))._fast(Frac::int(factor))
-                });
-            }
-        }
-    }
-    let table = Arc::new(table);
+    let memo = Memo::new(callback);
     let steps = pat.steps.map(|s| s * Frac::int(factor.max(1)));
     pat.fmap(move |v| {
-        let inner = table
-            .get(&value_sig(&v))
-            .cloned()
-            .unwrap_or_else(rudel_core::silence);
-        Value::Pat(Box::new(inner))
+        if factor <= 0 {
+            return Value::Pat(Box::new(rudel_core::silence()));
+        }
+        let key = value_sig(&v);
+        Value::Pat(Box::new(memo.get(key, move |cb| {
+            rudel_core::cat(&parts(&v, cb, factor))._fast(Frac::int(factor))
+        })))
     })
     .squeeze_join()
     .set_steps(steps)
@@ -221,18 +212,16 @@ pub(super) fn kpattern_set_steps(pat: &Pattern, a: &[Arg]) -> Res {
 /// cumulatively (`f` 0×, 1×, 2×, … like `applyN`).
 pub(super) fn kpattern_ply_with(pat: &Pattern, a: &[Arg]) -> Res {
     let factor = arg_to_f64(arg(a, 0)) as i64;
-    with_callback(pat, a, 1, |pat, cb| {
-        ply_build(pat, factor, cb, ply_with_parts)
-    })
+    let callback = Deferred::require("plyWith", arg(a, 1))?;
+    Ok(ply_build(pat, factor, callback, ply_with_parts).into())
 }
 
 /// `pat.plyForEach(factor, f)`: repeat each event `factor` times, applying
 /// `f(copy, i)` to each repeat (the first is left untransformed).
 pub(super) fn kpattern_ply_for_each(pat: &Pattern, a: &[Arg]) -> Res {
     let factor = arg_to_f64(arg(a, 0)) as i64;
-    with_callback(pat, a, 1, |pat, cb| {
-        ply_build(pat, factor, cb, ply_for_each_parts)
-    })
+    let callback = Deferred::require("plyForEach", arg(a, 1))?;
+    Ok(ply_build(pat, factor, callback, ply_for_each_parts).into())
 }
 
 /// A stable key for a ribbon window (`begin`, `duration`).
@@ -248,29 +237,20 @@ fn ribbon_key(begin: Frac, dur: Frac) -> String {
 
 /// Core of `into`/`chunkInto`: where `pieces` is truthy, replace the source
 /// with `f` applied to a looped subcycle (`ribbon`) covering that piece; where
-/// falsy, play the source unchanged. The callback runs per distinct piece
-/// window, so the transformed ribbons are probed and baked.
-pub(super) fn into_build(pat: &Pattern, pieces: Pattern, cb: &Callback) -> Pattern {
-    const PROBE: i64 = 16;
-    let mut table: HashMap<String, Pattern> = HashMap::new();
-    for cycle in 0..PROBE {
-        for hap in pieces.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
-            if let (true, Some(w)) = (hap.value.truthy(), hap.whole) {
-                table
-                    .entry(ribbon_key(w.begin, w.duration()))
-                    .or_insert_with(|| cb.apply(&pat.ribbon(w.begin, w.duration())));
-            }
-        }
-    }
-    let table = Arc::new(table);
+/// falsy, play the source unchanged. Each piece's ribbon goes through `f` when
+/// a query first reaches it.
+pub(super) fn into_build(pat: &Pattern, pieces: Pattern, callback: Deferred) -> Pattern {
+    let memo = Memo::new(callback);
     let base = pat.clone();
     pieces
         .with_hap(move |mut hap| {
             let chosen = match (hap.value.truthy(), hap.whole) {
-                (true, Some(w)) => table
-                    .get(&ribbon_key(w.begin, w.duration()))
-                    .cloned()
-                    .unwrap_or_else(|| base.clone()),
+                (true, Some(w)) => {
+                    let source = base.clone();
+                    memo.get(ribbon_key(w.begin, w.duration()), move |cb| {
+                        cb.apply(&source.ribbon(w.begin, w.duration()))
+                    })
+                }
                 _ => base.clone(),
             };
             hap.value = Value::Pat(Box::new(chosen));
@@ -291,21 +271,24 @@ pub(super) fn chunk_pieces(n: i64) -> Pattern {
 /// parts of `pieces`, applying `f` to each.
 pub(super) fn kpattern_into(pat: &Pattern, a: &[Arg]) -> Res {
     let pieces = pattern_arg(a, 0);
-    with_callback(pat, a, 1, |pat, cb| into_build(pat, pieces, cb))
+    let callback = Deferred::require("into", arg(a, 1))?;
+    Ok(into_build(pat, pieces, callback).into())
 }
 
 /// `pat.chunkInto(n, f)`: like `chunk`, but `f` is applied to a looped subcycle.
 pub(super) fn kpattern_chunk_into(pat: &Pattern, a: &[Arg]) -> Res {
     let n = arg_to_f64(arg(a, 0)) as i64;
     let pieces = chunk_pieces(n).iter_back(n);
-    with_callback(pat, a, 1, |pat, cb| into_build(pat, pieces, cb))
+    let callback = Deferred::require("chunkInto", arg(a, 1))?;
+    Ok(into_build(pat, pieces, callback).into())
 }
 
 /// `pat.chunkBackInto(n, f)`: like `chunkInto`, but moves backwards.
 pub(super) fn kpattern_chunk_back_into(pat: &Pattern, a: &[Arg]) -> Res {
     let n = arg_to_f64(arg(a, 0)) as i64;
     let pieces = chunk_pieces(n).iter(n)._early(Frac::one());
-    with_callback(pat, a, 1, |pat, cb| into_build(pat, pieces, cb))
+    let callback = Deferred::require("chunkBackInto", arg(a, 1))?;
+    Ok(into_build(pat, pieces, callback).into())
 }
 
 /// `pat.echoWith(times, time, f)` / `stutWith`: stack `times` copies, each
@@ -445,28 +428,19 @@ pub(super) fn kpattern_superimpose(pat: &Pattern, a: &[Arg]) -> Res {
 }
 
 /// `pat.fmap(f)` / `pat.withValue(f)`: map every value through `f` when the
-/// pattern is queried, as upstream does — one trip to the JS thread per query,
-/// however many haps it holds. A value `f` throws on stays as it was, and the
-/// error goes to the console, since a query has no caller to report it to.
+/// pattern is queried, as upstream does, one trip to the JS thread per query
+/// however many haps it holds. A value `f` throws on stays as it was.
 pub(super) fn kpattern_fmap(pat: &Pattern, a: &[Arg]) -> Res {
-    let Some(func) = crate::js::keep(arg(a, 0)) else {
+    let Some(callback) = Deferred::keep("withValue", arg(a, 0)) else {
         return Ok(pat.clone().into());
     };
     Ok(pat
         .with_haps(move |haps, _| {
             let values: Vec<Value> = haps.iter().map(|hap| hap.value.clone()).collect();
-            let mapped = func.run(move |f| {
+            let mapped = callback.run(move |cb| {
                 values
                     .into_iter()
-                    .map(
-                        |v| match crate::js::call(f, vec![value_to_arg(v.clone())]) {
-                            Ok(out) => to_value(&out),
-                            Err(e) => {
-                                rudel_core::log_line(format!("withValue: {e}"));
-                                v
-                            }
-                        },
-                    )
+                    .map(|v| cb.apply_value(v))
                     .collect::<Vec<_>>()
             });
             match mapped {
@@ -546,18 +520,42 @@ pub(crate) fn hap_to_filter_arg(hap: &rudel_core::Hap) -> Arg {
     Arg::Map(map)
 }
 
-/// Probe-and-bake a per-hap predicate. The script does not run on the query
-/// path, so the pattern is queried over `PROBE` cycles, the predicate applied
-/// to each hap, and the survivors emitted as a static pattern that repeats
-/// with that period — exactly what `fmap` does with its callback.
-fn filter_build(pat: &Pattern, cb: &Callback, arg: impl Fn(&rudel_core::Hap) -> Arg) -> Pattern {
-    const PROBE: i64 = 16;
-    let haps = pat
-        .query_arc(Frac::zero(), Frac::int(PROBE))
-        .into_iter()
-        .filter(|hap| cb.apply_predicate(arg(hap)))
-        .collect();
-    static_period_pattern(haps, pat.steps, Frac::int(PROBE))
+/// Keep the haps a per-hap predicate accepts, deciding as each query runs, one
+/// trip to the JS thread per query. A predicate that throws keeps the hap, so
+/// a broken one drops nothing.
+fn filter_build(pat: &Pattern, callback: Deferred, arg_of: fn(&rudel_core::Hap) -> Arg) -> Pattern {
+    pat.with_haps(move |haps, _| {
+        let judged = haps.clone();
+        let keep = callback.run(move |cb| {
+            judged
+                .iter()
+                .map(|hap| cb.apply_predicate(arg_of(hap)))
+                .collect::<Vec<bool>>()
+        });
+        match keep {
+            Some(keep) => haps
+                .into_iter()
+                .zip(keep)
+                .filter_map(|(hap, keep)| keep.then_some(hap))
+                .collect(),
+            None => haps,
+        }
+    })
+}
+
+/// The predicate combinators' shared entry: no argument plays silence, as for
+/// any one-argument method upstream.
+fn filter_with(
+    pat: &Pattern,
+    a: &[Arg],
+    name: &'static str,
+    arg_of: fn(&rudel_core::Hap) -> Arg,
+) -> Res {
+    if a.is_empty() {
+        return Ok(rudel_core::silence().into());
+    }
+    let callback = Deferred::require(name, arg(a, 0))?;
+    Ok(filter_build(pat, callback, arg_of).into())
 }
 
 /// `pat.setContext(ctx)`: replace every hap's context.
@@ -581,9 +579,7 @@ pub(super) fn kpattern_filter(pat: &Pattern, a: &[Arg]) -> Res {
     if !arg(a, 0).is_callable() {
         return Ok(pat.clone().into());
     }
-    with_callback(pat, a, 0, |pat, cb| {
-        filter_build(pat, cb, hap_to_filter_arg)
-    })
+    filter_with(pat, a, "filter", hap_to_filter_arg)
 }
 
 /// `pat.apply(f)`: run a transform over the whole pattern.
@@ -600,19 +596,17 @@ pub(super) fn kpattern_apply(pat: &Pattern, a: &[Arg]) -> Res {
 /// `pat.filterValues(v => ...)`: like `filter`, but the predicate sees the
 /// hap's value rather than the whole hap (core/pattern.mjs `filterValues`).
 pub(super) fn kpattern_filter_values(pat: &Pattern, a: &[Arg]) -> Res {
-    with_callback(pat, a, 0, |pat, cb| {
-        filter_build(pat, cb, |hap| value_to_arg(hap.value.clone()))
+    filter_with(pat, a, "filterValues", |hap| {
+        value_to_arg(hap.value.clone())
     })
 }
 
 /// `pat.filterWhen(t => ...)`: keep only the haps whose onset the predicate
 /// accepts. The argument is the whole's begin in cycles, as upstream.
 pub(super) fn kpattern_filter_when(pat: &Pattern, a: &[Arg]) -> Res {
-    with_callback(pat, a, 0, |pat, cb| {
-        filter_build(pat, cb, |hap| {
-            let t = hap.whole.as_ref().map_or(hap.part.begin, |w| w.begin);
-            t.to_f64().into()
-        })
+    filter_with(pat, a, "filterWhen", |hap| {
+        let t = hap.whole.as_ref().map_or(hap.part.begin, |w| w.begin);
+        t.to_f64().into()
     })
 }
 
@@ -626,7 +620,6 @@ pub(super) fn kpattern_filter_when(pat: &Pattern, a: &[Arg]) -> Res {
 /// (`rudel_core::query_controls`) consumes it and writes the line as the event
 /// is played, which is the trigger time upstream logs at.
 fn log_build(pat: &Pattern, a: &[Arg], mode: &str, per_value: bool) -> Res {
-    const PROBE: i64 = 16;
     let func = arg(a, 0);
     if func.is_null() {
         // No callback: tag every hap with the built-in format to use.
@@ -637,26 +630,38 @@ fn log_build(pat: &Pattern, a: &[Arg], mode: &str, per_value: bool) -> Res {
             )
             .into());
     }
-    with_callback(pat, a, 0, |pat, cb| {
-        let haps = pat
-            .query_arc(Frac::zero(), Frac::int(PROBE))
-            .into_iter()
-            .map(|hap| {
-                // `logValues(f)` hands the callback the hap's value; `log(f)`
-                // the whole hap, as upstream.
-                let called = if per_value {
-                    cb.apply_value(hap.value.clone())
-                } else {
-                    cb.apply_arg(hap_to_filter_arg(&hap))
-                };
-                let message = rudel_core::host::stringify_values(&called);
-                let mut hap = hap;
-                hap.value = merge_log_key(hap.value, message);
-                hap
-            })
-            .collect();
-        static_period_pattern(haps, pat.steps, Frac::int(PROBE))
-    })
+    let callback = Deferred::require(if per_value { "logValues" } else { "log" }, func)?;
+    Ok(pat
+        .with_haps(move |haps, _| {
+            let shown = haps.clone();
+            let messages = callback.run(move |cb| {
+                shown
+                    .iter()
+                    .map(|hap| {
+                        // `logValues(f)` hands the callback the hap's value;
+                        // `log(f)` the whole hap, as upstream.
+                        let called = if per_value {
+                            cb.apply_value(hap.value.clone())
+                        } else {
+                            cb.apply_arg(hap_to_filter_arg(hap))
+                        };
+                        rudel_core::host::stringify_values(&called)
+                    })
+                    .collect::<Vec<String>>()
+            });
+            match messages {
+                Some(messages) => haps
+                    .into_iter()
+                    .zip(messages)
+                    .map(|(mut hap, message)| {
+                        hap.value = merge_log_key(hap.value, message);
+                        hap
+                    })
+                    .collect(),
+                None => haps,
+            }
+        })
+        .into())
 }
 
 /// Add the `_log` control (carrying the already-formatted message) to a hap
@@ -678,39 +683,27 @@ pub(super) fn kpattern_log_values(pat: &Pattern, a: &[Arg]) -> Res {
 }
 
 /// `pat.arpWith(chord => ...)`: arpeggiate chords, transforming each chord
-/// (presented as a sequence of its notes) with a callback.
-///
-/// The callback does not run on the query path, so it is evaluated eagerly
-/// here: probe the distinct chords over the first `PROBE` cycles, run the
-/// callback on each, and bake the results into a lookup the query path
-/// consults. Chords first appearing after the probe window fall back to
-/// silence.
-pub(super) fn arp_with_build(pat: &Pattern, cb: &Callback) -> Pattern {
-    const PROBE: i64 = 16;
-    let collected = pat.collect();
-    let mut table: HashMap<String, Pattern> = HashMap::new();
-    for cycle in 0..PROBE {
-        for hap in collected.query_arc(Frac::int(cycle), Frac::int(cycle + 1)) {
-            if let Value::List(notes) = &hap.value {
-                table.entry(value_sig(&hap.value)).or_insert_with(|| {
-                    let pats: Vec<Pattern> = notes.iter().cloned().map(rudel_core::pure).collect();
-                    cb.apply(&rudel_core::fastcat(&pats))
-                });
-            }
+/// (presented as a sequence of its notes) with a callback. Each distinct chord
+/// goes through the callback when a query first meets it.
+pub(super) fn arp_with_build(pat: &Pattern, callback: Deferred) -> Pattern {
+    let memo = Memo::new(callback);
+    pat.collect().inner_bind(move |value| match &value {
+        Value::List(notes) => {
+            let notes = notes.clone();
+            memo.get(value_sig(&value), move |cb| {
+                let pats: Vec<Pattern> = notes.into_iter().map(rudel_core::pure).collect();
+                cb.apply(&rudel_core::fastcat(&pats))
+            })
         }
-    }
-    let table = Arc::new(table);
-    collected.inner_bind(move |value| match &value {
-        Value::List(_) => table
-            .get(&value_sig(&value))
-            .cloned()
-            .unwrap_or_else(rudel_core::silence),
         _ => rudel_core::silence(),
     })
 }
 
 pub(super) fn kpattern_arp_with(pat: &Pattern, a: &[Arg]) -> Res {
-    with_callback(pat, a, 0, arp_with_build)
+    if a.is_empty() {
+        return Ok(rudel_core::silence().into());
+    }
+    Ok(arp_with_build(pat, Deferred::require("arpWith", arg(a, 0))?).into())
 }
 
 /// `pat.whenKey(names, f)`: apply `f` while every named key is held. Unlike

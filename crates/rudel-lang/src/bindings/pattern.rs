@@ -160,13 +160,9 @@ fn registered_call(a: &[Arg]) -> Res {
     let Arg::Pat(sampled) = call_args[at].clone() else {
         return js::call(func, call_args);
     };
-    Ok(callback::probe_patternify(sampled, |value| {
-        let mut per_value = call_args.clone();
-        per_value[at] = convert::value_to_arg(value.clone());
-        match js::call(func, per_value) {
-            Ok(Arg::Pat(p)) => p,
-            _ => rudel_core::silence(),
-        }
-    })
-    .into())
+    // Called per sampled value when a query first meets it, with the other
+    // arguments fixed as they were passed.
+    let bound = js::bind_at(func, call_args, at)?;
+    let callback = callback::Deferred::require("register", &bound)?;
+    Ok(callback::patternify_deferred(sampled, callback, |value, cb| cb.pattern_of(value)).into())
 }

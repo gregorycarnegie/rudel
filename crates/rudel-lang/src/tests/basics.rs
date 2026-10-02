@@ -244,11 +244,10 @@ fn parray_packs_one_value_per_pattern_into_a_list() {
 }
 
 #[test]
-fn a_hap_level_callback_repeats_its_probe_window_forever() {
-    // `filter`/`fmap` run the callback over a fixed 16-cycle probe and then
-    // repeat that window, so anything past cycle 16 is the window's own cycle
-    // `n mod 16`. Nothing had ever queried past the first window, which left
-    // the whole repeat calculation unexercised.
+fn a_hap_level_callback_sees_every_cycle_not_a_repeated_window() {
+    // `filter` once ran its predicate over a 16-cycle probe and repeated that
+    // window, so cycle 20 of `<0 1 2 3 4>` came out as cycle 4. Upstream
+    // judges each hap as it is queried: cycle 20 is cycle 0.
     let pat = eval(r#"note("<0 1 2 3 4>").filter(hap => true)"#).expect("eval");
     let at = |cycle: i64| {
         values(&pat, cycle, cycle + 1)
@@ -259,12 +258,9 @@ fn a_hap_level_callback_repeats_its_probe_window_forever() {
             })
             .collect::<Vec<f64>>()
     };
-    // Inside the window the pattern is itself: `<0 1 2 3 4>` at cycle 4 is 4.
     assert_eq!(at(4), vec![4.0]);
-    // Cycle 20 is the window's cycle 4 repeated, not silence and not cycle 0.
-    assert_eq!(at(20), at(4), "the probe window should repeat");
-    assert_eq!(at(17), at(1));
-    assert_eq!(at(33), at(1));
+    assert_eq!(at(20), vec![0.0]);
+    assert_eq!(at(99), vec![4.0]);
 }
 
 #[test]

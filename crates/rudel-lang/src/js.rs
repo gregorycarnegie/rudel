@@ -289,11 +289,13 @@ struct Side {
     curry: JsObject,
     /// `method(call, fn, patternify)`, from [`HELPERS`].
     method: JsObject,
+    /// `bindAt(fn, args, i)`, from [`HELPERS`].
+    bind_at: JsObject,
     /// Script functions a pattern may call after the evaluation is over.
     kept: RefCell<Vec<JsObject>>,
 }
 
-/// The two closures that have to hold a script value. A native closure cannot
+/// The closures that have to hold a script value. A native closure cannot
 /// — the collector does not see inside one — so these are written in the
 /// language whose closures it does see into.
 const HELPERS: &str = r"({
@@ -303,6 +305,9 @@ const HELPERS: &str = r"({
   },
   method(call, fn, patternify) {
     return function (...args) { return call(fn, patternify, args, this); };
+  },
+  bindAt(fn, args, i) {
+    return (v) => { const a = args.slice(); a[i] = v; return fn(...a); };
   },
 })";
 
@@ -335,6 +340,7 @@ pub(crate) fn new_context() -> Context {
             .expect("a helper")
     };
     let (curry, method) = (helper("curry", &mut ctx), helper("method", &mut ctx));
+    let bind_at = helper("bindAt", &mut ctx);
     let proto = |ctx: &Context| JsObject::with_object_proto(ctx.intrinsics());
     let data = Side {
         id: NEXT.fetch_add(1, Ordering::Relaxed),
@@ -346,6 +352,7 @@ pub(crate) fn new_context() -> Context {
         kabel: proto(&ctx),
         curry,
         method,
+        bind_at,
         kept: RefCell::new(Vec::new()),
     };
     ctx.insert_data(data);
@@ -759,6 +766,25 @@ pub(crate) fn method_calling(call: Arg, func: &Arg, patternify: bool) -> Arg {
             Err(_) => Arg::Null,
         }
     })
+}
+
+/// `func` with every argument but the `at`th fixed: a one-argument function
+/// that calls `func(...args)` with its own argument in that place.
+pub(crate) fn bind_at(func: &Arg, args: Vec<Arg>, at: usize) -> Res {
+    with_ctx(|ctx| {
+        let bind_at = side(ctx).bind_at.clone();
+        let args: Vec<JsValue> = args.into_iter().map(|a| to_js(a, ctx)).collect();
+        let args = [
+            to_js(func.clone(), ctx),
+            JsArray::from_iter(args, ctx).into(),
+            (at as u32).into(),
+        ];
+        match bind_at.call(&JsValue::undefined(), &args, ctx) {
+            Ok(value) => Ok(from_js(&value, ctx, DEPTH)),
+            Err(e) => Err(error_text(&e, ctx)),
+        }
+    })
+    .unwrap_or_else(|| Err("no JavaScript engine to bind the function in".to_string()))
 }
 
 // ---------------------------------------------------------------------------
