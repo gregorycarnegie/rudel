@@ -4,7 +4,7 @@
 [![CI](https://github.com/gregorycarnegie/rudel/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/gregorycarnegie/rudel/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/gregorycarnegie/rudel)](https://github.com/gregorycarnegie/rudel/releases/latest)
 [![Rust edition: 2024](https://img.shields.io/badge/rust%20edition-2024-orange)](Cargo.toml)
-[![MSRV: 1.96](https://img.shields.io/badge/MSRV-1.96-orange)](Cargo.toml)
+[![MSRV: 1.99](https://img.shields.io/badge/MSRV-1.99-orange)](Cargo.toml)
 [![Boa: 0.22](https://img.shields.io/badge/Boa-0.22-blue)](https://boajs.dev)
 [![Csound: optional at runtime](https://img.shields.io/badge/Csound-optional%20at%20runtime-blue)](#csound)
 [![Checks: test + clippy](https://img.shields.io/badge/checks-test%20%2B%20clippy-brightgreen)](#tests)
@@ -173,6 +173,18 @@ experimental TidalCycles interpreter — is an alternative source language rathe
 than a notation over the one Rudel has; these are intentionally not ported. See
 [`docs/UNSUPPORTED.md`](docs/UNSUPPORTED.md) for the authoritative list of
 unsupported and intentionally different features.
+
+## Performance
+
+Rudel queries patterns 4 to 8.5 times faster than Strudel. Querying is the work
+the scheduler does continuously while music plays. Evaluating a script on
+Ctrl+Enter takes 0.15–0.55 ms for typical patterns. That is up to 3.8 times
+faster than Strudel, and up to 6 times faster than Rudel 0.21.0, the last Koto
+release.
+Scripts that do a lot of plain JavaScript work are the exception: Rudel's Boa
+engine interprets JavaScript, where V8 in Strudel's browser compiles it. See
+[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the measurements, the method
+and the caveats.
 
 ## Tests
 
