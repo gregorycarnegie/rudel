@@ -5,7 +5,7 @@ should stay scoped to the crate that owns the behavior.
 
 ## Setup
 
-Rudel uses Rust edition 2024 and the workspace `rust-version` is `1.96`.
+Rudel uses Rust edition 2024 and the workspace `rust-version` is `1.99`.
 
 ```bash
 cargo test --workspace

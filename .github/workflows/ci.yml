@@ -60,10 +60,10 @@ jobs:
       - name: Test
         run: cargo nextest run --workspace --profile ci
 
-  # The workspace publishes `rust-version = "1.96"`; without this nothing
+  # The workspace publishes `rust-version = "1.99"`; without this nothing
   # checks it, and a dependency bump or a newly stabilised API can raise the
   # real floor without anyone noticing. `check` rather than `test`: the promise
-  # is that the library compiles on 1.96, not that the dev-dependencies do.
+  # is that the library compiles on 1.99, not that the dev-dependencies do.
   msrv:
     name: MSRV
     runs-on: ubuntu-latest

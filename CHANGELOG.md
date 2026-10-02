@@ -13,7 +13,16 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-10-02
+
 ### Changed
+
+- **Rust 1.99 or newer is required** (was 1.96). It is the stable release CI
+  builds with, and the workspace builds and passes its tests on it.
+- **Paste in the editor's right-click menu is always enabled.** It now asks
+  eframe for the clipboard, which pastes like Ctrl+V, so the menu can no
+  longer check beforehand whether there is anything to paste. Pasting nothing
+  does nothing.
 
 - **Scripts run as JavaScript, on [Boa], instead of being translated into
   Koto.** A script is Strudel's own language now, read by a JavaScript engine,
@@ -63,6 +72,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Copy and Cut in the editor's right-click menu work.** They were always
+  disabled: egui puts the cursor under the pointer on any button's press, so
+  the right-click that opened the menu had already dropped the selection. The
+  selection now survives a right-click.
+- **`.modulate("lfo", {...})` modulates,** and **`Kabel.bytebeat("t*2")`
+  keeps its source.** Both read their string argument only when it arrived
+  bare, but a script's string literal reaches them as a pattern.
+- **`pure(fraction)` of an engine Fraction is that number,** not `null`.
 - **`$:` alone on its line labels the statement on the next one,** and an
   indented `$:` is a label rather than a continuation of the line above. A
   label's expression now ends where JavaScript's statement does — at a line
@@ -116,6 +133,17 @@ working in Strudel rather than 4,975; the 83 was against the old count.)
 
 ### Internal
 
+- **Mutation testing reaches the device code.** The audio engine runs on a fake
+  output that renders when a test pulls frames. The shader, hydra and spiral
+  widgets render on the GPU in tests, at 2 pixels a point. File dialogs can be
+  answered by a test. The Windows GS Wavetable synth serves as a real MIDI
+  port. cargo-mutants now catches 90.9% of mutants, and nearly every survivor
+  left in the app, audio and MIDI crates is equivalent.
+  `scripts/verify-missed.ps1` re-tests only the mutants a full run missed.
+- The `arboard` dependency is gone; the menu's Paste uses
+  `ViewportCommand::RequestPaste`.
+- Dependencies build at `opt-level = 2` in the dev profile, so debug builds of
+  the app run audio and the GPU widgets at a usable speed.
 - Property tests for the script path: the preprocessor, Mondo and the source
   scanner never panic and return ranges that slice, `evaluate` never fails by
   panicking, mini-notation offsets point at their literal, and a literal
