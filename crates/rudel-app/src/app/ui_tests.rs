@@ -92,6 +92,48 @@ fn the_reference_filter_opens_the_sections_holding_its_matches() {
 }
 
 #[test]
+fn only_ctrl_s_itself_saves() {
+    // Save with no file yet asks where (Save As), so the save dialog opening
+    // is what "saved" looks like. Another Ctrl chord, or a bare `s`, must not.
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let mut harness = harness();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counter = asked.clone();
+    harness.state_mut().dialogs = super::files::Dialogs {
+        pick: Box::new(|_| None),
+        save: Box::new(move |_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            None
+        }),
+        confirm: Box::new(|_| rfd::MessageDialogResult::Yes),
+    };
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.key_press(Key::S);
+    harness.run_steps(2);
+    assert_eq!(asked.load(Ordering::Relaxed), 0, "nothing asked to save");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run_steps(2);
+    assert_eq!(asked.load(Ordering::Relaxed), 1, "Ctrl+S saves");
+}
+
+#[test]
+fn a_reference_insertion_leaves_the_cursor_after_what_it_inserted() {
+    // A double-clicked reference name lands at the cursor, and the cursor
+    // moves past it, so a second double-click continues rather than splitting
+    // the first. The editor has no cursor yet, so the first goes at the end.
+    let mut harness = harness();
+    harness.state_mut().code = "s(\"bd\")".to_string();
+    harness.state_mut().pending_insert = Some(".fast".to_string());
+    harness.run_steps(2);
+    harness.state_mut().pending_insert = Some("(2)".to_string());
+    harness.run_steps(2);
+    assert_eq!(harness.state().code, "s(\"bd\").fast(2)");
+}
+
+#[test]
 fn the_console_keeps_only_the_most_recent_lines() {
     // The panel drains rudel-core's log ring into its own buffer every frame
     // and trims the front, so a long-running pattern cannot grow it forever.

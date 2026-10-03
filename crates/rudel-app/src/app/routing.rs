@@ -58,6 +58,10 @@ impl RudelApp {
             self.play_start = Some(std::time::Instant::now());
         } else if !playing {
             self.play_start = None;
+            // Upstream's scheduler resets `timeline` offsets whenever it
+            // stops (`onToggle(false)` → `reset_state`), so a cued timeline
+            // realigns to wherever playback next starts.
+            rudel_core::reset_timelines();
         }
         self.playing = playing;
         self.route();
@@ -270,6 +274,35 @@ mod tests {
         // starting a clock nothing is reading.
         app.set_playing(false);
         assert_eq!(app.play_start, None);
+    }
+
+    #[test]
+    fn stopping_resets_timeline_offsets_as_upstream_does() {
+        use rudel_core::{Frac, State, Value, ValueMap, pure, sequence};
+        // The first cycle a timeline id is played from fixes its offset, so
+        // what plays at a cycle tells where the timeline started.
+        let pat = sequence(&[pure(Value::Int(10)), pure(Value::Int(20))])
+            .slow(4)
+            .timeline(pure(Value::Int(7)));
+        let first_at = |cycle: i64| {
+            let scheduler = ValueMap::from([("cyclist".to_string(), Value::Str("x".into()))]);
+            let state = State::with_controls(
+                rudel_core::TimeSpan::new(Frac::int(cycle), Frac::int(cycle + 1)),
+                scheduler,
+            );
+            pat.query(&state)[0].value.clone()
+        };
+        let mut app = stopped_app();
+        app.set_playing(true);
+        assert_eq!(
+            first_at(3),
+            Value::Int(10),
+            "cycle 3 is the timeline's first"
+        );
+        assert_eq!(first_at(5), Value::Int(20), "two cycles in");
+        app.set_playing(false);
+        app.set_playing(true);
+        assert_eq!(first_at(5), Value::Int(10), "after a stop it starts afresh");
     }
 
     #[test]

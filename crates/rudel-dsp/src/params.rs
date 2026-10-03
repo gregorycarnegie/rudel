@@ -164,12 +164,12 @@ impl VoiceParams {
             Some(v) => v.as_f64().map(|x| vec![x as f32]),
             None => None,
         };
-        match (s_name.and_then(AdditiveType::from_name), &partials) {
-            (Some(base), Some(parts)) if !parts.is_empty() => {
-                p.additive = Some(build_additive(parts, phases.as_deref(), base));
-            }
-            (Some(AdditiveType::User), _) => p.waveform = Waveform::Triangle,
-            _ => {}
+        // `s("user")` with no partials needs nothing here: no waveform name
+        // matched it above, so it keeps the default, which is the triangle.
+        if let (Some(base), Some(parts)) = (s_name.and_then(AdditiveType::from_name), &partials)
+            && !parts.is_empty()
+        {
+            p.additive = Some(build_additive(parts, phases.as_deref(), base));
         }
         if let Some(u) = map.get("unison").and_then(|v| v.as_f64()) {
             p.unison = (u as usize).clamp(1, 100);

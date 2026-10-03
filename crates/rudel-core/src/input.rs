@@ -295,11 +295,17 @@ mod tests {
             .unwrap()
     }
 
-    // The bus is process-global, so these tests use disjoint CC numbers rather
-    // than `clear_cc` (which would race other tests in the same binary).
+    /// The CC bus and the note queue are process-global, and `clear_cc` /
+    /// `clear_midi_notes` wipe what another test in the same binary just
+    /// wrote. Every test that touches either takes this first.
+    fn input_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn cc_in_reads_the_latest_value() {
+        let _guard = input_lock();
         // unseen CC defaults to 0
         let sig = cc_in(74, None);
         assert_eq!(sample(&sig), 0.0);
@@ -312,6 +318,7 @@ mod tests {
 
     #[test]
     fn cc_in_respects_channel() {
+        let _guard = input_lock();
         set_cc(1, 20, 0.25);
         set_cc(2, 20, 0.75);
         // channel-pinned readers see their own channel
@@ -346,11 +353,27 @@ mod tests {
         assert!(truthy(&combo), "both held");
         set_keys_held(["j"]);
         assert!(!truthy(&combo), "released again");
+        set_keys_held(["Control", "j"]);
         clear_keys();
+        assert!(!truthy(&combo), "cleared");
+    }
+
+    #[test]
+    fn clearing_forgets_every_cc_and_queued_note() {
+        let _guard = input_lock();
+        set_cc_from("dev-c", 3, 40, 0.5);
+        push_midi_note("dev-c", 60, 1.0);
+        clear_cc();
+        clear_midi_notes();
+        assert_eq!(get_cc_from("dev-c", 3, 40), 0.0);
+        assert_eq!(get_cc(3, 40), 0.0);
+        assert!(take_midi_notes("dev-c").is_empty());
+        assert!(take_midi_notes("").is_empty());
     }
 
     #[test]
     fn cc_in_is_continuous_and_segmentable() {
+        let _guard = input_lock();
         set_cc(0, 30, 1.0);
         // sampling at 8 points across a cycle all read the same live value
         let seg = cc_in(30, None).segment(Frac::int(8));
@@ -361,6 +384,7 @@ mod tests {
 
     #[test]
     fn get_cc_reads_the_any_device_bus() {
+        let _guard = input_lock();
         // `cc_in` goes through `get_cc_from`; this is the direct reader the
         // host uses. CC 31 is not touched by any other test.
         assert_eq!(get_cc(1, 31), 0.0);
@@ -368,17 +392,9 @@ mod tests {
         assert_eq!(get_cc(1, 31), 0.6);
     }
 
-    /// The note queue is process-global and its `""` entry is shared by every
-    /// device, so a test that drains it drains what another test just pushed.
-    /// Every test that touches the queue takes this first.
-    fn note_queue_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     #[test]
     fn midi_notes_are_delivered_once_through_either_view() {
-        let _guard = note_queue_lock();
+        let _guard = input_lock();
         // One test, because the queue is process-global and the `""` entry is
         // shared between every device.
         push_midi_note("dev-a", 60, 0.5);
@@ -396,7 +412,7 @@ mod tests {
 
     #[test]
     fn midi_keys_haps_run_the_requested_length_from_the_query_point() {
-        let _guard = note_queue_lock();
+        let _guard = input_lock();
         use crate::state::State;
         use crate::timespan::TimeSpan;
         use crate::value::ValueMap;
