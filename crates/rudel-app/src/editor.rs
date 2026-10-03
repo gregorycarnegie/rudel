@@ -174,15 +174,13 @@ pub(crate) fn code_editor(
         .filter(|range| !range.is_empty());
     let mut output = if settings.line_numbers {
         ui.horizontal_top(|ui| {
-            draw_line_number_gutter(
-                ui,
-                code,
-                active_line,
-                settings,
-                &line_heights,
-                base_row_height,
+            // Reserve the column now; the numbers are painted once the editor
+            // has laid out, from its galley's rows.
+            let (gutter, _) = ui.allocate_exact_size(
+                egui::vec2(line_number_gutter_width(code, settings), 0.0),
+                egui::Sense::hover(),
             );
-            egui::TextEdit::multiline(code)
+            let output = egui::TextEdit::multiline(code)
                 // Pin an absolute id (not `id_salt`) so the widget keeps the
                 // same id whether it sits in the outer `ui` or inside this
                 // `horizontal_top` child `ui`. The shortcut focus gate matches
@@ -194,7 +192,17 @@ pub(crate) fn code_editor(
                 .layouter(&mut layouter)
                 .desired_rows(desired_rows)
                 .desired_width(f32::INFINITY)
-                .show(ui)
+                .show(ui);
+            draw_line_number_gutter(
+                ui.painter(),
+                gutter.right(),
+                &output.galley,
+                output.galley_pos,
+                code,
+                active_line,
+                settings,
+            );
+            output
         })
         .inner
     } else {
@@ -477,18 +485,28 @@ fn carried_selection(prev: Option<&Completion>, start: egui::text::ByteIndex, le
         .unwrap_or(0)
 }
 
+/// Width of the line-number gutter: room for the widest number, two digits
+/// at least.
+fn line_number_gutter_width(code: &str, settings: &EditorSettings) -> f32 {
+    let line_count = code.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let digits = line_count.to_string().len().max(2);
+    digits as f32 * settings.font_size * 0.62 + 10.0
+}
+
+/// Number each logical line at the top of its first row in the editor's laid
+/// out galley. Reading the galley's own rows, rather than summing a guessed row
+/// height per line, keeps the numbers on their lines however the layouter
+/// sized the rows — widget-inflated, pixel-rounded or soft-wrapped.
 fn draw_line_number_gutter(
-    ui: &mut egui::Ui,
+    painter: &egui::Painter,
+    gutter_right: f32,
+    galley: &egui::Galley,
+    galley_pos: egui::Pos2,
     code: &str,
     active_line: Option<(usize, usize)>,
     settings: &EditorSettings,
-    line_heights: &std::collections::HashMap<usize, f32>,
-    base_row_height: f32,
 ) {
     let font_id = settings.font_id();
-    let line_count = code.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let digits = line_count.to_string().len().max(2);
-    let width = digits as f32 * settings.font_size * 0.62 + 10.0;
     let active_line_index = active_line.map(|(from, _)| {
         code[..from.min(code.len())]
             .bytes()
@@ -496,34 +514,26 @@ fn draw_line_number_gutter(
             .count()
     });
     let palette = settings.theme.palette();
-    // ponytail: assumes no soft wrap — numbers drift when line_wrapping is on;
-    // walk galley rows instead if that ever matters.
-    ui.vertical(|ui| {
-        ui.set_width(width);
-        ui.spacing_mut().item_spacing.y = 0.0;
-        // Match TextEdit's inner top margin so row 1 lines up with the text.
-        ui.add_space(2.0);
-        for line in 0..line_count {
+    let mut line = 0;
+    let mut starts_line = true;
+    for row in &galley.rows {
+        if starts_line {
             let color = if Some(line) == active_line_index {
                 palette.line_number_active
             } else {
                 palette.line_number
             };
-            // Rows hosting block widgets are inflated by the layouter; mirror
-            // that height so later numbers stay aligned, with the number pinned
-            // to the top where the text row is.
-            let row_height = line_heights.get(&line).copied().unwrap_or(base_row_height);
-            let (rect, _) =
-                ui.allocate_exact_size(egui::vec2(width, row_height), egui::Sense::hover());
-            ui.painter().text(
-                egui::pos2(rect.right() - 4.0, rect.top()),
+            painter.text(
+                egui::pos2(gutter_right - 4.0, galley_pos.y + row.pos.y),
                 egui::Align2::RIGHT_TOP,
                 (line + 1).to_string(),
                 font_id.clone(),
                 color,
             );
+            line += 1;
         }
-    });
+        starts_line = row.ends_with_newline;
+    }
 }
 
 fn line_span_at_char(code: &str, cursor_char: egui::text::CharIndex) -> (usize, usize) {
@@ -580,40 +590,25 @@ mod tests {
             "an empty buffer"
         );
     }
-    /// Every text run the gutter painted, as `(text, top-left, colour)`.
-    fn gutter_shapes(
-        code: &str,
-        active_line: Option<(usize, usize)>,
-        heights: &std::collections::HashMap<usize, f32>,
-    ) -> Vec<(String, egui::Pos2, egui::Color32)> {
-        gutter_run(code, active_line, heights).0
-    }
+    /// Where the gutter's numbers end, right-anchored against it.
+    const GUTTER_RIGHT: f32 = 100.0;
+    /// Where the galley is drawn; numbers are placed relative to it.
+    const GALLEY_TOP: f32 = 10.0;
 
-    /// As [`gutter_shapes`], plus the left edge the gutter was laid out from,
-    /// so absolute positions can be checked rather than only differences.
-    #[allow(clippy::type_complexity)]
+    type GutterShape = (String, egui::Pos2, egui::Color32);
+
+    /// Every text run the gutter painted over `job`'s galley, as
+    /// `(text, top-left, colour)`, with the right edge of the first one — the
+    /// text is RIGHT-anchored, so the shape's own `pos` is its *left* edge —
+    /// and the galley's row tops on screen.
     fn gutter_run(
         code: &str,
+        job: egui::text::LayoutJob,
         active_line: Option<(usize, usize)>,
-        heights: &std::collections::HashMap<usize, f32>,
-    ) -> (Vec<(String, egui::Pos2, egui::Color32)>, f32) {
-        let (shapes, left, _) = gutter_run_full(code, active_line, heights);
-        (shapes, left)
-    }
-
-    /// As [`gutter_run`], plus the right edge of the first number's box — the
-    /// text is RIGHT-anchored, so the shape's own `pos` is its *left* edge.
-    #[allow(clippy::type_complexity)]
-    fn gutter_run_full(
-        code: &str,
-        active_line: Option<(usize, usize)>,
-        heights: &std::collections::HashMap<usize, f32>,
-    ) -> (Vec<(String, egui::Pos2, egui::Color32)>, f32, f32) {
+    ) -> (Vec<GutterShape>, f32, Vec<f32>) {
         let ctx = egui::Context::default();
         let settings = EditorSettings::default();
-        // Fonts do not exist until a pass has run.
-        // A real viewport: with the default zero-sized one, egui clamps the
-        // gutter's allocation and the positions mean nothing.
+        // A real viewport, so nothing painted is clipped away.
         let input = || egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -621,22 +616,27 @@ mod tests {
             )),
             ..Default::default()
         };
+        // Fonts do not exist until a pass has run.
         let mut warmup = ctx.run_ui(input(), |_| {});
         warmup.textures_delta.clear();
-        let left = std::cell::Cell::new(0.0);
+        let row_tops = std::cell::RefCell::new(Vec::new());
         let mut out = ctx.run_ui(input(), |ui| {
-            left.set(ui.min_rect().left());
-            draw_line_number_gutter(ui, code, active_line, &settings, heights, 14.0);
+            let galley = ui.fonts_mut(|fonts| fonts.layout_job(job.clone()));
+            let galley_pos = egui::pos2(GUTTER_RIGHT, GALLEY_TOP);
+            draw_line_number_gutter(
+                ui.painter(),
+                GUTTER_RIGHT,
+                &galley,
+                galley_pos,
+                code,
+                active_line,
+                &settings,
+            );
+            *row_tops.borrow_mut() = galley.rows.iter().map(|r| GALLEY_TOP + r.pos.y).collect();
         });
         out.textures_delta.clear();
-        let right = std::cell::Cell::new(0.0);
-        for clipped in &out.shapes {
-            if let egui::Shape::Text(text) = &clipped.shape {
-                right.set(text.pos.x + text.galley.size().x);
-                break;
-            }
-        }
-        let shapes = out
+        let mut right = 0.0;
+        let shapes: Vec<GutterShape> = out
             .shapes
             .into_iter()
             .filter_map(|clipped| match clipped.shape {
@@ -649,52 +649,55 @@ mod tests {
                         .first()
                         .map(|s| s.format.color)
                         .unwrap_or(egui::Color32::PLACEHOLDER),
+                    text.galley.size().x,
                 )),
                 _ => None,
             })
+            .enumerate()
+            .map(|(i, (text, pos, color, width))| {
+                if i == 0 {
+                    right = pos.x + width;
+                }
+                (text, pos, color)
+            })
             .collect();
-        (shapes, left.get(), right.get())
+        (shapes, right, row_tops.into_inner())
+    }
+
+    /// `code` laid out flat in the editor font, unwrapped.
+    fn plain_job(code: &str) -> egui::text::LayoutJob {
+        egui::text::LayoutJob::simple(
+            code.to_string(),
+            EditorSettings::default().font_id(),
+            egui::Color32::WHITE,
+            f32::INFINITY,
+        )
+    }
+
+    fn gutter_shapes(code: &str, active_line: Option<(usize, usize)>) -> Vec<GutterShape> {
+        gutter_run(code, plain_job(code), active_line).0
     }
 
     #[test]
     fn the_gutter_numbers_every_line_from_one() {
-        let heights = std::collections::HashMap::new();
-        let drawn = gutter_shapes(
-            "a
-b
-c", None, &heights,
-        );
+        let drawn = gutter_shapes("a\nb\nc", None);
         let labels: Vec<&str> = drawn.iter().map(|(t, _, _)| t.as_str()).collect();
         assert_eq!(labels, ["1", "2", "3"], "one number per line, 1-based");
 
         // A buffer with no newline is still one line, and a trailing newline
         // opens the next one.
-        assert_eq!(gutter_shapes("a", None, &heights).len(), 1);
-        assert_eq!(
-            gutter_shapes(
-                "a
-", None, &heights
-            )
-            .len(),
-            2
-        );
+        assert_eq!(gutter_shapes("a", None).len(), 1);
+        assert_eq!(gutter_shapes("a\n", None).len(), 2);
     }
 
     #[test]
     fn the_active_line_number_is_the_one_the_cursor_is_on() {
-        let heights = std::collections::HashMap::new();
         let palette = EditorSettings::default().theme.palette();
-        // Cursor in the second line: byte 2 is its first character.
+        // Cursor in the second line: byte 3 is its first character.
         // Lines longer than one character: with single-char lines, counting
         // the newlines before the cursor and counting everything else give the
         // same answer, and a wrong one passes.
-        let drawn = gutter_shapes(
-            "ab
-cd
-ef",
-            Some((3, 3)),
-            &heights,
-        );
+        let drawn = gutter_shapes("ab\ncd\nef", Some((3, 3)));
         let active: Vec<&str> = drawn
             .iter()
             .filter(|(_, _, color)| *color == palette.line_number_active)
@@ -703,10 +706,7 @@ ef",
         assert_eq!(active, ["2"], "only the cursor's line is highlighted");
 
         // With no cursor, nothing is.
-        let drawn = gutter_shapes(
-            "ab
-cd", None, &heights,
-        );
+        let drawn = gutter_shapes("ab\ncd", None);
         assert!(
             drawn
                 .iter()
@@ -718,64 +718,70 @@ cd", None, &heights,
     #[test]
     fn the_gutter_widens_for_a_longer_line_count() {
         // Numbers are right-aligned inside a gutter sized to the widest one,
-        // so a three-digit file has to push its column right.
-        let heights = std::collections::HashMap::new();
-        let short = gutter_shapes(
-            "a
-b", None, &heights,
-        )[0]
-        .1
-        .x;
-        let long = gutter_shapes(
-            &"x
-"
-            .repeat(120),
-            None,
-            &heights,
-        )[0]
-        .1
-        .x;
+        // so a three-digit file needs one more digit of room.
         let settings = EditorSettings::default();
+        let short = line_number_gutter_width("a\nb", &settings);
+        let long = line_number_gutter_width(&"x\n".repeat(120), &settings);
         assert!(
             (long - short - settings.font_size * 0.62).abs() < 0.01,
             "one more digit of room, got {short} then {long}"
         );
-
-        // ...and the column sits an exact distance in from the left edge: the
-        // gutter's own width, less the right-hand padding the number keeps.
-        let (_, left, right) = gutter_run_full(
-            "a
-b", None, &heights,
-        );
-        let width = 2.0 * settings.font_size * 0.62 + 10.0;
         assert!(
-            (right - (left + width - 4.0)).abs() < 0.01,
-            "right-aligned inside the gutter, got {right} from {left}"
+            (short - (2.0 * settings.font_size * 0.62 + 10.0)).abs() < 0.01,
+            "two digits at least, got {short}"
+        );
+
+        // ...and each number ends the same padding in from the gutter's edge.
+        let (_, right, _) = gutter_run("a\nb", plain_job("a\nb"), None);
+        assert!(
+            (right - (GUTTER_RIGHT - 4.0)).abs() < 0.01,
+            "right-aligned inside the gutter, got {right}"
         );
     }
 
     #[test]
-    fn a_row_hosting_a_widget_pushes_the_numbers_below_it_down() {
-        // The layouter inflates rows carrying inline widgets; the gutter has to
-        // mirror that or every number after one drifts out of line.
-        let mut heights = std::collections::HashMap::new();
-        let flat = gutter_shapes(
-            "a
-b
-c", None, &heights,
+    fn every_number_sits_on_its_line_however_tall_the_rows_are() {
+        // The numbers come from the galley's rows, so they cannot drift from
+        // the text: not over a long buffer, and not past a row the layouter
+        // inflated for a block widget.
+        let code = "x\n".repeat(60);
+        let (drawn, _, rows) = gutter_run(&code, plain_job(&code), None);
+        assert_eq!(drawn.len(), rows.len());
+        for ((label, pos, _), top) in drawn.iter().zip(&rows) {
+            assert_eq!(pos.y, *top, "line {label} is off its row");
+        }
+
+        let font_id = EditorSettings::default().font_id();
+        let mut job = egui::text::LayoutJob::default();
+        let mut tall = egui::TextFormat::simple(font_id.clone(), egui::Color32::WHITE);
+        tall.line_height = Some(60.0);
+        job.append("a\n", 0.0, tall);
+        job.append(
+            "b\nc",
+            0.0,
+            egui::TextFormat::simple(font_id, egui::Color32::WHITE),
         );
-        heights.insert(0, 60.0);
-        let inflated = gutter_shapes(
-            "a
-b
-c", None, &heights,
-        );
-        assert_eq!(flat[0].1.y, inflated[0].1.y, "the inflated row itself");
-        assert!(
-            inflated[1].1.y - flat[1].1.y > 40.0,
-            "the numbers below it move down by the extra height"
-        );
+        let (drawn, _, rows) = gutter_run("a\nb\nc", job, None);
+        assert!(rows[1] - rows[0] > 40.0, "the row really is inflated");
+        let tops: Vec<f32> = drawn.iter().map(|(_, pos, _)| pos.y).collect();
+        assert_eq!(tops, rows, "the numbers below it move down with it");
     }
+
+    #[test]
+    fn a_soft_wrapped_line_keeps_one_number() {
+        // A line wrapped onto several rows is still one line: its number on
+        // the first row, the next line's on the row after the last.
+        let code = "aaaa aaaa aaaa aaaa\nb";
+        let mut job = plain_job(code);
+        job.wrap.max_width = 40.0;
+        let (drawn, _, rows) = gutter_run(code, job, None);
+        assert!(rows.len() > 2, "the first line wraps");
+        let labels: Vec<&str> = drawn.iter().map(|(t, _, _)| t.as_str()).collect();
+        assert_eq!(labels, ["1", "2"]);
+        assert_eq!(drawn[0].1.y, rows[0]);
+        assert_eq!(drawn[1].1.y, *rows.last().unwrap());
+    }
+
     #[test]
     fn the_completion_selection_wraps_at_both_ends() {
         // Holding the key cycles the list rather than sticking at either end.

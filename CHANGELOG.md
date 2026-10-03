@@ -13,6 +13,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Line numbers stay level with their lines.** The gutter summed the font's
+  row height per line, but the editor snaps each row to a whole pixel, so the
+  numbers slid further off the text with every line — over a pixel by line 40,
+  and more with inline widgets. They are now placed from the editor's own laid
+  out rows, which also numbers a soft-wrapped line once instead of drifting.
+
 ## [0.22.1] — 2026-10-03
 
 ### Fixed
