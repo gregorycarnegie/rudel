@@ -13,6 +13,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.22.1] — 2026-10-03
+
 ### Fixed
 
 - **`withValue` (and `fmap`) map values as the pattern plays,** as upstream
