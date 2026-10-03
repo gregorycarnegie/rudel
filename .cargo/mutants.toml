@@ -5,6 +5,13 @@
 # Windows refuses the npm symlinks — `os error 1314`, at "0 mutants tested".
 gitignore = true
 
+# Match CI, which runs every test in its own process. Under `cargo test` a
+# mutant can be "caught" only because a neighbouring test left a global (the
+# string parser, the soundfont statics) in a state it should not have, and a
+# test that needs a neighbour's setup can let a mutant survive. Set here rather
+# than in the scripts so a hand-typed `cargo mutants` gets it too.
+test_tool = "nextest"
+
 # The drawing code in the app is deliberately not tested: these are widget
 # painting, the window icon and the volume slider geometry, where an assertion
 # would only restate the implementation. Mutating them dragged the headline

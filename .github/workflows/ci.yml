@@ -18,8 +18,15 @@ env:
 
 jobs:
   test:
-    name: clippy + test
-    runs-on: ubuntu-latest
+    name: clippy + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is where Rudel is developed and has code of its own (SAPI
+        # speech, the WASAPI/MIDI device paths); the release workflow only
+        # builds it. macOS is one more line here when it is wanted.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +38,15 @@ jobs:
       # They are on the hosted runner image already; they are named here so a
       # change to that image fails at this step with a clear message rather
       # than deep inside a build script.
+      #
+      # Csound is an optional runtime library whose tests skip where it cannot
+      # load. Installing it here and setting RUDEL_CSOUND_REQUIRED is what turns
+      # "Csound stopped loading" from a quiet skip into a failure. Debian's
+      # libcsound64 is the double-precision build the loader needs; the -dev
+      # package provides the bare `libcsound64.so` name it opens. The variable
+      # is set only here: the tests treat it as set even when empty.
       - name: Install system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -39,7 +54,9 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libgtk-3-dev \
-            autoconf automake libtool
+            autoconf automake libtool \
+            libcsound64-dev
+          echo "RUDEL_CSOUND_REQUIRED=1" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:

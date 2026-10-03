@@ -72,16 +72,16 @@ Test suites here are graded with [`cargo-mutants`][mutants]: it edits the code
 and expects a test to fail. It is how the "asserts a signal came out" tests were
 found — every arithmetic operator swap satisfied them.
 
-Two flags are not optional on this tree:
-
 ```bash
-cargo mutants --gitignore=true --test-tool=nextest -j8 --file "crates/rudel-dsp/src/synth.rs"
+cargo mutants -j8 --file "crates/rudel-dsp/src/synth.rs"
 ```
 
-- `--gitignore=true`, or the tree copy fails. The vendored `strudel/` is a nested
+Two settings are not optional on this tree, and `.cargo/mutants.toml` sets both:
+
+- `gitignore = true`, or the tree copy fails. The vendored `strudel/` is a nested
   git repo, so without it cargo-mutants copies `node_modules` and Windows refuses
   the npm symlinks (`os error 1314`, at "0 mutants tested").
-- `--test-tool=nextest` to match CI.
+- `test_tool = "nextest"` to match CI.
 
 Work one file at a time (`--file`) while iterating; that is minutes rather than
 the ~10 hours a whole-workspace run takes. For a full run, shard it:
