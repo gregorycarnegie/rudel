@@ -13,6 +13,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.22.2] — 2026-10-03
+
 ### Fixed
 
 - **Line numbers stay level with their lines.** The gutter summed the font's
