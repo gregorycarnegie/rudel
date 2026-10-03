@@ -1065,7 +1065,17 @@ fn a_real_output_port_lists_opens_and_rejects_an_empty_message() {
         return;
     };
     assert!(!port.is_empty());
-    let mut out = MidiOut::connect(Some("gs wavetable")).expect("opens");
+    // The GS synth plays through an audio device, and a hosted CI runner
+    // (Windows Server) lists the port but has no device for it to open.
+    // Anywhere else a port that is listed has to open.
+    let mut out = match MidiOut::connect(Some("gs wavetable")) {
+        Ok(out) => out,
+        Err(e) if std::env::var_os("CI").is_some() => {
+            eprintln!("skipping on CI: {e}");
+            return;
+        }
+        Err(e) => panic!("opens: {e:?}"),
+    };
     // All notes off: a real message that makes no sound.
     out.send(&[CONTROL_CHANGE, 123, 0]).expect("sends");
     assert!(out.send(&[]).is_err(), "an empty message is not MIDI");
