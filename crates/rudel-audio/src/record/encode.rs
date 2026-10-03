@@ -722,6 +722,35 @@ mod round_trips {
         }
     }
 
+    /// Frames hold `FLAC_BLOCK` stereo frames, as STREAMINFO promises. A
+    /// decoder that takes any block size hides a mismatch; a strict one
+    /// rejects the file. Read off the first frame header's block-size code.
+    #[test]
+    fn flac_frames_are_the_block_size_streaminfo_declares() {
+        let (_dir, path) = record("take.flac", FLAC_BLOCK * 2, 1000);
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[..4], b"fLaC");
+        // Metadata blocks: a flags byte (top bit marks the last) and a
+        // 24-bit length, then the body.
+        let mut at = 4;
+        loop {
+            let last = bytes[at] & 0x80 != 0;
+            let len = u32::from_be_bytes([0, bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+            at += 4 + len as usize;
+            if last {
+                break;
+            }
+        }
+        assert_eq!(
+            &bytes[at..at + 2],
+            &[0xFF, 0xF8],
+            "fixed-blocksize frame sync"
+        );
+        // Block-size code 0b1100 is 256 << 4 = 4096.
+        assert_eq!(FLAC_BLOCK, 4096);
+        assert_eq!(bytes[at + 2] >> 4, 0b1100, "block size code");
+    }
+
     #[test]
     fn lossy_takes_decode_to_their_whole_length_once_finished() {
         // The tail only reaches the file when the encoder is flushed.

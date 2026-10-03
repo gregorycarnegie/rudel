@@ -839,6 +839,117 @@ fn block_render_matches_frame_render_across_onsets() {
 }
 
 #[test]
+fn a_removed_widget_tap_frees_its_mix_buffer() {
+    // Every scope widget gets a mix buffer; closing the widget must free it,
+    // or a session of edits accumulates one per widget ever drawn.
+    let (_tx, rx) = mpsc::channel::<NoteEvent>();
+    let mut mixer = test_mixer(rx);
+    mixer.taps.get_or_create("a");
+    mixer.taps.get_or_create("b");
+    mixer.render_frame();
+    assert_eq!(mixer.tag_bufs.len(), 2);
+    mixer.taps.remove("a");
+    mixer.render_frame();
+    assert_eq!(mixer.tag_bufs.keys().collect::<Vec<_>>(), ["b"]);
+}
+
+mod block_partition_props {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// A plain synth note — no post-fx, so `process_block` is a `tick` loop and
+    /// rendering it in any partition is exact, not just close.
+    fn note(onset: f64, duration: f32) -> NoteEvent {
+        NoteEvent {
+            onset_seconds: onset,
+            spec: rudel_dsp::VoiceSpec::Synth(Box::new(rudel_dsp::VoiceParams::from_controls(
+                &rudel_core::to_control_map(&rudel_core::Value::Str("sawtooth".into())),
+                duration,
+            ))),
+            fx_chain: Vec::new(),
+            worklet: None,
+            fx: rudel_dsp::PostFx::default(),
+            cut: None,
+            send: OrbitSend::default(),
+            duck: Vec::new(),
+            mods: Default::default(),
+            tags: Vec::new(),
+            csound: None,
+        }
+    }
+
+    /// Render `frames` frames of `notes` at `sample_rate`, in blocks of the
+    /// given sizes (cycled), and return the output and the voices left.
+    fn render(
+        notes: &[(f64, f32)],
+        sample_rate: f32,
+        blocks: &[usize],
+        frames: usize,
+    ) -> (Vec<(f32, f32)>, usize) {
+        let (tx, rx) = mpsc::channel::<NoteEvent>();
+        for &(onset, duration) in notes {
+            tx.send(note(onset, duration)).unwrap();
+        }
+        drop(tx);
+        let mut mixer = test_mixer(rx);
+        mixer.sample_rate = sample_rate;
+        let mut out = vec![(0.0f32, 0.0f32); frames];
+        let mut at = 0;
+        for &size in blocks.iter().cycle() {
+            if at == frames {
+                break;
+            }
+            let end = (at + size).min(frames);
+            mixer.render_block(&mut out[at..end]);
+            at = end;
+        }
+        (out, mixer.active.len())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// However a device happens to size its callbacks, the audio is the
+        /// same: an onset is sample-accurate whether it lands at the start of
+        /// a buffer, partway through, or exactly on a boundary, at any rate.
+        ///
+        /// Onsets are aimed at frame times and nudged a few ulps either way,
+        /// as `k * (1/sr)` or a sum of beat lengths leaves them. Uniformly
+        /// random seconds almost never land there (none in two million), and
+        /// that is where seconds-to-frame rounding can disagree with itself.
+        #[test]
+        fn any_block_partition_renders_what_frame_by_frame_does(
+            notes in prop::collection::vec(
+                (0u32..1800, prop_oneof![Just(0.0f64), 0.0f64..1.0], -2i32..=2, 0.001f32..0.02),
+                1..6,
+            ),
+            sample_rate in prop::sample::select(vec![8000.0f32, 22050.0, 44100.0, 48000.0, 96000.0]),
+            blocks in prop::collection::vec(1usize..300, 1..8),
+        ) {
+            let notes: Vec<(f64, f32)> = notes
+                .into_iter()
+                .map(|(frame, within, ulps, duration)| {
+                    let mut onset = (frame as f64 + within) / sample_rate as f64;
+                    for _ in 0..ulps.abs() {
+                        onset = if ulps > 0 { onset.next_up() } else { onset.next_down() };
+                    }
+                    (onset, duration)
+                })
+                .collect();
+            let frames = 2048;
+            let (by_frame, voices_by_frame) = render(&notes, sample_rate, &[1], frames);
+            let (by_block, voices_by_block) = render(&notes, sample_rate, &blocks, frames);
+            let first_diff = by_frame
+                .iter()
+                .zip(&by_block)
+                .position(|(a, b)| (a.0 - b.0).abs() > 1e-6 || (a.1 - b.1).abs() > 1e-6);
+            prop_assert_eq!(first_diff, None, "partition diverged from frame-by-frame");
+            prop_assert_eq!(voices_by_block, voices_by_frame, "voice counts");
+        }
+    }
+}
+
+#[test]
 fn mixer_renders_a_scheduled_note() {
     // Drive a Mixer directly (no audio device) and confirm a scheduled
     // note produces non-silent output once its onset passes.

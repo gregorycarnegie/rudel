@@ -50,7 +50,62 @@ fn fragment() -> impl Strategy<Value = &'static str> {
         ":",
         "é",
         "🌸",
+        "\u{200b}",
+        "\u{301}",
+        "\\",
+        "\\n",
+        "\\\"",
+        "\\'",
+        "\\`",
+        "\\u{1F338}",
+        "\\u00e9",
+        "\\x41",
+        "${",
+        "${x}",
+        "\"\\\"bd\\\" sd\"",
+        "`c ${'e'} g`",
     ])
+}
+
+/// Deep but well-formed: `depth` levels of one kind of nesting around a
+/// pattern, the shapes a generated or pasted script could pile up.
+fn deeply_nested(depth: usize) -> Vec<String> {
+    let wrap = |open: &str, inner: &str, close: &str| {
+        format!("{}{inner}{}", open.repeat(depth), close.repeat(depth))
+    };
+    vec![
+        wrap("(", "s('bd')", ")"),
+        wrap("[", "s('bd')", "][0]"),
+        wrap("stack(", "s('bd')", ")"),
+        wrap("{a:", "s('bd')", "}.a"),
+        wrap("(x => ", "s('bd')", ")()"),
+        wrap("`${", "1", "}`"),
+        wrap("/*", "*/", ""),
+        format!("s(\"{}\")", wrap("[", "bd", "]")),
+        format!("s(`{}`)", wrap("<", "bd", ">")),
+        format!("s('bd'){}", ".fast(1)".repeat(depth)),
+        format!(
+            "s('bd'){}",
+            ".every(2, x => x".repeat(depth) + &")".repeat(depth)
+        ),
+        format!("{}s('bd')", "-".repeat(depth)),
+    ]
+}
+
+/// However deep a script nests, the preprocessor and evaluation return — an
+/// error is fine — rather than overflowing a stack and aborting the app.
+#[test]
+fn deep_nesting_is_an_error_or_a_pattern_never_a_crash() {
+    for src in deeply_nested(5_000) {
+        let _ = preprocess_strudel_with_meta(&src);
+        if let Err(e) = eval(&src) {
+            assert!(
+                !e.starts_with("the JavaScript engine failed"),
+                "{}…: {e}",
+                &src[..40]
+            );
+        }
+    }
 }
 
 fn script() -> impl Strategy<Value = String> {
@@ -78,6 +133,14 @@ proptest! {
     /// Whatever it is handed, it hands something back.
     #[test]
     fn the_preprocessor_never_panics(src in script()) {
+        let _ = preprocess_strudel_with_meta(&src);
+    }
+
+    /// Any printable Unicode at all, not just the fragments above. The
+    /// preprocessor slices source by byte offset, which is where a
+    /// multi-byte character ends up split.
+    #[test]
+    fn the_preprocessor_never_panics_on_any_unicode(src in r"\PC{0,200}") {
         let _ = preprocess_strudel_with_meta(&src);
     }
 

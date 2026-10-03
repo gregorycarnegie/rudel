@@ -31,6 +31,26 @@ This file starts at 0.7.0. Earlier history is in the git log.
   on any value or chord first heard later; `chunkInto` stopped transforming.
   They now decide as the pattern plays, and an error in a callback goes to
   the console.
+- **A note can no longer start up to a buffer late.** An onset a hair past a
+  frame boundary, as ordinary arithmetic on beat times leaves it, was rounded
+  onto that frame when the buffer was split but tested as not yet due when
+  notes were started. So it was skipped at the split and started at the next
+  buffer instead, up to about 6 ms late with 256-frame buffers. Both checks
+  now use the same rounding.
+- **A malformed SoundFont can no longer crash the app.** Nested `LIST` chunks
+  were read recursively, so a few megabytes of them overflowed the stack.
+- **A deeply nested `bytebeat` expression is silence instead of a crash.**
+  Brackets, ternaries, calls and prefix operators nested more than 64 deep, or
+  more than 1,024 binary operators, used to overflow the audio thread's
+  stack. Real bytebeats are far smaller.
+
+### Testing
+
+- CI runs the test suite on Windows as well as Linux, and installs Csound on
+  Linux with `RUDEL_CSOUND_REQUIRED=1`, so Csound failing to load is a test
+  failure there rather than a skip.
+- `cargo mutants` runs tests under nextest, as CI does, from
+  `.cargo/mutants.toml`.
 
 ## [0.22.0] — 2026-10-02
 

@@ -82,6 +82,45 @@ proptest! {
         let _ = rudel_mini::leaf_locations(&src);
     }
 
+    /// The same, over any printable Unicode: a multi-byte character next to
+    /// an operator is where byte-offset slicing goes wrong.
+    #[test]
+    fn any_unicode_never_panics(src in r"\PC{0,400}") {
+        let _ = rudel_mini::parse(&src);
+        let _ = rudel_mini::leaf_locations(&src);
+    }
+
+    /// Grammar tokens mixed with multi-byte characters, quotes and
+    /// backslashes, so the Unicode lands inside otherwise valid structure
+    /// rather than stopping the parse at the first character.
+    #[test]
+    fn tokens_mixed_with_unicode_and_escapes_never_panic(
+        tokens in prop::collection::vec(prop::sample::select(vec![
+            "bd", "c4", "0", "~", " ", "[", "]", "<", ">", "{", "}", "(", ")", ",",
+            "*2", "/3", "!", "?", "@2", ":1", "%4", "_", ".", "|",
+            "é", "🌸", "\u{200b}", "\u{301}", "\\", "\\n", "\"", "'", "`", "$",
+        ]), 0..80),
+    ) {
+        let src = tokens.concat();
+        let _ = rudel_mini::parse(&src);
+        let _ = rudel_mini::leaf_locations(&src);
+    }
+
+    /// Brackets and chained operators piled up far past the nesting limit,
+    /// in any mix and mostly unclosed. Each kind of nesting is guarded; this
+    /// checks no combination of them slips past the guard to the recursion.
+    #[test]
+    fn deep_mixed_nesting_never_overflows_the_stack(
+        tokens in prop::collection::vec(prop::sample::select(vec![
+            "[", "<", "{", "(", "*2", "/2", "!", "?", "@2", ":3", "%2", "_", ".",
+            "bd", " ", ",", "]", ">",
+        ]), 100..600),
+    ) {
+        let src = tokens.concat();
+        let _ = rudel_mini::parse(&src);
+        let _ = rudel_mini::leaf_locations(&src);
+    }
+
     /// Every hap lands inside the queried span, and inside its own whole. Both
     /// are assumed all over the scheduler and the drawing code.
     #[test]

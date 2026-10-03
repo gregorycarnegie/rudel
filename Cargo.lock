@@ -3836,6 +3836,7 @@ dependencies = [
  "mp3lame-encoder",
  "ogg",
  "opus-rs",
+ "proptest",
  "rudel-core",
  "rudel-dsp",
  "rudel-lang",

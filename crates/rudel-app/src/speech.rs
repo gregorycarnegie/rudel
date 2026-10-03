@@ -383,6 +383,16 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn the_first_request_opens_the_synthesiser_and_keeps_it() {
+        // Empty words: SAPI accepts and queues them, and nothing is heard.
+        let mut speech = Speech::default();
+        assert_eq!(speech.say("", Some("en"), None), None);
+        assert!(speech.engine.is_some(), "the engine is opened on first use");
+        assert_eq!(speech.failed, None);
+    }
+
     #[test]
     fn a_failed_synthesiser_is_reported_once_and_then_left_alone() {
         let mut speech = Speech {

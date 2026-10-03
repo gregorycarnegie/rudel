@@ -288,9 +288,19 @@ fn bool_num(b: bool) -> f64 {
     if b { 1.0 } else { 0.0 }
 }
 
+/// How deep brackets, ternaries, calls and prefix operators may nest, and how
+/// many binary operators an expression may have. The parser and the evaluator
+/// both recurse over the tree, the evaluator on the audio thread, so text past
+/// these is silence rather than a stack overflow. Real bytebeats sit far below
+/// both; the tests prove the limits themselves fit a default thread stack.
+const MAX_NESTING: usize = 64;
+const MAX_OPERATORS: usize = 1024;
+
 struct Parser<'a> {
     src: &'a [u8],
     pos: usize,
+    nesting: usize,
+    operators: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -298,7 +308,20 @@ impl<'a> Parser<'a> {
         Parser {
             src: src.as_bytes(),
             pos: 0,
+            nesting: 0,
+            operators: 0,
         }
+    }
+
+    /// Run `parse` one nesting level deeper, failing past [`MAX_NESTING`].
+    fn nested(&mut self, parse: impl FnOnce(&mut Self) -> Option<Node>) -> Option<Node> {
+        if self.nesting == MAX_NESTING {
+            return None;
+        }
+        self.nesting += 1;
+        let node = parse(self);
+        self.nesting -= 1;
+        node
     }
 
     fn parse(&mut self) -> Option<Node> {
@@ -340,11 +363,11 @@ impl<'a> Parser<'a> {
     fn conditional(&mut self) -> Option<Node> {
         let cond = self.binary(0)?;
         if self.eat("?") {
-            let a = self.conditional()?;
+            let a = self.nested(Self::conditional)?;
             if !self.eat(":") {
                 return None;
             }
-            let b = self.conditional()?;
+            let b = self.nested(Self::conditional)?;
             return Some(Node::Cond(Box::new(cond), Box::new(a), Box::new(b)));
         }
         Some(cond)
@@ -389,6 +412,11 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 if self.eat(tok) {
+                    // A chain `a+b+c…` nests to the left as deep as it is long.
+                    self.operators += 1;
+                    if self.operators > MAX_OPERATORS {
+                        return None;
+                    }
                     let right = self.binary(level + 1)?;
                     left = Node::Bin(op.clone(), Box::new(left), Box::new(right));
                     continue 'outer;
@@ -402,13 +430,10 @@ impl<'a> Parser<'a> {
     fn unary(&mut self) -> Option<Node> {
         self.skip_ws();
         for op in ['-', '+', '~', '!'] {
-            let s = op.to_string();
-            // `!=` is a binary operator, not a unary `!`.
-            if op == '!' && self.at("!=") {
-                break;
-            }
-            if self.eat(&s) {
-                let inner = self.unary()?;
+            // No `!=` check needed: an operand cannot start with one, and a
+            // `!` eaten here leaves `=…`, which fails just the same.
+            if self.eat(&op.to_string()) {
+                let inner = self.nested(Self::unary)?;
                 return Some(if op == '+' {
                     inner
                 } else {
@@ -425,7 +450,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         if self.eat("(") {
-            let inner = self.conditional()?;
+            let inner = self.nested(Self::conditional)?;
             if !self.eat(")") {
                 return None;
             }
@@ -503,7 +528,7 @@ impl<'a> Parser<'a> {
             let mut args = Vec::new();
             if !self.eat(")") {
                 loop {
-                    args.push(self.conditional()?);
+                    args.push(self.nested(Self::conditional)?);
                     if self.eat(",") {
                         continue;
                     }
@@ -757,6 +782,61 @@ mod tests {
         assert_eq!(ev("t &&& 3", 5.0), 0.0);
         assert_eq!(ev("(t", 5.0), 0.0);
         assert_eq!(ev("", 5.0), 0.0);
+    }
+
+    /// The expression is script text, parsed as events are built and
+    /// evaluated on the audio thread, where a stack overflow takes the whole
+    /// app down. However deep the text nests, it parses or is silence.
+    #[test]
+    fn deep_nesting_is_silence_not_a_stack_overflow() {
+        let n = 100_000;
+        let deep = [
+            format!("{}t{}", "(".repeat(n), ")".repeat(n)),
+            format!("{}t", "-".repeat(n)),
+            format!("{}t", "!~".repeat(n)),
+            format!("t{}", "+t".repeat(n)),
+            format!("{}t", "t?".repeat(n) + &":t".repeat(n)),
+            format!("{}t{}", "sin(".repeat(n), ")".repeat(n)),
+        ];
+        for src in deep {
+            assert_eq!(ev(&src, 5.0), 0.0, "{}…", &src[..20]);
+        }
+        // Up to the limits it still parses, and evaluates within a default
+        // thread stack (the test's own) — one past either is silence.
+        let parens = |n| format!("{}t{}", "(".repeat(n), ")".repeat(n));
+        assert_eq!(ev(&parens(MAX_NESTING), 5.0), 5.0);
+        assert_eq!(ev(&parens(MAX_NESTING + 1), 5.0), 0.0);
+        let negations = |n| format!("{}t", "-".repeat(n));
+        assert_eq!(ev(&negations(MAX_NESTING), 5.0), 5.0);
+        assert_eq!(ev(&negations(MAX_NESTING + 1), 5.0), 0.0);
+        let ones = |n| format!("t{}", "+1".repeat(n));
+        assert_eq!(ev(&ones(MAX_OPERATORS), 5.0), 5.0 + MAX_OPERATORS as f64);
+        assert_eq!(ev(&ones(MAX_OPERATORS + 1), 5.0), 0.0);
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Any text at all — any Unicode, unbalanced brackets — parses or
+        /// falls back to silence, and what parses evaluates without panicking.
+        #[test]
+        fn any_text_parses_or_is_silence(src in r"\PC{0,200}", t in any::<f64>()) {
+            let _ = ByteBeatExpr::parse(&src).eval(t);
+        }
+
+        /// Text built from the grammar's own tokens, which reaches far more of
+        /// the parser than arbitrary characters do.
+        #[test]
+        fn token_soup_parses_or_is_silence(
+            tokens in prop::collection::vec(prop::sample::select(vec![
+                "t", "1", "0x1f", "2.5e-3", ".5", "PI", "sin", "pow", "x", "(", ")", ",",
+                "?", ":", "+", "-", "*", "/", "%", "<<", ">>", ">>>", "&", "|", "^", "~",
+                "!", "&&", "||", "<", "<=", "==", "!==", " ", "é",
+            ]), 0..64),
+            t in any::<f64>(),
+        ) {
+            let _ = ByteBeatExpr::parse(&tokens.concat()).eval(t);
+        }
     }
 
     fn map(pairs: &[(&str, Value)]) -> ValueMap {

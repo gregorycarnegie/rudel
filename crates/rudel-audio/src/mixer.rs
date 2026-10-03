@@ -367,22 +367,20 @@ impl Mixer {
         // The `Arc` is cloned so the guard does not borrow `self`.
         let csound = self.csound.clone();
         let mut guard = csound.try_lock().ok();
-        let sr = self.sample_rate as f64;
         let total = out.len();
         let mut offset = 0;
         while offset < total {
-            let now = self.sample_clock as f64 / sr;
-            self.start_due_events(now, guard.as_deref_mut().and_then(Option::as_mut));
+            self.start_due_events(guard.as_deref_mut().and_then(Option::as_mut));
             // Run until the next not-yet-started onset (or the end of the buffer).
             let next_onset_clock = self
                 .pending
                 .iter()
-                .map(|ev| (ev.onset_seconds * sr).ceil() as u64)
+                .map(|ev| self.onset_clock(ev))
                 .filter(|&c| c > self.sample_clock)
                 .min();
             let remaining = total - offset;
             let sub_len = match next_onset_clock {
-                Some(c) => ((c - self.sample_clock) as usize).min(remaining).max(1),
+                Some(c) => ((c - self.sample_clock) as usize).min(remaining),
                 None => remaining,
             };
             self.mix_sub_block(
@@ -397,12 +395,23 @@ impl Mixer {
         self.played.store(self.sample_clock, Ordering::Relaxed);
     }
 
-    /// Start every pending event whose onset has arrived by `now`, choking any
+    /// The frame an event starts on: the first at or after its onset.
+    ///
+    /// Both "is it due" and "where does the next sub-block end" ask this, so
+    /// they cannot disagree. Comparing seconds instead (`onset <= clock / sr`)
+    /// did: an onset an ulp past a frame time rounds onto that frame here but
+    /// compared as not yet due there, so it was neither started nor split at,
+    /// and started a whole buffer late.
+    fn onset_clock(&self, ev: &NoteEvent) -> u64 {
+        (ev.onset_seconds * self.sample_rate as f64).ceil() as u64
+    }
+
+    /// Start every pending event whose onset frame has arrived, choking any
     /// same-`cut`-group voice (last-one-wins, like Strudel's cut groups).
-    fn start_due_events(&mut self, now: f64, mut csound: Option<&mut Csound>) {
+    fn start_due_events(&mut self, mut csound: Option<&mut Csound>) {
         let mut i = 0;
         while i < self.pending.len() {
-            if self.pending[i].onset_seconds <= now {
+            if self.onset_clock(&self.pending[i]) <= self.sample_clock {
                 let ev = self.pending.swap_remove(i);
                 // `.csound(...)` plays the hap on a Csound instrument *instead*
                 // of a Rudel voice — upstream's is an `onTrigger`, which

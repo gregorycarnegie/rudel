@@ -45,9 +45,6 @@ impl<'a> Reader<'a> {
     fn new(bytes: &'a [u8]) -> Reader<'a> {
         Reader { bytes, pos: 0 }
     }
-    fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.pos)
-    }
     fn take(&mut self, n: usize) -> Option<&'a [u8]> {
         let out = self.bytes.get(self.pos..self.pos + n)?;
         self.pos += n;
@@ -72,23 +69,31 @@ impl<'a> Reader<'a> {
 
 /// Walk the sub-chunks of a RIFF body, calling `visit` with each `(id, body)`.
 /// LIST chunks are descended into, so `pdta`'s records are reached directly.
+///
+/// The open LISTs are kept on a stack of readers rather than by recursing: a
+/// nesting level costs a file only twelve bytes, so a few megabytes of
+/// malformed SoundFont would otherwise overflow the thread's stack.
 fn walk_chunks(body: &[u8], visit: &mut impl FnMut(&[u8; 4], &[u8])) {
-    let mut r = Reader::new(body);
-    while r.remaining() >= 8 {
-        let Some(id) = r.take(4) else { return };
-        let id: [u8; 4] = id.try_into().unwrap();
-        let Some(size) = r.u32() else { return };
-        let Some(data) = r.take(size as usize) else {
-            return;
+    let mut open = vec![Reader::new(body)];
+    while let Some(r) = open.last_mut() {
+        // A truncated chunk ends its own LIST, and the walk resumes after it.
+        let (Some(id), Some(size)) = (r.take(4), r.u32()) else {
+            open.pop();
+            continue;
         };
-        if &id == b"LIST" && data.len() >= 4 {
-            walk_chunks(&data[4..], visit);
-        } else {
-            visit(&id, data);
-        }
+        let Some(data) = r.take(size as usize) else {
+            open.pop();
+            continue;
+        };
         // Chunks are word-aligned.
         if size % 2 == 1 {
             r.pos += 1;
+        }
+        let id: [u8; 4] = id.try_into().unwrap();
+        if &id == b"LIST" && data.len() >= 4 {
+            open.push(Reader::new(&data[4..]));
+        } else {
+            visit(&id, data);
         }
     }
 }
@@ -976,5 +981,77 @@ mod tests {
             ids.push(String::from_utf8_lossy(id).into_owned())
         });
         assert!(ids.is_empty(), "a truncated header is not a chunk");
+    }
+
+    /// `LIST` inside `LIST`, `depth` deep, as one RIFF file. Each level costs
+    /// twelve bytes, so a few megabytes of malformed file is a million levels.
+    fn nested_lists(depth: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (id, kind, level) in std::iter::once((b"RIFF", b"sfbk", 0))
+            .chain((1..=depth).map(|level| (b"LIST", b"pdta", level)))
+        {
+            out.extend(id);
+            out.extend((((depth - level) * 12 + 4) as u32).to_le_bytes());
+            out.extend(kind);
+        }
+        out
+    }
+
+    #[test]
+    fn the_terminal_record_is_never_played_even_when_it_points_at_zones() {
+        // Point "EOP" at the zone "Tiny" owned, leaving "Tiny" with none. The
+        // last `phdr` record only ends the table, whatever it points at.
+        let mut bytes = tiny_sf2();
+        let eop = bytes.windows(4).position(|w| w == b"EOP\0").unwrap();
+        bytes[eop + 24..eop + 26].copy_from_slice(&0u16.to_le_bytes());
+        let err = parse(&bytes).err().expect("no preset has a zone left");
+        assert!(err.contains("no playable presets"), "{err}");
+    }
+
+    #[test]
+    fn deeply_nested_lists_are_an_error_not_a_stack_overflow() {
+        assert!(parse(&nested_lists(200_000)).is_err());
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Whatever follows a valid header, reading it returns. A SoundFont is
+        /// a file the user downloads from anywhere.
+        #[test]
+        fn arbitrary_bytes_after_the_header_never_panic(
+            size in any::<u32>(),
+            body in prop::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let mut bytes = b"RIFF".to_vec();
+            bytes.extend(size.to_le_bytes());
+            bytes.extend(b"sfbk");
+            bytes.extend(body);
+            let _ = parse(&bytes);
+        }
+
+        /// A real file with words overwritten — chunk sizes, bag and
+        /// generator indices, sample bounds — and possibly cut short. Random
+        /// bytes alone rarely get past the chunk walk; these reach the tables.
+        #[test]
+        fn a_corrupted_soundfont_never_panics(
+            words in prop::collection::vec((any::<prop::sample::Index>(), any::<u32>()), 1..6),
+            keep in any::<prop::sample::Index>(),
+        ) {
+            let mut bytes = tiny_sf2();
+            for (at, word) in words {
+                let at = at.index(bytes.len() - 3);
+                bytes[at..at + 4].copy_from_slice(&word.to_le_bytes());
+            }
+            bytes.truncate(12 + keep.index(bytes.len() - 11));
+            if let Ok(sf) = parse(&bytes) {
+                for (_, preset) in sf.into_presets() {
+                    for zone in preset.zones {
+                        prop_assert!(zone.key_low <= zone.key_high);
+                        prop_assert!(!zone.sample.data.is_empty());
+                    }
+                }
+            }
+        }
     }
 }
