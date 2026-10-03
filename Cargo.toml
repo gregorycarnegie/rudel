@@ -33,6 +33,7 @@ num-integer = "0.1.47"
 num-traits = "0.2.19"
 phf = { version = "0.14.0", features = ["macros"] }
 proptest = "1.11.0"
+stacker = "0.1.25"
 # wgpu's own shader front-end, already in the tree through it. Two crates parse
 # WGSL with it — `rudel-app` validates a widget's shader before wgpu can abort
 # the process over it, `rudel-lang` checks the hydra port's output in tests — so

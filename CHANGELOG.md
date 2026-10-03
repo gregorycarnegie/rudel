@@ -43,6 +43,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
   Brackets, ternaries, calls and prefix operators nested more than 64 deep, or
   more than 1,024 binary operators, used to overflow the audio thread's
   stack. Real bytebeats are far smaller.
+- **A very deep pattern no longer crashes the app.** A script loop such as
+  `for (…) p = p.fast(1)` builds a pattern one combinator deeper per pass,
+  and playing or replacing one past about 5,000 levels overflowed the stack
+  of whichever thread touched it. Querying and freeing a pattern now move to
+  a fresh stack segment when the current one runs low, so depth is limited
+  by memory instead.
+- **Stopping playback resets `timeline` offsets,** as upstream's scheduler
+  does, so a cued timeline realigns to wherever playback next starts. Rudel
+  kept the old offset.
 
 ### Testing
 

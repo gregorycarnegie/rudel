@@ -13,6 +13,23 @@ use std::sync::Arc;
 
 type QueryFn = Arc<dyn Fn(&State) -> Vec<Hap> + Send + Sync>;
 
+/// A pattern is a chain of closures, each capturing the patterns it was built
+/// from, so querying one recurses once per level, and so does freeing it. A
+/// script can build any depth (`for (…) p = p.fast(1)`), and a stack overflow
+/// aborts the process, on the audio or UI thread as readily as any. Both
+/// recursions therefore check the stack per level and continue on a fresh
+/// heap-allocated segment when less than `RED_ZONE` is left, so depth is
+/// bounded by memory rather than by whichever thread happened to query.
+/// The red zone has to cover one level's frames between two checks; a debug
+/// build's run several kilobytes.
+const RED_ZONE: usize = 256 * 1024;
+const STACK_SEGMENT: usize = 4 * 1024 * 1024;
+
+/// What a dropped pattern's query is swapped for, so the real one can be
+/// freed inside [`stacker::maybe_grow`].
+static DROPPED: std::sync::LazyLock<QueryFn> =
+    std::sync::LazyLock::new(|| Arc::new(|_: &State| Vec::new()));
+
 /// A pattern is a function from a query [`State`] to a list of [`Hap`]s,
 /// plus an optional step count (used by step-based combinators).
 #[derive(Clone)]
@@ -32,6 +49,17 @@ pub struct Pattern {
     /// every string literal is wrapped for source-location tracking. Not
     /// preserved across transforms. Boxed to keep `Pattern` small.
     pub source: Option<Box<String>>,
+}
+
+impl Drop for Pattern {
+    fn drop(&mut self) {
+        // Only the last owner frees the chain (see `RED_ZONE`); every other
+        // drop is an atomic decrement and nothing more.
+        if Arc::strong_count(&self.query) == 1 {
+            let query = std::mem::replace(&mut self.query, DROPPED.clone());
+            stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, move || drop(query));
+        }
+    }
 }
 
 impl Pattern {
@@ -134,7 +162,7 @@ impl Pattern {
     }
 
     pub fn query(&self, state: &State) -> Vec<Hap> {
-        (self.query)(state)
+        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || (self.query)(state))
     }
 
     pub fn set_steps(mut self, steps: Option<Frac>) -> Pattern {
@@ -1020,6 +1048,20 @@ mod survivor_tests {
 
     fn count(pat: &Pattern) -> usize {
         pat.query_arc(Frac::zero(), Frac::one()).len()
+    }
+
+    /// A pattern 100,000 combinators deep — what a script loop can build —
+    /// is queried and then freed on an ordinary 2 MB test thread. Both
+    /// recurse once per level; without growing the stack each overflowed by
+    /// about 5,000 levels in a debug build.
+    #[test]
+    fn a_pattern_of_any_depth_can_be_queried_and_freed() {
+        let mut pat = pure(Value::Int(1));
+        for _ in 0..100_000 {
+            pat = pat.fast(1).late(Frac::zero());
+        }
+        assert_eq!(count(&pat), 1);
+        drop(pat);
     }
 
     #[test]

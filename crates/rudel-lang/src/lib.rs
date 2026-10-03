@@ -357,16 +357,16 @@ fn evaluate(
 
 /// `pat`, holding `session` for as long as it lives: the engine a script
 /// function inside it runs on.
-fn keep_alive(pat: Pattern, session: Arc<js::Session>) -> Pattern {
+fn keep_alive(mut pat: Pattern, session: Arc<js::Session>) -> Pattern {
     let inner = pat.clone();
     let mut out = Pattern::new(move |state| {
         let _engine = &session;
         inner.query(state)
     });
     out.steps = pat.steps;
-    out.pure_value = pat.pure_value;
+    out.pure_value = pat.pure_value.take();
     out.pure_loc = pat.pure_loc;
-    out.source = pat.source;
+    out.source = pat.source.take();
     out
 }
 

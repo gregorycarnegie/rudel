@@ -92,6 +92,20 @@ fn deeply_nested(depth: usize) -> Vec<String> {
     ]
 }
 
+/// A loop can build a pattern far deeper than any bracket limit allows, and
+/// the scheduler and the UI then query and free it on their own threads.
+#[test]
+fn a_pattern_built_by_a_long_loop_plays_and_is_freed() {
+    let pat = eval("let p = s('bd'); for (let i = 0; i < 20000; i++) p = p.fast(1); p")
+        .expect("evaluates");
+    std::thread::spawn(move || {
+        assert_eq!(values(&pat, 0, 1).len(), 1);
+        drop(pat);
+    })
+    .join()
+    .expect("queried and freed on a default-sized thread");
+}
+
 /// However deep a script nests, the preprocessor and evaluation return — an
 /// error is fine — rather than overflowing a stack and aborting the app.
 #[test]
