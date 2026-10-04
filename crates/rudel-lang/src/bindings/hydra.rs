@@ -452,6 +452,24 @@ src(s0).out()",
     }
 
     #[test]
+    fn init_cam_names_the_camera_a_source_shows() {
+        let scene = scene_of(
+            "await initHydra()
+s2.initCam(1)
+s0.initCam()
+src(s2).out()",
+        );
+        assert_eq!(
+            scene.options.get("s2"),
+            Some(&WidgetOption::String("camera:1".into()))
+        );
+        assert_eq!(
+            scene.options.get("s0"),
+            Some(&WidgetOption::String("camera:0".into()))
+        );
+    }
+
+    #[test]
     fn every_hydra_function_is_in_the_table() {
         // The methods are generated from the table, so its size is the one
         // thing to pin: `src`/`prev`/`sum` are the documented gaps.

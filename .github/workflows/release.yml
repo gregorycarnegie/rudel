@@ -43,6 +43,7 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libgtk-3-dev \
+            libclang-dev \
             autoconf automake libtool
 
       - uses: dtolnay/rust-toolchain@stable

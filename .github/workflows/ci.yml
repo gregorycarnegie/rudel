@@ -54,6 +54,7 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libgtk-3-dev \
+            libclang-dev \
             autoconf automake libtool \
             libcsound64-dev
           echo "RUDEL_CSOUND_REQUIRED=1" >> "$GITHUB_ENV"
@@ -95,6 +96,7 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libgtk-3-dev \
+            libclang-dev \
             autoconf automake libtool
 
       - name: Read the workspace rust-version

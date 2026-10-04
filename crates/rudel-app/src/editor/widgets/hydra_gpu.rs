@@ -181,6 +181,9 @@ struct Surface {
     chain_bind: [wgpu::BindGroup; 2],
     /// What the canvas visuals draw into, read as `s0`, with a feed.
     feed: Option<wgpu::TextureView>,
+    /// The source textures, and which picture each last showed: a camera's
+    /// next frame is written into its texture, not a new surface.
+    pictures: [Option<(wgpu::Texture, Arc<Picture>)>; 4],
     write: usize,
     used: Instant,
 }
@@ -431,12 +434,12 @@ fn render_pipeline(
 
 /// A loaded picture as a texture for an external source. In the outputs'
 /// colour space, so `src(s0)` and `src(o0)` read alike.
-fn picture_view(
+fn picture_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     format: wgpu::TextureFormat,
     picture: &Picture,
-) -> wgpu::TextureView {
+) -> wgpu::Texture {
     let format = if format.is_srgb() {
         wgpu::TextureFormat::Rgba8UnormSrgb
     } else {
@@ -457,6 +460,12 @@ fn picture_view(
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
+    upload(queue, &texture, picture);
+    texture
+}
+
+/// Write `picture` into `texture`, which is its size.
+fn upload(queue: &wgpu::Queue, texture: &wgpu::Texture, picture: &Picture) {
     queue.write_texture(
         texture.as_image_copy(),
         &picture.rgba,
@@ -465,9 +474,8 @@ fn picture_view(
             bytes_per_row: Some(4 * picture.width),
             rows_per_image: Some(picture.height),
         },
-        size,
+        texture.size(),
     );
-    texture.create_view(&Default::default())
 }
 
 fn build_surface(
@@ -540,10 +548,13 @@ fn build_surface(
         })
     });
 
-    let pictures: [Option<wgpu::TextureView>; 4] = std::array::from_fn(|i| {
-        let picture = call.pictures[i].as_deref()?;
-        Some(picture_view(device, queue, format, picture))
+    let textures: [Option<(wgpu::Texture, Arc<Picture>)>; 4] = std::array::from_fn(|i| {
+        let picture = call.pictures[i].as_ref()?;
+        let texture = picture_texture(device, queue, format, picture);
+        Some((texture, picture.clone()))
     });
+    let pictures: [Option<wgpu::TextureView>; 4] =
+        std::array::from_fn(|i| Some(textures[i].as_ref()?.0.create_view(&Default::default())));
     let feed = call.feed.is_some().then(make_view);
     let picture = |i: usize| match (i, &feed) {
         (0, Some(feed)) => feed,
@@ -655,6 +666,7 @@ fn build_surface(
         uniforms,
         chain_bind,
         feed,
+        pictures: textures,
         write: 0,
         used: Instant::now(),
     }
@@ -732,6 +744,14 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
             return commands;
         };
         surface.used = Instant::now();
+        for (slot, picture) in surface.pictures.iter_mut().zip(&self.pictures) {
+            if let (Some((texture, shown)), Some(picture)) = (slot, picture)
+                && !Arc::ptr_eq(shown, picture)
+            {
+                upload(queue, texture, picture);
+                *shown = picture.clone();
+            }
+        }
         // Alternate before drawing, so this frame writes the buffer the last
         // one was reading and `prev()` sees the last frame rather than this one.
         surface.write = 1 - surface.write;
@@ -868,8 +888,17 @@ pub(super) fn paint_hydra_gpu(
     let mut hasher = DefaultHasher::new();
     sources.hash(&mut hasher);
     render.hash(&mut hasher);
-    for picture in &pictures {
-        picture.as_ref().map(Arc::as_ptr).hash(&mut hasher);
+    for (i, picture) in pictures.iter().enumerate() {
+        let url = super::options::option_str(&widget.options, &format!("s{i}"));
+        if url.and_then(super::hydra_images::camera_index).is_some() {
+            // A camera's frames come and go; only its size needs a new surface.
+            picture
+                .as_ref()
+                .map(|p| (p.width, p.height))
+                .hash(&mut hasher);
+        } else {
+            picture.as_ref().map(Arc::as_ptr).hash(&mut hasher);
+        }
     }
     feed.is_some().hash(&mut hasher);
     let hash = hasher.finish();

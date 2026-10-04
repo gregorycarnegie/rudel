@@ -550,9 +550,14 @@ upstream:
   UI thread, from http(s) (through the sample cache) or from this computer: an
   absolute path, `~/…`, a `file:///…` URL, or a path relative to the open
   file's folder. Write Windows paths with forward slashes, since a JavaScript
-  string reads `\U` as `U`. `src(s0)` shows the picture once it lands, in the scene and in inline `_hydra`
-  widgets alike. `initCam`/`initVideo`/`initScreen`/`initStream` are accepted
-  and read as empty: rudel has no camera, video or screen capture.
+  string reads `\U` as `U`. `src(s0)` shows the picture once it lands, in the
+  scene and in inline `_hydra` widgets alike.
+- `initCam(n)` streams the nth webcam (nokhwa, through Media Foundation on
+  Windows), asking for 720p at 30 fps; MJPEG, YUYV and raw RGB frames are read.
+  Each camera runs on a thread of its own and stops, releasing the device, a
+  few seconds after nothing shows it. Upstream's `params` argument (texture
+  options) is ignored. `initVideo`/`initScreen`/`initStream` are accepted and
+  read as empty: rudel has no video file or screen capture.
 - `initHydra({feedStrudel: 1})` feeds Strudel's own canvas into `s0`. Upstream
   that is the full-screen canvas the public-spelled visuals draw on
   (`.scope()`, `.pianoroll()`, `.spiral()`, … but not `._scope()`, which is

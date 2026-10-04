@@ -2,6 +2,7 @@ mod analyzer;
 mod claviature;
 mod geometry;
 mod host;
+mod hydra_camera;
 mod hydra_gpu;
 mod hydra_images;
 mod options;
