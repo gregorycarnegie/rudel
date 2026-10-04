@@ -17,7 +17,9 @@ pub(super) fn frame(ctx: &egui::Context) -> Option<Arc<Picture>> {
 pub(super) fn frame(_ctx: &egui::Context) -> Option<Arc<Picture>> {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        rudel_core::log_line("hydra: initScreen(): screen capture is not available on Linux");
+        rudel_core::log_line(
+            "hydra: initScreen(): screen capture is not available on Linux".to_string(),
+        );
     });
     None
 }

@@ -47,13 +47,15 @@ enum Probe {
 
 /// A command that opens no console window of its own on Windows.
 fn tool(name: &str) -> Command {
-    let mut command = Command::new(name);
+    let command = Command::new(name);
     #[cfg(windows)]
-    {
+    let command = {
+        let mut command = command;
         use std::os::windows::process::CommandExt as _;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
-    }
+        command
+    };
     command
 }
 
