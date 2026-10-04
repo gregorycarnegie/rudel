@@ -30,6 +30,23 @@ mod table;
 pub use params::HydraParam;
 pub(crate) use params::Seq;
 
+/// The latest specific loudness of the audio rudel is playing, in Meyda's 24
+/// Bark bands, and which frame it is from: what hydra's `a` analyses (upstream
+/// that is the microphone; here it is rudel's own output).
+static LOUDNESS: std::sync::Mutex<(u64, Vec<f32>)> = std::sync::Mutex::new((0, Vec::new()));
+
+/// Publish this frame's loudness for hydra's `a.fft`.
+pub fn set_loudness(specific: &[f32]) {
+    let mut loudness = LOUDNESS.lock().unwrap_or_else(|e| e.into_inner());
+    loudness.0 += 1;
+    loudness.1.clear();
+    loudness.1.extend_from_slice(specific);
+}
+
+pub(crate) fn loudness() -> (u64, Vec<f32>) {
+    LOUDNESS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// How many per-frame arguments a shader can read (`hu.dyn`, 16 `vec4`s).
 /// One past that takes the input's default.
 pub const MAX_DYNAMIC: usize = 64;

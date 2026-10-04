@@ -578,6 +578,16 @@ impl RudelApp {
                         let widgets = self.editor_decorations.widgets().to_vec();
                         let backdrop = self.editor_decorations.backdrop().cloned();
                         let hydra_time = self.hydra_epoch.elapsed().as_secs_f64();
+                        // What hydra's `a` hears this frame, for any function
+                        // argument that reads `a.fft`.
+                        if !self.hydra_params.is_empty()
+                            && let Some(engine) = &self.engine
+                        {
+                            rudel_lang::hydra::set_loudness(&super::hydra_audio::tap_loudness(
+                                engine.scope_taps().master(),
+                                engine.sample_rate(),
+                            ));
+                        }
                         let cycle = self.playback_position_cycles().unwrap_or(0.0);
                         let hydra_values: Vec<Option<f64>> = self
                             .hydra_params

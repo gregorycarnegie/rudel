@@ -178,6 +178,22 @@ pub(crate) fn register(prelude: &Scope) {
         _ => Err("hydra: out is not called on a chain".to_string()),
     });
     let namespace = prelude.namespace("Hydra");
+    // The loudness hydra's `a` reads each frame (`prelude.js`).
+    namespace.func("_loudness", |_| {
+        let (frame, specific) = hydra::loudness();
+        Ok(Arg::Map(vec![
+            ("frame".to_string(), Arg::Num(frame as f64)),
+            (
+                "specific".to_string(),
+                Arg::List(
+                    specific
+                        .into_iter()
+                        .map(|v| Arg::Num(f64::from(v)))
+                        .collect(),
+                ),
+            ),
+        ]))
+    });
     // `render(o2)` shows one output; `render()` all four.
     namespace.func("render", |a| {
         SCENE.with(|s| s.borrow_mut().render = Some(output_index(a.first())));
@@ -319,6 +335,29 @@ n(a.fft.length)";
             wgsl.contains("hu.dyn[0][0]") && wgsl.contains("hu.dyn_set[0][2]"),
             "{wgsl}"
         );
+    }
+
+    #[test]
+    fn a_reads_the_loudness_the_app_publishes_once_a_frame() {
+        let src = "await initHydra({detectAudio: true})
+                   osc(() => a.fft[0], a0(2, 1), () => a.fft[3]).out()";
+        let result = crate::eval_result(src).expect("eval");
+        let params = &result.meta.hydra_params;
+        hydra::set_loudness(&[10.0; 24]);
+        // hydra-synth's tick: bins of six bands, smoothed 0.4 against the
+        // last (zero), then cut off at 2 and scaled by 10.
+        let fft0 = params[0].value(0.0, 0.0).expect("a number");
+        assert!((fft0 - 3.4).abs() < 1e-6, "{fft0}");
+        // The same frame again: no second tick, so no second smoothing.
+        let again = params[0].value(0.0, 0.0).expect("a number");
+        assert!((again - fft0).abs() < 1e-6, "{again}");
+        // `a0(scale, offset)` is `() => a.fft[0] * scale + offset`.
+        let a0 = params[1].value(0.0, 0.0).expect("a number");
+        assert!((a0 - (fft0 * 2.0 + 1.0)).abs() < 1e-6, "{a0}");
+        // A new frame ticks again, smoothing toward the new level.
+        hydra::set_loudness(&[10.0; 24]);
+        let next = params[2].value(0.0, 0.0).expect("a number");
+        assert!(next > fft0, "{next}");
     }
 
     #[test]

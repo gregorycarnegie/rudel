@@ -1,4 +1,5 @@
 mod files;
+mod hydra_audio;
 mod panels;
 mod routing;
 mod samples;

@@ -559,8 +559,12 @@ upstream:
 - The scene keeps hydra's own clock, seconds since launch, running with the
   transport stopped as upstream's does; an inline `_hydra` widget follows the
   cycle.
-- `a` (with `initHydra({detectAudio: true})`) has `fft` and its setters, but the
-  FFT reads zero.
+- `a` (with `initHydra({detectAudio: true})`) hears rudel's own output, not the
+  microphone: the app computes Meyda's 24-band `loudness` of the master mix each
+  frame (`crates/rudel-app/src/app/hydra_audio.rs`), and `a` folds it into
+  `a.fft` with hydra-synth's own bins, smoothing, cutoff, scale and beat
+  detection, plus the `a0()`… helpers. Its little bar display (`a.show()`) is
+  not drawn.
 - `width`/`height` are fixed at 1920×1080 and `mouse` at the origin; `time`
   stays Strudel's signal.
 

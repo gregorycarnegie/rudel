@@ -105,22 +105,75 @@
   };
   // hydra's canvas size and pointer, fixed here: there is no canvas.
   Object.assign(Hydra, { width: 1920, height: 1080, mouse: { x: 0, y: 0 } });
-  // `a`, hydra's audio analyser, with `detectAudio: true`. Its FFT reads
-  // zero until the analyser is wired up.
+  // `a`, hydra's audio analyser (hydra-synth `lib/audio.js`), with
+  // `detectAudio: true`. Upstream it listens to the microphone through Meyda;
+  // here it hears rudel's own output, as the same 24-band loudness
+  // (`Hydra._loudness`), and folds it into bins exactly as upstream does.
   const audioAnalyser = () => {
-    const none = () => {};
-    return {
-      fft: [0, 0, 0, 0],
-      setBins(bins) {
-        this.fft = new Array(bins).fill(0);
+    const each = (key) =>
+      function (value) {
+        this[key] = value;
+        this.settings = this.settings.map((s) => ({ ...s, [key]: value }));
+      };
+    const a = {
+      vol: 0,
+      scale: 10,
+      max: 15,
+      cutoff: 2,
+      smooth: 0.4,
+      frame: -1,
+      beat: { holdFrames: 20, threshold: 40, _cutoff: 0, decay: 0.98, _framesSinceBeat: 0 },
+      onBeat() {},
+      show() {},
+      hide() {},
+      setMax(max) {
+        this.max = max;
       },
-      setSmooth: none,
-      setCutoff: none,
-      setScale: none,
-      show: none,
-      hide: none,
-      onBeat: none,
+      setCutoff: each('cutoff'),
+      setSmooth: each('smooth'),
+      setScale: each('scale'),
+      setBins(numBins) {
+        this.bins = Array(numBins).fill(0);
+        this.prevBins = Array(numBins).fill(0);
+        this.fft = Array(numBins).fill(0);
+        this.settings = Array(numBins)
+          .fill(0)
+          .map(() => ({ cutoff: this.cutoff, scale: this.scale, smooth: this.smooth }));
+        this.bins.forEach((_, index) => {
+          globalThis['a' + index] = (scale = 1, offset = 0) => () => a.fft[index] * scale + offset;
+        });
+      },
+      detectBeat(level) {
+        const beat = this.beat;
+        if (level > beat._cutoff && level > beat.threshold) {
+          this.onBeat();
+          beat._cutoff = level * 1.2;
+          beat._framesSinceBeat = 0;
+        } else if (beat._framesSinceBeat <= beat.holdFrames) {
+          beat._framesSinceBeat++;
+        } else {
+          beat._cutoff = Math.max(beat._cutoff * beat.decay, beat.threshold);
+        }
+      },
+      // Once per frame, however many function arguments read it.
+      tick() {
+        const { frame, specific } = Hydra._loudness();
+        if (frame === this.frame || specific.length === 0) return;
+        this.frame = frame;
+        this.vol = specific.reduce((x, y) => x + y, 0);
+        this.detectBeat(this.vol);
+        const spacing = Math.floor(specific.length / this.bins.length);
+        this.prevBins = this.bins.slice(0);
+        this.bins = this.bins
+          .map((_, i) => specific.slice(i * spacing, (i + 1) * spacing).reduce((x, y) => x + y, 0))
+          .map((bin, i) => bin * (1.0 - this.settings[i].smooth) + this.prevBins[i] * this.settings[i].smooth);
+        this.fft = this.bins.map((bin, i) =>
+          Math.max(0, (bin - this.settings[i].cutoff) / this.settings[i].scale),
+        );
+      },
     };
+    a.setBins(4);
+    return a;
   };
   // An array or function argument changes every frame upstream. The natives
   // cannot see an array's `_speed` and friends, nor keep a function, so they
@@ -135,6 +188,7 @@
       return {
         hydraFn: (props) => {
           if (typeof globalThis.time === 'number') globalThis.time = props.time;
+          globalThis.a?.tick?.();
           return v(props);
         },
       };
