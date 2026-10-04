@@ -15,6 +15,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **`.midi(port, options)` picks the device and takes Strudel's options:**
+  `isController`, `noteOffsetMs`, `latencyMs`, and default `midichannel`,
+  `velocity`, `gain` and `midimap`. The port (a name part or an index) and a
+  hap's `midiport` route to that device, opened on first use; before, the name
+  was ignored and everything went to the port picked in the app.
+
 - **Evaluating one block keeps the others playing,** as Strudel's block-based
   evaluation does: labelled patterns from the last full evaluation and the
   blocks since stay in the mix, a block replaces only the labels it defines (or
@@ -89,6 +95,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
   controls.** They were missing, so any pattern naming them failed to evaluate.
 
 ### Fixed
+
+- **MIDI CC and program change are sent without a note,** so
+  `ccn(74).ccv(sine.segment(16)).midi()` reaches the device. They used to need
+  a note on the same event.
+- **MIDI velocity is `velocity` × `gain`,** as in Strudel, so `.gain(0.5)`
+  sends 0.45, not 0.5. Note-offs come 10 ms before the event's end, Strudel's
+  `noteOffsetMs`, where rudel left 1 ms.
 
 - **`echo` and `stut` take patterns for every argument,** as upstream's
   `register` makes them. A count given as a pattern (`echo(reify(3), …)`)

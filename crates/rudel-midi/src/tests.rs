@@ -23,9 +23,10 @@ fn maps_note_velocity_channel() {
     ]))
     .unwrap();
     assert_eq!(n.note, 60);
-    assert_eq!(n.velocity, 127);
+    // gain multiplies the default velocity 0.9, as midi.mjs does
+    assert_eq!(n.velocity, 114);
     assert_eq!(n.channel, 1); // 1-based -> 0-based
-    assert_eq!(n.note_on_bytes(), [0x91, 60, 127]);
+    assert_eq!(n.note_on_bytes(), [0x91, 60, 114]);
     assert_eq!(n.note_off_bytes(), [0x81, 60, 0]);
 }
 
@@ -46,7 +47,6 @@ fn cc_and_default_channel() {
     ]))
     .unwrap();
     assert_eq!(n.channel, 0);
-    assert_eq!(n.ccs, vec![(74, clamp7(0.5 * 127.0))]);
 }
 
 #[test]
@@ -512,8 +512,6 @@ fn note_at(channel: u8) -> MidiNote {
         pitch: 60.0,
         note: 60,
         velocity: 100,
-        ccs: Vec::new(),
-        program: None,
         mpe: false,
         bend_range: 2.0,
         bend: None,
@@ -534,15 +532,16 @@ fn status_bytes_carry_the_status_nibble_and_the_channel() {
             [0x80 | ch, 60, 0],
             "note off, channel {ch}"
         );
+        let chan = Value::Int(i64::from(ch) + 1);
         assert_eq!(
-            n.cc_bytes(74, 42),
-            [0xB0 | ch, 74, 42],
-            "control change, channel {ch}"
-        );
-        assert_eq!(
-            n.program_bytes(7),
-            [0xC0 | ch, 7],
-            "program change, channel {ch}"
+            aux_messages(&map(&[
+                ("midichan", chan),
+                ("progNum", Value::Int(7)),
+                ("ccn", Value::Int(74)),
+                ("ccv", Value::F64(1.0)),
+            ])),
+            [vec![0xC0 | ch, 7], vec![0xB0 | ch, 74, 127]],
+            "program and control change, channel {ch}"
         );
     }
     // A note-off is always velocity 0, whatever the note's velocity was.
@@ -720,51 +719,135 @@ fn mpe_engages_for_pitches_between_the_keys() {
 }
 
 #[test]
-fn cc_and_program_controls_reach_the_note() {
-    let map = |pairs: Vec<(&str, Value)>| -> ValueMap {
-        pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
-    };
+fn cc_and_program_are_sent_with_or_without_a_note() {
     // `ccv` is 0..1 scaled to 0..127; both are needed or neither is sent.
-    let n = control_to_midi(&map(vec![
-        ("note", Value::F64(60.0)),
-        ("ccn", Value::F64(74.0)),
+    let cc = |pairs: &[(&str, Value)]| aux_messages(&map(pairs));
+    assert_eq!(
+        cc(&[("ccn", Value::F64(74.0)), ("ccv", Value::F64(1.0))]),
+        [vec![0xB0, 74, 127]],
+        "ccv 1.0 should be full scale"
+    );
+    assert_eq!(
+        cc(&[("ccn", Value::F64(1.0)), ("ccv", Value::F64(0.5))]),
+        [vec![0xB0, 1, 64]],
+        "ccv 0.5 is about half of 127"
+    );
+    assert!(
+        cc(&[("ccn", Value::F64(74.0))]).is_empty(),
+        "ccn without ccv sends no CC"
+    );
+    assert_eq!(cc(&[("progNum", Value::F64(9.0))]), [vec![0xC0, 9]]);
+
+    // A pattern of CCs alone (no note) still reaches the device.
+    let pat = pure(Value::Map(map(&[
+        ("ccn", Value::Int(74)),
         ("ccv", Value::F64(1.0)),
-    ]))
-    .unwrap();
-    assert_eq!(n.ccs, vec![(74, 127)], "ccv 1.0 should be full scale");
-
-    let half = control_to_midi(&map(vec![
-        ("note", Value::F64(60.0)),
-        ("ccn", Value::F64(1.0)),
-        ("ccv", Value::F64(0.5)),
-    ]))
-    .unwrap();
-    assert_eq!(half.ccs, vec![(1, 64)], "ccv 0.5 is about half of 127");
-
-    // `ccn` on its own sends nothing.
-    let lone = control_to_midi(&map(vec![
-        ("note", Value::F64(60.0)),
-        ("ccn", Value::F64(74.0)),
-    ]))
-    .unwrap();
-    assert!(lone.ccs.is_empty(), "ccn without ccv should send no CC");
-
-    // Program change comes from `progNum`.
+    ])));
+    let msgs = schedule_window(&pat, 1.0, 0.0, 1.0);
     assert_eq!(
-        control_to_midi(&map(vec![
-            ("note", Value::F64(60.0)),
-            ("progNum", Value::F64(9.0)),
-        ]))
-        .unwrap()
-        .program,
-        Some(9)
+        msgs.iter().map(|m| m.data.clone()).collect::<Vec<_>>(),
+        [vec![0xB0, 74, 127]]
+    );
+}
+
+/// A hap of `note` with `.midi(...)` options `options`.
+fn with_options(note: i64, options: &[(&str, Value)]) -> Pattern {
+    pure(Value::Map(map(&[
+        ("note", Value::Int(note)),
+        (crate::OPTIONS_KEY, Value::Map(map(options))),
+    ])))
+}
+
+#[test]
+fn midi_options_shape_what_is_sent() {
+    // isController: everything but the notes.
+    let pat = pure(Value::Map(map(&[
+        ("note", Value::Int(60)),
+        ("ccn", Value::Int(74)),
+        ("ccv", Value::F64(1.0)),
+        (
+            crate::OPTIONS_KEY,
+            Value::Map(map(&[("isController", Value::Bool(true))])),
+        ),
+    ])));
+    let data: Vec<Vec<u8>> = schedule_window(&pat, 1.0, 0.0, 1.0)
+        .into_iter()
+        .map(|m| m.data)
+        .collect();
+    assert_eq!(data, [vec![0xB0, 74, 127]]);
+
+    // The note-off comes noteOffsetMs (default 10) before the event's end.
+    let off = |pat: &Pattern| schedule_window(pat, 1.0, 0.0, 1.0)[1].at_seconds;
+    assert!((off(&with_options(60, &[])) - 0.99).abs() < 1e-9);
+    assert!((off(&with_options(60, &[("noteOffsetMs", Value::Int(100))])) - 0.9).abs() < 1e-9);
+
+    // latencyMs delays every message of the event.
+    let msgs = schedule_window(
+        &with_options(60, &[("latencyMs", Value::Int(50))]),
+        1.0,
+        0.0,
+        1.0,
+    );
+    assert!((msgs[0].at_seconds - 0.05).abs() < 1e-9);
+    assert!((msgs[1].at_seconds - 1.04).abs() < 1e-9);
+
+    // Defaults the hap's own controls override.
+    let n = control_to_midi(&map(&[
+        ("note", Value::Int(60)),
+        (
+            crate::OPTIONS_KEY,
+            Value::Map(map(&[
+                ("midichannel", Value::Int(3)),
+                ("velocity", Value::F64(0.5)),
+                ("gain", Value::F64(0.5)),
+            ])),
+        ),
+    ]))
+    .unwrap();
+    assert_eq!((n.channel, n.velocity), (2, clamp7(0.25 * 127.0)));
+    let n = control_to_midi(&map(&[
+        ("note", Value::Int(60)),
+        ("midichan", Value::Int(5)),
+        ("velocity", Value::F64(1.0)),
+        (
+            crate::OPTIONS_KEY,
+            Value::Map(map(&[
+                ("midichannel", Value::Int(3)),
+                ("gain", Value::F64(0.5)),
+            ])),
+        ),
+    ]))
+    .unwrap();
+    assert_eq!((n.channel, n.velocity), (4, clamp7(0.5 * 127.0)));
+}
+
+#[test]
+fn the_port_is_the_hap_s_midiport_else_the_midi_call_s() {
+    let ports = |pat: &Pattern| {
+        schedule_window(pat, 1.0, 0.0, 1.0)
+            .into_iter()
+            .map(|m| m.port)
+            .collect::<Vec<_>>()
+    };
+    let named = Some(Port::Name("IAC".into()));
+    assert_eq!(
+        ports(&with_options(60, &[("port", Value::Str("IAC".into()))])),
+        [named.clone(), named]
     );
     assert_eq!(
-        control_to_midi(&map(vec![("note", Value::F64(60.0))]))
-            .unwrap()
-            .program,
-        None
+        ports(&with_options(60, &[("port", Value::Int(2))]))[0],
+        Some(Port::Index(2))
     );
+    assert_eq!(ports(&note(pure(Value::Int(60))))[0], None);
+    let pat = pure(Value::Map(map(&[
+        ("note", Value::Int(60)),
+        ("midiport", Value::Str("Synth".into())),
+        (
+            crate::OPTIONS_KEY,
+            Value::Map(map(&[("port", Value::Str("IAC".into()))])),
+        ),
+    ])));
+    assert_eq!(ports(&pat)[0], Some(Port::Name("Synth".into())));
 }
 
 /// Opening and closing ports from several threads at once used to corrupt the
@@ -1079,6 +1162,20 @@ fn a_real_output_port_lists_opens_and_rejects_an_empty_message() {
     // All notes off: a real message that makes no sound.
     out.send(&[CONTROL_CHANGE, 123, 0]).expect("sends");
     assert!(out.send(&[]).is_err(), "an empty message is not MIDI");
+
+    // A pattern naming the port that is already open shares its connection
+    // (Windows will not open a port twice); a name that matches nothing is
+    // dropped.
+    let index = ports.iter().position(|p| p == port).expect("listed");
+    for same in [Port::Name("GS Wavetable".into()), Port::Index(index)] {
+        assert!(
+            matches!(out.route(&same), crate::output::Route::Own),
+            "{same:?}"
+        );
+    }
+    let missing = Port::Name("no such device anywhere".into());
+    assert!(matches!(out.route(&missing), crate::output::Route::Missing));
+    MidiSink::send_to(&mut out, Some(&missing), &[CONTROL_CHANGE, 123, 0]);
 }
 
 #[test]

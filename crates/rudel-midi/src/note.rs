@@ -19,10 +19,6 @@ pub struct MidiNote {
     pub pitch: f64,
     pub note: u8,
     pub velocity: u8,
-    /// `(controller, value)` pairs to send at the note onset.
-    pub ccs: Vec<(u8, u8)>,
-    /// Program change to send at the note onset, if any.
-    pub program: Option<u8>,
     /// Use lower-zone MPE for this note.
     pub mpe: bool,
     /// Pitch-bend range in semitones for MPE member channels.
@@ -40,14 +36,6 @@ impl MidiNote {
         [NOTE_OFF | (self.channel & 0x0F), self.note, 0]
     }
 
-    pub fn cc_bytes(&self, controller: u8, value: u8) -> [u8; 3] {
-        [CONTROL_CHANGE | (self.channel & 0x0F), controller, value]
-    }
-
-    pub fn program_bytes(&self, program: u8) -> [u8; 2] {
-        [PROGRAM_CHANGE | (self.channel & 0x0F), program]
-    }
-
     pub fn pitch_bend_bytes(&self) -> Option<[u8; 3]> {
         self.bend.map(|bend| pitch_bend_bytes(self.channel, bend))
     }
@@ -55,6 +43,63 @@ impl MidiNote {
 
 fn get_f64(m: &ValueMap, key: &str) -> Option<f64> {
     m.get(key).and_then(|v| v.as_f64())
+}
+
+/// The control `.midi(port, options)` stores its options under (midi.mjs's
+/// `midiConfig`), keyed by upstream's option names, plus `port`.
+pub const OPTIONS_KEY: &str = "_midi";
+
+/// One of the hap's `.midi(port, options)` options.
+pub(crate) fn option<'a>(controls: &'a ValueMap, key: &str) -> Option<&'a Value> {
+    match controls.get(OPTIONS_KEY)? {
+        Value::Map(options) => options.get(key),
+        _ => None,
+    }
+}
+
+/// The hap's own `key`, else the `option` of its `.midi(...)` call.
+fn option_f64(controls: &ValueMap, key: &str, option_name: &str) -> Option<f64> {
+    get_f64(controls, key).or_else(|| option(controls, option_name).and_then(Value::as_f64))
+}
+
+/// Controller mode (`isController`): everything but notes is sent.
+pub(crate) fn is_controller(controls: &ValueMap) -> bool {
+    ["isController", "controller"]
+        .iter()
+        .any(|key| option(controls, key).is_some_and(Value::truthy))
+}
+
+/// How much earlier than its event's end a note-off goes (`noteOffsetMs`,
+/// default 10 ms), so it does not land on the next note-on.
+pub(crate) fn note_offset_seconds(controls: &ValueMap) -> f64 {
+    option(controls, "noteOffsetMs")
+        .and_then(Value::as_f64)
+        .unwrap_or(10.0)
+        / 1000.0
+}
+
+/// How much later than its event every message goes (`latencyMs`, default 0),
+/// to line a device up with the audio.
+pub(crate) fn latency_seconds(controls: &ValueMap) -> f64 {
+    option(controls, "latencyMs")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        / 1000.0
+}
+
+/// The device a hap goes to: its own `midiport`, else the `.midi(port)` one,
+/// else (`None`) the output the app opened.
+pub(crate) fn port_of(controls: &ValueMap) -> Option<crate::Port> {
+    let port = controls
+        .get("midiport")
+        .or_else(|| option(controls, "port"))?;
+    match port {
+        Value::Str(name) => Some(crate::Port::Name(name.clone())),
+        other => other
+            .as_f64()
+            .filter(|i| *i >= 0.0)
+            .map(|i| crate::Port::Index(i as usize)),
+    }
 }
 
 fn get_bool(m: &ValueMap, key: &str) -> Option<bool> {
@@ -105,10 +150,12 @@ pub fn reset_messages() -> Vec<Vec<u8>> {
 /// Map a control map to a [`MidiNote`], or `None` if it carries no pitch.
 ///
 /// - pitch from `freq` first, then `note`/`n` (number or note name)
-/// - velocity from `velocity` (0..1), else `gain` (0..1), else 0.9
+/// - velocity is `velocity` (0..1, default 0.9) times `gain` (default 1), as
+///   midi.mjs computes it
 /// - channel from `midichan`/`channel` (1-based), else 1
-/// - control-change from `ccn` + `ccv` (value 0..1)
-/// - program change from `progNum`
+///
+/// Where the hap has none of its own, the defaults come from the
+/// `.midi(port, options)` options.
 pub fn control_to_midi(controls: &ValueMap) -> Option<MidiNote> {
     let freq_pitch = controls
         .get("freq")
@@ -125,16 +172,9 @@ pub fn control_to_midi(controls: &ValueMap) -> Option<MidiNote> {
         return None;
     }
 
-    let velocity = get_f64(controls, "velocity")
-        .or_else(|| get_f64(controls, "gain"))
-        .unwrap_or(0.9);
+    let velocity = option_f64(controls, "velocity", "velocity").unwrap_or(0.9)
+        * option_f64(controls, "gain", "gain").unwrap_or(1.0);
     let channel = channel_of(controls);
-
-    let mut ccs = Vec::new();
-    if let (Some(n), Some(v)) = (get_f64(controls, "ccn"), get_f64(controls, "ccv")) {
-        ccs.push((clamp7(n), clamp7(v * 127.0)));
-    }
-    let program = get_f64(controls, "progNum").map(clamp7);
     // No guard on a non-positive range here: `bend_value` and
     // `bend_range_key` both fall back to `DEFAULT_BEND_RANGE` themselves.
     let bend_range = get_f64(controls, "bendRange").unwrap_or(DEFAULT_BEND_RANGE);
@@ -148,8 +188,6 @@ pub fn control_to_midi(controls: &ValueMap) -> Option<MidiNote> {
         pitch,
         note,
         velocity: clamp7(velocity * 127.0),
-        ccs,
-        program,
         mpe,
         bend_range,
         bend,
@@ -160,6 +198,7 @@ pub fn control_to_midi(controls: &ValueMap) -> Option<MidiNote> {
 pub(crate) fn channel_of(controls: &ValueMap) -> u8 {
     let chan = get_f64(controls, "midichan")
         .or_else(|| get_f64(controls, "channel"))
+        .or_else(|| option(controls, "midichannel").and_then(Value::as_f64))
         .unwrap_or(1.0);
     ((chan as i64 - 1).clamp(0, 15)) as u8
 }
@@ -273,10 +312,16 @@ pub(crate) fn aux_messages(controls: &ValueMap) -> Vec<Vec<u8>> {
     // is `default` unless the hap picks another with `.midimap("name")`.
     let map_name = controls
         .get("midimap")
+        .or_else(|| option(controls, "midimap"))
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_else(|| "default".to_string());
     for (ccn, ccv) in midimap_ccs(&map_name, controls) {
         out.push(vec![CONTROL_CHANGE | channel, ccn, clamp7(ccv * 127.0)]);
+    }
+
+    // Program change (`progNum`).
+    if let Some(p) = get_f64(controls, "progNum") {
+        out.push(vec![PROGRAM_CHANGE | channel, clamp7(p)]);
     }
 
     // System exclusive: F0, <manufacturer id bytes>, <data bytes>, F7.
@@ -286,6 +331,11 @@ pub(crate) fn aux_messages(controls: &ValueMap) -> Vec<Vec<u8>> {
         msg.extend(bytes_from_value(data));
         msg.push(SYSEX_END);
         out.push(msg);
+    }
+
+    // Control change: `ccn` + `ccv` (0..1); one without the other sends nothing.
+    if let (Some(n), Some(v)) = (get_f64(controls, "ccn"), get_f64(controls, "ccv")) {
+        out.push(vec![CONTROL_CHANGE | channel, clamp7(n), clamp7(v * 127.0)]);
     }
 
     // NRPN non-registered parameter (nrpnn) + value (nrpv).

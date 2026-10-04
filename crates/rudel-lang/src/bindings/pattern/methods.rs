@@ -882,10 +882,43 @@ pub(super) fn kpattern_as_controls(pat: &Pattern, a: &[Arg]) -> Res {
     Ok(pat.as_controls(&refs).into())
 }
 
+/// `.midi(port, options)`: route to MIDI, carrying the device and midi.mjs's
+/// options (`isController`, `noteOffsetMs`, `latencyMs`, and the defaults
+/// `midichannel`/`velocity`/`gain`/`midimap`) for rudel-midi to read, under
+/// its `OPTIONS_KEY`. The older one-object form `.midi({port, ...})` works too.
 pub(super) fn kpattern_midi(pat: &Pattern, a: &[Arg]) -> Res {
+    let mut options = rudel_core::ValueMap::new();
+    let merge = |options: &mut rudel_core::ValueMap, arg: &Arg| {
+        if let Value::Map(entries) = to_value(arg) {
+            options.extend(entries);
+        }
+    };
+    let port = match arg(a, 0) {
+        // `.midi("IAC")`: double quotes make a pattern, which upstream refuses;
+        // one that is a single name is taken as the name, as rudel always has.
+        port @ Arg::Pat(_) if arg_to_raw_str(port).is_some() => {
+            Value::Str(arg_to_raw_str(port).unwrap_or_default())
+        }
+        Arg::Pat(_) => {
+            return Err(
+                ".midi does not accept Pattern input for midiport. Make sure to \
+                        pass device name with single quotes. Example: .midi('IAC Driver Bus 1')"
+                    .to_string(),
+            );
+        }
+        object @ Arg::Map(_) => {
+            merge(&mut options, object);
+            options.shift_remove("port").unwrap_or(Value::Null)
+        }
+        port => to_value(port),
+    };
+    merge(&mut options, arg(a, 1));
+    if !matches!(port, Value::Null) {
+        options.insert("port".to_string(), port);
+    }
     let mut p = pat.ctrl(IO_KEY, rudel_core::pure(Value::Str("midi".into())));
-    if let Some(port) = arg_to_raw_str(arg(a, 0)) {
-        p = p.ctrl("_midiport", rudel_core::pure(Value::Str(port)));
+    if !options.is_empty() {
+        p = p.ctrl("_midi", rudel_core::pure(Value::Map(options)));
     }
     Ok(p.into())
 }

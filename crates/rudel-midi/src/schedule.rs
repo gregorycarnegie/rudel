@@ -1,6 +1,9 @@
 use crate::{
     CONTROL_CHANGE, DEFAULT_BEND_RANGE, MPE_FIRST_MEMBER, MPE_LAST_MEMBER, MPE_MASTER_CHANNEL,
-    note::{aux_messages, control_to_midi},
+    Port,
+    note::{
+        aux_messages, control_to_midi, is_controller, latency_seconds, note_offset_seconds, port_of,
+    },
 };
 use rudel_core::{Pattern, query_controls};
 
@@ -10,6 +13,8 @@ use rudel_core::{Pattern, query_controls};
 pub struct TimedMidi {
     pub at_seconds: f64,
     pub data: Vec<u8>,
+    /// The device it goes to, when not the output the app opened.
+    pub port: Option<Port>,
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +85,7 @@ fn push_cc(out: &mut Vec<TimedMidi>, at_seconds: f64, channel: u8, cc: u8, value
     out.push(TimedMidi {
         at_seconds,
         data: vec![CONTROL_CHANGE | (channel & 0x0F), cc, value],
+        port: None,
     });
 }
 
@@ -122,57 +128,53 @@ pub(crate) fn schedule_window_with_state(
 ) -> Vec<TimedMidi> {
     let mut out = Vec::new();
     for ev in query_controls(pattern, cps, begin_cycle, end_cycle) {
+        let first = out.len();
         let on = ev.onset_seconds;
-
-        // Note-independent messages (sysex, NRPN, aftertouch, raw bend) fire at
-        // the onset whether or not the hap carries a note, like midi.mjs.
-        for data in aux_messages(&ev.controls) {
-            out.push(TimedMidi {
-                at_seconds: on,
-                data,
-            });
-        }
-
-        let Some(mut note) = control_to_midi(&ev.controls) else {
-            continue;
+        let at = |data: Vec<u8>, at_seconds: f64| TimedMidi {
+            at_seconds,
+            data,
+            port: None,
         };
-        // Hold for the event duration, minus a tiny gap to retrigger cleanly.
-        let off = on + (ev.duration_seconds - 0.001).max(0.0);
-        if note.mpe {
-            out.extend(mpe_state.setup_messages(on, note.bend_range));
-            if let Some(channel) = mpe_state.allocate(on, off) {
-                note.channel = channel;
-            } else {
-                note.channel = MPE_MASTER_CHANNEL;
-                note.bend = None;
+
+        // Note-independent messages (CC, program, sysex, NRPN, aftertouch, raw
+        // bend) fire at the onset whether or not the hap carries a note, like
+        // midi.mjs.
+        out.extend(
+            aux_messages(&ev.controls)
+                .into_iter()
+                .map(|data| at(data, on)),
+        );
+
+        // A controller (`isController`) is sent everything but notes.
+        let note = (!is_controller(&ev.controls))
+            .then(|| control_to_midi(&ev.controls))
+            .flatten();
+        if let Some(mut note) = note {
+            // Hold for the event, less `noteOffsetMs`, so the note-off does not
+            // land on the next note-on.
+            let off = on + (ev.duration_seconds - note_offset_seconds(&ev.controls)).max(0.0);
+            if note.mpe {
+                out.extend(mpe_state.setup_messages(on, note.bend_range));
+                if let Some(channel) = mpe_state.allocate(on, off) {
+                    note.channel = channel;
+                } else {
+                    note.channel = MPE_MASTER_CHANNEL;
+                    note.bend = None;
+                }
             }
+            if let Some(bytes) = note.pitch_bend_bytes() {
+                out.push(at(bytes.to_vec(), on));
+            }
+            out.push(at(note.note_on_bytes().to_vec(), on));
+            out.push(at(note.note_off_bytes().to_vec(), off));
         }
-        if let Some(p) = note.program {
-            out.push(TimedMidi {
-                at_seconds: on,
-                data: note.program_bytes(p).to_vec(),
-            });
+
+        let port = port_of(&ev.controls);
+        let latency = latency_seconds(&ev.controls);
+        for m in &mut out[first..] {
+            m.at_seconds += latency;
+            m.port = port.clone();
         }
-        for &(c, v) in &note.ccs {
-            out.push(TimedMidi {
-                at_seconds: on,
-                data: note.cc_bytes(c, v).to_vec(),
-            });
-        }
-        if let Some(bytes) = note.pitch_bend_bytes() {
-            out.push(TimedMidi {
-                at_seconds: on,
-                data: bytes.to_vec(),
-            });
-        }
-        out.push(TimedMidi {
-            at_seconds: on,
-            data: note.note_on_bytes().to_vec(),
-        });
-        out.push(TimedMidi {
-            at_seconds: off,
-            data: note.note_off_bytes().to_vec(),
-        });
     }
     out.sort_by(|a, b| a.at_seconds.total_cmp(&b.at_seconds));
     out

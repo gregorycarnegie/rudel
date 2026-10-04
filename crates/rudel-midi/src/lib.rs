@@ -24,8 +24,9 @@ mod output;
 mod schedule;
 
 pub use input::{ClockDetector, InputAction, MidiIn, bpm_to_cps, process_input};
+pub use note::OPTIONS_KEY;
 pub use note::{MidiNote, control_to_midi, reset_messages};
-pub use output::{MidiEngine, MidiOut, MidiSink};
+pub use output::{MidiEngine, MidiOut, MidiSink, Port};
 pub use schedule::{TimedMidi, schedule_window};
 
 // MIDI status bytes (channel goes in the low nibble).

@@ -680,6 +680,30 @@ rather than being dispatched straight to the audio engine. As upstream does,
 note-*offs* are ignored: a `midikeys` hap's length comes from the pattern
 (`kb(0.25)`), not from when the key is released.
 
+### MIDI output device and options — supported, with five differences
+
+`.midi(port, options)` picks the device and takes upstream's options:
+`isController` (send everything but notes), `noteOffsetMs` (default 10),
+`latencyMs`, and the defaults `midichannel`, `velocity` (0.9), `gain` (1) and
+`midimap`, which a hap's own controls override. The older one-object form
+`.midi({port, ...})` works, and a hap's `midiport` overrides the call's port.
+A port is a part of the device's name or its index in the output list, as
+upstream; messages for a device that is not found are dropped, as upstream.
+
+- **`latencyMs` delays the event.** Upstream documents it (default 34) but
+  midi.mjs never reads it. Rudel applies it, and its default is 0, which is
+  what upstream actually does.
+- **`controller: true`** works as `isController`. midi.mjs's own jsdoc example
+  writes it that way, though the code reads only `isController`.
+- **Double quotes name a device.** `.midi("IAC Driver")` makes a mini-notation
+  pattern, which upstream refuses ("pass device name with single quotes");
+  Rudel takes its text as the name. A computed pattern is refused, as upstream.
+- **The default device is the app's.** With no port named, haps go to the
+  output picked in the app (its first port when none is), where upstream
+  prefers a device named `IAC`. Name matching ignores case.
+- **A device is opened the first time a pattern names it,** on the MIDI
+  scheduler thread, so that event can be a little late.
+
 ### MIDI output `midicmd` and `midimap` — supported, with two differences
 
 `.midicmd("clock"|"start"|"stop"|"continue")` sends the system-realtime byte,

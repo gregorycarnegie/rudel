@@ -84,22 +84,48 @@ fn osc_method_sets_host_and_port() {
     }
 }
 
-#[test]
-fn midi_method_stores_device_hint() {
-    // `.midi("IAC")` records the device hint as `_midiport` (stripped on route).
-    let pat = eval(r#"note("c4").midi("IAC")"#).expect("eval");
-    match &values(&pat, 0, 1)[0] {
+/// The options `.midi(...)` left on the first hap, for rudel-midi.
+fn midi_options(src: &str) -> rudel_core::ValueMap {
+    let pat = eval(src).expect("eval");
+    let slice = filter_output(&pat, "midi", false);
+    match &values(&slice, 0, 1)[0] {
         Value::Map(m) => {
-            assert_eq!(m.get("_io").and_then(|v| v.as_str()), Some("midi"));
-            assert_eq!(m.get("_midiport").and_then(|v| v.as_str()), Some("IAC"));
+            // The routing tag is stripped; the options stay for the back-end.
+            assert!(!m.contains_key("_io"));
+            match m.get("_midi") {
+                Some(Value::Map(options)) => options.clone(),
+                other => panic!("expected options, got {other:?}"),
+            }
         }
         other => panic!("expected control map, got {other:?}"),
     }
-    // filter_output strips both routing keys.
-    let slice = filter_output(&pat, "midi", false);
-    if let Value::Map(m) = &values(&slice, 0, 1)[0] {
-        assert!(!m.contains_key("_io") && !m.contains_key("_midiport"));
-    }
+}
+
+#[test]
+fn midi_method_carries_the_device_and_options() {
+    let options = midi_options(r#"note("c4").midi("IAC", {isController: true, noteOffsetMs: 5})"#);
+    assert_eq!(options.get("port").and_then(|v| v.as_str()), Some("IAC"));
+    assert_eq!(options.get("isController"), Some(&Value::Bool(true)));
+    assert_eq!(
+        options.get("noteOffsetMs").and_then(Value::as_f64),
+        Some(5.0)
+    );
+
+    // The older one-object form, with the options given separately winning.
+    let options = midi_options(r#"note("c4").midi({port: 1, velocity: 0.5}, {velocity: 0.7})"#);
+    assert_eq!(options.get("port").and_then(Value::as_f64), Some(1.0));
+    assert_eq!(options.get("velocity").and_then(Value::as_f64), Some(0.7));
+
+    // Double quotes make a pattern, but the text is the device name.
+    let options = midi_options(r#"note("c4").midi("IAC Driver Bus 1")"#);
+    assert_eq!(
+        options.get("port").and_then(|v| v.as_str()),
+        Some("IAC Driver Bus 1")
+    );
+
+    // A computed pattern for the port is refused, as upstream does.
+    let err = eval(r#"note("c4").midi(sine)"#).err().expect("refused");
+    assert!(err.contains("does not accept Pattern input"), "{err}");
 }
 
 #[test]

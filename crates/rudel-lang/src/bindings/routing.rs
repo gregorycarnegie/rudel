@@ -4,8 +4,9 @@ use rudel_core::{Frac, Pattern, Value};
 pub(super) const IO_KEY: &str = "_io";
 
 /// Keep haps routed to `target` via the `_io` control, plus untagged haps when
-/// `include_untagged` (the default output). The routing keys (`_io`/`_midiport`)
-/// are stripped from kept haps so they don't leak into the back-end.
+/// `include_untagged` (the default output). The routing key (`_io`) is stripped
+/// from kept haps so it doesn't leak into the back-end; `.midi()`'s options
+/// (`_midi`) stay, for the MIDI back-end, the only one that keeps those haps.
 pub fn filter_output(pat: &Pattern, target: &str, include_untagged: bool) -> Pattern {
     let target = target.to_string();
     pat.filter_values(move |v| match v {
@@ -18,7 +19,6 @@ pub fn filter_output(pat: &Pattern, target: &str, include_untagged: bool) -> Pat
     .fmap(|v| match v {
         Value::Map(mut m) => {
             m.shift_remove(IO_KEY);
-            m.shift_remove("_midiport");
             Value::Map(m)
         }
         other => other,

@@ -3,9 +3,10 @@ use crate::{
     note::reset_messages,
     schedule::{MpeState, TimedMidi, schedule_window_with_state},
 };
-use midir::{MidiOutput, MidiOutputConnection};
+use midir::{MidiOutput, MidiOutputConnection, MidiOutputPort};
 use rudel_core::{Clock, Pattern};
 use std::{
+    collections::HashMap,
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
@@ -18,12 +19,73 @@ use std::{
 /// recording sink is used in tests.
 pub trait MidiSink: Send {
     fn send(&mut self, bytes: &[u8]);
+
+    /// Send to the device `port` names (`.midi('name')`, `midiport`), or to
+    /// this sink's own when `None`.
+    fn send_to(&mut self, port: Option<&Port>, bytes: &[u8]) {
+        let _ = port;
+        self.send(bytes);
+    }
+
+    /// Silence everything this sink sent to (the scheduler stopping).
+    fn reset(&mut self) {
+        for message in reset_messages() {
+            self.send(&message);
+        }
+    }
+}
+
+/// A MIDI output device as a script names it: a part of its name, or its
+/// position in the list of outputs (midi.mjs's `getDevice`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Port {
+    Name(String),
+    Index(usize),
+}
+
+/// Where a named port's messages go.
+pub(crate) enum Route {
+    /// It is the port this output already has open.
+    Own,
+    Other(Box<MidiOut>),
+    /// No such device, or it would not open: dropped, as upstream does.
+    Missing,
 }
 
 /// A connection to a MIDI output port.
 pub struct MidiOut {
     /// `None` only while dropping; see [`crate::port_api_lock`].
     conn: Option<MidiOutputConnection>,
+    name: String,
+    /// The other devices the pattern has named, opened when first named.
+    others: HashMap<Port, Route>,
+}
+
+/// The port `port` picks among `ports` (the first when `None`), and its name.
+fn pick(
+    out: &MidiOutput,
+    ports: &[MidiOutputPort],
+    port: Option<&Port>,
+) -> Result<(MidiOutputPort, String), String> {
+    if ports.is_empty() {
+        return Err("no MIDI output ports available".to_string());
+    }
+    let name = |p: &MidiOutputPort| out.port_name(p).unwrap_or_default();
+    let found = match port {
+        None => ports.first(),
+        Some(Port::Index(i)) => ports.get(*i),
+        Some(Port::Name(needle)) => {
+            let needle = needle.to_lowercase();
+            ports
+                .iter()
+                .find(|p| name(p).to_lowercase().contains(&needle))
+        }
+    };
+    let found = found.ok_or_else(|| match port {
+        Some(Port::Name(needle)) => format!("no MIDI port matching {:?}", needle.to_lowercase()),
+        _ => format!("no MIDI port {port:?}"),
+    })?;
+    Ok((found.clone(), name(found)))
 }
 
 impl MidiOut {
@@ -41,30 +103,48 @@ impl MidiOut {
     /// Connect to an output port whose name contains `name_substr` (case
     /// insensitive), or the first available port when `None`.
     pub fn connect(name_substr: Option<&str>) -> Result<MidiOut, String> {
+        MidiOut::open(name_substr.map(|n| Port::Name(n.to_string())).as_ref())
+    }
+
+    /// Connect to the output `port` names, or the first when `None`.
+    pub fn open(port: Option<&Port>) -> Result<MidiOut, String> {
         let _guard = crate::port_api_lock();
         let out = MidiOutput::new("rudel").map_err(|e| e.to_string())?;
-        let ports = out.ports();
-        if ports.is_empty() {
-            return Err("no MIDI output ports available".to_string());
-        }
-        let port = match name_substr {
-            Some(needle) => {
-                let needle = needle.to_lowercase();
-                ports
-                    .iter()
-                    .find(|p| {
-                        out.port_name(p)
-                            .map(|n| n.to_lowercase().contains(&needle))
-                            .unwrap_or(false)
-                    })
-                    .ok_or_else(|| format!("no MIDI port matching {needle:?}"))?
-            }
-            None => &ports[0],
-        };
+        let (port, name) = pick(&out, &out.ports(), port)?;
         let conn = out
-            .connect(port, "rudel-out")
+            .connect(&port, "rudel-out")
             .map_err(|e| format!("MIDI connect failed: {e}"))?;
-        Ok(MidiOut { conn: Some(conn) })
+        Ok(MidiOut {
+            conn: Some(conn),
+            name,
+            others: HashMap::new(),
+        })
+    }
+
+    /// Where `port`'s messages go, worked out the first time it is named.
+    // ponytail: opening a port blocks the scheduler thread for that one tick;
+    // open them ahead (from the routed pattern) if a first note ever lands late.
+    pub(crate) fn route(&mut self, port: &Port) -> &mut Route {
+        if !self.others.contains_key(port) {
+            let resolved = {
+                let _guard = crate::port_api_lock();
+                MidiOutput::new("rudel")
+                    .map_err(|e| e.to_string())
+                    .and_then(|out| pick(&out, &out.ports(), Some(port)).map(|(_, name)| name))
+            };
+            let route = match resolved {
+                Ok(name) if name == self.name => Route::Own,
+                Ok(_) => MidiOut::open(Some(port))
+                    .map(|out| Route::Other(Box::new(out)))
+                    .unwrap_or(Route::Missing),
+                Err(_) => Route::Missing,
+            };
+            if matches!(route, Route::Missing) {
+                eprintln!("[midi] midiport {port:?} not found");
+            }
+            self.others.insert(port.clone(), route);
+        }
+        self.others.get_mut(port).expect("just inserted")
     }
 
     /// Present for the whole life of the value; taken only by `Drop`.
@@ -79,7 +159,29 @@ impl MidiOut {
 
 impl MidiSink for MidiOut {
     fn send(&mut self, bytes: &[u8]) {
-        let _ = self.send(bytes);
+        let _ = MidiOut::send(self, bytes);
+    }
+
+    fn send_to(&mut self, port: Option<&Port>, bytes: &[u8]) {
+        let Some(port) = port else {
+            return MidiSink::send(self, bytes);
+        };
+        match self.route(port) {
+            Route::Own => MidiSink::send(self, bytes),
+            Route::Other(out) => MidiSink::send(out.as_mut(), bytes),
+            Route::Missing => {}
+        }
+    }
+
+    fn reset(&mut self) {
+        for message in reset_messages() {
+            MidiSink::send(self, &message);
+        }
+        for route in self.others.values_mut() {
+            if let Route::Other(out) = route {
+                out.reset();
+            }
+        }
     }
 }
 
@@ -158,13 +260,11 @@ fn run_scheduler<S: MidiSink>(
     while running.load(Ordering::Relaxed) {
         let cps_set = *cps.lock().unwrap();
         for m in scheduler.tick(start.elapsed().as_secs_f64(), cps_set, &pattern) {
-            sink.send(&m.data);
+            sink.send_to(m.port.as_ref(), &m.data);
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    for message in reset_messages() {
-        sink.send(&message);
-    }
+    sink.reset();
 }
 
 /// The scheduler thread's state, stepped by the time it is handed rather than
