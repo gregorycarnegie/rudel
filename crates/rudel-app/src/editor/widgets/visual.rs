@@ -15,6 +15,7 @@ use super::{
 use crate::editor::decorations::WidgetDecoration;
 use eframe::egui;
 use rudel_core::Pattern;
+use std::sync::Arc;
 
 /// The id `rudel_lang` gives the hydra scene drawn behind the code.
 const BACKDROP_ID: &str = "hydra-background";
@@ -197,7 +198,7 @@ fn capture_canvas(
     pattern: &Pattern,
     colors: WidgetDrawColors,
     paint: WidgetPaintInput<'_>,
-) -> Vec<egui::epaint::ClippedPrimitive> {
+) -> Feed {
     let ctx = ui.ctx();
     let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("rudel-hydra-feed"));
     let mut canvas_ui = egui::Ui::new(
@@ -222,14 +223,42 @@ fn capture_canvas(
             .collect()
     });
     let offset = -rect.min.to_vec2();
-    let shapes = shapes
+    let shapes: Vec<_> = shapes
         .into_iter()
-        .filter(|s| !matches!(s.shape, egui::Shape::Text(_) | egui::Shape::Callback(_)))
+        .filter(|s| !matches!(s.shape, egui::Shape::Callback(_)))
         .map(|mut s| {
             s.shape.translate(offset);
             s.clip_rect = s.clip_rect.translate(offset);
             s
         })
         .collect();
-    ctx.tessellate(shapes, ctx.pixels_per_point())
+    let has_text = shapes
+        .iter()
+        .any(|s| matches!(s.shape, egui::Shape::Text(_)));
+    Feed {
+        primitives: ctx.tessellate(shapes, ctx.pixels_per_point()),
+        atlas: has_text.then(|| font_atlas(ctx)).flatten(),
+    }
+}
+
+/// The canvas visuals for `s0`, tessellated, and the font atlas their text
+/// samples when the renderer needs a fresh copy of it.
+pub(super) struct Feed {
+    pub(super) primitives: Vec<egui::epaint::ClippedPrimitive>,
+    pub(super) atlas: Option<Arc<egui::ColorImage>>,
+}
+
+/// egui's font atlas, for the feed renderer to draw text with: when it has
+/// grown, and otherwise at most twice a second (glyphs are added as text is
+/// laid out; copying the whole atlas every frame would cost megabytes).
+fn font_atlas(ctx: &egui::Context) -> Option<Arc<egui::ColorImage>> {
+    let id = egui::Id::new("rudel-hydra-feed-atlas");
+    let now = ctx.input(|i| i.time);
+    let size = ctx.fonts(|f| f.font_image_size());
+    let last: Option<([usize; 2], f64)> = ctx.data(|d| d.get_temp(id));
+    if last.is_some_and(|(s, at)| s == size && now - at < 0.5) {
+        return None;
+    }
+    ctx.data_mut(|d| d.insert_temp(id, (size, now)));
+    Some(Arc::new(ctx.fonts(|f| f.image())))
 }

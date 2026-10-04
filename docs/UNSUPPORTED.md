@@ -568,9 +568,10 @@ upstream:
   feed it paints them over the scene's rect on a layer of its own instead,
   takes the shapes back before egui draws them, and renders the meshes into
   `s0` with a second egui renderer (`widgets/visual.rs` `capture_canvas`). They
-  leave the editor while fed. Two limits: the CPU painters are used (the GPU
-  spiral draws its CPU twin), and text is dropped, since that renderer's only
-  texture is one white pixel rather than the font atlas.
+  leave the editor while fed. Text (pianoroll labels) is drawn with a copy of
+  egui's font atlas, refreshed when it grows and at most twice a second, so a
+  glyph first used in a fed visual can take half a second to appear. The CPU
+  painters are used (the GPU spiral draws its CPU twin).
 - Arguments that change per frame work as upstream: an array steps through
   its values by hydra-synth's own rule (`time × speed × bpm/60 + offset`, bpm
   30, with `.smooth()` and the named `.ease()`s), `H(pattern)` reads the

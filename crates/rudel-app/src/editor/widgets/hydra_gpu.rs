@@ -679,6 +679,8 @@ struct HydraCallback {
     pictures: [Option<Arc<Picture>>; 4],
     /// The canvas visuals for `s0`, tessellated, with a feed.
     feed: Option<Arc<Vec<egui::epaint::ClippedPrimitive>>>,
+    /// A fresh copy of egui's font atlas, for the feed's text.
+    atlas: Option<Arc<egui::ColorImage>>,
     pixels_per_point: f32,
     render: Render,
     hash: u64,
@@ -713,7 +715,16 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
                 size_in_pixels: [self.size.0, self.size.1],
                 pixels_per_point: self.pixels_per_point,
             };
-            store.feed_renderer(device, queue);
+            let renderer = store.feed_renderer(device, queue);
+            // Text samples the font atlas; until a copy arrives, the white
+            // pixel serves every other shape.
+            if let Some(atlas) = &self.atlas {
+                let delta = egui::epaint::ImageDelta::full(
+                    (**atlas).clone(),
+                    egui::TextureOptions::LINEAR,
+                );
+                renderer.update_texture(device, queue, egui::TextureId::default(), &delta);
+            }
             if let (Some(renderer), Some(view)) = (
                 store.feed_renderer.as_mut(),
                 store.surfaces.get(&self.id).and_then(|s| s.feed.as_ref()),
@@ -852,7 +863,7 @@ pub(super) fn paint_hydra_gpu(
     time: f64,
     colors: WidgetDrawColors,
     dynamic: &[Option<f64>],
-    feed: Option<Vec<egui::epaint::ClippedPrimitive>>,
+    feed: Option<super::visual::Feed>,
 ) {
     let (sources, render) = chains(widget);
     if sources.iter().all(Option::is_none) {
@@ -923,7 +934,8 @@ pub(super) fn paint_hydra_gpu(
             id: super::gpu_key(ui, &widget.id),
             sources,
             pictures,
-            feed: feed.map(Arc::new),
+            atlas: feed.as_ref().and_then(|f| f.atlas.clone()),
+            feed: feed.map(|f| Arc::new(f.primitives)),
             pixels_per_point,
             render,
             hash,
