@@ -1210,3 +1210,85 @@ fn a_gpu_spiral_that_gains_bands_gets_room_for_them() {
     let dense = harness.render().expect("renders").into_raw();
     assert_ne!(sparse, dense);
 }
+
+/// Type `keys` the way a keyboard does: a key event, then the text it makes.
+fn type_keys(harness: &mut Harness<'_, RudelApp>, keys: &str) {
+    for c in keys.chars() {
+        if let Some(key) = Key::from_name(&c.to_ascii_uppercase().to_string()) {
+            harness.key_press(key);
+        }
+        harness.event(egui::Event::Text(c.to_string()));
+        harness.run_steps(1);
+    }
+}
+
+#[test]
+fn vim_keys_edit_through_the_real_editor() {
+    let mut harness = harness();
+    harness.state_mut().editor_settings.keymap = crate::editor::keymap::Keymap::Vim;
+    let code = "s(\"bd\")\nn(1)\nn(2)";
+    harness.state_mut().code = code.to_string();
+    harness.run_steps(2);
+    harness
+        .get_all_by_value(code)
+        .next()
+        .expect("the code editor")
+        .click();
+    harness.run_steps(2);
+
+    // Normal mode: the keys are commands, not text.
+    type_keys(&mut harness, "ggdd");
+    assert_eq!(harness.state().code, "n(1)\nn(2)");
+    type_keys(&mut harness, "u");
+    assert_eq!(
+        harness.state().code,
+        code,
+        "u undoes through the editor's own history"
+    );
+
+    // Insert mode hands typing to the editor; Escape comes back without
+    // losing focus, as it otherwise would.
+    type_keys(&mut harness, "ggI");
+    type_keys(&mut harness, "x");
+    harness.key_press(Key::Escape);
+    harness.run_steps(1);
+    assert_eq!(harness.state().code, "xs(\"bd\")\nn(1)\nn(2)");
+    type_keys(&mut harness, "x");
+    assert_eq!(harness.state().code, code, "back in normal mode, x deletes");
+
+    // `:w` evaluates, as Ctrl+Enter does.
+    type_keys(&mut harness, ":w");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(harness.state().status, "evaluated");
+    assert_eq!(harness.state().code, code, ":w is not typed into the code");
+}
+
+#[test]
+fn emacs_keys_take_over_the_editor_s_own_ctrl_keys() {
+    let mut harness = harness();
+    harness.state_mut().editor_settings.keymap = crate::editor::keymap::Keymap::Emacs;
+    let code = "s(\"bd\")\nn(1)";
+    harness.state_mut().code = code.to_string();
+    harness.run_steps(2);
+    harness
+        .get_all_by_value(code)
+        .next()
+        .expect("the code editor")
+        .click();
+    harness.run_steps(2);
+
+    // M-< to the start, C-k kills the line (not egui's nothing), C-y yanks it
+    // back (not egui's redo), and typing still types.
+    harness.key_press_modifiers(Modifiers::ALT | Modifiers::SHIFT, Key::Comma);
+    harness.key_press_modifiers(Modifiers::CTRL, Key::K);
+    harness.run_steps(1);
+    assert_eq!(harness.state().code, "\nn(1)");
+    harness.key_press_modifiers(Modifiers::CTRL, Key::Y);
+    harness.run_steps(1);
+    assert_eq!(harness.state().code, code);
+    // C-a goes to the line start rather than selecting everything.
+    harness.key_press_modifiers(Modifiers::CTRL, Key::A);
+    type_keys(&mut harness, "x");
+    assert_eq!(harness.state().code, "xs(\"bd\")\nn(1)");
+}

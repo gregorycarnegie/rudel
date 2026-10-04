@@ -28,7 +28,7 @@ fn is_bracket(ch: char) -> bool {
 
 /// The index of the bracket matching the one at `pos`, scanning outward and
 /// tracking nesting depth of the same bracket family.
-fn matching_bracket_index(chars: &[char], pos: usize) -> Option<usize> {
+pub(super) fn matching_bracket_index(chars: &[char], pos: usize) -> Option<usize> {
     let (open, close, forward) = match chars[pos] {
         '(' => ('(', ')', true),
         '[' => ('[', ']', true),

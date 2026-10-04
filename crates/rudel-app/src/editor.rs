@@ -9,6 +9,7 @@ mod contract;
 pub(crate) mod decorations;
 mod edit;
 mod highlight;
+pub(crate) mod keymap;
 mod menu;
 pub(crate) mod settings;
 mod sliders;
@@ -152,6 +153,9 @@ pub(crate) fn code_editor(
         .then_some(stored)
         .filter(|stored| !stored.items.is_empty());
 
+    // Vim/Emacs/VS Code/Helix take their keys before anything else does.
+    let (keymap_action, keymap_status, block_cursor) =
+        keymap::run(ui, editor_id, code, settings.keymap);
     let shortcuts = capture_editor_shortcuts(ui, editor_id, completion.is_some(), settings);
     let typed_text = editor_typed_text(ui);
     let enter_pressed = editor_enter_pressed(ui);
@@ -390,7 +394,29 @@ pub(crate) fn code_editor(
         .cursor_range
         .filter(|range| !range.is_empty())
         .map(|range| range.as_sorted_char_range());
-    let mut action = None;
+    // egui drops focus on Escape at the start of a frame unless the focused
+    // widget's filter claims it, and the TextEdit's does not; Vim and Helix
+    // need Escape to leave insert mode, so they claim it (after the TextEdit
+    // has set its own filter for this frame).
+    if matches!(settings.keymap, keymap::Keymap::Vim | keymap::Keymap::Helix)
+        && output.response.has_focus()
+    {
+        ui.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                editor_id,
+                egui::EventFilter {
+                    tab: true,
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    escape: true,
+                },
+            )
+        });
+    }
+    let mut action = keymap_action;
+    if let Some(status) = &keymap_status {
+        paint_keymap_status(ui, output.response.rect, status, block_cursor, settings);
+    }
     if let Some(choice) =
         editor_context_menu(&output.response, selection.is_some(), backdrop.is_some())
     {
@@ -524,6 +550,30 @@ pub(crate) fn code_editor(
         cursor_byte: cursor_byte.map(|byte: egui::text::ByteIndex| byte.0),
         action,
     }
+}
+
+/// The keymap's mode (or command line) in the editor's bottom-right corner,
+/// where Vim and Helix show it.
+fn paint_keymap_status(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    status: &str,
+    block_cursor: bool,
+    settings: &EditorSettings,
+) {
+    let theme = settings.draw_theme();
+    let font = egui::FontId::monospace(settings.font_size * 0.75);
+    let color = if block_cursor {
+        theme.foreground
+    } else {
+        theme.caret
+    };
+    let painter = ui.painter();
+    let galley = painter.layout_no_wrap(status.to_string(), font, color);
+    let pos = rect.right_bottom() - galley.size() - egui::vec2(10.0, 6.0);
+    let back = egui::Rect::from_min_size(pos, galley.size()).expand(3.0);
+    painter.rect_filled(back, 3.0, theme.line_highlight.gamma_multiply(4.0));
+    painter.galley(pos, galley, color);
 }
 
 /// The completion entry selected after a move, wrapping at both ends so

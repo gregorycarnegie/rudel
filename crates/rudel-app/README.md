@@ -29,6 +29,33 @@ Audited against Strudel's `packages/codemirror`. Supported subset:
 | `Tab` / `Enter` | Accept the highlighted autocomplete suggestion (when the popup is open) |
 | `↑` / `↓` / `Esc` | Navigate / dismiss the autocomplete popup |
 
+### Keymaps
+
+The `keys` picker in the editor settings swaps the editing keys, as Strudel's
+`keybindings` setting does: `codemirror` (the default, the keys above), `vim`,
+`emacs`, `vscode` and `helix`. Each is the everyday core of its editor, not all
+of it; the transport keys above work in all of them.
+
+- **vim**: normal, insert, visual (`v`) and visual-line (`V`) modes, shown at
+  the editor's bottom right. Counts; motions `h j k l w b e W B E 0 ^ $ gg G
+  { } % f t F T`; operators `d c y > < gc` with any motion, doubled for the
+  line (`dd`, `gcc`), and text objects `iw aw i" a" i( a( i[ i{` and the like;
+  `x X D C s S Y p P r J ~ u Ctrl+R i a I A o O`; `/` search with `n N`.
+  Strudel's own: `:w` evaluates (as Ctrl+Enter), `:q` hushes, `gc` comments.
+  `:12` goes to line 12.
+- **helix**: selection first. `w b e` select over words, `x` the line (again
+  for the next), `%` everything, `;` collapses; then `d c y p P r ~ > < J`, `v`
+  for select mode, `gg ge gh gl gs`, `f t F T`, `u U`, `Ctrl+C` comments, and
+  `:w` / `:q` as in vim.
+- **emacs**: `C-f C-b C-n C-p C-a C-e M-f M-b M-< M->`, `C-d M-d M-Backspace`,
+  `C-k` (repeated kills add up) `C-y`, `C-Space` to set the mark then `C-w` /
+  `M-w`, `C-g`, `C-t`, and `C-/` to undo (Ctrl+\ still comments).
+- **vscode**: `Alt+↑/↓` move lines, `Shift+Alt+↑/↓` copy them, `Ctrl+Shift+K`
+  deletes them, `Ctrl+L` selects the line (again, the next), `Ctrl+D` the word
+  and then its next occurrence, `Ctrl+]` / `Ctrl+[` indent, `Ctrl+Shift+\`
+  jumps to the matching bracket, `Home` goes to the indentation first, and copy
+  or cut with nothing selected takes the line.
+
 The `editor settings` panel mirrors Strudel's CodeMirror compartments for line
 wrapping, bracket matching/closing, line numbers, active-line highlighting,
 autocomplete, pattern highlighting, flash, tab indentation, block-based eval,

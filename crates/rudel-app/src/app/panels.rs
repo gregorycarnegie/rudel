@@ -699,6 +699,7 @@ impl RudelApp {
                     match action {
                         EditorAction::Evaluate => self.evaluate(),
                         EditorAction::EvaluateBlock => self.evaluate_current_block(),
+                        EditorAction::PrimaryEval => self.primary_eval(),
                         EditorAction::Hush => self.hush(),
                         EditorAction::Panic => self.panic(),
                     }
@@ -747,6 +748,19 @@ impl RudelApp {
                             open_folder(&dir);
                         }
                     }
+
+                    ui.label("keys");
+                    egui::ComboBox::from_id_salt("editor_keymap")
+                        .selected_text(self.editor_settings.keymap.label())
+                        .show_ui(ui, |ui| {
+                            for keymap in crate::editor::keymap::Keymap::ALL {
+                                ui.selectable_value(
+                                    &mut self.editor_settings.keymap,
+                                    keymap,
+                                    keymap.label(),
+                                );
+                            }
+                        });
 
                     ui.label("font");
                     egui::ComboBox::from_id_salt("editor_font_family")

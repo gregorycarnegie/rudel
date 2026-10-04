@@ -1,3 +1,4 @@
+use super::keymap::Keymap;
 use super::themes::{ThemeData, all as themes};
 use eframe::egui;
 
@@ -118,6 +119,8 @@ pub(crate) struct EditorSettings {
     pub(crate) theme: EditorTheme,
     pub(crate) font_family: EditorFontFamily,
     pub(crate) font_size: f32,
+    /// Strudel's `keybindings` setting.
+    pub(crate) keymap: Keymap,
 }
 
 impl Default for EditorSettings {
@@ -137,6 +140,7 @@ impl Default for EditorSettings {
             theme: EditorTheme::default(),
             font_family: EditorFontFamily::Monospace,
             font_size: 18.0,
+            keymap: Keymap::Codemirror,
         }
     }
 }
@@ -170,6 +174,7 @@ impl EditorSettings {
         lines.push(format!("theme={}", self.theme.label()));
         lines.push(format!("font_family={}", self.font_family.label()));
         lines.push(format!("font_size={}", self.font_size));
+        lines.push(format!("keymap={}", self.keymap.label()));
         lines.join("\n")
     }
 
@@ -191,6 +196,11 @@ impl EditorSettings {
                         .find(|f| f.label() == value)
                     {
                         settings.font_family = family;
+                    }
+                }
+                "keymap" => {
+                    if let Some(keymap) = Keymap::named(value) {
+                        settings.keymap = keymap;
                     }
                 }
                 "font_size" => {
@@ -282,6 +292,7 @@ mod tests {
         settings.theme = EditorTheme::named("githubLight").unwrap();
         settings.font_family = EditorFontFamily::Proportional;
         settings.font_size = 13.5;
+        settings.keymap = Keymap::Helix;
         assert_eq!(EditorSettings::from_saved(&settings.to_saved()), settings);
 
         // Unknown keys, bad values and lines without `=` are skipped.

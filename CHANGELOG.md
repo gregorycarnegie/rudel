@@ -15,6 +15,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Vim, Emacs, VS Code and Helix keymaps,** as Strudel's `keybindings`
+  setting has: pick one under `keys` in the editor settings. Vim and Helix
+  show their mode at the editor's corner, and `:w` evaluates and `:q` hushes
+  as in Strudel. Each is the everyday core of its editor; the app README lists
+  what is in.
+
 - **Themes are TOML files, and you can add your own** without rebuilding:
   put a `.toml` in rudel's themes folder (the `folder` button beside the theme
   picker opens it) and it is read at launch. Strudel's 39 are built in as the

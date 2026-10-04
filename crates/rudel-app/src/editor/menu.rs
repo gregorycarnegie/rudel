@@ -10,6 +10,9 @@ use eframe::egui;
 pub(crate) enum EditorAction {
     Evaluate,
     EvaluateBlock,
+    /// What Ctrl+Enter does (full or block, per the block-eval setting): the
+    /// Vim/Helix `:w`.
+    PrimaryEval,
     Hush,
     Panic,
 }

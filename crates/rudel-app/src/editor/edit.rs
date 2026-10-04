@@ -287,7 +287,7 @@ fn matching_close_after_cursor(prev_trimmed: &str, next: Option<char>) -> bool {
     )
 }
 
-fn toggle_line_comments(
+pub(super) fn toggle_line_comments(
     text: &mut String,
     cursor_range: egui::text::CCursorRange,
 ) -> egui::text::CCursorRange {
@@ -331,7 +331,7 @@ fn toggle_line_comments(
     apply_line_changes(text, cursor_range, &line_starts, changes)
 }
 
-fn indent_lines(
+pub(super) fn indent_lines(
     text: &mut String,
     cursor_range: egui::text::CCursorRange,
     indent: bool,
