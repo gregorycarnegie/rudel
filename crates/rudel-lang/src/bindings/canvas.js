@@ -197,9 +197,14 @@
       const [a, b, c, d, e, f] = this.t;
       return { a, b, c, d, e, f };
     }
+    // Index access, not destructuring or spread, on every per-point path:
+    // boa runs those through the iterator protocol, which was most of a frame.
     transform(a, b, c, d, e, f) {
-      const [A, B, C, D, E, F] = this.t;
-      this.t = [A * a + C * b, B * a + D * b, A * c + C * d, B * c + D * d, A * e + C * f + E, B * e + D * f + F];
+      const t = this.t;
+      this.t = [
+        t[0] * a + t[2] * b, t[1] * a + t[3] * b, t[0] * c + t[2] * d, t[1] * c + t[3] * d,
+        t[0] * e + t[2] * f + t[4], t[1] * e + t[3] * f + t[5],
+      ];
     }
     translate(x, y) {
       this.transform(1, 0, 0, 1, x, y);
@@ -211,13 +216,18 @@
       this.transform(Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0);
     }
     point(x, y) {
-      const [a, b, c, d, e, f] = this.t;
-      return [a * x + c * y + e, b * x + d * y + f];
+      const t = this.t;
+      return [t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]];
+    }
+    // Append (x, y), mapped to canvas pixels, to a flat point list.
+    push(points, x, y) {
+      const t = this.t;
+      points.push(t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]);
     }
     // How much the transform scales lengths, for line widths and font sizes.
     get unit() {
-      const [a, b, c, d] = this.t;
-      return Math.sqrt(Math.abs(a * d - b * c)) || 1;
+      const t = this.t;
+      return Math.sqrt(Math.abs(t[0] * t[3] - t[1] * t[2])) || 1;
     }
     // --- paths: subpaths of canvas-pixel points
     beginPath() {
@@ -227,12 +237,12 @@
       return this.path[this.path.length - 1];
     }
     moveTo(x, y) {
-      this.path.push({ points: [...this.point(x, y)], closed: false, user: [x, y], first: [x, y] });
+      this.path.push({ points: this.point(x, y), closed: false, user: [x, y], first: [x, y] });
     }
     lineTo(x, y) {
       const sub = this.current();
       if (!sub) return this.moveTo(x, y);
-      sub.points.push(...this.point(x, y));
+      this.push(sub.points, x, y);
       sub.user = [x, y];
     }
     closePath() {
@@ -259,15 +269,23 @@
       if (ccw && sweep > 0) sweep = (sweep % tau) - tau;
       if (Math.abs(end - start) >= tau) sweep = ccw ? -tau : tau;
       const n = pieces(Math.abs(sweep) * Math.max(rx, ry) * this.unit);
-      const [cos, sin] = [Math.cos(rotation), Math.sin(rotation)];
-      for (let i = 0; i <= n; i++) {
-        const a = start + (sweep * i) / n;
-        const [ex, ey] = [rx * Math.cos(a), ry * Math.sin(a)];
-        const px = x + ex * cos - ey * sin;
-        const py = y + ex * sin + ey * cos;
-        if (i === 0 && !this.current()) this.moveTo(px, py);
-        else this.lineTo(px, py);
-      }
+      const cos = Math.cos(rotation);
+      const sin = Math.sin(rotation);
+      const user = (a) => {
+        const ex = rx * Math.cos(a);
+        const ey = ry * Math.sin(a);
+        return [x + ex * cos - ey * sin, y + ex * sin + ey * cos];
+      };
+      if (!this.current()) this.path.push({ points: [], closed: false, user: null, first: user(start) });
+      this.extend(__ellipse(this.t, n, x, y, rx, ry, rotation, start, sweep), user(start + sweep));
+    }
+    // Append canvas-pixel points to the current subpath, which now ends at
+    // `user`. The curves are flattened natively (`__ellipse`, `__bezier`): a
+    // script call per point was most of what a frame of curves cost.
+    extend(points, user) {
+      const sub = this.current();
+      sub.points = sub.points.concat(points);
+      sub.user = user;
     }
     arc(x, y, r, start, end, ccw = false) {
       this.ellipse(x, y, r, r, 0, start, end, ccw);
@@ -276,24 +294,23 @@
       this.lineTo(x1, y1);
       this.lineTo(x2, y2);
     }
-    curve(to, at) {
-      const sub = this.current();
-      const [x0, y0] = sub ? sub.user : to;
-      const n = pieces(Math.hypot(to[0] - x0, to[1] - y0) * this.unit);
-      for (let i = 1; i <= n; i++) this.lineTo(...at(x0, y0, i / n));
-    }
-    quadraticCurveTo(cx, cy, x, y) {
-      this.curve([x, y], (x0, y0, s) => {
-        const u = 1 - s;
-        return [u * u * x0 + 2 * u * s * cx + s * s * x, u * u * y0 + 2 * u * s * cy + s * s * y];
-      });
-    }
     bezierCurveTo(c1x, c1y, c2x, c2y, x, y) {
-      this.curve([x, y], (x0, y0, s) => {
-        const u = 1 - s;
-        const [a, b, c, d] = [u * u * u, 3 * u * u * s, 3 * u * s * s, s * s * s];
-        return [a * x0 + b * c1x + c * c2x + d * x, a * y0 + b * c1y + c * c2y + d * y];
-      });
+      const sub = this.current();
+      const from = sub ? sub.user : [x, y];
+      const n = pieces(Math.hypot(x - from[0], y - from[1]) * this.unit);
+      if (!sub) this.moveTo(x, y);
+      this.extend(__bezier(this.t, n, from[0], from[1], c1x, c1y, c2x, c2y, x, y), [x, y]);
+    }
+    // The same curve as a cubic, its control points two thirds of the way
+    // from each end to (cx, cy).
+    quadraticCurveTo(cx, cy, x, y) {
+      const from = this.current()?.user ?? [x, y];
+      const k = 2 / 3;
+      this.bezierCurveTo(
+        from[0] + k * (cx - from[0]), from[1] + k * (cy - from[1]),
+        x + k * (cx - x), y + k * (cy - y),
+        x, y,
+      );
     }
     subpaths(stroke) {
       return this.path
@@ -317,7 +334,12 @@
       ]);
     }
     corners(x, y, w, h) {
-      return [...this.point(x, y), ...this.point(x + w, y), ...this.point(x + w, y + h), ...this.point(x, y + h)];
+      const points = [];
+      this.push(points, x, y);
+      this.push(points, x + w, y);
+      this.push(points, x + w, y + h);
+      this.push(points, x, y + h);
+      return points;
     }
     fillRect(x, y, w, h) {
       ops.push(['fill', style(this.fillStyle), this.globalAlpha, false, [this.corners(x, y, w, h)]]);

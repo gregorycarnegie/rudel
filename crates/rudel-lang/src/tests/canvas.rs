@@ -141,3 +141,31 @@ document.addEventListener('keydown', (e) => { _ctrl = e.ctrlKey ? 1 : 0 })
     d.frame(0.0, 0.0, 100, 100, &[ctrl]).expect("a frame");
     assert_eq!(n_at(&pattern), Some(105.0));
 }
+
+#[test]
+fn curves_are_flattened_through_the_transform() {
+    let (d, _alive) = driver(
+        "requestAnimationFrame(() => {\n  const ctx = getDrawContext()\n  ctx.translate(100, 0)\n  \
+         ctx.beginPath()\n  ctx.arc(0, 0, 10, 0, Math.PI)\n  ctx.quadraticCurveTo(0, 20, 20, 0)\n  \
+         ctx.closePath()\n  ctx.stroke()\n})\ns(\"bd\")",
+    );
+    let ops = d.frame(0.0, 0.0, 800, 600, &[]).expect("a frame");
+    let [CanvasOp::Stroke { lines, .. }] = ops.as_slice() else {
+        panic!("{ops:?}");
+    };
+    let [(true, points)] = lines.as_slice() else {
+        panic!("{lines:?}");
+    };
+    // Eight pieces of half a circle (y down), then eight of the curve.
+    assert_eq!(points.len(), 17);
+    let near = |i: usize, [x, y]: [f32; 2]| {
+        let [px, py] = points[i];
+        assert!((px - x).abs() < 1e-3 && (py - y).abs() < 1e-3, "{i}: {:?}", points[i]);
+    };
+    near(0, [110.0, 0.0]);
+    near(4, [100.0, 10.0]);
+    near(8, [90.0, 0.0]);
+    // Halfway along the quadratic from (-10, 0) by (0, 20) to (20, 0).
+    near(12, [102.5, 10.0]);
+    near(16, [120.0, 0.0]);
+}

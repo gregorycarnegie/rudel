@@ -137,6 +137,60 @@ impl std::fmt::Debug for CanvasDriver {
     }
 }
 
+/// The points `canvas.js` traces along a curve, mapped through the transform
+/// `[a, b, c, d, e, f]` and flattened: `at(i)` for `i` in `from..=n`. Native
+/// because a script-side call per point was most of a frame.
+fn trace(t: &[f64], from: usize, n: usize, at: impl Fn(f64) -> (f64, f64)) -> Arg {
+    let &[a, b, c, d, e, f] = t else {
+        return Arg::List(Vec::new());
+    };
+    let mut points = Vec::with_capacity(2 * (n + 1));
+    for i in from..=n {
+        let (x, y) = at(i as f64 / n.max(1) as f64);
+        points.push(Arg::Num(a * x + c * y + e));
+        points.push(Arg::Num(b * x + d * y + f));
+    }
+    Arg::List(points)
+}
+
+/// `__ellipse(t, n, x, y, rx, ry, rotation, start, sweep)`: `n + 1` points.
+pub(crate) fn ellipse(args: &[Arg]) -> Arg {
+    let (t, n, v) = curve_args(args);
+    let [x, y, rx, ry, rotation, start, sweep] = std::array::from_fn(|i| v[i]);
+    let (sin, cos) = rotation.sin_cos();
+    trace(&t, 0, n, |s| {
+        let (sa, ca) = (start + sweep * s).sin_cos();
+        let (ex, ey) = (rx * ca, ry * sa);
+        (x + ex * cos - ey * sin, y + ex * sin + ey * cos)
+    })
+}
+
+/// `__bezier(t, n, x0, y0, c1x, c1y, c2x, c2y, x, y)`: the `n` points after
+/// the start.
+pub(crate) fn bezier(args: &[Arg]) -> Arg {
+    let (t, n, v) = curve_args(args);
+    let [x0, y0, c1x, c1y, c2x, c2y, x, y] = std::array::from_fn(|i| v[i]);
+    trace(&t, 1, n, |s| {
+        let u = 1.0 - s;
+        let (a, b, c, d) = (u * u * u, 3.0 * u * u * s, 3.0 * u * s * s, s * s * s);
+        (
+            a * x0 + b * c1x + c * c2x + d * x,
+            a * y0 + b * c1y + c * c2y + d * y,
+        )
+    })
+}
+
+/// The transform, the piece count, and the numbers after them.
+fn curve_args(args: &[Arg]) -> (Vec<f64>, usize, [f64; 8]) {
+    let n = |a: Option<&Arg>| match a {
+        Some(Arg::Num(n)) => *n,
+        _ => 0.0,
+    };
+    let t = list(args.first()).iter().map(|a| n(Some(a))).collect();
+    let pieces = n(args.get(1)).clamp(1.0, 4096.0) as usize;
+    (t, pieces, std::array::from_fn(|i| n(args.get(i + 2))))
+}
+
 fn num(arg: Option<&Arg>) -> f32 {
     match arg {
         Some(Arg::Num(n)) if n.is_finite() => *n as f32,
