@@ -12,11 +12,15 @@ use eframe::egui;
 use openh264::formats::YUVSource as _;
 use std::{
     io::{Cursor, Read as _},
-    path::Path,
+    ffi::{OsStr, OsString},
     process::{Command, Stdio},
     sync::Arc,
     time::{Duration, Instant},
 };
+
+/// What ffmpeg says it is when it fetches a web video, as rudel's own
+/// downloads do: some hosts refuse a generic one.
+const USER_AGENT: &str = concat!("rudel/", env!("CARGO_PKG_VERSION"), " (live-coding music app)");
 
 /// No wider than this: a background does not need a 4K texture.
 const MAX_WIDTH: u32 = 1280;
@@ -31,9 +35,16 @@ pub(super) fn frame(ctx: &egui::Context, url: &str) -> Option<Arc<Picture>> {
 }
 
 fn play(sink: &hydra_live::Sink, url: &str) -> Result<(), String> {
-    let path = rudel_audio::samples::fetch_cached_file(url)?;
-    match probe(&path) {
-        Ok((width, height)) => play_ffmpeg(sink, &path, width, height),
+    // ffmpeg streams a web video itself, starting at once, where downloading
+    // first would hold a long clip back for minutes (one shared pattern's is
+    // 678 MB). A local file is read where it is.
+    let input = if url.starts_with("http://") || url.starts_with("https://") {
+        OsString::from(url)
+    } else {
+        rudel_audio::samples::fetch_cached_file(url)?.into_os_string()
+    };
+    match probe(&input) {
+        Ok((width, height)) => play_ffmpeg(sink, &input, width, height),
         // No ffmpeg installed: the built-in MP4/H.264 reader.
         Err(Probe::Missing) => play_mp4(sink, url),
         Err(Probe::Failed(e)) => Err(e),
@@ -60,11 +71,11 @@ fn tool(name: &str) -> Command {
 }
 
 /// The first video stream's size, by `ffprobe`.
-fn probe(path: &Path) -> Result<(u32, u32), Probe> {
+fn probe(input: &OsStr) -> Result<(u32, u32), Probe> {
     let output = tool("ffprobe")
-        .args(["-v", "error", "-select_streams", "v:0"])
+        .args(["-v", "error", "-user_agent", USER_AGENT, "-select_streams", "v:0"])
         .args(["-show_entries", "stream=width,height", "-of", "csv=p=0"])
-        .arg(path)
+        .arg(input)
         .output()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => Probe::Missing,
@@ -92,7 +103,7 @@ fn fit(width: u32, height: u32) -> (u32, u32) {
 
 fn play_ffmpeg(
     sink: &hydra_live::Sink,
-    path: &Path,
+    input: &OsStr,
     width: u32,
     height: u32,
 ) -> Result<(), String> {
@@ -101,8 +112,8 @@ fn play_ffmpeg(
     // `-noautorotate` keeps the frames the size ffprobe reported.
     let mut child = tool("ffmpeg")
         .args(["-hide_banner", "-loglevel", "error", "-noautorotate"])
-        .args(["-re", "-stream_loop", "-1", "-i"])
-        .arg(path)
+        .args(["-user_agent", USER_AGENT, "-re", "-stream_loop", "-1", "-i"])
+        .arg(input)
         .args(["-an", "-vf", &format!("scale={width}:{height}")])
         .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
         .stdin(Stdio::null())

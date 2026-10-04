@@ -543,8 +543,9 @@ upstream:
   few seconds after nothing shows it. Upstream's `params` argument (texture
   options) is ignored.
 - `initVideo(url)` plays a video file, looping and muted like upstream's
-  `<video>` element, from the same places `initImage` reads (a web video is
-  read from the download cache, so a loop does not fetch it again). With
+  `<video>` element, from the same places `initImage` reads. With FFmpeg a
+  web video is streamed by `ffmpeg` itself, so a long one starts at once
+  rather than after downloading (one shared pattern's is 678 MB). With
   `ffmpeg` and `ffprobe` on the PATH, it is any format FFmpeg reads (MP4, WebM,
   MOV, GIF, …): `ffmpeg` paces and loops it itself (`-re -stream_loop -1`)
   and hands over raw RGBA frames on a pipe, no wider than 1280. Without
