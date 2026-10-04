@@ -28,6 +28,9 @@ struct Feed {
 
 static FEEDS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Feed>>>>> = LazyLock::new(Default::default);
 
+/// The errors already logged, so a retried source does not repeat one.
+static LOGGED: LazyLock<Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+
 /// What a source's thread hands its frames to.
 pub(super) struct Sink {
     ctx: egui::Context,
@@ -79,7 +82,12 @@ pub(super) fn latest(
             feed: feed.clone(),
         };
         if let Err(e) = run(&sink) {
-            rudel_core::log_line(format!("hydra: {key}: {e}"));
+            // Retried every few seconds (a camera plugged in late), but said
+            // once: the same error again is noise.
+            let said = format!("{key}: {e}");
+            if lock(&LOGGED).insert(said.clone()) {
+                rudel_core::log_line(format!("hydra: {said}"));
+            }
             lock(&feed).failed = Some(Instant::now());
             return;
         }

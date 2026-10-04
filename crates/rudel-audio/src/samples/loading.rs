@@ -390,11 +390,22 @@ pub(super) fn expand_home(path: &str) -> String {
     }
 }
 
+/// A GET that says who is asking: some hosts (Wikimedia) refuse the HTTP
+/// library's generic user agent with a 403 or 429.
+fn get(url: &str) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
+    ureq::get(url).header(
+        "User-Agent",
+        concat!(
+            "rudel/",
+            env!("CARGO_PKG_VERSION"),
+            " (live-coding music app)"
+        ),
+    )
+}
+
 /// Fetch a text resource (a sample-map JSON) over http(s).
 pub(super) fn fetch_text(url: &str) -> Result<String, String> {
-    let mut resp = ureq::get(url)
-        .call()
-        .map_err(|e| format!("GET {url}: {e}"))?;
+    let mut resp = get(url).call().map_err(|e| format!("GET {url}: {e}"))?;
     resp.body_mut()
         .read_to_string()
         .map_err(|e| format!("read body {url}: {e}"))
@@ -427,9 +438,7 @@ pub fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
         return Ok(bytes);
     }
     use std::io::Read;
-    let resp = ureq::get(url)
-        .call()
-        .map_err(|e| format!("GET {url}: {e}"))?;
+    let resp = get(url).call().map_err(|e| format!("GET {url}: {e}"))?;
     // `into_reader()` streams without the 10MB cap that `read_to_vec()` has.
     let mut bytes = Vec::new();
     resp.into_body()
@@ -444,6 +453,19 @@ pub fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
         let _ = std::fs::write(path, &bytes);
     }
     Ok(bytes)
+}
+
+/// Where `url` is on disk: a local path as it is (`~` expanded), an http(s)
+/// one in the download cache, fetched there first if need be. For a tool
+/// that reads files itself, like `ffmpeg`.
+pub fn fetch_cached_file(url: &str) -> Result<PathBuf, String> {
+    if !is_http(url) {
+        return Ok(PathBuf::from(expand_home(url)));
+    }
+    fetch_cached_bytes(url)?;
+    cache_path(url)
+        .filter(|path| path.is_file())
+        .ok_or_else(|| format!("no download cache to keep {url} in"))
 }
 
 /// Fetch a single sample file (http(s) URL or local path) and decode it.

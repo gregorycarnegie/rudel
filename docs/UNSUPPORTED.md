@@ -558,10 +558,15 @@ upstream:
   few seconds after nothing shows it. Upstream's `params` argument (texture
   options) is ignored.
 - `initVideo(url)` plays a video file, looping and muted like upstream's
-  `<video>` element, from the same places `initImage` reads. MP4 with H.264
-  only (the `mp4` crate demuxes, Cisco's OpenH264 decodes, built from source):
-  about 80% of the shared patterns' videos. WebM (VP8/VP9) is not read; that
-  needs libvpx. The file is held in memory.
+  `<video>` element, from the same places `initImage` reads (a web video is
+  read from the download cache, so a loop does not fetch it again). With
+  `ffmpeg` and `ffprobe` on the PATH, it is any format FFmpeg reads (MP4, WebM,
+  MOV, GIF, …): `ffmpeg` paces and loops it itself (`-re -stream_loop -1`)
+  and hands over raw RGBA frames on a pipe, no wider than 1280. Without
+  FFmpeg, MP4 with H.264 still plays (the `mp4` crate demuxes, Cisco's
+  OpenH264 decodes, built from source; the file is held in memory), which is
+  about 80% of the shared patterns' videos. A rotated phone video plays
+  unrotated (`-noautorotate`, so frames stay the size `ffprobe` reported).
 - `initScreen()` captures the primary monitor (xcap) about 15 times a second,
   scaled to at most 1280 wide. Upstream lets the browser ask which screen or
   window; there is no picker here. Not on Linux, where xcap needs PipeWire,

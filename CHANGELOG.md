@@ -30,8 +30,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - **`s0.initCam()` streams a webcam into hydra,** as upstream: `initCam(1)`
   picks the second camera.
 - **`s0.initVideo(url)` plays a video into hydra,** looping and muted as
-  upstream: MP4 with H.264 (most shared patterns' videos), from http(s) or
-  this computer. WebM is not read.
+  upstream, from http(s) or this computer. With FFmpeg installed, any format
+  it reads (WebM, MOV, GIF, …); without it, MP4 with H.264, which is most
+  shared patterns' videos.
 - **`s0.initScreen()` captures the primary monitor into hydra,** about 15
   times a second. Not on Linux.
 - **`s0.initImage(url)` loads a picture into a hydra source,** PNG or JPEG,
@@ -69,6 +70,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Downloads say they come from rudel.** Samples, pictures and videos were
+  fetched with the HTTP library's generic user agent, which some hosts
+  (Wikimedia) refuse.
 - **Pasting over a buffer with an inline slider no longer turns it into the
   slider's number.** A select-all paste stretched the slider's range over the
   whole new text, the slider stayed live on its remembered value, and the

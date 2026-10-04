@@ -1,17 +1,25 @@
 //! hydra's `s0.initVideo(url)`: a video file as a live source (`hydra_live`),
 //! looping and muted like upstream's `<video>` element.
 //!
-//! MP4 with H.264 video, which is what most shared patterns point at: the
-//! `mp4` crate demuxes and OpenH264 decodes. WebM (VP8/VP9) is not read.
+//! The installed `ffmpeg` plays it when there is one: any format it reads
+//! (MP4, WebM, MOV, GIF, …), at the file's own pace, looping, its raw RGBA
+//! frames read from a pipe. Without it, MP4 with H.264, which is most shared
+//! patterns' videos, still plays: the `mp4` crate demuxes and OpenH264
+//! decodes.
 
 use super::{hydra_images::Picture, hydra_live};
 use eframe::egui;
 use openh264::formats::YUVSource as _;
 use std::{
-    io::Cursor,
+    io::{Cursor, Read as _},
+    path::Path,
+    process::{Command, Stdio},
     sync::Arc,
     time::{Duration, Instant},
 };
+
+/// No wider than this: a background does not need a 4K texture.
+const MAX_WIDTH: u32 = 1280;
 
 /// The current frame of the video at `url` (already resolved to a path or
 /// http(s) URL), starting it on first use.
@@ -23,6 +31,108 @@ pub(super) fn frame(ctx: &egui::Context, url: &str) -> Option<Arc<Picture>> {
 }
 
 fn play(sink: &hydra_live::Sink, url: &str) -> Result<(), String> {
+    let path = rudel_audio::samples::fetch_cached_file(url)?;
+    match probe(&path) {
+        Ok((width, height)) => play_ffmpeg(sink, &path, width, height),
+        // No ffmpeg installed: the built-in MP4/H.264 reader.
+        Err(Probe::Missing) => play_mp4(sink, url),
+        Err(Probe::Failed(e)) => Err(e),
+    }
+}
+
+enum Probe {
+    Missing,
+    Failed(String),
+}
+
+/// A command that opens no console window of its own on Windows.
+fn tool(name: &str) -> Command {
+    let mut command = Command::new(name);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+/// The first video stream's size, by `ffprobe`.
+fn probe(path: &Path) -> Result<(u32, u32), Probe> {
+    let output = tool("ffprobe")
+        .args(["-v", "error", "-select_streams", "v:0"])
+        .args(["-show_entries", "stream=width,height", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => Probe::Missing,
+            _ => Probe::Failed(e.to_string()),
+        })?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut size = text.trim().split(',').map(|n| n.trim().parse::<u32>());
+    match (size.next(), size.next()) {
+        (Some(Ok(width)), Some(Ok(height))) if width > 0 && height > 0 => Ok((width, height)),
+        _ => Err(Probe::Failed(format!(
+            "ffprobe found no video in it: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))),
+    }
+}
+
+/// The size frames are scaled to: the video's, no wider than [`MAX_WIDTH`].
+fn fit(width: u32, height: u32) -> (u32, u32) {
+    if width <= MAX_WIDTH {
+        (width, height)
+    } else {
+        (MAX_WIDTH, (height * MAX_WIDTH / width).max(1))
+    }
+}
+
+fn play_ffmpeg(
+    sink: &hydra_live::Sink,
+    path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let (width, height) = fit(width, height);
+    // `-re` paces it at the file's own rate and `-stream_loop -1` loops it;
+    // `-noautorotate` keeps the frames the size ffprobe reported.
+    let mut child = tool("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-noautorotate"])
+        .args(["-re", "-stream_loop", "-1", "-i"])
+        .arg(path)
+        .args(["-an", "-vf", &format!("scale={width}:{height}")])
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("ffmpeg: {e}"))?;
+    let mut frames = child.stdout.take().ok_or("ffmpeg gave no output")?;
+    let mut frame = vec![0; (width * height * 4) as usize];
+    let mut result = Ok(());
+    while sink.wanted() {
+        if frames.read_exact(&mut frame).is_err() {
+            let mut why = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                let _ = stderr.read_to_string(&mut why);
+            }
+            result = Err(format!("ffmpeg stopped: {}", why.trim()));
+            break;
+        }
+        sink.publish(Picture {
+            width,
+            height,
+            rgba: frame.clone(),
+        });
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
+/// The built-in reader, for when no `ffmpeg` is installed.
+fn play_mp4(sink: &hydra_live::Sink, url: &str) -> Result<(), String> {
     // ponytail: the whole file is held in memory, fine for the clips hydra
     // patterns use; stream it if anyone points one at a feature film.
     let bytes = rudel_audio::samples::fetch_cached_bytes(url)?;
@@ -33,7 +143,9 @@ fn play(sink: &hydra_live::Sink, url: &str) -> Result<(), String> {
             .tracks()
             .iter()
             .find(|(_, t)| matches!(t.media_type(), Ok(mp4::MediaType::H264)))
-            .ok_or("no H.264 video track (rudel reads MP4 with H.264 only)")?;
+            .ok_or(
+                "no H.264 video track (without ffmpeg installed, rudel reads MP4 with H.264 only)",
+            )?;
         let (id, timescale, count) = (*id, f64::from(track.timescale()), track.sample_count());
         // The parameter sets live in the track header, not in the samples.
         let mut head = Vec::new();
@@ -89,6 +201,12 @@ fn length_prefixed_to_annex_b(mut data: &[u8], out: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wide_video_is_scaled_to_a_background_s_width() {
+        assert_eq!(fit(640, 480), (640, 480));
+        assert_eq!(fit(3840, 2160), (1280, 720));
+    }
 
     #[test]
     fn length_prefixes_become_start_codes() {
