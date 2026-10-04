@@ -6,8 +6,8 @@ mod loading;
 #[cfg(test)]
 mod tests;
 
-pub use loading::{decode_bytes, fetch_cached_bytes};
 pub(crate) use loading::fetch_cached_text;
+pub use loading::{decode_bytes, fetch_cached_bytes};
 
 use crate::soundfont::Preset;
 use rudel_dsp::{Sample, WaveTable};

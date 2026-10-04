@@ -34,6 +34,8 @@ struct Scene {
     render: Option<Option<usize>>,
     /// The image each external source `s0`..`s3` was given (`initImage`).
     images: [Option<String>; 4],
+    /// `initHydra({feedStrudel})`: `s0` shows Strudel's own canvas.
+    feed: bool,
 }
 
 thread_local! {
@@ -84,6 +86,9 @@ pub(crate) fn take_scene() -> Option<WidgetConfig> {
         Some(Some(i)) => WidgetOption::Number(i as f64),
     };
     options.insert("render".to_string(), render);
+    if scene.feed {
+        options.insert("feed".to_string(), WidgetOption::Bool(true));
+    }
     Some(WidgetConfig {
         widget_type: "_hydra".to_string(),
         id: "hydra-background".to_string(),
@@ -194,6 +199,13 @@ pub(crate) fn register(prelude: &Scope) {
         _ => Err("hydra: out is not called on a chain".to_string()),
     });
     let namespace = prelude.namespace("Hydra");
+    // `initHydra({feedStrudel})` (`prelude.js`); the last call wins, as a
+    // re-init does upstream.
+    namespace.func("_feed", |a| {
+        let on = matches!(a.first(), Some(Arg::Bool(true)));
+        SCENE.with(|s| s.borrow_mut().feed = on);
+        Ok(Arg::Null)
+    });
     // `s0.initImage(url)` (`prelude.js`): load an image into a source.
     namespace.func("_image", |a| {
         // A double-quoted URL arrives as a mini-notation literal; its text is
@@ -405,6 +417,38 @@ src(s1).out()"
                 "{quote}"
             );
         }
+    }
+
+    #[test]
+    fn feed_strudel_marks_the_scene_and_the_canvas_visuals() {
+        let src = "await initHydra({feedStrudel: 1})
+src(s0).kaleid(4).out()
+                   s(\"bd\").scope()
+s(\"hh\")._scope()";
+        let result = crate::eval_result(src).expect("eval");
+        let scene = result.meta.hydra.expect("a scene");
+        assert_eq!(scene.options.get("feed"), Some(&WidgetOption::Bool(true)));
+        let canvas: Vec<bool> = result
+            .meta
+            .widgets
+            .iter()
+            .map(|w| w.options.contains_key(crate::CANVAS_OPTION))
+            .collect();
+        assert_eq!(
+            canvas,
+            [true, false],
+            "`.scope()` is the canvas, `._scope()` inline"
+        );
+        // Without the option there is no feed.
+        let plain = scene_of(
+            "await initHydra()
+src(s0).out()",
+        );
+        assert_eq!(plain.options.get("feed"), None);
+    }
+
+    fn scene_of(src: &str) -> WidgetConfig {
+        scene(src).expect("a scene")
     }
 
     #[test]

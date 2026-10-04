@@ -10,6 +10,7 @@ mod mondo;
 mod scanner;
 mod syntax;
 mod widgets;
+pub use widgets::CANVAS_OPTION;
 
 use kabelsalat::scope_kabelsalat_calls;
 use labels::rewrite_labels;

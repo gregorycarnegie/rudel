@@ -26,6 +26,7 @@ use preprocess::{preprocess_strudel_with_meta, preprocess_strudel_with_meta_in_r
 use samples::register_samples;
 
 pub use bindings::{filter_output, output_targets};
+pub use preprocess::CANVAS_OPTION;
 pub use samples::SampleEffects;
 pub use sliders::{set_slider_value, slider_value};
 
@@ -325,7 +326,11 @@ fn evaluate(
         }
     }
     let images = bindings::hydra::scene_images();
-    for widget in meta.widgets.iter_mut().filter(|w| w.widget_type == "_hydra") {
+    for widget in meta
+        .widgets
+        .iter_mut()
+        .filter(|w| w.widget_type == "_hydra")
+    {
         widget.options.extend(images.iter().cloned());
     }
     meta.hydra = bindings::hydra::take_scene();

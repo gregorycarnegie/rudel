@@ -35,6 +35,10 @@ pub(crate) struct WidgetPaintInput<'a> {
     /// This frame's values for the evaluation's per-frame hydra arguments
     /// (`H(pattern)`, arrays, functions), by slot.
     pub(crate) hydra_values: &'a [Option<f64>],
+    /// The visuals `initHydra({feedStrudel})` feeds into `s0`: the ones spelled
+    /// the public way (`.scope()`), drawn there instead of inline. Empty
+    /// without a feed.
+    pub(crate) canvas: &'a [WidgetDecoration],
 }
 
 pub(crate) fn draw_widget_hosts(
@@ -76,6 +80,10 @@ pub(crate) fn draw_widget_hosts(
     let mut stack_line = usize::MAX;
     let mut stack_offset = 0.0;
     for widget in widgets {
+        // Fed into hydra rather than shown, as upstream hides its canvas.
+        if paint.canvas.iter().any(|c| c.id == widget.id) {
+            continue;
+        }
         let Some(surface) = host.surface(widget) else {
             continue;
         };

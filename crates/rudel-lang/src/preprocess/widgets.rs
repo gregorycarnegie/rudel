@@ -5,6 +5,10 @@ use super::scanner::{
 use crate::{WidgetConfig, WidgetOption};
 use std::collections::BTreeMap;
 
+/// The option marking a visual spelled the public way (`.scope()`, not
+/// `._scope()`): one upstream draws on the full-screen canvas.
+pub const CANVAS_OPTION: &str = "_canvas";
+
 pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
     "_pianoroll",
     "_punchcard",
@@ -246,13 +250,21 @@ pub(super) fn rewrite_editor_widgets_with_context(
                 .filter(|widget| widget.widget_type == widget_type)
                 .count();
             let id = widget_id(widget_base_id, widget_type, index, from, to);
+            let mut options = parse_widget_options(src, call.args.first());
+            // Upstream the public spellings draw on the full-screen canvas,
+            // which `initHydra({feedStrudel})` turns into hydra's `s0`; the
+            // `_` ones are inline. Rudel draws both inline, and remembers which
+            // was which for the feed.
+            if !method.starts_with('_') && !matches!(widget_type, "_shader" | "_hydra") {
+                options.insert(CANVAS_OPTION.to_string(), WidgetOption::Bool(true));
+            }
             widgets.push(WidgetConfig {
                 widget_type: widget_type.to_string(),
                 id: id.clone(),
                 from,
                 to,
                 index,
-                options: parse_widget_options(src, call.args.first()),
+                options,
                 ..Default::default()
             });
 

@@ -138,8 +138,14 @@ mod tests {
 
     #[test]
     fn a_picture_url_resolves_to_where_it_is() {
-        assert_eq!(resolve("https://e.org/a%20b.jpg"), "https://e.org/a%20b.jpg");
-        assert_eq!(resolve("file:///C:/My%20Pictures/a.png"), "C:/My Pictures/a.png");
+        assert_eq!(
+            resolve("https://e.org/a%20b.jpg"),
+            "https://e.org/a%20b.jpg"
+        );
+        assert_eq!(
+            resolve("file:///C:/My%20Pictures/a.png"),
+            "C:/My Pictures/a.png"
+        );
         assert_eq!(resolve("file:///home/me/a.png"), "/home/me/a.png");
         assert_eq!(resolve("~/a.png"), "~/a.png", "the fetch expands ~ itself");
         set_base_dir(Some(PathBuf::from("songs")));

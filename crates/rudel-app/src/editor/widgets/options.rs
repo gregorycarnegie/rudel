@@ -195,7 +195,10 @@ impl VisualWidgetOptions {
     }
 }
 
-fn option_bool(options: &BTreeMap<String, rudel_lang::WidgetOption>, key: &str) -> Option<bool> {
+pub(crate) fn option_bool(
+    options: &BTreeMap<String, rudel_lang::WidgetOption>,
+    key: &str,
+) -> Option<bool> {
     options.get(key).and_then(rudel_lang::WidgetOption::as_bool)
 }
 

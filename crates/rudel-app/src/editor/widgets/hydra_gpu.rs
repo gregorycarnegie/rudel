@@ -179,6 +179,8 @@ struct Surface {
     /// last frame. One per parity, shared by all four chains, because they all
     /// read the same previous-frame set.
     chain_bind: [wgpu::BindGroup; 2],
+    /// What the canvas visuals draw into, read as `s0`, with a feed.
+    feed: Option<wgpu::TextureView>,
     write: usize,
     used: Instant,
 }
@@ -191,6 +193,9 @@ pub(crate) struct HydraStore {
     blit: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
     grid: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
     sampler: Option<wgpu::Sampler>,
+    /// Draws the canvas visuals into a surface's feed texture
+    /// (`initHydra({feedStrudel})`); its only texture is one white pixel.
+    feed_renderer: Option<egui_wgpu::Renderer>,
     /// Stands in for an output nothing was bound to. Every chain binds all four
     /// buffers whether or not it reads them, and an unused one should read as
     /// empty rather than cost a full-size texture.
@@ -206,6 +211,7 @@ impl HydraStore {
             blit: None,
             grid: None,
             sampler: None,
+            feed_renderer: None,
             empty: None,
             surfaces: HashMap::new(),
         }
@@ -228,6 +234,28 @@ impl HydraStore {
                 })
             })
             .clone()
+    }
+
+    fn feed_renderer(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> &mut egui_wgpu::Renderer {
+        let format = self.format;
+        self.feed_renderer.get_or_insert_with(|| {
+            let mut renderer =
+                egui_wgpu::Renderer::new(device, format, egui_wgpu::RendererOptions::default());
+            // Untextured shapes sample the font atlas's white texel; any uv
+            // of a one-white-pixel texture reads the same.
+            let white = egui::ColorImage::new([1, 1], vec![egui::Color32::WHITE]);
+            renderer.update_texture(
+                device,
+                queue,
+                egui::TextureId::default(),
+                &egui::epaint::ImageDelta::full(white, egui::TextureOptions::NEAREST),
+            );
+            renderer
+        })
     }
 
     fn empty(&mut self, device: &wgpu::Device) -> wgpu::TextureView {
@@ -516,7 +544,11 @@ fn build_surface(
         let picture = call.pictures[i].as_deref()?;
         Some(picture_view(device, queue, format, picture))
     });
-    let picture = |i: usize| pictures[i].as_ref().unwrap_or(&empty);
+    let feed = call.feed.is_some().then(make_view);
+    let picture = |i: usize| match (i, &feed) {
+        (0, Some(feed)) => feed,
+        _ => pictures[i].as_ref().unwrap_or(&empty),
+    };
 
     // While writing parity `w`, every buffer read comes from `1 - w`: the set
     // the previous frame wrote. One bind group serves all four chains.
@@ -622,6 +654,7 @@ fn build_surface(
         grid_bind,
         uniforms,
         chain_bind,
+        feed,
         write: 0,
         used: Instant::now(),
     }
@@ -632,6 +665,9 @@ struct HydraCallback {
     sources: [Option<String>; 4],
     /// The pictures loaded into `s0`..`s3`, as far as they have arrived.
     pictures: [Option<Arc<Picture>>; 4],
+    /// The canvas visuals for `s0`, tessellated, with a feed.
+    feed: Option<Arc<Vec<egui::epaint::ClippedPrimitive>>>,
+    pixels_per_point: f32,
     render: Render,
     hash: u64,
     size: (u32, u32),
@@ -659,8 +695,41 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
             store.surfaces.insert(self.id.clone(), surface);
             super::evict_idle(&mut store.surfaces, &self.id, |s| s.used);
         }
+        let mut commands = Vec::new();
+        if let Some(primitives) = &self.feed {
+            let screen = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [self.size.0, self.size.1],
+                pixels_per_point: self.pixels_per_point,
+            };
+            store.feed_renderer(device, queue);
+            if let (Some(renderer), Some(view)) = (
+                store.feed_renderer.as_mut(),
+                store.surfaces.get(&self.id).and_then(|s| s.feed.as_ref()),
+            ) {
+                commands = renderer.update_buffers(device, queue, encoder, primitives, &screen);
+                // Upstream's canvas is cleared each frame and transparent
+                // where nothing is drawn.
+                let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("rudel-hydra-feed"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                renderer.render(&mut pass.forget_lifetime(), primitives, &screen);
+            }
+        }
         let Some(surface) = store.surfaces.get_mut(&self.id) else {
-            return Vec::new();
+            return commands;
         };
         surface.used = Instant::now();
         // Alternate before drawing, so this frame writes the buffer the last
@@ -693,7 +762,7 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
             pass.set_bind_group(0, &surface.chain_bind[surface.write], &[]);
             pass.draw(0..3, 0..1);
         }
-        Vec::new()
+        commands
     }
 
     fn paint(
@@ -754,6 +823,7 @@ fn chains(widget: &WidgetDecoration) -> ([Option<String>; 4], Render) {
     (sources, render)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_hydra_gpu(
     ui: &egui::Ui,
     rect: egui::Rect,
@@ -762,6 +832,7 @@ pub(super) fn paint_hydra_gpu(
     time: f64,
     colors: WidgetDrawColors,
     dynamic: &[Option<f64>],
+    feed: Option<Vec<egui::epaint::ClippedPrimitive>>,
 ) {
     let (sources, render) = chains(widget);
     if sources.iter().all(Option::is_none) {
@@ -800,6 +871,7 @@ pub(super) fn paint_hydra_gpu(
     for picture in &pictures {
         picture.as_ref().map(Arc::as_ptr).hash(&mut hasher);
     }
+    feed.is_some().hash(&mut hasher);
     let hash = hasher.finish();
 
     let pixels_per_point = ui.ctx().pixels_per_point();
@@ -822,6 +894,8 @@ pub(super) fn paint_hydra_gpu(
             id: super::gpu_key(ui, &widget.id),
             sources,
             pictures,
+            feed: feed.map(Arc::new),
+            pixels_per_point,
             render,
             hash,
             size,

@@ -22,8 +22,9 @@ mod tests;
 
 pub(crate) use geometry::{WidgetLayout, block_widget_line_heights};
 pub(crate) use host::WidgetHostState;
-pub(crate) use hydra_images::set_base_dir as set_picture_dir;
 pub(crate) use hydra_gpu::HydraStore;
+pub(crate) use hydra_images::set_base_dir as set_picture_dir;
+pub(crate) use options::option_bool;
 pub(crate) use paint::{WidgetPaintInput, draw_widget_hosts, paint_backdrop};
 pub(crate) use shader::ShaderStore;
 pub(crate) use spiral_gpu::{SpiralStore, supported as spiral_gpu_supported};

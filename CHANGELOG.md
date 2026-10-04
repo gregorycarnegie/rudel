@@ -22,6 +22,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
   (`[1, 2].fast(2)`), `s0`-`s3`, `a` and `width`/`height` exist, so 331 of the
   390 shared strudel.cc patterns that failed on hydra now evaluate (7,422 of
   8,004 overall).
+- **`initHydra({feedStrudel: 1})` feeds the visuals into hydra.** A
+  `.scope()`, `.pianoroll()` or `.spiral()` (the public spellings, which
+  upstream draws on its full-screen canvas) becomes hydra's `s0` instead of an
+  inline widget, so `src(s0).kaleid(4)` folds the scope into a kaleidoscope.
+  84 of the shared strudel.cc patterns use it.
 - **`s0.initImage(url)` loads a picture into a hydra source,** PNG or JPEG,
   over http(s) (cached on disk like samples) or from this computer (a path,
   `~/…`, `file:///…`, or relative to the open file's folder), so `src(s0)`

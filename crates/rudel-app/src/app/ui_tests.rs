@@ -747,6 +747,34 @@ fn a_picture_loaded_into_a_source_shows_through_src() {
 }
 
 #[test]
+fn feed_strudel_draws_the_canvas_visuals_into_s0() {
+    let bright = |code: &str| {
+        let mut harness = gpu_app(code);
+        harness.run_steps(2);
+        let image = harness.render().expect("renders");
+        // The blocks, through the code's wash: grey, lighter than the theme.
+        image
+            .as_raw()
+            .chunks(4)
+            .filter(|p| (48..120).contains(&p[0]) && p[0].abs_diff(p[2]) < 12)
+            .count()
+    };
+    // The punchcard fills the scene through `src(s0)`; without the feed it is
+    // only its small inline surface.
+    let fed = bright(
+        "await initHydra({feedStrudel: 1})
+src(s0).out()
+note(\"c e g b\").punchcard()",
+    );
+    let unfed = bright(
+        "await initHydra()
+src(s0).out()
+note(\"c e g b\").punchcard()",
+    );
+    assert!(fed > unfed * 3, "fed {fed}, unfed {unfed}");
+}
+
+#[test]
 fn a_hydra_scene_draws_behind_the_code() {
     let mut harness = gpu_app(
         "await initHydra()

@@ -98,7 +98,19 @@ pub(crate) fn code_editor(
         settings,
         insert_text,
     } = input;
+    // `initHydra({feedStrudel})`: the canvas visuals feed the scene's `s0`.
+    let feeds = backdrop.is_some_and(|b| widgets::option_bool(&b.options, "feed") == Some(true));
+    let canvas: Vec<WidgetDecoration> = if feeds {
+        widgets
+            .iter()
+            .filter(|w| w.options.contains_key(rudel_lang::CANVAS_OPTION))
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
     let paint = WidgetPaintInput {
+        canvas: &canvas,
         pattern: current_pattern,
         pattern_generation,
         time_cycles: playback_position_cycles,
@@ -154,7 +166,13 @@ pub(crate) fn code_editor(
     // top of the code (matching Strudel's block/inline CodeMirror widgets).
     let editor_font = settings.font_id();
     let base_row_height = ui.fonts_mut(|fonts| fonts.row_height(&editor_font));
-    let line_heights = widgets::block_widget_line_heights(code, widgets, base_row_height);
+    // A visual fed into hydra is not drawn inline, so it gets no room there.
+    let inline: Vec<WidgetDecoration> = widgets
+        .iter()
+        .filter(|w| !canvas.iter().any(|c| c.id == w.id))
+        .cloned()
+        .collect();
+    let line_heights = widgets::block_widget_line_heights(code, &inline, base_row_height);
     let slider_reservations = sliders::slider_reservations(sliders);
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
         let job = highlighted_editor_job(

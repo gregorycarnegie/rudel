@@ -552,9 +552,17 @@ upstream:
   file's folder. Write Windows paths with forward slashes, since a JavaScript
   string reads `\U` as `U`. `src(s0)` shows the picture once it lands, in the scene and in inline `_hydra`
   widgets alike. `initCam`/`initVideo`/`initScreen`/`initStream` are accepted
-  and read as empty: rudel has no camera, video or screen capture. Nor does it
-  have `initHydra({feedStrudel: 1})`, which upstream pipes Strudel's own draw
-  canvas into `s0` (84 shared patterns ask for it).
+  and read as empty: rudel has no camera, video or screen capture.
+- `initHydra({feedStrudel: 1})` feeds Strudel's own canvas into `s0`. Upstream
+  that is the full-screen canvas the public-spelled visuals draw on
+  (`.scope()`, `.pianoroll()`, `.spiral()`, … but not `._scope()`, which is
+  inline) and the feed hides it. Rudel draws those visuals inline, so with a
+  feed it paints them over the scene's rect on a layer of its own instead,
+  takes the shapes back before egui draws them, and renders the meshes into
+  `s0` with a second egui renderer (`widgets/visual.rs` `capture_canvas`). They
+  leave the editor while fed. Two limits: the CPU painters are used (the GPU
+  spiral draws its CPU twin), and text is dropped, since that renderer's only
+  texture is one white pixel rather than the font atlas.
 - Arguments that change per frame work as upstream: an array steps through
   its values by hydra-synth's own rule (`time × speed × bpm/60 + offset`, bpm
   30, with `.smooth()` and the named `.ease()`s), `H(pattern)` reads the

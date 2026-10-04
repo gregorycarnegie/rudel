@@ -125,7 +125,19 @@ pub(super) fn paint_pattern_widget(
             } else {
                 time
             };
-            paint_hydra_gpu(ui, rect, widget, &haps, time, colors, paint.hydra_values);
+            // `initHydra({feedStrudel})`: the canvas visuals become `s0`.
+            let feed = (super::options::option_bool(&widget.options, "feed") == Some(true))
+                .then(|| capture_canvas(ui, rect, pattern, colors, paint));
+            paint_hydra_gpu(
+                ui,
+                rect,
+                widget,
+                &haps,
+                time,
+                colors,
+                paint.hydra_values,
+                feed,
+            );
             true
         }
         "_scope" => {
@@ -170,4 +182,54 @@ pub(super) fn paint_pattern_widget(
         }
         _ => false,
     }
+}
+
+/// The canvas visuals (`.scope()`, `.pianoroll()`, …) painted over `rect` as
+/// upstream's full-screen canvas would show them, tessellated and moved to
+/// `rect`'s corner, for hydra to read as `s0`.
+///
+/// They paint onto a layer of their own, which is emptied again before egui
+/// draws it. CPU painters only, and no text: the meshes are drawn with a
+/// one-white-pixel font texture, which suits every shape but glyphs.
+fn capture_canvas(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    pattern: &Pattern,
+    colors: WidgetDrawColors,
+    paint: WidgetPaintInput<'_>,
+) -> Vec<egui::epaint::ClippedPrimitive> {
+    let ctx = ui.ctx();
+    let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("rudel-hydra-feed"));
+    let mut canvas_ui = egui::Ui::new(
+        ctx.clone(),
+        egui::Id::new("rudel-hydra-feed-ui"),
+        egui::UiBuilder::new().layer_id(layer).max_rect(rect),
+    );
+    canvas_ui.set_clip_rect(rect);
+    let canvas = paint.canvas;
+    let paint = WidgetPaintInput {
+        gpu_available: false,
+        canvas: &[],
+        ..paint
+    };
+    for widget in canvas {
+        paint_pattern_widget(&canvas_ui, rect, widget, pattern, colors, paint);
+    }
+    let shapes: Vec<egui::epaint::ClippedShape> = ctx.graphics_mut(|g| {
+        std::mem::take(g.entry(layer))
+            .all_entries()
+            .cloned()
+            .collect()
+    });
+    let offset = -rect.min.to_vec2();
+    let shapes = shapes
+        .into_iter()
+        .filter(|s| !matches!(s.shape, egui::Shape::Text(_) | egui::Shape::Callback(_)))
+        .map(|mut s| {
+            s.shape.translate(offset);
+            s.clip_rect = s.clip_rect.translate(offset);
+            s
+        })
+        .collect();
+    ctx.tessellate(shapes, ctx.pixels_per_point())
 }

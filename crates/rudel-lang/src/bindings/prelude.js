@@ -219,6 +219,7 @@
     globalThis.time = 0;
     for (const [name, f] of Object.entries(arrayUtils)) def(Array.prototype, name, f);
     if (options.detectAudio) globalThis.a = audioAnalyser();
+    Hydra._feed(!!options.feedStrudel);
   });
 
   // `createParam(names)` (controls.mjs): a control made at runtime. Returns
