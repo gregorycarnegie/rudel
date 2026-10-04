@@ -160,7 +160,11 @@ fn curves_are_flattened_through_the_transform() {
     assert_eq!(points.len(), 17);
     let near = |i: usize, [x, y]: [f32; 2]| {
         let [px, py] = points[i];
-        assert!((px - x).abs() < 1e-3 && (py - y).abs() < 1e-3, "{i}: {:?}", points[i]);
+        assert!(
+            (px - x).abs() < 1e-3 && (py - y).abs() < 1e-3,
+            "{i}: {:?}",
+            points[i]
+        );
     };
     near(0, [110.0, 0.0]);
     near(4, [100.0, 10.0]);

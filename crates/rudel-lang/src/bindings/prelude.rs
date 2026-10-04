@@ -891,9 +891,8 @@ pub(crate) fn register(prelude: &Scope) {
             Arg::Num(f64::from(h)),
         ]))
     });
-    // Curve flattening for `canvas.js`, per point too slow in script.
-    prelude.func("__ellipse", |a| Ok(crate::canvas::ellipse(a)));
-    prelude.func("__bezier", |a| Ok(crate::canvas::bezier(a)));
+    // The canvas context's natives, which `canvas.js` builds on.
+    crate::canvas::register(prelude);
     // Strudel's draw canvas: `getDrawContext`, `.draw`, `.onPaint`,
     // `requestAnimationFrame`, `animate` (see `crate::canvas`).
     crate::js::run_lent(include_str!("canvas.js"));

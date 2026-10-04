@@ -3,18 +3,18 @@
 // Upstream a full-screen <canvas> sits behind the code, and `.draw(fn)`,
 // `.onPaint(painter)`, `getDrawContext()` and `requestAnimationFrame` paint
 // on it. Here the 2D context is a stand-in that records what is drawn: paths
-// and transforms are flattened to polygons as they are built, so the app only
-// replays fills, strokes, clears and text onto a canvas of its own, which,
-// like a browser's, keeps its pixels until something clears them.
+// and transforms are flattened to polygons as they are built (natively, in
+// `crate::canvas::Recorder`), so the app only replays fills, strokes, clears
+// and text onto a canvas of its own, which, like a browser's, keeps its
+// pixels until something clears them.
 //
 // The app calls `__drawFrame` once per frame: it runs the animation-frame
-// callbacks and painters and returns that frame's drawing.
+// callbacks and painters, and the app takes what they drew from the recorder.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 (() => {
   const def = (object, name, value) =>
     Object.defineProperty(object, name, { value, writable: true, configurable: true });
 
-  let ops = [];
   let used = false;
   let now = 0;
   // The canvas size in CSS pixels: set by each frame, and before the first
@@ -143,9 +143,11 @@
     }
   };
 
-  // How many straight pieces a curve becomes, by its size on screen.
-  const pieces = (length) => Math.max(8, Math.min(256, Math.ceil(length / 4)));
-
+  // The path, the transform and what is drawn are kept natively (`__canvas`,
+  // `crate::canvas::Recorder`): built point by point in script, a frame of
+  // curves cost several times what it does now. The context here holds the
+  // style, which scripts set as properties.
+  const native = __canvas;
   const defaults = () => ({
     fillStyle: '#000000',
     strokeStyle: '#000000',
@@ -157,7 +159,6 @@
     textAlign: 'start',
     textBaseline: 'alphabetic',
     globalCompositeOperation: 'source-over',
-    t: [1, 0, 0, 1, 0, 0],
   });
 
   // A gradient or pattern fill has no counterpart; its first colour stands in.
@@ -168,206 +169,51 @@
       Object.assign(this, defaults());
       this.canvas = canvas;
       this.stack = [];
-      this.path = [];
     }
-    // --- state
+    // --- state: the style here, the transform natively
     save() {
-      const { stack, path, canvas: _c, ...state } = this;
-      this.stack.push({ ...state, t: [...this.t] });
+      const { stack, canvas: _c, ...state } = this;
+      this.stack.push(state);
+      native.save();
     }
     restore() {
       const state = this.stack.pop();
       if (state) Object.assign(this, state);
+      native.restore();
     }
     reset() {
       Object.assign(this, defaults());
       this.stack = [];
-      this.path = [];
+      native.reset();
       this.clearRect(0, 0, size.width, size.height);
     }
-    // --- transforms: `t` maps user space to canvas pixels
-    setTransform(a, b, c, d, e, f) {
-      if (a && typeof a === 'object') ({ a, b, c, d, e, f } = a);
-      this.t = [a, b, c, d, e, f].map(Number);
-    }
-    resetTransform() {
-      this.t = [1, 0, 0, 1, 0, 0];
-    }
-    getTransform() {
-      const [a, b, c, d, e, f] = this.t;
-      return { a, b, c, d, e, f };
-    }
-    // Index access, not destructuring or spread, on every per-point path:
-    // boa runs those through the iterator protocol, which was most of a frame.
-    transform(a, b, c, d, e, f) {
-      const t = this.t;
-      this.t = [
-        t[0] * a + t[2] * b, t[1] * a + t[3] * b, t[0] * c + t[2] * d, t[1] * c + t[3] * d,
-        t[0] * e + t[2] * f + t[4], t[1] * e + t[3] * f + t[5],
-      ];
-    }
-    translate(x, y) {
-      this.transform(1, 0, 0, 1, x, y);
-    }
-    scale(x, y = x) {
-      this.transform(x, 0, 0, y, 0, 0);
-    }
-    rotate(a) {
-      this.transform(Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0);
-    }
-    point(x, y) {
-      const t = this.t;
-      return [t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]];
-    }
-    // Append (x, y), mapped to canvas pixels, to a flat point list.
-    push(points, x, y) {
-      const t = this.t;
-      points.push(t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]);
-    }
-    // How much the transform scales lengths, for line widths and font sizes.
-    get unit() {
-      const t = this.t;
-      return Math.sqrt(Math.abs(t[0] * t[3] - t[1] * t[2])) || 1;
-    }
-    // --- paths: subpaths of canvas-pixel points
-    beginPath() {
-      this.path = [];
-    }
-    current() {
-      return this.path[this.path.length - 1];
-    }
-    moveTo(x, y) {
-      this.path.push({ points: this.point(x, y), closed: false, user: [x, y], first: [x, y] });
-    }
-    lineTo(x, y) {
-      const sub = this.current();
-      if (!sub) return this.moveTo(x, y);
-      this.push(sub.points, x, y);
-      sub.user = [x, y];
-    }
-    closePath() {
-      const sub = this.current();
-      if (!sub) return;
-      sub.closed = true;
-      // The next segment starts where this subpath did.
-      this.path.push({ points: sub.points.slice(0, 2), closed: false, user: sub.first, first: sub.first });
-    }
-    rect(x, y, w, h) {
-      this.moveTo(x, y);
-      this.lineTo(x + w, y);
-      this.lineTo(x + w, y + h);
-      this.lineTo(x, y + h);
-      this.closePath();
-    }
-    roundRect(x, y, w, h) {
-      this.rect(x, y, w, h);
-    }
-    ellipse(x, y, rx, ry, rotation, start, end, ccw = false) {
-      let sweep = end - start;
-      const tau = 2 * Math.PI;
-      if (!ccw && sweep < 0) sweep = (sweep % tau) + tau;
-      if (ccw && sweep > 0) sweep = (sweep % tau) - tau;
-      if (Math.abs(end - start) >= tau) sweep = ccw ? -tau : tau;
-      const n = pieces(Math.abs(sweep) * Math.max(rx, ry) * this.unit);
-      const cos = Math.cos(rotation);
-      const sin = Math.sin(rotation);
-      const user = (a) => {
-        const ex = rx * Math.cos(a);
-        const ey = ry * Math.sin(a);
-        return [x + ex * cos - ey * sin, y + ex * sin + ey * cos];
-      };
-      if (!this.current()) this.path.push({ points: [], closed: false, user: null, first: user(start) });
-      this.extend(__ellipse(this.t, n, x, y, rx, ry, rotation, start, sweep), user(start + sweep));
-    }
-    // Append canvas-pixel points to the current subpath, which now ends at
-    // `user`. The curves are flattened natively (`__ellipse`, `__bezier`): a
-    // script call per point was most of what a frame of curves cost.
-    extend(points, user) {
-      const sub = this.current();
-      sub.points = sub.points.concat(points);
-      sub.user = user;
-    }
-    arc(x, y, r, start, end, ccw = false) {
-      this.ellipse(x, y, r, r, 0, start, end, ccw);
-    }
-    arcTo(x1, y1, x2, y2) {
-      this.lineTo(x1, y1);
-      this.lineTo(x2, y2);
-    }
-    bezierCurveTo(c1x, c1y, c2x, c2y, x, y) {
-      const sub = this.current();
-      const from = sub ? sub.user : [x, y];
-      const n = pieces(Math.hypot(x - from[0], y - from[1]) * this.unit);
-      if (!sub) this.moveTo(x, y);
-      this.extend(__bezier(this.t, n, from[0], from[1], c1x, c1y, c2x, c2y, x, y), [x, y]);
-    }
-    // The same curve as a cubic, its control points two thirds of the way
-    // from each end to (cx, cy).
-    quadraticCurveTo(cx, cy, x, y) {
-      const from = this.current()?.user ?? [x, y];
-      const k = 2 / 3;
-      this.bezierCurveTo(
-        from[0] + k * (cx - from[0]), from[1] + k * (cy - from[1]),
-        x + k * (cx - x), y + k * (cy - y),
-        x, y,
-      );
-    }
-    subpaths(stroke) {
-      return this.path
-        .filter((sub) => sub.points.length >= (stroke ? 4 : 6))
-        .map((sub) => (stroke ? [sub.closed, sub.points] : sub.points));
-    }
-    // --- drawing
+    // --- drawing, with the style the context holds
     fill(rule) {
       if (typeof rule === 'object') rule = arguments[1];
-      ops.push(['fill', style(this.fillStyle), this.globalAlpha, rule === 'evenodd', this.subpaths(false)]);
+      native.fillWith(style(this.fillStyle), this.globalAlpha, rule === 'evenodd');
     }
     stroke() {
-      ops.push([
-        'stroke',
-        style(this.strokeStyle),
-        this.globalAlpha,
-        this.lineWidth * this.unit,
-        this.lineCap,
-        this.lineJoin,
-        this.subpaths(true),
-      ]);
-    }
-    corners(x, y, w, h) {
-      const points = [];
-      this.push(points, x, y);
-      this.push(points, x + w, y);
-      this.push(points, x + w, y + h);
-      this.push(points, x, y + h);
-      return points;
+      native.strokeWith(style(this.strokeStyle), this.globalAlpha, this.lineWidth, this.lineCap, this.lineJoin);
     }
     fillRect(x, y, w, h) {
-      ops.push(['fill', style(this.fillStyle), this.globalAlpha, false, [this.corners(x, y, w, h)]]);
+      native.fillRectWith(x, y, w, h, style(this.fillStyle), this.globalAlpha);
     }
     strokeRect(x, y, w, h) {
-      const s = [true, this.corners(x, y, w, h)];
-      ops.push(['stroke', style(this.strokeStyle), this.globalAlpha, this.lineWidth * this.unit, this.lineCap, this.lineJoin, [s]]);
+      native.strokeRectWith(x, y, w, h, style(this.strokeStyle), this.globalAlpha, this.lineWidth, this.lineCap, this.lineJoin);
     }
-    clearRect(x, y, w, h) {
-      ops.push(['clear', this.corners(x, y, w, h)]);
-    }
+    // The font's size in user space.
     fontSize() {
       const m = /(\d*\.?\d+)px/.exec(this.font);
-      return (m ? Number(m[1]) : 10) * this.unit;
-    }
-    text(text, x, y, fill) {
-      const [px, py] = this.point(x, y);
-      const color = style(fill ? this.fillStyle : this.strokeStyle);
-      ops.push(['text', String(text), px, py, this.fontSize(), color, this.globalAlpha, this.textAlign, this.textBaseline]);
+      return m ? Number(m[1]) : 10;
     }
     fillText(text, x, y) {
-      this.text(text, x, y, true);
+      native.textWith(String(text), x, y, this.fontSize(), style(this.fillStyle), this.globalAlpha, this.textAlign, this.textBaseline);
     }
     strokeText(text, x, y) {
-      this.text(text, x, y, false);
+      native.textWith(String(text), x, y, this.fontSize(), style(this.strokeStyle), this.globalAlpha, this.textAlign, this.textBaseline);
     }
     measureText(text) {
-      const size = this.fontSize() / this.unit;
+      const size = this.fontSize();
       return { width: String(text).length * size * 0.55, actualBoundingBoxAscent: size * 0.8, actualBoundingBoxDescent: size * 0.2 };
     }
     // --- what has no counterpart: accepted, and drawn as nothing
@@ -400,6 +246,11 @@
       return false;
     }
   }
+  for (const name of ['beginPath', 'moveTo', 'lineTo', 'closePath', 'rect', 'roundRect', 'ellipse', 'arc',
+    'arcTo', 'bezierCurveTo', 'quadraticCurveTo', 'setTransform', 'resetTransform', 'getTransform',
+    'transform', 'translate', 'scale', 'rotate', 'clearRect']) {
+    def(Context2D.prototype, name, native[name]);
+  }
   const context = new Context2D();
 
   def(globalThis, 'getDrawContext', () => {
@@ -420,26 +271,31 @@
 
   // A hap as upstream's draw code reads one.
   const n = (x) => Number(x?.valueOf?.() ?? x);
-  const drawable = (hap) =>
-    Object.assign(hap, {
-      hasOnset() {
-        return !!hap.whole && n(hap.whole.begin) === n(hap.part.begin);
-      },
-      get endClipped() {
-        return n((hap.whole ?? hap.part).end);
-      },
-      isInFuture(t) {
-        return n(hap.whole?.begin ?? hap.part.begin) > t;
-      },
-      isInNearPast(margin, t) {
-        return n((hap.whole ?? hap.part).end) >= t - margin;
-      },
-      isActive(t) {
-        const span = hap.whole ?? hap.part;
-        return n(span.begin) <= t && n(span.end) >= t;
-      },
-    });
-  const query = (pattern, begin, end) => pattern.queryArc(begin, end).map(drawable);
+  // On a prototype the queried haps share: closures made per hap per frame
+  // were most of what a frame's query cost.
+  const drawable = {
+    hasOnset() {
+      return !!this.whole && n(this.whole.begin) === n(this.part.begin);
+    },
+    get endClipped() {
+      return n((this.whole ?? this.part).end);
+    },
+    isInFuture(t) {
+      return n(this.whole?.begin ?? this.part.begin) > t;
+    },
+    isInNearPast(margin, t) {
+      return n((this.whole ?? this.part).end) >= t - margin;
+    },
+    isActive(t) {
+      const span = this.whole ?? this.part;
+      return n(span.begin) <= t && n(span.end) >= t;
+    },
+  };
+  const query = (pattern, begin, end) => {
+    const haps = pattern.queryArc(begin, end);
+    for (let i = 0; i < haps.length; i++) Object.setPrototypeOf(haps[i], drawable);
+    return haps;
+  };
 
   // `.draw(fn, {lookbehind, lookahead})` (draw.mjs): `fn(haps, time, t,
   // pattern)` every frame, with the haps seen recently.
@@ -480,7 +336,6 @@
     size.width = Math.max(1, Math.round(width));
     size.height = Math.max(1, Math.round(height));
     now = time;
-    ops = [];
     for (const event of events) dispatch(event);
     const due = frames;
     frames = new Map();
@@ -501,7 +356,6 @@
     for (const p of onPaints) {
       attempt('onPaint', () => p.painter(context, time, query(p.pattern, time - 2, time + 2), [-2, 2]));
     }
-    return ops;
   };
 
   // `animate` (animate.mjs), ported: shapes from the `x`/`y`/`w`/`h`/`angle`/

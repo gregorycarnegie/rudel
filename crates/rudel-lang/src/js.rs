@@ -293,6 +293,8 @@ struct Side {
     bind_at: JsObject,
     /// Script functions a pattern may call after the evaluation is over.
     kept: RefCell<Vec<JsObject>>,
+    /// The draw canvas's path, transform and drawing (`crate::canvas`).
+    canvas: RefCell<crate::canvas::Recorder>,
 }
 
 /// The closures that have to hold a script value. A native closure cannot
@@ -354,6 +356,7 @@ pub(crate) fn new_context() -> Context {
         method,
         bind_at,
         kept: RefCell::new(Vec::new()),
+        canvas: RefCell::default(),
     };
     ctx.insert_data(data);
     ctx
@@ -739,6 +742,11 @@ impl Scope {
         names.dedup();
         names
     }
+}
+
+/// The lent context's canvas recording.
+pub(crate) fn with_canvas<R>(f: impl FnOnce(&mut crate::canvas::Recorder) -> R) -> R {
+    lent(|ctx| f(&mut side(ctx).canvas.borrow_mut()))
 }
 
 /// Run `source` in the lent context, for the part of the prelude written in
