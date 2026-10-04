@@ -32,7 +32,16 @@ pub(super) fn paint_pattern_widget(
     let options = VisualWidgetOptions::from_widget(widget);
     // The cached whole cycles, shared not copied; `in_window` narrows each use
     // of them to what the widget actually draws.
-    let cycles = |window| widget_haps(ui.ctx(), paint.pattern_generation, pattern, widget, window);
+    let cycles = |window| {
+        widget_haps(
+            ui.ctx(),
+            paint.pattern_generation,
+            pattern,
+            widget,
+            window,
+            time,
+        )
+    };
     // The audio ring feeding an analyzer widget: the tap registered under this
     // widget's id, filled by the voices whose haps carry the widget tag.
     let widget_tap = || paint.taps.map(|taps| taps.get_or_create(&widget.id));

@@ -104,8 +104,9 @@ pub(super) fn paint_pitchwheel(
         let pos = pitchwheel_pos(center, radius, angle);
         let color = color_with_alpha(event_color(hap, colors.foreground), event_alpha(hap));
         shape.push((pos, angle, color));
-        if !options.polygon {
-            painter.line_segment([center, pos], egui::Stroke::new(1.0, color));
+        // Upstream sets `lineWidth = hapRadius` before this loop.
+        if options.centerlines {
+            painter.line_segment([center, pos], egui::Stroke::new(hap_radius, color));
         }
         if options.hapcircles {
             painter.circle_filled(pos, hap_radius, color);
@@ -115,9 +116,14 @@ pub(super) fn paint_pitchwheel(
     if options.polygon && shape.len() > 1 {
         shape.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let points = shape.iter().map(|(pos, _, _)| *pos).collect::<Vec<_>>();
+        // Upstream sets each note's colour and alpha as it goes but strokes the
+        // path once at the end, so the last note round the circle colours it.
+        let color = shape
+            .last()
+            .map_or(colors.foreground, |(_, _, color)| *color);
         painter.add(egui::Shape::closed_line(
             points,
-            egui::Stroke::new(hap_radius, colors.foreground),
+            egui::Stroke::new(hap_radius, color),
         ));
     }
 }

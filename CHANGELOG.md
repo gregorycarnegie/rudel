@@ -104,6 +104,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **A re-evaluation no longer redraws what already played:** pianoroll,
+  punchcard, wordfall and spiral keep the notes that had started as they were
+  drawn and show the new pattern only from the playhead on, as Strudel's
+  drawer does; the old notes scroll away as usual.
+- **`_pitchwheel` matches Strudel's modes:** `mode: 'polygon'` outlines in the
+  last note's colour and alpha rather than the theme's, centre lines are
+  `hapRadius` wide, and only the default `flake` mode draws them (`dots` drew
+  them too).
+
 - **MIDI CC and program change are sent without a note,** so
   `ccn(74).ccv(sine.segment(16)).midi()` reaches the device. They used to need
   a note on the same event.

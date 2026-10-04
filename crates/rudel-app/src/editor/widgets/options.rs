@@ -52,6 +52,8 @@ pub(super) struct VisualWidgetOptions {
     pub(super) hap_radius: f32,
     pub(super) margin: f32,
     pub(super) polygon: bool,
+    /// `mode: 'flake'`, the default: a line from the centre to each note.
+    pub(super) centerlines: bool,
     pub(super) stretch: f32,
     pub(super) spiral_size: f32,
     pub(super) spiral_thickness: Option<f32>,
@@ -133,6 +135,7 @@ impl VisualWidgetOptions {
             hap_radius: option_f32(options, "hapRadius").unwrap_or(6.0),
             margin: option_f32(options, "margin").unwrap_or(10.0),
             polygon: option_str(options, "mode") == Some("polygon"),
+            centerlines: option_str(options, "mode").unwrap_or("flake") == "flake",
             stretch: option_f32(options, "stretch").unwrap_or(1.0).max(0.001),
             spiral_size,
             spiral_thickness: option_f32(options, "thickness"),
@@ -267,16 +270,19 @@ mod tests {
     }
 
     #[test]
-    fn only_mode_polygon_draws_a_polygon() {
-        let polygon = |mode: &str| {
-            VisualWidgetOptions::from_widget(&widget(
-                "_spiral",
-                &[("mode", rudel_lang::WidgetOption::String(mode.into()))],
-            ))
-            .polygon
+    fn only_mode_polygon_draws_a_polygon_and_only_flake_draws_centre_lines() {
+        let mode = |mode: Option<&str>| {
+            let options: Vec<_> = mode
+                .map(|m| ("mode", rudel_lang::WidgetOption::String(m.into())))
+                .into_iter()
+                .collect();
+            let options = VisualWidgetOptions::from_widget(&widget("_pitchwheel", &options));
+            (options.polygon, options.centerlines)
         };
-        assert!(polygon("polygon"));
-        assert!(!polygon("dots"));
+        assert_eq!(mode(Some("polygon")), (true, false));
+        assert_eq!(mode(Some("dots")), (false, false));
+        assert_eq!(mode(Some("flake")), (false, true));
+        assert_eq!(mode(None), (false, true), "flake is the default");
     }
 
     #[test]

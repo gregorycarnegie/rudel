@@ -492,7 +492,7 @@ fn cached_whole_cycle_query_matches_querying_the_window_directly() {
         let window = DrawWindow::around(time);
         assert_eq!(
             shape(&in_window(
-                &widget_haps(&ctx, 1, &pattern, &widget, window),
+                &widget_haps(&ctx, 1, &pattern, &widget, window, time),
                 window
             )),
             shape(&uncached(window).iter().collect::<Vec<_>>()),
@@ -511,7 +511,8 @@ fn bumping_the_generation_drops_haps_from_the_previous_pattern() {
     let count = |src: &str, generation: u64| {
         let pattern = rudel_lang::eval_result(src).expect("eval").pattern;
         in_window(
-            &widget_haps(&ctx, generation, &pattern, &widget, window),
+            // Nothing has played yet, so nothing is remembered.
+            &widget_haps(&ctx, generation, &pattern, &widget, window, -10.0),
             window,
         )
         .len()
@@ -530,6 +531,50 @@ fn bumping_the_generation_drops_haps_from_the_previous_pattern() {
     // Same generation as the last call: the cached result is reused even though
     // the pattern argument changed, which is exactly why `evaluate` must bump.
     assert_eq!(count(r#"s("bd")"#, 2), four);
+}
+
+/// Upstream's `Drawer.invalidate`: a re-evaluation keeps the haps that already
+/// started as they were drawn and takes only the future from the new pattern,
+/// and the remembered ones last until they scroll out of the window.
+#[test]
+fn a_new_evaluation_keeps_what_already_played() {
+    let widget = widget("_pianoroll", "roll", 0, 40);
+    let ctx = egui::Context::default();
+    let sounds = |src: &str, generation: u64, now: f64| {
+        let pattern = rudel_lang::eval_result(src).expect("eval").pattern;
+        let window = DrawWindow {
+            begin: now - 1.0,
+            end: now + 1.0,
+        };
+        in_window(
+            &widget_haps(&ctx, generation, &pattern, &widget, window, now),
+            window,
+        )
+        .iter()
+        .map(|hap| {
+            let s = match &hap.value {
+                rudel_core::Value::Map(m) => m.get("s").and_then(|v| v.as_str()).unwrap_or(""),
+                _ => "",
+            };
+            (hap.whole_or_part().begin, s.to_string())
+        })
+        .collect::<Vec<_>>()
+    };
+    let at = |n: i64, d: i64| Frac::new(n, d);
+
+    sounds(r#"s("bd bd")"#, 1, 10.0);
+    // Re-evaluated at 10.25: the bd at 10 had started and stays; from there on
+    // it is the new pattern's.
+    let after = sounds(r#"s("hh hh")"#, 2, 10.25);
+    assert!(after.contains(&(at(10, 1), "bd".into())), "{after:?}");
+    assert!(after.contains(&(at(21, 2), "hh".into())), "{after:?}");
+    assert!(!after.contains(&(at(21, 2), "bd".into())), "{after:?}");
+    assert!(!after.contains(&(at(10, 1), "hh".into())), "{after:?}");
+
+    // Two cycles on, the remembered bd has scrolled away and the new
+    // pattern fills the window.
+    let later = sounds(r#"s("hh hh")"#, 2, 12.5);
+    assert!(later.iter().all(|(_, s)| s == "hh"), "{later:?}");
 }
 
 #[test]

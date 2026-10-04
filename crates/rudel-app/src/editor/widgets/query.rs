@@ -14,10 +14,17 @@ struct CachedHaps {
     range: (usize, usize),
     cycles: (i64, i64),
     haps: Arc<[Hap]>,
+    /// What the earlier patterns drew before the re-evaluation at `since`:
+    /// upstream's `Drawer.invalidate` keeps the haps that already started and
+    /// re-queries only the future, so what has played stays drawn as it was
+    /// until it scrolls away.
+    past: Arc<[Hap]>,
+    since: Option<Frac>,
 }
 
 /// The cached whole cycles covering `window`, shared with the cache rather than
-/// copied. Narrow it to what is actually visible with [`in_window`].
+/// copied. Narrow it to what is actually visible with [`in_window`]. `now` is
+/// the playhead, where a new evaluation takes over from the haps already drawn.
 ///
 /// The draw window slides with the playhead, so querying it directly re-runs
 /// the whole pattern at the repaint rate — profiling put that at 66% of the UI
@@ -31,6 +38,7 @@ pub(super) fn widget_haps(
     pattern: &Pattern,
     widget: &WidgetDecoration,
     window: DrawWindow,
+    now: f64,
 ) -> Arc<[Hap]> {
     let cycles = (window.begin.floor() as i64, window.end.ceil() as i64);
     let range = (widget.range.from, widget.range.to);
@@ -39,16 +47,49 @@ pub(super) fn widget_haps(
         widget.widget_type.as_str(),
         widget.id.as_str(),
     ));
-    let fresh = || CachedHaps {
-        generation,
-        range,
-        cycles,
-        haps: query_cycles(pattern, widget, cycles).into(),
+    let query = |past: Arc<[Hap]>, since: Option<Frac>| {
+        let begins = |hap: &Hap| hap.whole_or_part().begin;
+        let cycle_span = (Frac::new(cycles.0, 1), Frac::new(cycles.1, 1));
+        let mut haps: Vec<Hap> = past
+            .iter()
+            .filter(|hap| hap.part.begin < cycle_span.1 && cycle_span.0 < hap.part.end)
+            .cloned()
+            .collect();
+        haps.extend(
+            query_cycles(pattern, widget, cycles)
+                .into_iter()
+                .filter(|hap| since.is_none_or(|since| begins(hap) >= since)),
+        );
+        haps.sort_by_key(begins);
+        // Bounded by the window: what has scrolled away is forgotten.
+        let past: Arc<[Hap]> = past
+            .iter()
+            .filter(|hap| cycle_span.0 < hap.part.end)
+            .cloned()
+            .collect();
+        CachedHaps {
+            generation,
+            range,
+            cycles,
+            haps: haps.into(),
+            past,
+            since,
+        }
     };
     ctx.data_mut(|d| {
-        let cached = d.get_temp_mut_or_insert_with(id, fresh);
-        if cached.generation != generation || cached.range != range || cached.cycles != cycles {
-            *cached = fresh();
+        let cached = d.get_temp_mut_or_insert_with(id, || query(Arc::from([]), None));
+        if cached.generation != generation {
+            // A new evaluation: what already started is remembered as drawn.
+            let since = Frac::from_f64(now);
+            let past = cached
+                .haps
+                .iter()
+                .filter(|hap| hap.whole_or_part().begin < since)
+                .cloned()
+                .collect();
+            *cached = query(past, Some(since));
+        } else if cached.range != range || cached.cycles != cycles {
+            *cached = query(Arc::clone(&cached.past), cached.since);
         }
         Arc::clone(&cached.haps)
     })
@@ -158,7 +199,7 @@ mod tests {
         };
         let haps = |begin, end| {
             let window = DrawWindow { begin, end };
-            let cycles = widget_haps(&ctx, 0, &pattern, &widget, window);
+            let cycles = widget_haps(&ctx, 0, &pattern, &widget, window, begin);
             in_window(&cycles, window)
                 .into_iter()
                 .map(|hap| hap.part.begin)
