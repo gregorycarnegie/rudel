@@ -73,7 +73,7 @@
     },
     "editor_theme": {
       "status": "unsupported",
-      "reason": "CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is implemented as a native `EditorTheme` variant (crates/rudel-app/src/editor/settings.rs) selectable in the editor settings panel, alongside `strudelTheme`/`whitescreen`, so it never appears in `rudel_lang::reference()`.",
+      "reason": "CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is one of the 39 Strudel themes generated into crates/rudel-app/src/editor/themes_generated.rs (tools/generate_themes.mjs), selectable in the editor settings panel or by `theme(\"dracula\")` as a pattern setting, so it never appears in `rudel_lang::reference()`.",
       "names": [
         "dracula"
       ]
