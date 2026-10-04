@@ -17,6 +17,8 @@ MIDI out, and SuperDirt-compatible OSC out.
 > Licensed under **AGPL-3.0-or-later**, the same as Strudel. Sound bank licensing
 > follows the source samples you load.
 
+![Rudel playing a four-voice tune, with the pianoroll drawn full-size behind the code and each voice in its own colour](docs/images/hero.png)
+
 ## Workspace
 
 | Crate                               | Role                                                                                                                                                                                            |
@@ -51,6 +53,22 @@ stack(
 
 The app starts with native audio. Use the output selector for MIDI or OSC; OSC
 defaults to `127.0.0.1:57120` for local SuperDirt.
+
+## Visuals
+
+Strudel's visuals run natively, drawn behind the code as on strudel.cc or inline
+under the line that made them.
+
+| Hydra | The draw canvas |
+|---|---|
+| ![A hydra kaleidoscope filling the editor behind the code](docs/images/hydra.png) | ![A rainbow ring of dots painted by a .draw callback](docs/images/canvas.png) |
+| `await initHydra()`, then any hydra chain: `osc(12, 0.08, 1.4).kaleid(5).out()` | `.draw((haps, t) => …)` paints with `getDrawContext()`, as upstream |
+
+Inline widgets sit under their pattern: `._pianoroll()`, `._punchcard()`,
+`._spiral()`, `._pitchwheel()`, `._scope()` and more, each in the pattern's
+`.color()`.
+
+![Four patterns, each with an inline widget: pianoroll, punchcard, spiral and pitchwheel](docs/images/widgets.png)
 
 ## Mondo Notation
 
