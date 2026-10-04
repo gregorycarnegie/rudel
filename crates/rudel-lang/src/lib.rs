@@ -4,6 +4,8 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 mod bindings;
+mod blocks;
+pub use blocks::Blocks;
 mod js;
 mod preprocess;
 mod samples;
@@ -200,17 +202,28 @@ pub fn eval_with_samples(script: &str) -> Result<(Pattern, SampleEffects), Strin
 /// Evaluate a script, returning the pattern plus all host-facing side effects
 /// and editor metadata gathered during preprocessing/evaluation.
 pub fn eval_result(script: &str) -> Result<EvalResult, String> {
-    eval_result_with_preprocessor(script, || preprocess_strudel_with_meta(script))
+    eval_result_with_preprocessor(script, None, None, || preprocess_strudel_with_meta(script))
 }
 
-/// Evaluate a source slice while preserving absolute source ranges from the
-/// surrounding editor buffer. This is the native counterpart to Strudel's
-/// block-based transpiler `range` / `nodeOffset` option.
+/// [`eval_result`] for the editor's whole document: `blocks` starts again
+/// from its labelled patterns and declarations, which a later
+/// [`eval_result_with_source_range`] of one block keeps playing and can use.
+pub fn eval_document(script: &str, blocks: &mut Blocks) -> Result<EvalResult, String> {
+    eval_result_with_preprocessor(script, Some(blocks), None, || {
+        preprocess_strudel_with_meta(script)
+    })
+}
+
+/// Evaluate one block of the editor's document, at `range` in it, while the
+/// other `blocks` keep playing: Strudel's `evaluateBlock`. The result stacks
+/// every block's pattern. Source ranges stay absolute, the counterpart of the
+/// block-based transpiler's `range` / `nodeOffset` option.
 pub fn eval_result_with_source_range(
     script: &str,
     range: (usize, usize),
+    blocks: &mut Blocks,
 ) -> Result<EvalResult, String> {
-    eval_result_with_preprocessor(script, || {
+    eval_result_with_preprocessor(script, Some(blocks), Some(range), || {
         preprocess_strudel_with_meta_in_range(script, range.0)
     })
 }
@@ -239,6 +252,8 @@ static EVAL_LOCK: Mutex<()> = Mutex::new(());
 
 fn eval_result_with_preprocessor(
     original: &str,
+    mut blocks: Option<&mut Blocks>,
+    range: Option<(usize, usize)>,
     preprocess: impl FnOnce() -> preprocess::PreprocessResult,
 ) -> Result<EvalResult, String> {
     // A script that panics mid-evaluation must not wedge every later one.
@@ -250,12 +265,18 @@ fn eval_result_with_preprocessor(
     // `Array.prototype.sort` does on a comparator that is not a total order,
     // the `() => Math.random() - 0.5` shuffle scripts reach for. That is the
     // script's error to report, not a reason to take the editor down.
-    js::on_js_thread(move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            evaluate(&original, preprocessed)
-        }))
-    })
-    .unwrap_or_else(|panic| Err(engine_failure(panic.as_ref())))
+    // The blocks go to the JS thread with the evaluation and come back.
+    let mut lent = blocks.as_deref_mut().map(std::mem::take);
+    let (result, lent) = js::on_js_thread(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            evaluate(&original, preprocessed, lent.as_mut(), range)
+        }));
+        (result, lent)
+    });
+    if let (Some(blocks), Some(lent)) = (blocks, lent) {
+        *blocks = lent;
+    }
+    result.unwrap_or_else(|panic| Err(engine_failure(panic.as_ref())))
 }
 
 /// The message for an evaluation the engine itself gave up on.
@@ -299,7 +320,12 @@ fn prepare() -> Prepared {
 fn evaluate(
     original: &str,
     preprocessed: preprocess::PreprocessResult,
+    blocks: Option<&mut Blocks>,
+    range: Option<(usize, usize)>,
 ) -> Result<EvalResult, String> {
+    if range.is_some() {
+        blocks::check_labels(&preprocessed.labels)?;
+    }
     let (mut ctx, effects) = SPARE.take().unwrap_or_else(prepare);
     // Build the next evaluation's engine now, while the user is listening to
     // this one, so the next keystroke does not wait for it.
@@ -321,6 +347,11 @@ fn evaluate(
     // it has to be dropped between runs or a long REPL session accumulates
     // every node it ever built.
     kabelsalat::reset();
+    blocks::reset_cleared();
+    if let (Some(blocks), Some(range)) = (&blocks, range) {
+        bindings::seed_slots(blocks.others(range));
+        blocks.define_carried(&mut ctx);
+    }
     let value = js::run(&mut ctx, &preprocessed.source).map_err(|e| mondo_hint(original, e));
     // Fold in the options the widget calls actually evaluated to. The source
     // scan above could only read literals, so this is what makes a computed
@@ -366,9 +397,13 @@ fn evaluate(
             }
         })
     });
+    let registered = bindings::registered_slots();
     // The transforms are script functions of this context; let them go with it.
     reset_slots();
     let pattern = combined?;
+    let declared = blocks
+        .is_some()
+        .then(|| blocks::read_declared(&mut ctx, &preprocessed.source));
     // Kept before parking, so a script that draws keeps its context alive.
     meta.canvas = match js::run(
         &mut ctx,
@@ -380,6 +415,19 @@ fn evaluate(
         _ => None,
     };
     let session = js::park(ctx);
+    if let (Some(blocks), Some(declared)) = (blocks, declared) {
+        let (slots, fresh) = registered;
+        blocks.record(
+            slots,
+            &fresh,
+            &preprocessed.labels,
+            original,
+            range.map_or(0, |r| r.0),
+            declared,
+            session.clone(),
+            range.is_some(),
+        );
+    }
     let trigger_hooks = triggers::TriggerHooks::take(session.clone());
     let pattern = match session {
         Some(session) => keep_alive(pattern, session),

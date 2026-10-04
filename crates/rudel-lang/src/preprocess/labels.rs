@@ -101,18 +101,25 @@ fn sanitize_label(name: &str) -> String {
 
 /// Put a label that follows a `;` on its own line: `…;$: n("0")` is two
 /// statements, and the pass below finds labels only where a line starts.
-/// Only outside every bracket, where no map key can be.
-fn break_before_labels(src: &str) -> String {
+/// Only outside every bracket, where no map key can be. Also returns the
+/// indices of the lines those breaks made.
+fn break_before_labels(src: &str) -> (String, Vec<usize>) {
     let mut out = String::with_capacity(src.len());
+    let mut made = Vec::new();
+    let mut line = 0;
     let mut depth = 0i64;
     for (kind, start, end) in chunks(src) {
         let text = &src[start..end];
         if kind != Chunk::Code {
             out.push_str(text);
+            line += text.matches('\n').count();
             continue;
         }
         for (i, c) in text.char_indices() {
             out.push(c);
+            if c == '\n' {
+                line += 1;
+            }
             depth += match c {
                 '(' | '[' | '{' => 1,
                 ')' | ']' | '}' => -1,
@@ -121,17 +128,28 @@ fn break_before_labels(src: &str) -> String {
             if c != ';' || depth > 0 {
                 continue;
             }
-            let line = src[start + i + 1..].split('\n').next().unwrap_or("");
-            if !line.trim().is_empty() && label_at_line(line).is_some() {
+            let rest = src[start + i + 1..].split('\n').next().unwrap_or("");
+            if !rest.trim().is_empty() && label_at_line(rest).is_some() {
                 out.push('\n');
+                line += 1;
+                made.push(line);
             }
         }
     }
-    out
+    (out, made)
 }
 
-pub(super) fn rewrite_labels(src: &str) -> String {
-    let src = &break_before_labels(src);
+/// A label, by name, and the line of the script it starts on.
+pub(crate) type LabelLine = (String, usize);
+
+/// Rewrite every `name:` label into a `rudel_label` call, and report where each
+/// was: block-based evaluation remembers which part of the document a label's
+/// pattern came from.
+pub(super) fn rewrite_labels(src: &str) -> (String, Vec<LabelLine>) {
+    let (src, made) = &break_before_labels(src);
+    // A line the break made is part of the user's line before it.
+    let user_line = |i: usize| i - made.iter().filter(|&&m| m <= i).count();
+    let mut found = Vec::new();
     let lines: Vec<&str> = src.lines().collect();
     let shape = line_shape(src);
     let delta = |i: usize| shape.get(i).map_or(0, |s| s.0);
@@ -157,6 +175,7 @@ pub(super) fn rewrite_labels(src: &str) -> String {
             i += 1;
             continue;
         };
+        found.push((name.to_string(), user_line(i)));
 
         // `$:` alone on its line labels the statement on the next one, as a
         // JavaScript label does, so the expression has not started yet.
@@ -219,12 +238,26 @@ pub(super) fn rewrite_labels(src: &str) -> String {
     if !labels.is_empty() {
         out.push(format!("stack({})", labels.join(", ")));
     }
-    out.join("\n")
+    (out.join("\n"), found)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rewrite_labels(src: &str) -> String {
+        super::rewrite_labels(src).0
+    }
+
+    #[test]
+    fn labels_report_the_line_they_start_on() {
+        // `c` shares its line with `b` and is split off, but still reports
+        // the user's line.
+        let src = "setcps(1)\na: s(\"bd\")\n\nb: s(\"sd\"); c: s(\"hh\")";
+        let (_, found) = super::rewrite_labels(src);
+        let found: Vec<(&str, usize)> = found.iter().map(|(n, l)| (n.as_str(), *l)).collect();
+        assert_eq!(found, [("a", 1), ("b", 3), ("c", 3)]);
+    }
 
     // Labels are the last rewrite in the pipeline and had no tests of their
     // own: the whole module was reached only through end-to-end evaluation,

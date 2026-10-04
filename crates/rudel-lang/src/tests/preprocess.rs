@@ -210,7 +210,8 @@ fn eval_result_carries_slider_widget_metadata() {
 #[test]
 fn block_eval_metadata_uses_absolute_source_ranges() {
     let result =
-        eval_result_with_source_range(r#"note("c")._spiral()"#, (20, 39)).expect("block eval");
+        eval_result_with_source_range(r#"note("c")._spiral()"#, (20, 39), &mut Default::default())
+            .expect("block eval");
 
     assert_eq!(result.meta.widgets.len(), 1);
     let widget = &result.meta.widgets[0];
@@ -230,7 +231,9 @@ fn block_eval_metadata_uses_absolute_source_ranges() {
 
 #[test]
 fn block_eval_slider_ids_use_absolute_source_ranges() {
-    let result = eval_result_with_source_range("slider(0.5, 0, 1)", (40, 57)).expect("block eval");
+    let result =
+        eval_result_with_source_range("slider(0.5, 0, 1)", (40, 57), &mut Default::default())
+            .expect("block eval");
 
     let widget = &result.meta.widgets[0];
     assert_eq!(widget.widget_type, "slider");

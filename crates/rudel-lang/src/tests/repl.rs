@@ -223,3 +223,88 @@ fn a_label_s_statement_runs_until_its_brackets_close() {
     let pat = eval("$: s(\"bd\").\n  fast(2)").expect("eval");
     assert_eq!(values(&pat, 0, 1).len(), 2);
 }
+
+fn sounds(pat: &Pattern) -> Vec<String> {
+    let mut out: Vec<String> = values(pat, 0, 1)
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("s").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            _ => None,
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Evaluate the block of `doc` that `marker` starts.
+fn block(doc: &str, marker: &str, blocks: &mut crate::Blocks) -> Result<Pattern, String> {
+    let from = doc.find(marker).expect("marker");
+    let to = doc[from..].find("\n\n").map_or(doc.len(), |n| from + n);
+    crate::eval_result_with_source_range(&doc[from..to], (from, to), blocks).map(|r| r.pattern)
+}
+
+#[test]
+fn a_block_evaluation_keeps_the_other_blocks_playing() {
+    let mut blocks = crate::Blocks::default();
+    let doc = "const pat = s(\"bd\")\nfunction twice(p) { return p.fast(2) }\n\n\
+               a: pat\n\nb: s(\"sd\")";
+    crate::eval_document(doc, &mut blocks).expect("document");
+
+    // Editing one block replaces its own label and leaves the others.
+    let edited = doc.replace("s(\"sd\")", "s(\"cp hh\")");
+    blocks.shift(
+        doc.find("s(\"sd\")").unwrap(),
+        doc.len(),
+        "s(\"cp hh\")".len(),
+    );
+    let pat = block(&edited, "b:", &mut blocks).expect("block b");
+    assert_eq!(sounds(&pat), ["bd", "cp", "hh"]);
+
+    // Declarations made by another evaluation are still there, functions too.
+    let grown = format!("{edited}\n\nc: twice(pat)");
+    let pat = block(&grown, "c:", &mut blocks).expect("block c");
+    assert_eq!(sounds(&pat), ["bd", "bd", "bd", "cp", "hh"]);
+
+    // A block that no longer has its label drops it.
+    let at = grown.find("a: pat").unwrap();
+    let doc = grown.replace("a: pat", "s(\"hh\")");
+    blocks.shift(at, at + "a: pat".len(), "s(\"hh\")".len());
+    let pat = block(&doc, "s(\"hh\")", &mut blocks).expect("unlabelled block");
+    assert_eq!(sounds(&pat), ["bd", "bd", "cp", "hh"]);
+
+    // A full evaluation starts afresh.
+    let pat = crate::eval_document("a: s(\"sd\")", &mut blocks)
+        .expect("document")
+        .pattern;
+    assert_eq!(sounds(&pat), ["sd"]);
+    let pat = block("a: s(\"sd\")\n\nb: s(\"hh\")", "b:", &mut blocks).expect("block");
+    assert_eq!(sounds(&pat), ["hh", "sd"]);
+}
+
+#[test]
+fn a_block_refuses_anonymous_labels() {
+    // Evaluated again, they would stack on themselves.
+    let err = block("x\n\n$: s(\"bd\")", "$:", &mut crate::Blocks::default())
+        .err()
+        .expect("refused");
+    assert!(err.contains("anonymous labels disabled"), "{err}");
+}
+
+#[test]
+fn a_label_used_twice_plays_the_last_one() {
+    // Upstream's `pPatterns[id] = this`: the key is replaced, not stacked.
+    let pat = eval("a: s(\"bd\")\nb: s(\"hh\")\na: s(\"sd\")").expect("eval");
+    assert_eq!(sounds(&pat), ["hh", "sd"]);
+}
+
+#[test]
+fn clear_scope_forgets_the_carried_declarations() {
+    let mut blocks = crate::Blocks::default();
+    let doc = "const drums = s(\"bd\")\n\na: drums";
+    crate::eval_document(doc, &mut blocks).expect("document");
+    let doc = format!("{doc}\n\nclearScope()");
+    block(&doc, "clearScope", &mut blocks).expect("clearScope");
+    let doc = format!("{doc}\n\nb: drums");
+    let err = block(&doc, "b:", &mut blocks).err().expect("drums is gone");
+    assert!(err.contains("drums"), "{err}");
+}

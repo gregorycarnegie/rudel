@@ -19,6 +19,9 @@ thread_local! {
     /// Strudel's `pPatterns`. The key drives solo detection (an `S`-prefixed key
     /// longer than one char solos, mirroring `S$:`).
     static P_SLOTS: RefCell<Vec<(String, Pattern)>> = const { RefCell::new(Vec::new()) };
+    /// The keys this evaluation registered itself, as opposed to the other
+    /// blocks' patterns a block evaluation was seeded with.
+    static FRESH: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// Counter for anonymous (`$`) slots, matching Strudel's `anonymousIndex`.
     static ANON: Cell<usize> = const { Cell::new(0) };
     /// Transform set by `each(f)`: applied to every registered pattern (or the
@@ -34,9 +37,24 @@ thread_local! {
 /// leak into the next. Mirrors `hush()` in `core/repl.mjs`.
 pub(crate) fn reset_slots() {
     P_SLOTS.with(|s| s.borrow_mut().clear());
+    FRESH.with(|f| f.borrow_mut().clear());
     ANON.with(|a| a.set(0));
     EACH.with(|e| *e.borrow_mut() = None);
     ALL.with(|a| a.borrow_mut().clear());
+}
+
+/// Start the registry from the other blocks' patterns (a block evaluation).
+pub(crate) fn seed_slots(slots: Vec<(String, Pattern)>) {
+    P_SLOTS.with(|s| *s.borrow_mut() = slots);
+}
+
+/// The registry as it stands, and which of its keys this evaluation
+/// registered.
+pub(crate) fn registered_slots() -> (Vec<(String, Pattern)>, Vec<String>) {
+    (
+        P_SLOTS.with(|s| s.borrow().clone()),
+        FRESH.with(|f| f.borrow().clone()),
+    )
 }
 
 /// Store the `each(f)` transform (the last call wins, matching Strudel).
@@ -108,7 +126,8 @@ pub(crate) fn apply_pattern_transforms(script: Option<Pattern>) -> Option<Patter
 /// `_x`/`x_` id mutes (returns silence without registering); a `$` id gets a
 /// per-eval anonymous suffix. The pattern is tagged with its id (like Strudel's
 /// `withState(setControls({id}))`) and recorded with its key for stacking and
-/// solo detection.
+/// solo detection. A key registered again keeps its place and takes the new
+/// pattern, as upstream's `pPatterns[id] = this`.
 pub(crate) fn register_slot(id: &str, pat: Pattern) -> Pattern {
     if id.starts_with('_') || id.ends_with('_') {
         return silence();
@@ -124,7 +143,14 @@ pub(crate) fn register_slot(id: &str, pat: Pattern) -> Pattern {
         id.to_string()
     };
     let tagged = pat.ctrl("id", pure(Value::Str(key.clone())));
-    P_SLOTS.with(|s| s.borrow_mut().push((key, tagged.clone())));
+    P_SLOTS.with(|s| {
+        let mut slots = s.borrow_mut();
+        match slots.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = tagged.clone(),
+            None => slots.push((key.clone(), tagged.clone())),
+        }
+    });
+    FRESH.with(|f| f.borrow_mut().push(key));
     tagged
 }
 

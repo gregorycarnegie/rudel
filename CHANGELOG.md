@@ -15,6 +15,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Evaluating one block keeps the others playing,** as Strudel's block-based
+  evaluation does: labelled patterns from the last full evaluation and the
+  blocks since stay in the mix, a block replaces only the labels it defines (or
+  drops the ones it no longer has), and top-level `const`/`let`/`function`
+  declarations carry over to later blocks. `clearScope()` forgets them, and `$:`
+  in a block is refused with upstream's message.
+
 - **All 39 of Strudel's editor themes,** generated from its CodeMirror theme
   files (`tools/generate_themes.mjs`), where rudel had three.
 - **`theme`, `fontFamily` and `fontSize` work as pattern settings,** as on the
@@ -96,6 +103,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Changed
 
+- **A label used twice plays its last pattern,** as upstream's
+  `pPatterns[id] = this` does, where both used to stack.
 - **`d1`-`d9` and `p1`-`p9` are properties, as in Strudel:** write
   `note("c").d1`, not `note("c").d1()`. `q1`-`q9` are `silence`. The call form
   now fails with "not a callable function".

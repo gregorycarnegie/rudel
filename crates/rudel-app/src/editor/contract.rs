@@ -34,9 +34,13 @@ fn eval_meta(src: &str) -> rudel_lang::EvalMeta {
 /// and location stays absolute to the whole buffer.
 fn eval_meta_range(src: &str, range: SourceRange) -> rudel_lang::EvalMeta {
     let block = &src[range.from..range.to];
-    rudel_lang::eval_result_with_source_range(block, (range.from, range.to))
-        .unwrap_or_else(|e| panic!("eval range {block:?}: {e}"))
-        .meta
+    rudel_lang::eval_result_with_source_range(
+        block,
+        (range.from, range.to),
+        &mut rudel_lang::Blocks::default(),
+    )
+    .unwrap_or_else(|e| panic!("eval range {block:?}: {e}"))
+    .meta
 }
 
 #[test]

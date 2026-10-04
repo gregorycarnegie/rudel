@@ -143,13 +143,14 @@ pub(crate) fn register(prelude: &Scope) {
         super::pattern::reset_slots();
         done()
     });
-    // clearScope(): upstream deletes the user variables block-based eval leaked
-    // into the shared `strudelScope`. Rudel runs each evaluation in a fresh
-    // engine, so nothing accumulates across blocks and there is nothing to
-    // delete; the persistent state Rudel *does* keep is the slot registry,
-    // which is already cleared per eval. So this returns silence, as upstream
-    // does, and is otherwise a no-op (like `registerSoundfonts()`).
-    prelude.func("clearScope", |_| done());
+    // clearScope(): upstream deletes the user variables block-based eval
+    // carries from block to block. Here those are the declarations the block
+    // registry carries; they go once this evaluation is recorded. Returns
+    // silence, as upstream does.
+    prelude.func("clearScope", |_| {
+        crate::blocks::clear_scope();
+        done()
+    });
     // getDuration(name[, n]) / getDur: the length in seconds of a loaded
     // sample, so a pattern can set its tempo from it
     // (`setcps(1 / getDuration('sax'))`). Upstream returns a promise resolved

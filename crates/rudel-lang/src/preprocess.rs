@@ -13,6 +13,7 @@ mod widgets;
 pub use widgets::CANVAS_OPTION;
 
 use kabelsalat::scope_kabelsalat_calls;
+pub(crate) use labels::LabelLine;
 use labels::rewrite_labels;
 use mini::annotate_mini_offsets;
 pub(crate) use mondo::looks_like_mondo;
@@ -40,6 +41,8 @@ pub(crate) fn check_nesting(source: &str) -> Result<(), String> {
 pub(crate) struct PreprocessResult {
     pub source: String,
     pub widgets: Vec<crate::WidgetConfig>,
+    /// Every `name:` label and the line of the script it starts on.
+    pub labels: Vec<LabelLine>,
 }
 
 #[cfg(test)]
@@ -67,7 +70,7 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     let script = scope_kabelsalat_calls(&script);
     let script = rewrite_tagged_templates(&script);
     let script = strip_await(&script);
-    let script = rewrite_labels(&script);
+    let (script, labels) = rewrite_labels(&script);
     // Mirror the transpiler's empty-body fallback: an empty (or fully
     // commented-out) script evaluates to silence rather than erroring.
     let source = if script.trim().is_empty() {
@@ -75,5 +78,9 @@ pub(crate) fn preprocess_strudel_with_meta_in_range(
     } else {
         script
     };
-    PreprocessResult { source, widgets }
+    PreprocessResult {
+        source,
+        widgets,
+        labels,
+    }
 }

@@ -676,6 +676,7 @@ impl RudelApp {
                         );
                         if let Some(change) = editor_output.text_change {
                             self.editor_decorations.map_change(change);
+                            self.blocks.shift(change.from, change.to, change.insert_len);
                         }
                         if let Some(update) = editor_output.slider_update {
                             self.editor_decorations

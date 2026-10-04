@@ -91,6 +91,9 @@ pub(crate) struct RudelApp {
     /// — the cycle as raw bits so the key is `Eq`.
     flash_cache: Option<((u64, u64), panels::CycleFlashes)>,
     editor_decorations: EditorDecorationState,
+    /// What the document's last full evaluation and the block evaluations
+    /// since left playing, for the next block evaluation.
+    blocks: rudel_lang::Blocks,
     editor_settings: EditorSettings,
     widget_host: WidgetHostState,
     /// The per-frame hydra arguments of the last evaluation that had any.
@@ -208,6 +211,7 @@ impl RudelApp {
             pattern_generation: 0,
             flash_cache: None,
             editor_decorations: EditorDecorationState::default(),
+            blocks: rudel_lang::Blocks::default(),
             editor_settings: EditorSettings::default(),
             widget_host: WidgetHostState::default(),
             hydra_params: Vec::new(),
@@ -261,7 +265,7 @@ impl RudelApp {
     /// Evaluate the editor contents and route the result to the active output.
     fn evaluate(&mut self) {
         self.set_picture_dir();
-        match rudel_lang::eval_result(&self.code) {
+        match rudel_lang::eval_document(&self.code, &mut self.blocks) {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
@@ -307,7 +311,11 @@ impl RudelApp {
         }
 
         let block = self.code[range.from..range.to].to_string();
-        match rudel_lang::eval_result_with_source_range(&block, (range.from, range.to)) {
+        match rudel_lang::eval_result_with_source_range(
+            &block,
+            (range.from, range.to),
+            &mut self.blocks,
+        ) {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
                 self.current = Some(result.pattern);
@@ -526,6 +534,18 @@ slider(0.5, 0, 1)"#
                 app.code.find("0.5").unwrap() + 3
             )
         );
+    }
+
+    #[test]
+    fn block_eval_keeps_the_other_blocks_playing() {
+        let mut app = app_without_engine();
+        app.code = "a: s(\"bd\")\n\nb: s(\"sd\")".to_string();
+        app.evaluate();
+        app.editor_cursor_byte = app.code.find("b:").unwrap();
+        app.evaluate_current_block();
+        let pattern = app.current.as_ref().expect("pattern");
+        let haps = pattern.query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one());
+        assert_eq!(haps.len(), 2, "both blocks play");
     }
 }
 

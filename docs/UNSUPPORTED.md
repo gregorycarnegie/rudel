@@ -160,12 +160,16 @@ theme is an editor setting rather than a name a pattern can call, theme names
 do not appear in Rudel's scripting surface. The rest of Strudel's catalog is
 not ported.
 
-### `clearScope` — accepted, no-op
+### `clearScope` — implemented
 
-`clearScope()` deletes the user variables Strudel's block-based eval leaks into
-its shared `strudelScope`. Rudel evaluates each script in a fresh engine, so
-nothing accumulates across evaluations and there is nothing to delete. It is
-accepted and returns silence, like `registerSoundfonts()`.
+`clearScope()` deletes the user variables Strudel's block-based eval carries
+from block to block. Rudel evaluates each script in a fresh engine and carries
+a document's top-level declarations itself (the block registry); `clearScope()`
+forgets them once its evaluation is recorded, so a name it cleared is gone in
+the next block, though it is still defined for the rest of the evaluation that
+called it. Returns silence, as upstream does. A carried value that is not
+rudel's own (a kabelsalat node, an object holding a function) is not carried
+at all.
 
 ### `getDuration` / `getDur` — implemented, and synchronous
 
