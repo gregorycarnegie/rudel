@@ -30,6 +30,11 @@ pub(crate) struct WidgetPaintInput<'a> {
     /// more when popped out. Only a painter with a fixed size (the spiral)
     /// needs it; the rest fill whatever rect they are given.
     pub(crate) zoom: f32,
+    /// hydra's clock in seconds, for the scene behind the code.
+    pub(crate) hydra_time: f64,
+    /// This frame's values for the evaluation's per-frame hydra arguments
+    /// (`H(pattern)`, arrays, functions), by slot.
+    pub(crate) hydra_values: &'a [Option<f64>],
 }
 
 pub(crate) fn draw_widget_hosts(

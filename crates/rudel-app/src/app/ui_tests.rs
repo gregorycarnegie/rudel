@@ -703,6 +703,33 @@ fn a_shader_sees_its_surface_size_in_physical_pixels() {
 }
 
 #[test]
+fn a_hydra_argument_set_per_frame_reaches_the_shader() {
+    // `H(pattern)` fills a uniform slot each frame; the chain reads it.
+    let mut harness = gpu_app("s(\"bd\").hydra({ chain: Hydra.solid(H(\"1\"), 0, 0) })");
+    let image = harness.render().expect("renders");
+    assert!(count(image.as_raw(), RED) > SURFACE * 9 / 10, "{}", count(image.as_raw(), RED));
+    // A function that returns no number leaves the input's default, 0.
+    let mut harness = gpu_app("s(\"bd\").hydra({ chain: Hydra.solid(() => 'x', 0, 0) })");
+    let image = harness.render().expect("renders");
+    assert!(count(image.as_raw(), RED) < 100, "{}", count(image.as_raw(), RED));
+}
+
+#[test]
+fn a_hydra_scene_draws_behind_the_code() {
+    let mut harness = gpu_app("await initHydra()
+solid(0, [1, 1].fast(2), 0).out()");
+    assert!(harness.state().editor_decorations.backdrop().is_some());
+    let image = harness.render().expect("renders");
+    // Most of the editor, washed: still clearly green rather than the theme's.
+    let greenish = image
+        .as_raw()
+        .chunks(4)
+        .filter(|p| p[1] > 100 && p[0] < 80 && p[2] < 80)
+        .count();
+    assert!(greenish > SURFACE * 4, "{greenish}");
+}
+
+#[test]
 fn a_hydra_widget_renders_its_chain_and_reads_other_outputs() {
     let mut harness = gpu_app("s(\"bd\").hydra({ chain: Hydra.solid(0, 1, 0) })");
     let image = harness.render().expect("renders");

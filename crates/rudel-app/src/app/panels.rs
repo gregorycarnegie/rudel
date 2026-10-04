@@ -116,7 +116,9 @@ impl eframe::App for RudelApp {
 
         // Keep the playhead moving while playing (and polling clock / CC input /
         // a pending MIDI connection).
+        // hydra's scene animates on its own clock, playing or not.
         if self.playing
+            || self.editor_decorations.backdrop().is_some()
             || !self.sample_jobs.is_empty()
             || self.clock_sync
             || self.midi_in.is_some()
@@ -575,6 +577,13 @@ impl RudelApp {
                         let sliders = self.editor_decorations.sliders().to_vec();
                         let widgets = self.editor_decorations.widgets().to_vec();
                         let backdrop = self.editor_decorations.backdrop().cloned();
+                        let hydra_time = self.hydra_epoch.elapsed().as_secs_f64();
+                        let cycle = self.playback_position_cycles().unwrap_or(0.0);
+                        let hydra_values: Vec<Option<f64>> = self
+                            .hydra_params
+                            .iter()
+                            .map(|param| param.value(hydra_time, cycle))
+                            .collect();
                         let current_pattern = self.current.clone();
                         let playback_position_cycles = self.playback_position_cycles();
                         let insert_text = self.pending_insert.take();
@@ -594,6 +603,8 @@ impl RudelApp {
                                 sliders: &sliders,
                                 widgets: &widgets,
                                 backdrop: backdrop.as_ref(),
+                                hydra_time,
+                                hydra_values: &hydra_values,
                                 widget_host: &mut self.widget_host,
                                 settings: &self.editor_settings,
                                 insert_text,

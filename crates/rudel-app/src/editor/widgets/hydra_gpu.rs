@@ -97,36 +97,54 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-const UNIFORM_SIZE: u64 = 32;
+const DYNAMIC: usize = rudel_lang::hydra::MAX_DYNAMIC;
+/// Six floats padded to a 16-byte row, then `dyn` and `dyn_set`.
+const UNIFORM_SIZE: u64 = 32 + 2 * 4 * DYNAMIC as u64;
 
 /// The uniform block hydra's generated preamble declares.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Uniforms {
     res: [f32; 2],
     time: f32,
     gain: f32,
     note: f32,
     voices: f32,
+    /// This frame's per-frame arguments, by slot; `None` keeps the default.
+    dynamic: [Option<f32>; DYNAMIC],
 }
 
 impl Uniforms {
     fn bytes(self) -> [u8; UNIFORM_SIZE as usize] {
-        let fields = [
+        let mut out = [0u8; UNIFORM_SIZE as usize];
+        let mut put = |slot: usize, value: f32| {
+            out[slot * 4..slot * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        };
+        let head = [
             self.res[0],
             self.res[1],
             self.time,
             self.gain,
             self.note,
             self.voices,
-            0.0,
-            0.0,
         ];
-        let mut out = [0u8; UNIFORM_SIZE as usize];
-        for (slot, value) in fields.into_iter().enumerate() {
-            out[slot * 4..slot * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        for (slot, value) in head.into_iter().enumerate() {
+            put(slot, value);
+        }
+        for (i, value) in self.dynamic.into_iter().enumerate() {
+            put(8 + i, value.unwrap_or(0.0));
+            put(8 + DYNAMIC + i, if value.is_some() { 1.0 } else { 0.0 });
         }
         out
     }
+}
+
+/// The per-frame argument values in the shape the uniforms hold them.
+fn dynamic_slots(values: &[Option<f64>]) -> [Option<f32>; DYNAMIC] {
+    let mut out = [None; DYNAMIC];
+    for (slot, value) in out.iter_mut().zip(values) {
+        *slot = value.map(|v| v as f32);
+    }
+    out
 }
 
 /// What the widget displays.
@@ -668,6 +686,7 @@ pub(super) fn paint_hydra_gpu(
     haps: &[&Hap],
     time: f64,
     colors: WidgetDrawColors,
+    dynamic: &[Option<f64>],
 ) {
     let (sources, render) = chains(widget);
     if sources.iter().all(Option::is_none) {
@@ -727,6 +746,7 @@ pub(super) fn paint_hydra_gpu(
                 gain: gain.min(4.0),
                 note,
                 voices: haps.len() as f32,
+                dynamic: dynamic_slots(dynamic),
             },
         },
     ));
@@ -754,15 +774,23 @@ mod tests {
             gain: 16.0,
             note: 32.0,
             voices: 64.0,
+            dynamic: dynamic_slots(&[Some(5.0), None]),
         }
         .bytes();
+        let field = |slot: usize| {
+            let mut field = [0u8; 4];
+            field.copy_from_slice(&bytes[slot * 4..slot * 4 + 4]);
+            f32::from_le_bytes(field)
+        };
         for (slot, expected) in [2.0f32, 4.0, 8.0, 16.0, 32.0, 64.0, 0.0, 0.0]
             .into_iter()
             .enumerate()
         {
-            let mut field = [0u8; 4];
-            field.copy_from_slice(&bytes[slot * 4..slot * 4 + 4]);
-            assert_eq!(f32::from_le_bytes(field), expected, "field {slot}");
+            assert_eq!(field(slot), expected, "field {slot}");
         }
+        // `dyn` starts on the next row, `dyn_set` after its 64 floats.
+        assert_eq!((field(8), field(8 + DYNAMIC)), (5.0, 1.0), "a set slot");
+        assert_eq!((field(9), field(9 + DYNAMIC)), (0.0, 0.0), "an unset slot");
+        assert_eq!(bytes.len(), 32 + 2 * 256);
     }
 }

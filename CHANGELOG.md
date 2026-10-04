@@ -21,9 +21,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
   it in its own window, fullscreen on a double-click. hydra's array methods
   (`[1, 2].fast(2)`), `s0`-`s3`, `a` and `width`/`height` exist, so 331 of the
   390 shared strudel.cc patterns that failed on hydra now evaluate (7,422 of
-  8,004 overall). Arrays, `H(pattern)` and function arguments still take
-  the function's default rather than changing per frame, the external
-  sources read as empty, and `a.fft` reads zero.
+  8,004 overall). The external sources read as empty, and `a.fft` reads zero.
+- **Hydra arguments change every frame, as upstream:** `H(pattern)` follows
+  the pattern (`shape(H("3 4 5"))` changes shape with the notes), arrays step
+  through their values with hydra's `.fast`/`.smooth`/`.ease`/`.offset`, and
+  a function argument (`({time}) => Math.sin(time)`) is called every frame.
+  In an inline `_hydra` widget too.
 
 - **Double-click an inline visual to pop it out into its own window.**
   Double-click that window for borderless fullscreen on whichever screen it

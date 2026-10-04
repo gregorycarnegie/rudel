@@ -42,6 +42,9 @@ pub struct EvalMeta {
     /// behind the code as upstream's full-screen hydra canvas is. A `_hydra`
     /// widget config with no source position.
     pub hydra: Option<WidgetConfig>,
+    /// The per-frame arguments every hydra chain of this evaluation reads,
+    /// by slot (`H(pattern)`, arrays, functions); the app fills them in.
+    pub hydra_params: Vec<hydra::HydraParam>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -297,6 +300,7 @@ fn evaluate(
     let mut meta = EvalMeta {
         widgets: preprocessed.widgets,
         hydra: None,
+        hydra_params: Vec::new(),
     };
     // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
     // they don't leak into this one (Strudel calls `hush()` at eval start).
@@ -321,6 +325,7 @@ fn evaluate(
         }
     }
     meta.hydra = bindings::hydra::take_scene();
+    meta.hydra_params = bindings::hydra::take_params();
     let effects = std::mem::take(&mut *effects.lock().unwrap());
     // Combine the script's pattern with any registered slots/labels and the
     // `each`/`all` transforms, mirroring Strudel's `applyPatternTransforms`:

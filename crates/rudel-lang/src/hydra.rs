@@ -24,7 +24,15 @@
 //! So `osc(10).rotate(0.5).color(1,0,0)` folds to
 //! `h_color(h_osc(h_rotate(st, 0.5, 0.0), 10.0, 0.1, 0.0), 1.0, 0.0, 0.0, 1.0)`.
 
+mod params;
 mod table;
+
+pub use params::HydraParam;
+pub(crate) use params::Seq;
+
+/// How many per-frame arguments a shader can read (`hu.dyn`, 16 `vec4`s).
+/// One past that takes the input's default.
+pub const MAX_DYNAMIC: usize = 64;
 
 use std::fmt::Write as _;
 
@@ -113,6 +121,8 @@ pub fn lookup(name: &str) -> Option<&'static HydraFn> {
 pub enum Arg {
     Number(f64),
     Chain(Chain),
+    /// A per-frame value: slot `n` of the evaluation's [`HydraParam`]s.
+    Dynamic(usize),
 }
 
 /// One link: a function and the arguments the script gave it.
@@ -155,6 +165,16 @@ impl Chain {
     }
 }
 
+/// Read per-frame slot `slot`, or `default` while the app has no value for it
+/// (upstream falls back to the input's default the same way).
+fn dynamic_read(slot: usize, default: f64) -> String {
+    let (v, i) = (slot / 4, slot % 4);
+    format!(
+        "select({}, hu.dyn[{v}][{i}], hu.dyn_set[{v}][{i}] > 0.5)",
+        wgsl_f32(default)
+    )
+}
+
 /// Render a float the way WGSL wants it: always with a decimal point, so `1`
 /// does not arrive as an integer literal where an `f32` is expected.
 fn wgsl_f32(value: f64) -> String {
@@ -191,6 +211,9 @@ fn call_args(transform: &Transform, arg_offset: usize, ctx: &mut Ctx) -> String 
             // hydra lets a generator stand in for a numeric input; it compiles
             // from `st` rather than from the enclosing coordinate.
             Some(Arg::Chain(chain)) => out.push_str(&fold(chain, "st", ctx)),
+            Some(Arg::Dynamic(slot)) if *slot < MAX_DYNAMIC => {
+                out.push_str(&dynamic_read(*slot, input.default));
+            }
             // Absent, or a non-finite gap marker standing in for an argument
             // the binding could not read: hydra's own default takes over, which
             // keeps later arguments on the right parameters.
@@ -264,7 +287,10 @@ fn combine_operand(transform: &Transform, uv: &str, ctx: &mut Ctx) -> String {
     match transform.args.first() {
         Some(Arg::Chain(chain)) => fold(chain, uv, ctx),
         Some(Arg::Number(value)) => format!("vec4<f32>({})", wgsl_f32(*value)),
-        None => "vec4<f32>(0.0)".to_string(),
+        Some(Arg::Dynamic(slot)) if *slot < MAX_DYNAMIC => {
+            format!("vec4<f32>({})", dynamic_read(*slot, 0.0))
+        }
+        Some(Arg::Dynamic(_)) | None => "vec4<f32>(0.0)".to_string(),
     }
 }
 
@@ -306,8 +332,8 @@ fn signature(func: &HydraFn) -> String {
 /// The module is self-contained — its own vertex and fragment entry points and
 /// its own uniform block — because a hydra chain needs module-scope helper
 /// functions, which cannot be spliced into the `_shader` widget's body slot.
-/// The uniform layout is deliberately the same one `_shader` uses, so the app
-/// renders both through the same pipeline cache and uniform buffer.
+/// The uniform layout starts as `_shader`'s does, then adds the per-frame
+/// arguments.
 pub fn compile(chain: &Chain, output: usize) -> String {
     let mut ctx = Ctx {
         used: Vec::new(),
@@ -344,8 +370,8 @@ pub fn compile(chain: &Chain, output: usize) -> String {
     out
 }
 
-/// Uniforms and the full-screen triangle. Kept byte-compatible with the
-/// `_shader` widget's block so one painter can feed either.
+/// Uniforms and the full-screen triangle. The first six fields are the
+/// `_shader` widget's block; `dyn` holds the per-frame arguments.
 const PREAMBLE: &str = r#"
 struct HydraUniforms {
     res: vec2<f32>,
@@ -353,6 +379,10 @@ struct HydraUniforms {
     gain: f32,
     note: f32,
     voices: f32,
+    // Per-frame arguments, four to a vec4 (uniform arrays stride 16 bytes).
+    dyn: array<vec4<f32>, 16>,
+    // 1 where `dyn` holds a value this frame, 0 where the default stands.
+    dyn_set: array<vec4<f32>, 16>,
 };
 @group(0) @binding(0) var<uniform> hu: HydraUniforms;
 // The four output buffers, as they stood at the end of the previous frame.

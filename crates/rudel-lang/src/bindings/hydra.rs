@@ -19,8 +19,8 @@
 
 use crate::{
     WidgetConfig, WidgetOption,
-    hydra::{self, Chain, FnType, HydraFn},
-    js::{Arg, Scope},
+    hydra::{self, Chain, FnType, HydraFn, HydraParam},
+    js::{self, Arg, Scope},
 };
 use std::cell::RefCell;
 
@@ -37,11 +37,13 @@ struct Scene {
 thread_local! {
     // Evaluations run one at a time on the JS thread.
     static SCENE: RefCell<Scene> = RefCell::new(Scene::default());
+    static PARAMS: RefCell<Vec<HydraParam>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Forget the previous evaluation's outputs.
+/// Forget the previous evaluation's outputs and per-frame arguments.
 pub(crate) fn reset_scene() {
     SCENE.with(|s| *s.borrow_mut() = Scene::default());
+    PARAMS.with(|p| p.borrow_mut().clear());
 }
 
 /// This evaluation's hydra outputs as a `_hydra` widget config, if it sent a
@@ -90,8 +92,54 @@ fn arg(value: &Arg) -> Option<hydra::Arg> {
     match value {
         Arg::Num(n) => Some(hydra::Arg::Number(*n)),
         Arg::Hydra(chain) => Some(hydra::Arg::Chain(chain.clone())),
+        // `H(pattern)`, or a pattern passed straight in.
+        Arg::Pat(pattern) => Some(dynamic(HydraParam::pattern(pattern.clone()))),
+        // Arrays and functions, as `prelude.js` wraps them for the natives.
+        Arg::Map(map) => {
+            let get = |key: &str| map.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+            let num = |key: &str, default: f64| match get(key) {
+                Some(Arg::Num(n)) => *n,
+                _ => default,
+            };
+            if let Some(Arg::List(values)) = get("hydraSeq") {
+                let values = values
+                    .iter()
+                    .filter_map(|v| match v {
+                        Arg::Num(n) => Some(*n),
+                        _ => None,
+                    })
+                    .collect();
+                let ease = match get("ease") {
+                    Some(Arg::Str(name)) => name.clone(),
+                    _ => "linear".to_string(),
+                };
+                return Some(dynamic(HydraParam::seq(hydra::Seq {
+                    values,
+                    speed: num("speed", 1.0),
+                    smooth: num("smooth", 0.0),
+                    ease,
+                    offset: num("offset", 0.0),
+                })));
+            }
+            let func = js::keep(get("hydraFn")?)?;
+            Some(dynamic(HydraParam::func(func)))
+        }
         _ => None,
     }
+}
+
+/// Number a per-frame argument for this evaluation.
+fn dynamic(param: HydraParam) -> hydra::Arg {
+    PARAMS.with(|p| {
+        let mut params = p.borrow_mut();
+        params.push(param);
+        hydra::Arg::Dynamic(params.len() - 1)
+    })
+}
+
+/// This evaluation's per-frame hydra arguments, by slot.
+pub(crate) fn take_params() -> Vec<HydraParam> {
+    PARAMS.with(|p| std::mem::take(&mut *p.borrow_mut()))
 }
 
 fn args(values: &[Arg]) -> Vec<hydra::Arg> {
@@ -187,30 +235,49 @@ mod tests {
     #[test]
     fn out_sends_a_chain_to_the_scene_behind_the_code() {
         assert_eq!(scene("s(\"bd\")"), None);
-        let one = scene("await initHydra()
+        let one = scene(
+            "await initHydra()
 osc(10).out()
-s(\"bd\")").expect("a scene");
+s(\"bd\")",
+        )
+        .expect("a scene");
         assert_eq!(one.widget_type, "_hydra");
-        assert!(matches!(one.options.get("o0"), Some(WidgetOption::String(w)) if w.contains("h_osc")));
+        assert!(
+            matches!(one.options.get("o0"), Some(WidgetOption::String(w)) if w.contains("h_osc"))
+        );
         assert_eq!(one.options.get("render"), Some(&WidgetOption::Number(0.0)));
 
         // `render(o1)` shows one output, `render()` all of them.
-        let two = scene("await initHydra()
+        let two = scene(
+            "await initHydra()
 noise().out(o1)
-render(o1)").expect("a scene");
+render(o1)",
+        )
+        .expect("a scene");
         assert!(two.options.contains_key("o1") && !two.options.contains_key("o0"));
         assert_eq!(two.options.get("render"), Some(&WidgetOption::Number(1.0)));
-        let all = scene("await initHydra()
+        let all = scene(
+            "await initHydra()
 osc().out()
-render()").expect("a scene");
-        assert_eq!(all.options.get("render"), Some(&WidgetOption::String("all".into())));
+render()",
+        )
+        .expect("a scene");
+        assert_eq!(
+            all.options.get("render"),
+            Some(&WidgetOption::String("all".into()))
+        );
     }
 
     #[test]
     fn hydra_globals_wait_for_init_hydra() {
         // Until then `osc` is still Strudel's OSC output and `noise` its signal.
-        assert_eq!(scene("Hydra.osc().out()"), scene("await initHydra()
-osc().out()"));
+        assert_eq!(
+            scene("Hydra.osc().out()"),
+            scene(
+                "await initHydra()
+osc().out()"
+            )
+        );
         assert!(crate::eval("osc().out()").is_err());
     }
 
@@ -225,6 +292,33 @@ s0.initCam()
 n(a.fft.length)";
         let result = crate::eval_result(src).expect("eval");
         assert!(result.meta.hydra.is_some());
+    }
+
+    #[test]
+    fn arrays_patterns_and_functions_become_per_frame_slots() {
+        let src = "await initHydra()
+                   osc([10, 20].fast(2), H(\"<0.5 0.25>\"), ({time}) => time * 2).out()";
+        let result = crate::eval_result(src).expect("eval");
+        let params = &result.meta.hydra_params;
+        assert_eq!(params.len(), 3);
+        // bpm 30 and `.fast(2)`: one step a second.
+        assert_eq!(params[0].value(0.5, 0.0), Some(10.0));
+        assert_eq!(params[0].value(1.5, 0.0), Some(20.0));
+        // The pattern is read at the cycle, the function at hydra's time.
+        assert_eq!(params[1].value(0.0, 1.5), Some(0.25));
+        assert_eq!(params[2].value(3.0, 0.0), Some(6.0));
+        let Some(WidgetOption::String(wgsl)) = result
+            .meta
+            .hydra
+            .as_ref()
+            .and_then(|s| s.options.get("o0").cloned())
+        else {
+            panic!("a scene");
+        };
+        assert!(
+            wgsl.contains("hu.dyn[0][0]") && wgsl.contains("hu.dyn_set[0][2]"),
+            "{wgsl}"
+        );
     }
 
     #[test]

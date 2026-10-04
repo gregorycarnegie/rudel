@@ -548,10 +548,17 @@ upstream:
 
 - `s0`–`s3`, the external sources, accept `initCam`/`initImage`/`initVideo`/
   `initScreen` and read as empty: rudel has no camera, image or video input.
-- `[1, 2, 3].fast(2).smooth()` (hydra's array sequencing on `Array.prototype`)
-  sets what upstream sets, but an array argument, `H(pattern)` and a function
-  argument (`() => a.fft[0]`) all take the function's default for now: a chain
-  compiles to constants once per evaluation.
+- Arguments that change per frame work as upstream: an array steps through
+  its values by hydra-synth's own rule (`time × speed × bpm/60 + offset`, bpm
+  30, with `.smooth()` and the named `.ease()`s), `H(pattern)` reads the
+  pattern at the current cycle, and a function is called each frame with
+  `{time, bpm}` and sees hydra's `time` as a global. Each becomes a uniform slot
+  (`crates/rudel-lang/src/hydra/params.rs`); a chain can read 64, and one past
+  that keeps its default. A custom easing function is linear, and a function
+  argument waits on the script engine each frame.
+- The scene keeps hydra's own clock, seconds since launch, running with the
+  transport stopped as upstream's does; an inline `_hydra` widget follows the
+  cycle.
 - `a` (with `initHydra({detectAudio: true})`) has `fft` and its setters, but the
   FFT reads zero.
 - `width`/`height` are fixed at 1920×1080 and `mouse` at the origin; `time`

@@ -92,6 +92,11 @@ pub(crate) struct RudelApp {
     editor_decorations: EditorDecorationState,
     editor_settings: EditorSettings,
     widget_host: WidgetHostState,
+    /// The per-frame hydra arguments of the last evaluation that had any.
+    hydra_params: Vec<rudel_lang::hydra::HydraParam>,
+    /// When hydra's clock started: it runs in seconds from launch, as
+    /// upstream's does from `initHydra`, transport or no.
+    hydra_epoch: Instant,
     editor_cursor_byte: usize,
     block_flash: Option<(SourceRange, Instant)>,
 
@@ -201,6 +206,8 @@ impl RudelApp {
             editor_decorations: EditorDecorationState::default(),
             editor_settings: EditorSettings::default(),
             widget_host: WidgetHostState::default(),
+            hydra_params: Vec::new(),
+            hydra_epoch: Instant::now(),
             editor_cursor_byte: 0,
             block_flash: None,
             sample_dir: String::new(),
@@ -255,6 +262,7 @@ impl RudelApp {
                 self.trigger_hooks = result.trigger_hooks;
                 self.trigger_fired_upto = None;
                 self.editor_decorations.replace_all(&result.meta);
+                self.hydra_params = result.meta.hydra_params;
                 self.eval_error = None;
                 self.status = "evaluated".to_string();
                 self.route();
@@ -287,6 +295,13 @@ impl RudelApp {
                 let source_range = SourceRange::new(range.from, range.to);
                 self.editor_decorations
                     .replace_range(&result.meta, source_range);
+                // ponytail: slots are numbered per evaluation, so a block's
+                // replace the last ones wholesale and a chain from another
+                // block reads this block's values. Number them per block if
+                // two hydra blocks ever have to animate side by side.
+                if !result.meta.hydra_params.is_empty() {
+                    self.hydra_params = result.meta.hydra_params;
+                }
                 self.eval_error = None;
                 self.block_flash = Some((source_range, Instant::now()));
                 self.status = "block evaluated".to_string();

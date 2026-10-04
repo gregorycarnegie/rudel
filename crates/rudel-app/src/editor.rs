@@ -65,6 +65,9 @@ pub(crate) struct CodeEditorInput<'a> {
     pub(crate) widgets: &'a [WidgetDecoration],
     /// The hydra scene to draw behind the code, if the script made one.
     pub(crate) backdrop: Option<&'a WidgetDecoration>,
+    /// hydra's clock, and this frame's per-frame hydra argument values.
+    pub(crate) hydra_time: f64,
+    pub(crate) hydra_values: &'a [Option<f64>],
     pub(crate) widget_host: &'a mut WidgetHostState,
     pub(crate) settings: &'a EditorSettings,
     /// Text to insert at the cursor this frame (a double-clicked reference).
@@ -89,6 +92,8 @@ pub(crate) fn code_editor(
         sliders,
         widgets,
         backdrop,
+        hydra_time,
+        hydra_values,
         widget_host,
         settings,
         insert_text,
@@ -101,6 +106,8 @@ pub(crate) fn code_editor(
         taps: scope_taps,
         gpu_available,
         zoom: 1.0,
+        hydra_time,
+        hydra_values,
     };
 
     apply_editor_style(ui, settings);

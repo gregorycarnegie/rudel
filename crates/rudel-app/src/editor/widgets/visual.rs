@@ -16,6 +16,9 @@ use crate::editor::decorations::WidgetDecoration;
 use eframe::egui;
 use rudel_core::Pattern;
 
+/// The id `rudel_lang` gives the hydra scene drawn behind the code.
+const BACKDROP_ID: &str = "hydra-background";
+
 pub(super) fn paint_pattern_widget(
     ui: &egui::Ui,
     rect: egui::Rect,
@@ -114,7 +117,15 @@ pub(super) fn paint_pattern_widget(
                 .into_iter()
                 .filter(|hap| hap_is_active(hap, time))
                 .collect::<Vec<_>>();
-            paint_hydra_gpu(ui, rect, widget, &haps, time, colors);
+            // The scene behind the code keeps hydra's own clock, in seconds
+            // and running whether or not the transport is, as upstream's
+            // canvas does; an inline widget follows the cycle.
+            let time = if widget.id == BACKDROP_ID {
+                paint.hydra_time
+            } else {
+                time
+            };
+            paint_hydra_gpu(ui, rect, widget, &haps, time, colors, paint.hydra_values);
             true
         }
         "_scope" => {

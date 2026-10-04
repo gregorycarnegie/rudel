@@ -518,11 +518,8 @@ pub(crate) fn register(prelude: &Scope) {
     // `hydra` itself is deliberately *not* here any more: it is the widget
     // method that renders a chain, and a stub of that name would shadow it.
     prelude.func("clearHydra", |_| Ok(Arg::Null));
-    // `H(pattern)` samples a pattern once per animation frame to drive a hydra
-    // uniform. A chain here compiles once per evaluation, so its parameters are
-    // constants for that evaluation's life and a per-frame value has nowhere to
-    // go.
-    for name in ["H", "P5", "p5"] {
+    // p5.js sketches need a browser canvas API rudel does not have.
+    for name in ["P5", "p5"] {
         prelude.func(name, move |_| {
             rudel_core::log_line(format!("{name}: not supported here, ignored"));
             Ok(Arg::Null)

@@ -67,6 +67,9 @@
     Hydra[`s${i}`] = { index: 4 + i, init: none, initCam: none, initImage: none,
       initVideo: none, initScreen: none, initStream: none, clear: none };
   }
+  const EASINGS = ['linear', 'easeInQuad', 'easeOutQuad', 'easeInOutQuad', 'easeInCubic',
+    'easeOutCubic', 'easeInOutCubic', 'easeInQuart', 'easeOutQuart', 'easeInOutQuart',
+    'easeInQuint', 'easeOutQuint', 'easeInOutQuint', 'sin'];
   // hydra's array sequencing (hydra-synth `lib/array-utils.js`): an array
   // argument steps through its values, and these set how.
   const arrayUtils = {
@@ -79,7 +82,11 @@
       return this;
     },
     ease(ease = 'linear') {
-      this._ease = ease;
+      // Upstream stores the function itself; a custom one is linear here.
+      if (typeof ease === 'function' || EASINGS.includes(ease)) {
+        this._smooth = 1;
+        this._ease = typeof ease === 'function' ? 'linear' : ease;
+      }
       return this;
     },
     offset(offset = 0.5) {
@@ -115,8 +122,42 @@
       onBeat: none,
     };
   };
+  // An array or function argument changes every frame upstream. The natives
+  // cannot see an array's `_speed` and friends, nor keep a function, so they
+  // get each spelled out; the chain then reads it per frame (`hydra/params.rs`).
+  // A function also sees hydra's `time`, which upstream sets every frame.
+  const hydraArg = (v) => {
+    if (Array.isArray(v)) {
+      return { hydraSeq: Array.from(v), speed: v._speed, smooth: v._smooth, ease: v._ease,
+        offset: v._offset };
+    }
+    if (typeof v === 'function') {
+      return {
+        hydraFn: (props) => {
+          if (typeof globalThis.time === 'number') globalThis.time = props.time;
+          return v(props);
+        },
+      };
+    }
+    return v;
+  };
+  const wrapArgs = (object) => {
+    for (const name of Object.getOwnPropertyNames(object)) {
+      const f = object[name];
+      if (typeof f !== 'function' || name === 'constructor') continue;
+      object[name] = function (...args) {
+        return f.apply(this, args.map(hydraArg));
+      };
+    }
+  };
+  wrapArgs(Hydra);
+  wrapArgs(Object.getPrototypeOf(Hydra.osc()));
+  // `H(pattern)` (@strudel/hydra): a pattern's value, per frame.
+  def(globalThis, 'H', (pattern) => reify(pattern));
   def(globalThis, 'initHydra', async (options = {}) => {
     for (const name of Object.getOwnPropertyNames(Hydra)) globalThis[name] = Hydra[name];
+    // hydra's clock, which a function argument reads.
+    globalThis.time = 0;
     for (const [name, f] of Object.entries(arrayUtils)) def(Array.prototype, name, f);
     if (options.detectAudio) globalThis.a = audioAnalyser();
   });
