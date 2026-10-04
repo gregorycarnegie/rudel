@@ -546,9 +546,11 @@ own, which a double-click makes fullscreen. `clearHydra()` is a no-op.
 hydra's other globals exist so tunes that use them evaluate, but do less than
 upstream:
 
-- `s0`–`s3`, the external sources: `initImage(url)` loads a PNG or JPEG (from
-  http(s) through the sample cache, or a local path) off the UI thread, and
-  `src(s0)` shows it once it lands, in the scene and in inline `_hydra`
+- `s0`–`s3`, the external sources: `initImage(url)` loads a PNG or JPEG off the
+  UI thread, from http(s) (through the sample cache) or from this computer: an
+  absolute path, `~/…`, a `file:///…` URL, or a path relative to the open
+  file's folder. Write Windows paths with forward slashes, since a JavaScript
+  string reads `\U` as `U`. `src(s0)` shows the picture once it lands, in the scene and in inline `_hydra`
   widgets alike. `initCam`/`initVideo`/`initScreen`/`initStream` are accepted
   and read as empty: rudel has no camera, video or screen capture. Nor does it
   have `initHydra({feedStrudel: 1})`, which upstream pipes Strudel's own draw

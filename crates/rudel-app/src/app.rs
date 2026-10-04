@@ -255,6 +255,7 @@ impl RudelApp {
 
     /// Evaluate the editor contents and route the result to the active output.
     fn evaluate(&mut self) {
+        self.set_picture_dir();
         match rudel_lang::eval_result(&self.code) {
             Ok(result) => {
                 self.apply_sample_effects(&result.sample_effects);
@@ -275,7 +276,19 @@ impl RudelApp {
         }
     }
 
+    /// A picture a script names by relative path (`s0.initImage('a.png')`)
+    /// is read from beside the open file.
+    fn set_picture_dir(&self) {
+        crate::editor::widgets::set_picture_dir(
+            self.file_path
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf),
+        );
+    }
+
     fn evaluate_current_block(&mut self) {
+        self.set_picture_dir();
         let Some(range) = block_at_byte(&self.code, self.editor_cursor_byte) else {
             self.evaluate();
             return;

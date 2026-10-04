@@ -23,8 +23,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
   390 shared strudel.cc patterns that failed on hydra now evaluate (7,422 of
   8,004 overall).
 - **`s0.initImage(url)` loads a picture into a hydra source,** PNG or JPEG,
-  over http(s) (cached on disk like samples) or from a local path, so
-  `src(s0)` shows it. Camera, video and screen sources still read as empty.
+  over http(s) (cached on disk like samples) or from this computer (a path,
+  `~/…`, `file:///…`, or relative to the open file's folder), so `src(s0)`
+  shows it. Camera, video and screen sources still read as empty.
 - **Hydra arguments change every frame, as upstream:** `H(pattern)` follows
   the pattern (`shape(H("3 4 5"))` changes shape with the notes), arrays step
   through their values with hydra's `.fast`/`.smooth`/`.ease`/`.offset`, and
