@@ -13,6 +13,27 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **`window` is the global object,** as in the browser REPL, so tunes that
+  share values through it (`window.spag = …`) evaluate. 232 of the 8,004
+  patterns shared on strudel.cc failed on this alone. `requestAnimationFrame`
+  exists but never calls back, since there is nothing to paint.
+- **`createParam` and `createParams`** make new controls at runtime, as in
+  Strudel: `const {movement} = createParams('movement')`.
+- **The `animate` shape params `x`, `y`, `w`, `h`, `angle`, `r` and `fill` are
+  controls.** They were missing, so any pattern naming them failed to evaluate.
+- **`draw`, `onPaint` and `animate` evaluate.** There is no canvas to paint,
+  so `draw` and `onPaint` return the pattern unchanged and `animate` returns
+  silence, as upstream does without a browser window. Patterns that used them
+  used to fail; 13 of the 8,004 patterns shared on strudel.cc now play.
+
+### Changed
+
+- **`d1`-`d9` and `p1`-`p9` are properties, as in Strudel:** write
+  `note("c").d1`, not `note("c").d1()`. `q1`-`q9` are `silence`. The call form
+  now fails with "not a callable function".
+
 ## [0.22.2] — 2026-10-03
 
 ### Fixed

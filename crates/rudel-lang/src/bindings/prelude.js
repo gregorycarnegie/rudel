@@ -28,6 +28,81 @@
     def(globalThis, bind, curry(2, (func, pat) => reify(pat)[bind](func)));
   }
 
+  // Numbered REPL slots (repl.mjs): `pat.d1`/`pat.p1` are getters that
+  // register the pattern as slot 1; `pat.q1` is silence.
+  for (let i = 1; i < 10; ++i) {
+    for (const name of [`d${i}`, `p${i}`]) {
+      Object.defineProperty(P, name, {
+        get() {
+          return this.p(i);
+        },
+        configurable: true,
+      });
+    }
+    def(P, `q${i}`, silence);
+  }
+
+  // In the browser REPL `window` is the global object, and tunes use it as a
+  // namespace shared between blocks (`window.spag = …`).
+  def(globalThis, 'window', globalThis);
+  // A tune that sees `window` may schedule frames. There is no canvas to
+  // paint, so a requested frame never comes.
+  def(globalThis, 'requestAnimationFrame', () => 0);
+  def(globalThis, 'cancelAnimationFrame', () => {});
+
+  // `createParam(names)` (controls.mjs): a control made at runtime. Returns
+  // the factory and sets the method; a list of names spreads a list value
+  // over them, and an object's `.value` fills the first.
+  const createParam = (names) => {
+    const isMulti = Array.isArray(names);
+    names = isMulti ? names : [names];
+    const name = names[0];
+    const withVal = (xs) => {
+      let bag;
+      if (typeof xs === 'object' && xs.value !== undefined) {
+        bag = { ...xs };
+        xs = xs.value;
+        delete bag.value;
+      }
+      if (isMulti && Array.isArray(xs)) {
+        const result = bag || {};
+        xs.forEach((x, i) => {
+          if (i < names.length) result[names[i]] = x;
+        });
+        return result;
+      }
+      if (bag) {
+        bag[name] = xs;
+        return bag;
+      }
+      return { [name]: xs };
+    };
+    const func = function (value, pat) {
+      if (!pat) return reify(value).withValue(withVal);
+      if (typeof value === 'undefined') return pat.fmap(withVal);
+      return pat.set(reify(value).withValue(withVal));
+    };
+    def(P, name, function (value) {
+      return func(value, this);
+    });
+    return func;
+  };
+  def(globalThis, 'createParam', createParam);
+  def(globalThis, 'createParams', (...names) =>
+    names.reduce((acc, name) => Object.assign(acc, { [name]: createParam(name) }), {}),
+  );
+
+  // draw.mjs / animate.mjs paint a browser canvas every animation frame.
+  // There is none here, so they keep upstream's return values and draw
+  // nothing: `draw` and `onPaint` return the pattern, `animate` silence.
+  def(P, 'draw', function () {
+    return this;
+  });
+  def(P, 'onPaint', function () {
+    return this;
+  });
+  def(P, 'animate', () => silence);
+
   // `shrinklist(amount, pat)`: the list of views `shrink` concatenates.
   for (const name of ['shrinklist', 's_taperlist']) {
     def(globalThis, name, (amount, pat) => reify(pat)[name](amount));

@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1106 methods=1165 controls=668
+# functions=1118 methods=1175 controls=675
 
 [functions]
 AggregateError
@@ -78,6 +78,7 @@ always
 amp
 analyze
 anchor
+angle
 apply
 applyN
 arpWith
@@ -139,6 +140,7 @@ bxor
 bypass
 byteBeatExpression
 byteBeatStartTime
+cancelAnimationFrame
 cat
 ccin
 ccn
@@ -189,6 +191,8 @@ cosine
 cosine2
 cpm
 cps
+createParam
+createParams
 crush
 csound
 csoundm
@@ -291,6 +295,7 @@ fastcat
 fastchunk
 fastgap
 fft
+fill
 firstOf
 first_of
 fit
@@ -612,6 +617,7 @@ globalThis
 grow
 gt
 gte
+h
 hard
 harmonic
 hbrick
@@ -859,6 +865,7 @@ pwr
 pwrate
 pws
 pwsweep
+r
 rand
 rand2
 randL
@@ -879,6 +886,7 @@ release
 repeatCycles
 repeat_cycles
 replicate
+requestAnimationFrame
 resonance
 rev
 rfade
@@ -1052,6 +1060,7 @@ voice
 voicing
 voicingRegistry
 vowel
+w
 warp
 warpatt
 warpattack
@@ -1078,6 +1087,7 @@ wchoose
 wchooseCycles
 when
 whenKey
+window
 within
 wrandcat
 wt
@@ -1097,8 +1107,10 @@ wtskew
 wtsus
 wtsustain
 wtsync
+x
 xfade
 xsdelay
+y
 zcrush
 zdelay
 zip
@@ -1150,6 +1162,8 @@ amp
 analyze
 anchor
 and
+angle
+animate
 apply
 applyN
 apply_n
@@ -1316,6 +1330,7 @@ div_squeezein
 div_squeezeout
 djf
 dough
+draw
 drive
 drop
 dry
@@ -1371,6 +1386,7 @@ fastcat
 fastchunk
 fastgap
 fft
+fill
 filter
 filterHaps
 filterValues
@@ -1699,6 +1715,7 @@ gate
 grow
 gt
 gte
+h
 hard
 harmonic
 hbrick
@@ -1887,6 +1904,7 @@ octersubsub
 off
 offset
 often
+onPaint
 onTriggerTime
 on_trigger_time
 or
@@ -2012,6 +2030,7 @@ q8
 q9
 query
 queryArc
+r
 range
 range2
 rangex
@@ -2213,6 +2232,7 @@ voice
 voicing
 voicings
 vowel
+w
 warp
 warpatt
 warpattack
@@ -2262,9 +2282,11 @@ wtskew
 wtsus
 wtsustain
 wtsync
+x
 xen
 xfade
 xsdelay
+y
 zcrush
 zdelay
 zmod
@@ -2287,6 +2309,7 @@ activeLabel
 amp
 analyze
 anchor
+angle
 att
 attack
 bandf
@@ -2397,6 +2420,7 @@ fadeOutTime
 fadeTime
 fanchor
 fft
+fill
 fm
 fm00
 fm01
@@ -2697,6 +2721,7 @@ fxr
 gain
 gat
 gate
+h
 harmonic
 hbrick
 hcutoff
@@ -2832,6 +2857,7 @@ pwr
 pwrate
 pws
 pwsweep
+r
 rdim
 real
 rel
@@ -2901,6 +2927,7 @@ vibrato
 vmod
 voice
 vowel
+w
 warp
 warpatt
 warpattack
@@ -2940,7 +2967,9 @@ wtskew
 wtsus
 wtsustain
 wtsync
+x
 xsdelay
+y
 zcrush
 zdelay
 zmod

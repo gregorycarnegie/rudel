@@ -497,3 +497,72 @@ fn a_bare_control_method_spreads_a_list_like_its_factory() {
     let b = eval(r#"s("bd:3")"#).expect("factory");
     assert_eq!(shape(&a, 1), shape(&b, 1));
 }
+
+#[test]
+fn create_params_makes_working_controls() {
+    // controls.mjs `createParams`: a factory per name, and the method too.
+    let pat =
+        eval("const {foo, bar} = createParams('foo', 'bar'); foo(\"1 2\").bar(3)").expect("eval");
+    let haps = values(&pat, 0, 1);
+    assert_eq!(haps.len(), 2);
+    match &haps[1] {
+        Value::Map(m) => {
+            assert_eq!(m.get("foo").and_then(Value::as_f64), Some(2.0));
+            assert_eq!(m.get("bar").and_then(Value::as_f64), Some(3.0));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+    // A list of names spreads a list value over them.
+    let multi = eval("const ab = createParam(['aa', 'bb']); ab(\"5:6\")").expect("eval");
+    match &values(&multi, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get("aa").and_then(Value::as_f64), Some(5.0));
+            assert_eq!(m.get("bb").and_then(Value::as_f64), Some(6.0));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn animate_params_are_controls() {
+    let pat = eval(r#"x(1).y(2).w(3).h(4).angle(5).r(6).fill("red")"#).expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            for (key, want) in [
+                ("x", 1.0),
+                ("y", 2.0),
+                ("w", 3.0),
+                ("h", 4.0),
+                ("angle", 5.0),
+                ("r", 6.0),
+            ] {
+                assert_eq!(m.get(key).and_then(Value::as_f64), Some(want), "{key}");
+            }
+            assert_eq!(m.get("fill").and_then(|v| v.as_str()), Some("red"));
+        }
+        other => panic!("expected control map, got {other:?}"),
+    }
+}
+
+#[test]
+fn canvas_painters_keep_upstream_return_values() {
+    // No canvas here: `draw`/`onPaint` hand back the pattern, `animate` silence.
+    for src in [
+        r#"s("bd sd").draw(() => 0, {})"#,
+        r#"s("bd sd").onPaint(() => 0)"#,
+    ] {
+        assert_eq!(values(&eval(src).expect("eval"), 0, 1).len(), 2, "{src}");
+    }
+    let animated = eval(r#"x(sine).s("rect").animate()"#).expect("eval");
+    assert!(values(&animated, 0, 1).is_empty());
+}
+
+#[test]
+fn window_is_the_global_object() {
+    // Tunes share values between blocks through `window`, as in the browser.
+    let pat = eval("window.notes = \"0 1\"; n(notes)").expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
+    // ...and a tune that then schedules a frame still evaluates.
+    let framed = eval("requestAnimationFrame(() => 0); n(\"0 1\")").expect("eval");
+    assert_eq!(values(&framed, 0, 1).len(), 2);
+}

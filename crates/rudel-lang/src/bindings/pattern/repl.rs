@@ -140,8 +140,9 @@ fn slot_id_string(value: &Arg) -> String {
     }
 }
 
-/// Put the REPL slot methods (`p`, `q`, `d1`-`d9`, `p1`-`p9`, `q1`-`q9`) on
-/// `Pattern.prototype`, alongside the control methods.
+/// Put the REPL slot methods `p` and `q` on `Pattern.prototype`, alongside
+/// the control methods. The numbered `d1`/`p1`/`q1` slots are properties,
+/// defined in `prelude.js` as upstream does.
 pub(crate) fn insert_slot_methods(proto: &Scope) {
     // p(id): register under the given id.
     method(proto, "p", |pat, a| {
@@ -149,15 +150,4 @@ pub(crate) fn insert_slot_methods(proto: &Scope) {
     });
     // q(id): a silent (queued/muted) slot.
     method(proto, "q", |_, _| Ok(silence().into()));
-    for i in 1..=9 {
-        // d<i> and p<i> are fixed-id slots: shorthand for p(i).
-        for prefix in ["d", "p"] {
-            let id = i.to_string();
-            method(proto, &format!("{prefix}{i}"), move |pat, _| {
-                Ok(register_slot(&id, pat.clone()).into())
-            });
-        }
-        // q<i>: a silent slot.
-        method(proto, &format!("q{i}"), |_, _| Ok(silence().into()));
-    }
 }

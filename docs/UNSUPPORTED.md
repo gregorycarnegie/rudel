@@ -63,9 +63,12 @@ Rudel's native Rust drawing code, not user-supplied callbacks.
 callbacks (`Pattern.draw(ctx => …)`, `onPaint`) and does not maintain a global
 full-screen draw context. (The `_shader` and `_hydra` widgets below are not
 exceptions: the user supplies WGSL, or a hydra chain that compiles to WGSL, and
-it runs on the GPU — never a script callback on the query path.) By design the
-draw query path never waits on the script engine, so a pattern cannot register a
-script closure that runs every animation frame. Only the built-in inline visualisers are available. The
+it runs on the GPU — never a script callback on the query path.) Upstream's
+painters draw on a browser `CanvasRenderingContext2D`, which Rudel has no
+equivalent of, so `draw(fn, options)` and `onPaint(fn)` are accepted and return
+the pattern unchanged, as upstream's `draw` does without a `window`: the pattern
+plays, the painter never runs. `getDrawContext` is not defined. Only the
+built-in inline visualisers are available. The
 full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
 lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
 `cleanupDraw`/`cleanupDrawContext` lifecycle are not ported; the inline widget
@@ -174,13 +177,14 @@ JavaScript painter that draws arbitrary shapes from patterned visual params
 helpers (`rescale`, `moveXY`, `zoomIn`) and a `smear`/clear toggle, and reports a
 "sync mode" status. Because it depends on the arbitrary-callback draw runtime
 described above — running user-driven drawing every animation frame — the
-`animate` painter is **intentionally unsupported** in Rudel. There is no native
-equivalent surface; patterns that call `animate` will not produce visuals. The
+`animate` painter is **intentionally unsupported** in Rudel. `animate()` returns
+`silence`, as upstream does, and draws nothing. The
 supported way to get scheduler-time visuals in Rudel is the inline editor widgets
 (`_pianoroll`, `_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`,
 `_claviature`, `_scope`, `_spectrum`).
 
-The `register`-based param transforms themselves — `rescale`, `moveXY`, `zoomIn`
+The params are ordinary controls (`x(sine).w(.1).fill("red")` evaluates), and
+the `register`-based param transforms — `rescale`, `moveXY`, `zoomIn`
 — **are** implemented (`crates/rudel-core/src/draw.rs`), since they are pure
 pattern transforms over the `x`/`y`/`w`/`h` params rather than painters. They
 evaluate and emit the same control maps as Strudel, so `.rescale(2)` /

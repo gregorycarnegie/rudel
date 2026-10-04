@@ -182,6 +182,14 @@ const UNREAD: &[&str] = &[
     "color",
     "markcss",
     "smear",
+    // animate.mjs shape params; rudel's `animate` draws nothing.
+    "x",
+    "y",
+    "w",
+    "h",
+    "angle",
+    "r",
+    "fill",
     // superdough features not ported: sample playback-rate ramp, chorus, the
     // squiz harmoniser, and the `source` bus selector.
     "accelerate",

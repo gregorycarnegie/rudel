@@ -189,7 +189,7 @@ pub(crate) fn register(prelude: &Scope) {
     // each(f): apply `f` to each running pattern separately. Both take a
     // function value (`rev`, `x => x.fast(2)`) and return silence so they can
     // sit on their own line. Patterns must be labeled (`$:`) or slotted
-    // (`.d1()`) to be picked up.
+    // (`.d1`) to be picked up.
     prelude.func("all", |a| {
         super::pattern::push_all(arg0(a).clone());
         done()
