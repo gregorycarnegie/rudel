@@ -38,6 +38,10 @@ pub fn install_mini() {
 pub struct EvalMeta {
     /// Inline editor widgets discovered during preprocessing/evaluation.
     pub widgets: Vec<WidgetConfig>,
+    /// What the script sent to hydra's own outputs (`osc().out()`), drawn
+    /// behind the code as upstream's full-screen hydra canvas is. A `_hydra`
+    /// widget config with no source position.
+    pub hydra: Option<WidgetConfig>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -292,6 +296,7 @@ fn evaluate(
     js::post(|| SPARE.set(Some(prepare())));
     let mut meta = EvalMeta {
         widgets: preprocessed.widgets,
+        hydra: None,
     };
     // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
     // they don't leak into this one (Strudel calls `hush()` at eval start).
@@ -299,6 +304,7 @@ fn evaluate(
     reset_registered();
     triggers::reset_hooks();
     widgets::reset_options();
+    bindings::hydra::reset_scene();
     // The kabelsalat arena is append-only while a script builds its graphs, so
     // it has to be dropped between runs or a long REPL session accumulates
     // every node it ever built.
@@ -314,6 +320,7 @@ fn evaluate(
             widget.options.extend(evaluated);
         }
     }
+    meta.hydra = bindings::hydra::take_scene();
     let effects = std::mem::take(&mut *effects.lock().unwrap());
     // Combine the script's pattern with any registered slots/labels and the
     // `each`/`all` transforms, mirroring Strudel's `applyPatternTransforms`:

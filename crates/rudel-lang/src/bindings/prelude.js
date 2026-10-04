@@ -50,6 +50,77 @@
   def(globalThis, 'requestAnimationFrame', () => 0);
   def(globalThis, 'cancelAnimationFrame', () => {});
 
+  // `initHydra()` (@strudel/hydra) loads hydra-synth, which puts its sources
+  // and outputs (`osc`, `src`, `o0`, `render`, …) in global scope, over
+  // Strudel's own `osc`, `noise` and `shape`, as upstream. Until then they
+  // are on `Hydra`.
+  // hydra's external sources `s0`..`s3` take a camera, image or video. There
+  // is none here, so `init*` does nothing and `src(s0)` reads as empty: an
+  // index past the four outputs.
+  const sourceIndex = (s) => (s !== null && typeof s === 'object' && 'index' in s ? s.index : s);
+  const hydraSrc = Hydra.src;
+  Hydra.src = (s, ...rest) => hydraSrc(sourceIndex(s), ...rest);
+  for (let i = 0; i < 4; i++) {
+    const none = function () {
+      return this;
+    };
+    Hydra[`s${i}`] = { index: 4 + i, init: none, initCam: none, initImage: none,
+      initVideo: none, initScreen: none, initStream: none, clear: none };
+  }
+  // hydra's array sequencing (hydra-synth `lib/array-utils.js`): an array
+  // argument steps through its values, and these set how.
+  const arrayUtils = {
+    fast(speed = 1) {
+      this._speed = speed;
+      return this;
+    },
+    smooth(smooth = 1) {
+      this._smooth = smooth;
+      return this;
+    },
+    ease(ease = 'linear') {
+      this._ease = ease;
+      return this;
+    },
+    offset(offset = 0.5) {
+      this._offset = offset % 1.0;
+      return this;
+    },
+    fit(low = 0, high = 1) {
+      const lowest = Math.min(...this);
+      const highest = Math.max(...this);
+      const arr = this.map((n) => ((n - lowest) * (high - low)) / (highest - lowest) + low);
+      arr._speed = this._speed;
+      arr._smooth = this._smooth;
+      arr._ease = this._ease;
+      return arr;
+    },
+  };
+  // hydra's canvas size and pointer, fixed here: there is no canvas.
+  Object.assign(Hydra, { width: 1920, height: 1080, mouse: { x: 0, y: 0 } });
+  // `a`, hydra's audio analyser, with `detectAudio: true`. Its FFT reads
+  // zero until the analyser is wired up.
+  const audioAnalyser = () => {
+    const none = () => {};
+    return {
+      fft: [0, 0, 0, 0],
+      setBins(bins) {
+        this.fft = new Array(bins).fill(0);
+      },
+      setSmooth: none,
+      setCutoff: none,
+      setScale: none,
+      show: none,
+      hide: none,
+      onBeat: none,
+    };
+  };
+  def(globalThis, 'initHydra', async (options = {}) => {
+    for (const name of Object.getOwnPropertyNames(Hydra)) globalThis[name] = Hydra[name];
+    for (const [name, f] of Object.entries(arrayUtils)) def(Array.prototype, name, f);
+    if (options.detectAudio) globalThis.a = audioAnalyser();
+  });
+
   // `createParam(names)` (controls.mjs): a control made at runtime. Returns
   // the factory and sets the method; a list of names spreads a list value
   // over them, and an object's `.value` fills the first.

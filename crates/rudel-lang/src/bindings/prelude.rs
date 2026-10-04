@@ -511,16 +511,13 @@ pub(crate) fn register(prelude: &Scope) {
         Ok(Arg::Null)
     });
 
-    // Hydra's browser loader: `initHydra` fetches hydra-synth from a CDN and
-    // `clearHydra` tears its canvas down. Rudel implements hydra natively (see
-    // `crate::hydra`), so there is nothing to fetch and nothing to tear down —
-    // accepted and ignored, so a pattern copied from Strudel still runs.
+    // Hydra's browser loader: `clearHydra` tears its canvas down upstream.
+    // Rudel implements hydra natively (see `crate::hydra`), so there is
+    // nothing to tear down. `initHydra` is in `prelude.js`.
     //
     // `hydra` itself is deliberately *not* here any more: it is the widget
     // method that renders a chain, and a stub of that name would shadow it.
-    for name in ["initHydra", "clearHydra"] {
-        prelude.func(name, |_| Ok(Arg::Null));
-    }
+    prelude.func("clearHydra", |_| Ok(Arg::Null));
     // `H(pattern)` samples a pattern once per animation frame to drive a hydra
     // uniform. A chain here compiles once per evaluation, so its parameters are
     // constants for that evaluation's life and a per-frame value has nowhere to

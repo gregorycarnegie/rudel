@@ -22,11 +22,14 @@ pub(super) enum MenuChoice {
     Cut,
     Paste,
     SelectAll,
+    /// Show the hydra scene behind the code in its own window.
+    PopOutBackdrop,
 }
 
 pub(super) fn editor_context_menu(
     response: &egui::Response,
     has_selection: bool,
+    has_backdrop: bool,
 ) -> Option<MenuChoice> {
     let mut choice = None;
     response.context_menu(|ui| {
@@ -56,6 +59,9 @@ pub(super) fn editor_context_menu(
         }
         if item(ui, "Panic", "Ctrl+Shift+.", true) {
             choice = Some(MenuChoice::App(EditorAction::Panic));
+        }
+        if has_backdrop && item(ui, "Pop out hydra", "", true) {
+            choice = Some(MenuChoice::PopOutBackdrop);
         }
         ui.separator();
         if item(ui, "Cut", "Ctrl+X", has_selection) {

@@ -716,7 +716,7 @@ pub(super) fn paint_hydra_gpu(
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
         rect,
         HydraCallback {
-            id: widget.id.clone(),
+            id: super::gpu_key(ui, &widget.id),
             sources,
             render,
             hash,

@@ -461,7 +461,7 @@ session rather than on every re-evaluation.
 
 ## External integrations and inputs
 
-### Hydra (`@strudel/hydra`) — the chain DSL is ported; the runtime is not
+### Hydra (`@strudel/hydra`) — the chain DSL and the canvas behind the code are ported
 
 `@strudel/hydra` (`initHydra`, `H`, `clearHydra`) is a ~50-line loader: it makes
 a canvas and `await import`s [hydra-synth](https://hydra.ojack.xyz/) from a CDN
@@ -533,10 +533,29 @@ texture and read as the empty buffers they are
 argument — same column-major order (o0 top-left, o1 bottom-left, o2 top-right,
 o3 bottom-right), ported from its `renderAll` shader.
 
-**The loader is accepted and ignored.** `initHydra(…)` fetches hydra-synth from
-a CDN upstream and `clearHydra()` tears its canvas down; there is nothing here
-to fetch or tear down, so both are no-ops and a pattern copied from Strudel
-still runs.
+**The canvas behind the code.** Upstream, `await initHydra()` loads hydra-synth,
+which puts its sources and outputs in global scope, and `chain.out(o1)` /
+`render(o1)` draw on a full-screen canvas behind the editor. Rudel does the
+same: `initHydra()` copies everything on `Hydra` into global scope (over
+Strudel's `osc`, `noise` and `shape`, as upstream; until then they are
+untouched), and `out`/`render` record a scene that the editor draws behind
+the code, with a wash of the theme background so the code stays readable.
+"Pop out hydra" in the editor's right-click menu shows it in a window of its
+own, which a double-click makes fullscreen. `clearHydra()` is a no-op.
+
+hydra's other globals exist so tunes that use them evaluate, but do less than
+upstream:
+
+- `s0`–`s3`, the external sources, accept `initCam`/`initImage`/`initVideo`/
+  `initScreen` and read as empty: rudel has no camera, image or video input.
+- `[1, 2, 3].fast(2).smooth()` (hydra's array sequencing on `Array.prototype`)
+  sets what upstream sets, but an array argument, `H(pattern)` and a function
+  argument (`() => a.fft[0]`) all take the function's default for now: a chain
+  compiles to constants once per evaluation.
+- `a` (with `initHydra({detectAudio: true})`) has `fft` and its setters, but the
+  FFT reads zero.
+- `width`/`height` are fixed at 1920×1080 and `mouse` at the origin; `time`
+  stays Strudel's signal.
 
 **What is missing.**
 

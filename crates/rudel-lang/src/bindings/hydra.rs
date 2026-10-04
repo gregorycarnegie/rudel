@@ -18,9 +18,69 @@
 //! renders a chain, which rudel also exposes as a top-level function.
 
 use crate::{
+    WidgetConfig, WidgetOption,
     hydra::{self, Chain, FnType, HydraFn},
     js::{Arg, Scope},
 };
+use std::cell::RefCell;
+
+/// What a script sent to hydra's own outputs: `chain.out(o1)` and `render(…)`.
+/// Upstream that is the full-screen canvas behind the code.
+#[derive(Default)]
+struct Scene {
+    outputs: [Option<Chain>; 4],
+    /// `None` until `render` is called, which shows `o0`; `Some(None)` is
+    /// `render()`, all four.
+    render: Option<Option<usize>>,
+}
+
+thread_local! {
+    // Evaluations run one at a time on the JS thread.
+    static SCENE: RefCell<Scene> = RefCell::new(Scene::default());
+}
+
+/// Forget the previous evaluation's outputs.
+pub(crate) fn reset_scene() {
+    SCENE.with(|s| *s.borrow_mut() = Scene::default());
+}
+
+/// This evaluation's hydra outputs as a `_hydra` widget config, if it sent a
+/// chain to any. Its options are the ones the inline `_hydra` widget takes.
+pub(crate) fn take_scene() -> Option<WidgetConfig> {
+    let scene = SCENE.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    if scene.outputs.iter().all(Option::is_none) {
+        return None;
+    }
+    let mut options: std::collections::BTreeMap<_, _> = scene
+        .outputs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, chain)| {
+            let wgsl = hydra::compile(chain.as_ref()?, i);
+            Some((format!("o{i}"), WidgetOption::String(wgsl)))
+        })
+        .collect();
+    let render = match scene.render {
+        None => WidgetOption::Number(0.0),
+        Some(None) => WidgetOption::String("all".to_string()),
+        Some(Some(i)) => WidgetOption::Number(i as f64),
+    };
+    options.insert("render".to_string(), render);
+    Some(WidgetConfig {
+        widget_type: "_hydra".to_string(),
+        id: "hydra-background".to_string(),
+        options,
+        ..WidgetConfig::default()
+    })
+}
+
+/// An output index from `o0`..`o3` (which are plain numbers here).
+fn output_index(value: Option<&Arg>) -> Option<usize> {
+    match value {
+        Some(Arg::Num(n)) if n.is_finite() => Some((*n as usize).min(3)),
+        _ => None,
+    }
+}
 
 /// Read one call argument: a number, or another chain for the `combine` and
 /// `modulate` families. Anything else is ignored, so the function's default
@@ -59,7 +119,22 @@ pub(crate) fn register(prelude: &Scope) {
             _ => Err(format!("hydra: {} is not called on a chain", func.name)),
         });
     }
+    // `chain.out(o1)`: show this chain on hydra's own canvas, in that output
+    // (`o0` when none is named).
+    methods.method("out", |this, a| match this {
+        Arg::Hydra(chain) => {
+            let index = output_index(a.first()).unwrap_or(0);
+            SCENE.with(|s| s.borrow_mut().outputs[index] = Some(chain.clone()));
+            Ok(Arg::Null)
+        }
+        _ => Err("hydra: out is not called on a chain".to_string()),
+    });
     let namespace = prelude.namespace("Hydra");
+    // `render(o2)` shows one output; `render()` all four.
+    namespace.func("render", |a| {
+        SCENE.with(|s| s.borrow_mut().render = Some(output_index(a.first())));
+        Ok(Arg::Null)
+    });
     for func in hydra::functions().iter().filter(|f| f.ty == FnType::Src) {
         let start: &'static HydraFn = func;
         namespace.func(func.name, move |a| {
@@ -103,6 +178,53 @@ mod tests {
             .err()
             .expect("rotate is not a source");
         assert!(err.contains("not a callable function"), "{err}");
+    }
+
+    fn scene(src: &str) -> Option<WidgetConfig> {
+        crate::eval_result(src).expect("eval").meta.hydra
+    }
+
+    #[test]
+    fn out_sends_a_chain_to_the_scene_behind_the_code() {
+        assert_eq!(scene("s(\"bd\")"), None);
+        let one = scene("await initHydra()
+osc(10).out()
+s(\"bd\")").expect("a scene");
+        assert_eq!(one.widget_type, "_hydra");
+        assert!(matches!(one.options.get("o0"), Some(WidgetOption::String(w)) if w.contains("h_osc")));
+        assert_eq!(one.options.get("render"), Some(&WidgetOption::Number(0.0)));
+
+        // `render(o1)` shows one output, `render()` all of them.
+        let two = scene("await initHydra()
+noise().out(o1)
+render(o1)").expect("a scene");
+        assert!(two.options.contains_key("o1") && !two.options.contains_key("o0"));
+        assert_eq!(two.options.get("render"), Some(&WidgetOption::Number(1.0)));
+        let all = scene("await initHydra()
+osc().out()
+render()").expect("a scene");
+        assert_eq!(all.options.get("render"), Some(&WidgetOption::String("all".into())));
+    }
+
+    #[test]
+    fn hydra_globals_wait_for_init_hydra() {
+        // Until then `osc` is still Strudel's OSC output and `noise` its signal.
+        assert_eq!(scene("Hydra.osc().out()"), scene("await initHydra()
+osc().out()"));
+        assert!(crate::eval("osc().out()").is_err());
+    }
+
+    #[test]
+    fn upstream_hydra_idioms_evaluate() {
+        // External sources read as empty, arrays take hydra's sequencing
+        // methods, and `a` exists with `detectAudio`.
+        let src = "await initHydra({detectAudio: true})
+s0.initCam()
+                   src(s0).modulate(osc([1, 2].fast(2).smooth(), 0.1)).out()
+                   a.setBins(3)
+n(a.fft.length)";
+        let result = crate::eval_result(src).expect("eval");
+        assert!(result.meta.hydra.is_some());
     }
 
     #[test]

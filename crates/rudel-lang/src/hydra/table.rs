@@ -220,14 +220,18 @@ pub(super) static FUNCTIONS: &[HydraFn] = &[
         // fbo that is not currently being drawn into. So `src(o0)` inside o0's
         // own chain is `prev()`, upstream and here alike, and no buffer is ever
         // sampled while it is a render target.
+        //
+        // Past `o3` are the external sources `s0`..`s3` (camera, image,
+        // video), which rudel has none of: they read as empty.
         wgsl: r#"
     let uv = fract(_st);
     let c0 = textureSample(hBuf0, hSamp, uv);
     let c1 = textureSample(hBuf1, hSamp, uv);
     let c2 = textureSample(hBuf2, hSamp, uv);
     let c3 = textureSample(hBuf3, hSamp, uv);
-    let i = clamp(tex, 0.0, 3.0);
-    return select(select(c0, c1, i >= 0.5), select(c2, c3, i >= 2.5), i >= 1.5);"#,
+    let i = max(tex, 0.0);
+    let c = select(select(c0, c1, i >= 0.5), select(c2, c3, i >= 2.5), i >= 1.5);
+    return select(c, vec4<f32>(0.0), i >= 3.5);"#,
     },
     HydraFn {
         name: "prev",

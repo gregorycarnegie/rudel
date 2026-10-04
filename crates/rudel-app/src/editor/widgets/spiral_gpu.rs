@@ -384,7 +384,7 @@ pub(super) fn paint_spiral_gpu(
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
         rect,
         SpiralCallback {
-            id: id.to_string(),
+            id: super::gpu_key(ui, id),
             globals: Globals {
                 size: [
                     rect.width() * pixels_per_point,

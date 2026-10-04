@@ -22,7 +22,7 @@ mod tests;
 pub(crate) use geometry::{WidgetLayout, block_widget_line_heights};
 pub(crate) use host::WidgetHostState;
 pub(crate) use hydra_gpu::HydraStore;
-pub(crate) use paint::{WidgetPaintInput, draw_widget_hosts};
+pub(crate) use paint::{WidgetPaintInput, draw_widget_hosts, paint_backdrop};
 pub(crate) use shader::ShaderStore;
 pub(crate) use spiral_gpu::{SpiralStore, supported as spiral_gpu_supported};
 pub(crate) use style::mark_color;
@@ -30,6 +30,14 @@ pub(crate) use style::mark_color;
 /// How long a GPU widget's cached pipeline or buffers outlive its last paint.
 /// Editing a widget's source shifts its id, so ids do accumulate.
 const IDLE_EVICTION: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The key a GPU painter keeps a widget's buffers under. A popped-out widget
+/// is drawn in two windows each frame, inline and in its own, at two sizes, so
+/// one key per widget would rebuild its buffers twice a frame and draw both
+/// from whichever wrote last.
+fn gpu_key(ui: &eframe::egui::Ui, id: &str) -> String {
+    format!("{id}@{:?}", ui.ctx().viewport_id())
+}
 
 /// Drop every cache entry but `keep`'s that has not painted within
 /// [`IDLE_EVICTION`]; `used` reads an entry's last paint.

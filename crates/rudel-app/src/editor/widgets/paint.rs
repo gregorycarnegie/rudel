@@ -37,10 +37,14 @@ pub(crate) fn draw_widget_hosts(
     code: &str,
     layout: WidgetLayout<'_>,
     widgets: &[WidgetDecoration],
+    backdrop: Option<&WidgetDecoration>,
     host: &mut WidgetHostState,
     paint: WidgetPaintInput<'_>,
 ) {
-    let sync = host.sync(widgets);
+    // The backdrop has a surface like any widget, so it can pop out, but it
+    // is drawn behind the code rather than inline.
+    let all: Vec<WidgetDecoration> = widgets.iter().chain(backdrop).cloned().collect();
+    let sync = host.sync(&all);
     if !sync.created.is_empty() || !sync.removed.is_empty() {
         ui.ctx().request_repaint();
     }
@@ -112,7 +116,21 @@ pub(crate) fn draw_widget_hosts(
     if let Some(widget) = to_toggle {
         host.toggle_popped(widget);
     }
-    show_popped_widget(ui.ctx(), widgets, host, paint);
+    show_popped_widget(ui.ctx(), &all, host, paint);
+}
+
+/// A widget filling `rect` behind whatever is drawn after it: the hydra
+/// scene behind the code.
+pub(crate) fn paint_backdrop(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    widget: &WidgetDecoration,
+    paint: WidgetPaintInput<'_>,
+) {
+    if let Some(pattern) = paint.pattern {
+        let colors = widget_draw_colors(paint.draw_theme);
+        paint_pattern_widget(ui, rect, widget, pattern, colors, paint);
+    }
 }
 
 /// The popped-out widget, in a window of its own: drag it to another screen

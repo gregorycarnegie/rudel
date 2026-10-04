@@ -117,6 +117,9 @@ impl WidgetDecoration {
 pub(crate) struct EditorDecorationState {
     sliders: Vec<SliderDecoration>,
     widgets: Vec<WidgetDecoration>,
+    /// The hydra scene the script sent to hydra's own outputs, drawn behind
+    /// the code.
+    backdrop: Option<WidgetDecoration>,
     flash_ranges: Vec<(SourceRange, Option<u32>)>,
     changes_since_eval: Vec<TextChange>,
 }
@@ -129,6 +132,7 @@ impl EditorDecorationState {
     pub(crate) fn replace_all(&mut self, meta: &rudel_lang::EvalMeta) {
         self.sliders = sliders_from_meta(meta);
         self.widgets = widgets_from_meta(meta);
+        self.backdrop = backdrop_from_meta(meta);
         self.flash_ranges.clear();
         self.changes_since_eval.clear();
     }
@@ -155,6 +159,10 @@ impl EditorDecorationState {
         dedupe_widgets(&mut widgets);
         widgets.sort_by_key(|widget| widget.placement());
         self.widgets = widgets;
+        // A block that sent nothing to hydra leaves the scene playing.
+        if let Some(backdrop) = backdrop_from_meta(meta) {
+            self.backdrop = Some(backdrop);
+        }
     }
 
     pub(crate) fn map_change(&mut self, change: TextChange) {
@@ -201,6 +209,10 @@ impl EditorDecorationState {
 
     pub(crate) fn widgets(&self) -> &[WidgetDecoration] {
         &self.widgets
+    }
+
+    pub(crate) fn backdrop(&self) -> Option<&WidgetDecoration> {
+        self.backdrop.as_ref()
     }
 
     fn map_eval_range_to_current(&self, mut range: SourceRange) -> SourceRange {
@@ -254,6 +266,16 @@ fn sliders_from_meta(meta: &rudel_lang::EvalMeta) -> Vec<SliderDecoration> {
     dedupe_sliders_for_full_update(&mut sliders);
     sliders.sort_by_key(|slider| slider.range.from);
     sliders
+}
+
+fn backdrop_from_meta(meta: &rudel_lang::EvalMeta) -> Option<WidgetDecoration> {
+    meta.hydra.as_ref().map(|scene| WidgetDecoration {
+        widget_type: scene.widget_type.clone(),
+        id: scene.id.clone(),
+        range: SourceRange::new(0, 0),
+        index: 0,
+        options: scene.options.clone(),
+    })
 }
 
 fn widgets_from_meta(meta: &rudel_lang::EvalMeta) -> Vec<WidgetDecoration> {
@@ -317,7 +339,10 @@ mod tests {
     }
 
     fn meta(widgets: Vec<rudel_lang::WidgetConfig>) -> rudel_lang::EvalMeta {
-        rudel_lang::EvalMeta { widgets }
+        rudel_lang::EvalMeta {
+            widgets,
+            ..Default::default()
+        }
     }
 
     #[test]

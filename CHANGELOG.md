@@ -15,6 +15,16 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Hydra draws behind the code, as in Strudel.** `await initHydra()` puts
+  hydra's functions in global scope and `osc(10).out()` / `render(o1)` draw
+  the scene behind the editor; "Pop out hydra" in the right-click menu shows
+  it in its own window, fullscreen on a double-click. hydra's array methods
+  (`[1, 2].fast(2)`), `s0`-`s3`, `a` and `width`/`height` exist, so 331 of the
+  390 shared strudel.cc patterns that failed on hydra now evaluate (7,422 of
+  8,004 overall). Arrays, `H(pattern)` and function arguments still take
+  the function's default rather than changing per frame, the external
+  sources read as empty, and `a.fft` reads zero.
+
 - **Double-click an inline visual to pop it out into its own window.**
   Double-click that window for borderless fullscreen on whichever screen it
   is on (drag it to a second monitor first, as for a presentation); Esc

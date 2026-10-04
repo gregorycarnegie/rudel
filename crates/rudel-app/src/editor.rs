@@ -32,7 +32,7 @@ use settings::{EditorSettings, apply_editor_style};
 use sliders::{SliderHostUpdate, SliderLayout, draw_slider_hosts};
 use text::{byte_index_at_char, char_slice};
 pub(crate) use widgets::{HydraStore, ShaderStore, SpiralStore, mark_color, spiral_gpu_supported};
-use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts};
+use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts, paint_backdrop};
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
 
@@ -63,6 +63,8 @@ pub(crate) struct CodeEditorInput<'a> {
     pub(crate) gpu_available: bool,
     pub(crate) sliders: &'a [SliderDecoration],
     pub(crate) widgets: &'a [WidgetDecoration],
+    /// The hydra scene to draw behind the code, if the script made one.
+    pub(crate) backdrop: Option<&'a WidgetDecoration>,
     pub(crate) widget_host: &'a mut WidgetHostState,
     pub(crate) settings: &'a EditorSettings,
     /// Text to insert at the cursor this frame (a double-clicked reference).
@@ -86,10 +88,20 @@ pub(crate) fn code_editor(
         gpu_available,
         sliders,
         widgets,
+        backdrop,
         widget_host,
         settings,
         insert_text,
     } = input;
+    let paint = WidgetPaintInput {
+        pattern: current_pattern,
+        pattern_generation,
+        time_cycles: playback_position_cycles,
+        draw_theme: settings.draw_theme(),
+        taps: scope_taps,
+        gpu_available,
+        zoom: 1.0,
+    };
 
     apply_editor_style(ui, settings);
     let before = code.clone();
@@ -157,7 +169,13 @@ pub(crate) fn code_editor(
     // `Normal` tokens — punctuation like `().,` — use the theme foreground) sits
     // on the matching background regardless of the host/system egui theme.
     // Otherwise white punctuation lands on a light system background and vanishes.
-    let editor_bg = settings.draw_theme().background;
+    let mut editor_bg = settings.draw_theme().background;
+    // Hydra's own canvas sits behind the code, as upstream's does; the code
+    // keeps a wash of the theme background so it stays readable over it.
+    if let Some(backdrop) = backdrop {
+        paint_backdrop(ui, ui.clip_rect(), backdrop, paint);
+        editor_bg = editor_bg.gamma_multiply(0.5);
+    }
     // Grow the editor to fill the remaining height of its panel so it resizes
     // with the window instead of staying a fixed 28-row box. Content longer than
     // this still scrolls inside the surrounding ScrollArea.
@@ -329,8 +347,16 @@ pub(crate) fn code_editor(
         .filter(|range| !range.is_empty())
         .map(|range| range.as_sorted_char_range());
     let mut action = None;
-    if let Some(choice) = editor_context_menu(&output.response, selection.is_some()) {
+    if let Some(choice) =
+        editor_context_menu(&output.response, selection.is_some(), backdrop.is_some())
+    {
         let moved = match choice {
+            MenuChoice::PopOutBackdrop => {
+                if let Some(backdrop) = backdrop {
+                    widget_host.toggle_popped(backdrop);
+                }
+                None
+            }
             MenuChoice::App(app_action) => {
                 action = Some(app_action);
                 None
@@ -420,7 +446,6 @@ pub(crate) fn code_editor(
     } else {
         ui.data_mut(|d| d.remove::<Completion>(completion_id));
     }
-    let draw_theme = settings.draw_theme();
     let galley_pos = output.galley_pos;
     let galley = output.galley.clone();
     draw_widget_hosts(
@@ -433,16 +458,9 @@ pub(crate) fn code_editor(
             base_row_height,
         },
         widgets,
+        backdrop,
         widget_host,
-        WidgetPaintInput {
-            pattern: current_pattern,
-            pattern_generation,
-            time_cycles: playback_position_cycles,
-            draw_theme,
-            taps: scope_taps,
-            gpu_available,
-            zoom: 1.0,
-        },
+        paint,
     );
     let slider_update = draw_slider_hosts(
         ui,
@@ -453,7 +471,7 @@ pub(crate) fn code_editor(
             base_row_height,
         },
         sliders,
-        draw_theme,
+        paint.draw_theme,
     );
 
     EditorOutput {

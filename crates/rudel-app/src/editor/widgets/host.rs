@@ -67,7 +67,7 @@ impl WidgetHostState {
     }
 
     /// Pop `widget` out into its own window, or dock it if it already is.
-    pub(super) fn toggle_popped(&mut self, widget: &WidgetDecoration) {
+    pub(crate) fn toggle_popped(&mut self, widget: &WidgetDecoration) {
         let key = WidgetKey::from(widget);
         self.popped = (self.popped.as_ref() != Some(&key)).then_some(key);
     }

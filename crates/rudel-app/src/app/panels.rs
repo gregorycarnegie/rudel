@@ -574,6 +574,7 @@ impl RudelApp {
                     .show(ui, |ui| {
                         let sliders = self.editor_decorations.sliders().to_vec();
                         let widgets = self.editor_decorations.widgets().to_vec();
+                        let backdrop = self.editor_decorations.backdrop().cloned();
                         let current_pattern = self.current.clone();
                         let playback_position_cycles = self.playback_position_cycles();
                         let insert_text = self.pending_insert.take();
@@ -592,6 +593,7 @@ impl RudelApp {
                                 gpu_available,
                                 sliders: &sliders,
                                 widgets: &widgets,
+                                backdrop: backdrop.as_ref(),
                                 widget_host: &mut self.widget_host,
                                 settings: &self.editor_settings,
                                 insert_text,

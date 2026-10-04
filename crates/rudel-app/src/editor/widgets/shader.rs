@@ -400,7 +400,7 @@ pub(super) fn paint_wgsl(
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
         rect,
         ShaderCallback {
-            id: id.to_string(),
+            id: super::gpu_key(ui, id),
             source,
             hash,
             uniforms: Uniforms {
