@@ -27,6 +27,11 @@ Debug builds work but the app is visibly sluggish; release is worth the wait.
 
 ## Run (agent path)
 
+Write the tune by the [strudel-scripts](../strudel-scripts/SKILL.md) skill
+first: patterned arguments in double quotes, everything inside JS code
+(colours, fonts, text, comparisons) in single quotes. Get that wrong and the
+app draws nothing, or black, and it looks like a bug.
+
 One invocation does a whole flow. Switches are applied in this order:
 `-Launch`, `-Play`/`-Stop`, `-Eval`, `-Wait`, `-Shot`, `-Quit`.
 
