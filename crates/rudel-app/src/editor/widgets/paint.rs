@@ -26,6 +26,10 @@ pub(crate) struct WidgetPaintInput<'a> {
     /// resources — and panics on a device without fragment storage buffers, so
     /// a widget that prefers one falls back to its CPU painter instead.
     pub(crate) gpu_available: bool,
+    /// How much bigger than its inline surface the widget is drawn: 1 inline,
+    /// more when popped out. Only a painter with a fixed size (the spiral)
+    /// needs it; the rest fill whatever rect they are given.
+    pub(crate) zoom: f32,
 }
 
 pub(crate) fn draw_widget_hosts(
@@ -48,6 +52,16 @@ pub(crate) fn draw_widget_hosts(
     }
 
     let clip = ui.clip_rect();
+    // Double-clicking a surface pops it out into its own window. The surfaces
+    // let pointer input through to the editor, so look at the raw pointer.
+    let double_click = ui
+        .input(|i| {
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary)
+                .then(|| i.pointer.interact_pos())
+        })
+        .flatten();
+    let mut to_toggle = None;
     // Widgets are sorted by source position; stack any that share a line within
     // the gap reserved below that line.
     let mut stack_line = usize::MAX;
@@ -65,6 +79,9 @@ pub(crate) fn draw_widget_hosts(
         stack_offset += surface.size.y + WIDGET_GAP_PADDING;
         if !clip.intersects(rect) {
             continue;
+        }
+        if double_click.is_some_and(|pos| clip.intersect(rect).contains(pos)) {
+            to_toggle = Some(widget);
         }
         egui::Area::new(egui::Id::new((
             "rudel-inline-widget",
@@ -91,6 +108,59 @@ pub(crate) fn draw_widget_hosts(
             let (rect, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             paint_widget_surface(ui, rect, widget, surface, paint);
         });
+    }
+    if let Some(widget) = to_toggle {
+        host.toggle_popped(widget);
+    }
+    show_popped_widget(ui.ctx(), widgets, host, paint);
+}
+
+/// The popped-out widget, in a window of its own: drag it to another screen
+/// and double-click for borderless fullscreen there, as a presentation. Esc
+/// leaves fullscreen; closing the window docks the widget again.
+fn show_popped_widget(
+    ctx: &egui::Context,
+    widgets: &[WidgetDecoration],
+    host: &mut WidgetHostState,
+    paint: WidgetPaintInput<'_>,
+) {
+    let Some((widget, surface)) = host.popped(widgets) else {
+        return;
+    };
+    let title = format!("rudel: {}", widget.widget_type.trim_start_matches('_'));
+    let builder = egui::ViewportBuilder::default()
+        .with_title(title)
+        .with_inner_size([800.0, 600.0]);
+    let dock = ctx.show_viewport_immediate(
+        egui::ViewportId::from_hash_of("rudel-widget-popout"),
+        builder,
+        |ui, _| {
+            let (rect, response) =
+                ui.allocate_exact_size(ui.available_size(), egui::Sense::click());
+            let zoom = (rect.size() / surface.size).min_elem().max(1.0);
+            paint_widget_surface(
+                ui,
+                rect,
+                widget,
+                surface,
+                WidgetPaintInput { zoom, ..paint },
+            );
+            let (fullscreen, escape, close) = ui.input(|i| {
+                (
+                    i.viewport().fullscreen.unwrap_or(false),
+                    i.key_pressed(egui::Key::Escape),
+                    i.viewport().close_requested(),
+                )
+            });
+            if response.double_clicked() || (escape && fullscreen) {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
+            }
+            close
+        },
+    );
+    if dock {
+        host.dock();
     }
 }
 

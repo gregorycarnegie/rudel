@@ -8,8 +8,8 @@ and no CLI flag that loads a script. The only way in is the OS: put text on the
 clipboard, paste it into the editor, and click the toolbar with synthetic mouse
 input. Everything here is doing that, DPI-correctly.
 
-Actions run in the order of the switches below, so one invocation can do a whole
-flow:
+Actions run in the order -Launch, -Play/-Stop, -Eval, -DoubleClick, -Wait,
+-Screen, -Shot, -Quit, so one invocation can do a whole flow:
 
   driver.ps1 -Launch -Play -Eval 's("bd*4").spiral()' -Wait 3 -Shot out.png
 
@@ -31,6 +31,11 @@ param(
     [string]$Shot,
     # Seconds to sleep before the screenshot, to let the pattern advance.
     [double]$Wait = 0,
+    # Double-click at "x,y" in egui logical points from the window's top-left
+    # (an inline widget pops out into its own window on a double-click).
+    [string]$DoubleClick,
+    # Save a PNG of the whole virtual desktop, to see windows besides the main one.
+    [string]$Screen,
     # Close the app.
     [switch]$Quit,
     # Override the auto-detected DPI scale (1.0 = 96 dpi).
@@ -104,6 +109,20 @@ function Invoke-RudelClick([double]$X, [double]$Y) {
     Start-Sleep -Milliseconds 350
 }
 
+function Invoke-RudelDoubleClick([double]$X, [double]$Y) {
+    $w = Focus-Rudel
+    $px = [int]($w.Left + $X * $w.Scale)
+    $py = [int]($w.Top + $Y * $w.Scale)
+    [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($px, $py)
+    Start-Sleep -Milliseconds 150
+    foreach ($i in 1..2) {
+        [RudelWin]::mouse_event(0x02, 0, 0, 0, 0)
+        [RudelWin]::mouse_event(0x04, 0, 0, 0, 0)
+        Start-Sleep -Milliseconds 60
+    }
+    Start-Sleep -Milliseconds 800
+}
+
 function Invoke-RudelButton([string]$Name) {
     $xy = $Buttons[$Name]
     if (-not $xy) { throw "unknown button '$Name'" }
@@ -158,7 +177,25 @@ if ($PSBoundParameters.ContainsKey('Eval')) {
     "evaluated"
 }
 
+if ($DoubleClick) {
+    $xy = $DoubleClick.Split(',') | ForEach-Object { [double]$_ }
+    Invoke-RudelDoubleClick $xy[0] $xy[1]
+    "double-clicked $DoubleClick"
+}
+
 if ($Wait -gt 0) { Start-Sleep -Seconds $Wait }
+
+if ($Screen) {
+    $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $bmp = New-Object System.Drawing.Bitmap($b.Width, $b.Height)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $b.Size)
+    $dir = Split-Path -Parent $Screen
+    if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    $bmp.Save($Screen, [System.Drawing.Imaging.ImageFormat]::Png)
+    $g.Dispose(); $bmp.Dispose()
+    "saved $Screen ($($b.Width)x$($b.Height))"
+}
 
 if ($Shot) {
     $w = Focus-Rudel

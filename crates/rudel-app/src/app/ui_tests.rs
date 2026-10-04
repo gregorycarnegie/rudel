@@ -290,6 +290,63 @@ fn transport_buttons_stay_clickable_under_a_scrolled_widget_surface() {
     );
 }
 
+fn double_click(harness: &mut Harness<'_, RudelApp>, pos: egui::Pos2) {
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(pos));
+    // In one frame: a harness step is longer than egui's double-click window.
+    for pressed in [true, false, true, false] {
+        harness.input_mut().events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+}
+
+#[test]
+fn double_clicking_a_widget_pops_it_out_until_the_widget_goes() {
+    let mut harness = harness();
+    harness.state_mut().code = "note(\"c3 e3 g3 b3\")._pianoroll()".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(2);
+    let widget = harness.state().editor_decorations.widgets()[0].clone();
+    // The first surface created gets serial 0.
+    let area = egui::Id::new((
+        "rudel-inline-widget",
+        widget.widget_type.as_str(),
+        widget.id.as_str(),
+        0u64,
+    ));
+    let rect = harness
+        .ctx
+        .memory(|m| m.area_rect(area))
+        .expect("the widget surface is on screen");
+
+    // The harness cannot open OS windows, so egui embeds the viewport as a
+    // window titled like the real one.
+    assert!(
+        harness
+            .query_by_label_contains("rudel: pianoroll")
+            .is_none()
+    );
+    double_click(&mut harness, rect.center());
+    harness.get_by_label_contains("rudel: pianoroll");
+
+    // Evaluating code without the widget takes its window away with it.
+    harness.state_mut().code = "note(\"c3\")".to_string();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    harness.run_steps(2);
+    assert!(
+        harness
+            .query_by_label_contains("rudel: pianoroll")
+            .is_none()
+    );
+}
+
 /// Does one more frame ask for another, after `setup` changes the app state?
 ///
 /// `step` rather than `run`: `run` keeps painting until nothing wants a

@@ -441,6 +441,7 @@ pub(crate) fn code_editor(
             draw_theme,
             taps: scope_taps,
             gpu_available,
+            zoom: 1.0,
         },
     );
     let slider_update = draw_slider_hosts(

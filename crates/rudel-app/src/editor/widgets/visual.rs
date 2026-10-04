@@ -79,6 +79,7 @@ pub(super) fn paint_pattern_widget(
             let window = DrawWindow::around(time);
             let cycles = cycles(window);
             let haps = in_window(&cycles, window);
+            let options = options.zoomed(paint.zoom);
             if options.gpu && paint.gpu_available {
                 paint_spiral_gpu(ui, rect, &widget.id, &haps, time, colors, options);
             } else {

@@ -53,6 +53,15 @@ Re-evaluate against an already-running app (no `-Launch`):
 pwsh -File .claude/skills/run-rudel/driver.ps1 -Eval 's("bd*4").spiral({cap: "round", thickness: 20, padding: 0.1})' -Wait 3 -Shot $env:TEMP\rudel\spiral.png
 ```
 
+Pop out an inline widget and see the whole desktop (the pop-out is its own
+OS window, so `-Shot`, which grabs only the main window, misses it).
+`-DoubleClick` takes egui logical points from the main window's top-left —
+read them off a `-Shot` first:
+
+```powershell
+pwsh -File .claude/skills/run-rudel/driver.ps1 -DoubleClick '254,364' -Wait 1 -Screen $env:TEMP\rudel\screen.png
+```
+
 Shut it down when finished:
 
 ```powershell

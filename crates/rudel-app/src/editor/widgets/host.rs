@@ -19,6 +19,8 @@ pub(super) struct WidgetSurface {
 pub(crate) struct WidgetHostState {
     surfaces: HashMap<WidgetKey, WidgetSurface>,
     next_serial: u64,
+    /// The widget shown in its own window, if any (double-click to pop out).
+    popped: Option<WidgetKey>,
 }
 
 impl WidgetHostState {
@@ -50,11 +52,38 @@ impl WidgetHostState {
         });
         removed.sort();
         removed.dedup();
+        if self
+            .popped
+            .as_ref()
+            .is_some_and(|key| !active.contains(key))
+        {
+            self.popped = None;
+        }
         WidgetHostSync { created, removed }
     }
 
     pub(super) fn surface(&self, widget: &WidgetDecoration) -> Option<&WidgetSurface> {
         self.surfaces.get(&WidgetKey::from(widget))
+    }
+
+    /// Pop `widget` out into its own window, or dock it if it already is.
+    pub(super) fn toggle_popped(&mut self, widget: &WidgetDecoration) {
+        let key = WidgetKey::from(widget);
+        self.popped = (self.popped.as_ref() != Some(&key)).then_some(key);
+    }
+
+    pub(super) fn dock(&mut self) {
+        self.popped = None;
+    }
+
+    /// The popped-out widget and its surface.
+    pub(super) fn popped<'w>(
+        &self,
+        widgets: &'w [WidgetDecoration],
+    ) -> Option<(&'w WidgetDecoration, &WidgetSurface)> {
+        let key = self.popped.as_ref()?;
+        let widget = widgets.iter().find(|w| WidgetKey::from(*w) == *key)?;
+        Some((widget, self.surfaces.get(key)?))
     }
 
     #[cfg(test)]

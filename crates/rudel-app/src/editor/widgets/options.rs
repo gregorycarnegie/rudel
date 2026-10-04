@@ -86,6 +86,15 @@ pub(super) struct VisualWidgetOptions {
 }
 
 impl VisualWidgetOptions {
+    /// The spiral drawn `zoom` times its set size, for a bigger surface.
+    pub(super) fn zoomed(self, zoom: f32) -> Self {
+        Self {
+            spiral_size: self.spiral_size * zoom,
+            spiral_thickness: self.spiral_thickness.map(|t| t * zoom),
+            ..self
+        }
+    }
+
     pub(super) fn from_widget(widget: &WidgetDecoration) -> Self {
         let options = &widget.options;
         let spiral_size = if widget.widget_type == "_spiral" {

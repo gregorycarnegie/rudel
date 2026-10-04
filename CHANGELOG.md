@@ -15,6 +15,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Double-click an inline visual to pop it out into its own window.**
+  Double-click that window for borderless fullscreen on whichever screen it
+  is on (drag it to a second monitor first, as for a presentation); Esc
+  leaves fullscreen, and closing the window puts the visual back inline. The
+  spiral scales up with the window; the others fill it.
+
 - **`window` is the global object,** as in the browser REPL, so tunes that
   share values through it (`window.spag = …`) evaluate. 232 of the 8,004
   patterns shared on strudel.cc failed on this alone. `requestAnimationFrame`
