@@ -8,6 +8,7 @@ mod engine;
 mod kabelsalat;
 mod modulate;
 mod mondo;
+mod native_bindings;
 mod pick;
 mod preprocess;
 mod props;

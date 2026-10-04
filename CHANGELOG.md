@@ -13,6 +13,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- **The script prelude and the draw canvas are native.** What was left in
+  JavaScript (`bind` and kin, `createParam`, `ref`, `onTrigger`, the pattern
+  settings, the hydra glue and the whole of `.draw`/`.onPaint`/`animate`/
+  `document`) is Rust now, with no bundled JavaScript left. Scripts see the
+  same behaviour: every hap of the 90-song collection is unchanged. Building a
+  script engine takes about half as long (3–4 ms, was 7–8).
+
 ## [0.23.0-beta.1] — 2026-10-04
 
 A beta: the changes below have not been through a mutation-testing run yet,

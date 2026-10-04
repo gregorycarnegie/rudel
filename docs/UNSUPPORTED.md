@@ -48,7 +48,7 @@ lookahead})` calls `fn(haps, time, t, pattern)` every animation frame with a
 rolling memory of recent haps, `.onPaint(painter)` calls `painter(ctx, time,
 haps, drawTime)`, and scripts run their own loops with `requestAnimationFrame`.
 
-**What Rudel does.** All of that runs (`crates/rudel-lang/src/bindings/canvas.js`):
+**What Rudel does.** All of that runs (`crates/rudel-lang/src/js/canvas.rs`):
 the context is a stand-in for `CanvasRenderingContext2D` that records drawing,
 flattening paths, curves, arcs and transforms to polygons as they are built.
 Once a frame the app runs the script's animation-frame callbacks and painters

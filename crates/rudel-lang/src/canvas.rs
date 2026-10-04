@@ -1,5 +1,5 @@
 //! Strudel's draw canvas, as far as the script side goes: the frame driver an
-//! evaluation hands the app, and the drawing it returns (`bindings/canvas.js`).
+//! evaluation hands the app, and the drawing it returns (`js::canvas`).
 
 use crate::bindings::arg_to_f64;
 use crate::js::{self, Arg, Scope, SendFn};
@@ -138,7 +138,7 @@ impl std::fmt::Debug for CanvasDriver {
     }
 }
 
-/// What `canvas.js`'s 2D context has built and drawn, one per script context.
+/// What the native 2D context has built and drawn, one per script context.
 /// Kept natively, so a path's points never pass through the script: a script
 /// call per point, and the op arrays read back each frame, were most of what
 /// a frame cost.
@@ -411,7 +411,7 @@ fn text(arg: Option<&Arg>) -> String {
 }
 
 /// The context's natives, on `__canvas`. The path and transform methods are
-/// the canvas API's own, which `canvas.js` puts on its context as they are;
+/// the canvas API's own, which `js::canvas` puts on its context as they are;
 /// the drawing ones (`…With`) take the style the script's context holds.
 pub(crate) fn register(prelude: &Scope) {
     let ns = prelude.namespace("__canvas");

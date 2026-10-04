@@ -1,0 +1,412 @@
+[
+  [
+    "JSON.stringify([tokenizeNote('c#4'),tokenizeNote('bss-2'),tokenizeNote('c-'),tokenizeNote('c'),tokenizeNote('x')])",
+    [
+      [
+        "c",
+        "#",
+        4
+      ],
+      [
+        "b",
+        "ss",
+        -2
+      ],
+      [
+        "c",
+        "",
+        null
+      ],
+      [
+        "c",
+        "",
+        null
+      ],
+      []
+    ]
+  ],
+  [
+    "const ab=createParam(['aa','bb']);const tagged=ab(pure({value:[5,6],color:'red'})).queryArc(0,1)[0].value;const mapped=pure(7).aa().queryArc(0,1)[0].value;const nested=bind(x=>pure(x+1))(pure(2)).queryArc(0,1)[0].value; JSON.stringify([tagged,mapped,nested,tokenizeNote('C#-2'),tokenizeNote('c-')])",
+    [
+      {},
+      {
+        "aa": 7
+      },
+      3,
+      [
+        "C",
+        "#",
+        -2
+      ],
+      [
+        "c",
+        "",
+        null
+      ]
+    ]
+  ],
+  [
+    "const c=getDrawContext(); c.font='12.5px sans'; JSON.stringify([c.measureText('😀'),c.fontSize(),Object.keys(c),Object.keys(Object.getPrototypeOf(c))])",
+    [
+      {
+        "actualBoundingBoxAscent": 10,
+        "actualBoundingBoxDescent": 2.5,
+        "width": 13.750000000000002
+      },
+      12.5,
+      [
+        "fillStyle",
+        "strokeStyle",
+        "lineWidth",
+        "lineCap",
+        "lineJoin",
+        "globalAlpha",
+        "font",
+        "textAlign",
+        "textBaseline",
+        "globalCompositeOperation",
+        "canvas",
+        "stack"
+      ],
+      []
+    ]
+  ],
+  [
+    "initHydra({detectAudio:true}); const x=[2,4,6].fast(2).smooth(.5).ease('sin').offset(-1.25).fit(10,20); JSON.stringify([x,x._speed,x._smooth,x._ease,x._offset])",
+    [
+      [
+        10,
+        15,
+        20
+      ],
+      2,
+      1,
+      "sin",
+      null
+    ]
+  ],
+  [
+    "initHydra({detectAudio:true}); a.setBins(2);a.setScale(5);a.setSmooth(.25);a.setCutoff(1);Hydra._loudness=()=>({frame:1,specific:[10,20,30,40]});a.tick();JSON.stringify([a.vol,a.bins,a.fft,a0(2,1)(),a.settings,a.beat])",
+    [
+      100,
+      [
+        22.5,
+        52.5
+      ],
+      [
+        4.3,
+        10.3
+      ],
+      9.6,
+      [
+        {
+          "cutoff": 1,
+          "scale": 5,
+          "smooth": 0.25
+        },
+        {
+          "cutoff": 1,
+          "scale": 5,
+          "smooth": 0.25
+        }
+      ],
+      {
+        "_cutoff": 120,
+        "_framesSinceBeat": 0,
+        "decay": 0.98,
+        "holdFrames": 20,
+        "threshold": 40
+      }
+    ]
+  ],
+  [
+    "const ab=createParam(['aa','bb']); JSON.stringify(ab(pure({value:[5,6],color:'red'})).queryArc(0,1).map(h=>h.value))",
+    [
+      {}
+    ]
+  ],
+  [
+    "let seen=[]; const p=s('bd'); p.draw(function(h,t){seen.push([this.pattern===p,h.length,h[0].hasOnset(),h[0].endClipped]);},{lookbehind:1}); __drawFrame(0,0,100,100);__drawFrame(.05,50,100,100);JSON.stringify(seen)",
+    [
+      [
+        true,
+        1,
+        true,
+        1
+      ],
+      [
+        true,
+        2,
+        true,
+        1
+      ]
+    ]
+  ],
+  [
+    "let seen=[];document.onmousemove=e=>{seen.push('handler');document.addEventListener('mousemove',()=>seen.push('late'));};document.addEventListener('mousemove',()=>seen.push('listener'));__drawFrame(0,0,100,100,[['mousemove',1,2]]);JSON.stringify(seen)",
+    [
+      "handler",
+      "listener"
+    ]
+  ],
+  [
+    "const x=[0,1,'x'];initHydra();JSON.stringify(x.fit())",
+    [
+      null,
+      null,
+      null
+    ]
+  ],
+  [
+    "initHydra();const x=[,2,4];const y=x.fit();JSON.stringify([0 in y,1 in y,2 in y,y])",
+    [
+      false,
+      true,
+      true,
+      [
+        null,
+        null,
+        null
+      ]
+    ]
+  ],
+  [
+    "const c=getDrawContext();const clone=new c.constructor();JSON.stringify([c.constructor.name,clone.canvas===c.canvas,clone instanceof c.constructor,clone.fillStyle,Object.getOwnPropertyNames(Object.getPrototypeOf(c))])",
+    [
+      "Context2D",
+      true,
+      true,
+      "#000000",
+      [
+        "constructor",
+        "save",
+        "restore",
+        "reset",
+        "fill",
+        "stroke",
+        "fillRect",
+        "strokeRect",
+        "fontSize",
+        "fillText",
+        "strokeText",
+        "measureText",
+        "drawImage",
+        "putImageData",
+        "getImageData",
+        "createImageData",
+        "createLinearGradient",
+        "createRadialGradient",
+        "createConicGradient",
+        "createPattern",
+        "setLineDash",
+        "getLineDash",
+        "clip",
+        "isPointInPath",
+        "beginPath",
+        "moveTo",
+        "lineTo",
+        "closePath",
+        "rect",
+        "roundRect",
+        "ellipse",
+        "arc",
+        "arcTo",
+        "bezierCurveTo",
+        "quadraticCurveTo",
+        "setTransform",
+        "resetTransform",
+        "getTransform",
+        "transform",
+        "translate",
+        "scale",
+        "rotate",
+        "clearRect"
+      ]
+    ]
+  ],
+  [
+    "const c=getDrawContext();JSON.stringify([c.createImageData(2,3).data.length,c.createLinearGradient().color,c.getLineDash(),c.isPointInPath(),c.createPattern().color])",
+    [
+      24,
+      null,
+      [],
+      false,
+      "#000000"
+    ]
+  ],
+  [
+    "const c=getDrawContext();c.extra=4;c.save();c.extra=5;c.font='10px sans';c.restore();c.reset();JSON.stringify([c.extra,c.font,c.fillStyle,c.stack.length])",
+    [
+      4,
+      "10px sans-serif",
+      "#000000",
+      0
+    ]
+  ],
+  [
+    "const a=createParam('custom');JSON.stringify([a('3 4').queryArc(0,1).map(h=>h.value),pure(2).custom().queryArc(0,1).map(h=>h.value)])",
+    [
+      [
+        {
+          "custom": "3 4"
+        }
+      ],
+      [
+        {
+          "custom": 2
+        }
+      ]
+    ]
+  ],
+  [
+    "const a=createParam(['x','y']);const old=reify;reify=v=>({withValue:f=>f(v)});const xs=[,2];JSON.stringify([a({value:xs,color:'red'}),a({value:5,tag:true}),a([1,2,3])])",
+    [
+      {
+        "color": "red",
+        "y": 2
+      },
+      {
+        "tag": true,
+        "x": 5
+      },
+      {
+        "x": 1,
+        "y": 2
+      }
+    ]
+  ],
+  [
+    "initHydra();JSON.stringify([[1,2].fit('10','20'),[1,1].fit(),[1,2].ease(()=>0)._ease,[1,2].ease('invalid')._smooth])",
+    [
+      [
+        "010",
+        "1010"
+      ],
+      [
+        null,
+        null
+      ],
+      "linear",
+      null
+    ]
+  ],
+  [
+    "initHydra({detectAudio:true}); a.setBins(0);Hydra._loudness=()=>({frame:1,specific:[1,2]});a.tick();JSON.stringify([a.vol,a.bins,a.fft])",
+    [
+      3,
+      [],
+      []
+    ]
+  ],
+  [
+    "initHydra({detectAudio:true});let n=0;a.onBeat=()=>n++;a.detectBeat(100);for(let i=0;i<22;i++)a.detectBeat(0);JSON.stringify([n,a.beat])",
+    [
+      1,
+      {
+        "_cutoff": 117.6,
+        "_framesSinceBeat": 21,
+        "decay": 0.98,
+        "holdFrames": 20,
+        "threshold": 40
+      }
+    ]
+  ],
+  [
+    "let n=0; const id=requestAnimationFrame(()=>n++);JSON.stringify([cancelAnimationFrame(String(id)),cancelAnimationFrame(id),cancelAnimationFrame(id),__drawUsed()])",
+    [
+      false,
+      true,
+      false,
+      true
+    ]
+  ],
+  [
+    "let seen=[];s('bd').draw(()=>{seen.push(1);s('hh').onPaint(()=>seen.push(2));});__drawFrame(0,0,100,100);JSON.stringify(seen)",
+    [
+      1,
+      2
+    ]
+  ],
+  [
+    "const c=getDrawContext();class Child extends c.constructor {};const d=new Child();let threw=false;try{c.constructor()}catch(e){threw=e instanceof TypeError};JSON.stringify([d instanceof Child,d.canvas===c.canvas,threw,c.fillRect.name,c.fillRect.length,Object.getOwnPropertyDescriptor(c.constructor,'prototype').writable])",
+    [
+      true,
+      true,
+      true,
+      "fillRect",
+      4,
+      false
+    ]
+  ],
+  [
+    "let logs=[];console.log=x=>logs.push(x);s('bd').draw(()=>{throw 'bad'});s('hh').draw(()=>logs.push('ok'));requestAnimationFrame(()=>{throw 'bad'});__drawFrame(0,0,100,100);__drawFrame(.1,100,100,100);JSON.stringify(logs)",
+    [
+      "requestAnimationFrame: bad",
+      "draw: bad",
+      "ok",
+      "ok"
+    ]
+  ],
+  [
+    "JSON.stringify([tokenizeNote('c4\\n'),tokenizeNote('c4\\r\\n'),tokenizeNote('c4x'),tokenizeNote('fbsf-8')])",
+    [
+      [],
+      [],
+      [],
+      [
+        "f",
+        "bsf",
+        -8
+      ]
+    ]
+  ],
+  [
+    "initHydra({detectAudio:true});a.setBins(2);const levels=[10,20,30,40];a.onBeat=()=>{levels[0]=100};Hydra._loudness=()=>({frame:1,specific:levels});a.tick();JSON.stringify([a.vol,a.bins,a.fft])",
+    [
+      100,
+      [
+        72,
+        42
+      ],
+      [
+        7,
+        4
+      ]
+    ]
+  ],
+  [
+    "initHydra({detectAudio:true});a.settings=[,{smooth:0,cutoff:0,scale:2}];a.setScale(3);JSON.stringify([0 in a.settings,1 in a.settings,a.settings])",
+    [
+      false,
+      true,
+      [
+        null,
+        {
+          "cutoff": 0,
+          "scale": 3,
+          "smooth": 0
+        }
+      ]
+    ]
+  ],
+  [
+    "initHydra();const chain=Hydra.src(s0);JSON.stringify([chain instanceof Object,s0.index,s1.index,s2.index,s3.index,s0.clear()===s0])",
+    [
+      true,
+      4,
+      5,
+      6,
+      7,
+      true
+    ]
+  ],
+  [
+    "const c=getDrawContext();const a=c.createLinearGradient();a.addColorStop(0,null);a.addColorStop(1,'red');const b=c.createConicGradient();b.addColorStop(0,'blue');JSON.stringify([a.color,b.color,c.getImageData(0,0,-1,2).data.length,document.body.classList.contains('x')])",
+    [
+      "red",
+      "blue",
+      0,
+      false
+    ]
+  ]
+]

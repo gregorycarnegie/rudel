@@ -115,7 +115,7 @@ fn arg(value: &Arg) -> Option<hydra::Arg> {
         Arg::Hydra(chain) => Some(hydra::Arg::Chain(chain.clone())),
         // `H(pattern)`, or a pattern passed straight in.
         Arg::Pat(pattern) => Some(dynamic(HydraParam::pattern(pattern.clone()))),
-        // Arrays and functions, as `prelude.js` wraps them for the natives.
+        // Arrays and functions, as `js::prelude` wraps them for the natives.
         Arg::Map(map) => {
             let get = |key: &str| map.iter().find(|(k, _)| k == key).map(|(_, v)| v);
             let num = |key: &str, default: f64| match get(key) {
@@ -199,14 +199,14 @@ pub(crate) fn register(prelude: &Scope) {
         _ => Err("hydra: out is not called on a chain".to_string()),
     });
     let namespace = prelude.namespace("Hydra");
-    // `initHydra({feedStrudel})` (`prelude.js`); the last call wins, as a
+    // `initHydra({feedStrudel})`; the last call wins, as a
     // re-init does upstream.
     namespace.func("_feed", |a| {
         let on = matches!(a.first(), Some(Arg::Bool(true)));
         SCENE.with(|s| s.borrow_mut().feed = on);
         Ok(Arg::Null)
     });
-    // `s0.initImage(url)` (`prelude.js`): load an image into a source.
+    // `s0.initImage(url)`: load an image into a source.
     namespace.func("_image", |a| {
         // A double-quoted URL arrives as a mini-notation literal; its text is
         // the URL.
@@ -226,7 +226,7 @@ pub(crate) fn register(prelude: &Scope) {
         }
         Ok(Arg::Null)
     });
-    // The loudness hydra's `a` reads each frame (`prelude.js`).
+    // The loudness hydra's `a` reads each frame.
     namespace.func("_loudness", |_| {
         let (frame, specific) = hydra::loudness();
         Ok(Arg::Map(vec![

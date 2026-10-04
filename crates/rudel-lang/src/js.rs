@@ -1,6 +1,6 @@
 //! The JavaScript engine (boa) and the bridge between its values and rudel's.
 //!
-//! Three things live here, and nothing else in the crate names boa:
+//! Three things live here; Boa is confined to this module and its submodules:
 //!
 //! - **One JS thread.** A boa `Context` and everything it allocates is tied to
 //!   the thread that made it, while a pattern is queried from the scheduler and
@@ -40,6 +40,18 @@ use std::{
         mpsc,
     },
 };
+
+mod canvas;
+mod native;
+mod prelude;
+
+pub(crate) fn register_prelude() {
+    lent(|ctx| prelude::register(ctx).expect("register the native prelude"));
+}
+
+pub(crate) fn register_canvas() {
+    lent(|ctx| canvas::register(ctx).expect("register the native canvas"));
+}
 
 /// What a native function returns: a value for the script, or the message of
 /// the error to throw.
@@ -869,16 +881,6 @@ fn underscore_get(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<
         Some(get) => get.call(&JsValue::undefined(), args, ctx),
         None => Ok(JsValue::undefined()),
     }
-}
-
-/// Run `source` in the lent context, for the part of the prelude written in
-/// the script's own language. It is ours, so failing to run is a bug.
-pub(crate) fn run_lent(source: &str) {
-    lent(|ctx| {
-        if let Err(e) = ctx.eval(Source::from_bytes(source)) {
-            panic!("the prelude failed: {}", error_text(&e, ctx));
-        }
-    });
 }
 
 /// Wrap `func` as a method: called as `pat.name(...args)`, it runs

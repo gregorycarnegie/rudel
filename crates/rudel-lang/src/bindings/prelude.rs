@@ -510,7 +510,7 @@ pub(crate) fn register(prelude: &Scope) {
 
     // Hydra's browser loader: `clearHydra` tears its canvas down upstream.
     // Rudel implements hydra natively (see `crate::hydra`), so there is
-    // nothing to tear down. `initHydra` is in `prelude.js`.
+    // nothing to tear down. `initHydra` is in `js::prelude`.
     //
     // `hydra` itself is deliberately *not* here any more: it is the widget
     // method that renders a chain, and a stub of that name would shadow it.
@@ -879,9 +879,8 @@ pub(crate) fn register(prelude: &Scope) {
     // does what the patterned one does, so any `_name` nothing else defines is
     // `name`.
     proto.answer_underscore_names();
-    // The rest of it, kept in JavaScript.
-    crate::js::run_lent(include_str!("prelude.js"));
-    // `theme`/`fontFamily`/`fontSize` (`prelude.js`) report here as they play.
+    crate::js::register_prelude();
+    // `theme`/`fontFamily`/`fontSize` report here as they play.
     prelude.func("__setting", |a| {
         let text = |i: usize| match a.get(i) {
             Some(Arg::Str(s)) => s.clone(),
@@ -891,7 +890,7 @@ pub(crate) fn register(prelude: &Scope) {
         crate::triggers::push_setting(text(0), text(1));
         Ok(Arg::Null)
     });
-    // The canvas size the app last showed, for `canvas.js`.
+    // The canvas size the app last showed, for the native draw bindings.
     prelude.func("__canvasSize", |_| {
         let (w, h) = crate::canvas::size();
         Ok(Arg::List(vec![
@@ -899,11 +898,11 @@ pub(crate) fn register(prelude: &Scope) {
             Arg::Num(f64::from(h)),
         ]))
     });
-    // The canvas context's natives, which `canvas.js` builds on.
+    // The recorder operations the native draw context builds on.
     crate::canvas::register(prelude);
     // Strudel's draw canvas: `getDrawContext`, `.draw`, `.onPaint`,
     // `requestAnimationFrame`, `animate` (see `crate::canvas`).
-    crate::js::run_lent(include_str!("canvas.js"));
+    crate::js::register_canvas();
 }
 
 /// The alignment getters (pattern.mjs `_setupAlignments`): `pat.add` adds,
