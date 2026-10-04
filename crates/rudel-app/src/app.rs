@@ -130,6 +130,9 @@ pub(crate) struct RudelApp {
     midi_pending: Option<JoinHandle<Result<MidiOut, String>>>,
     osc: Option<OscEngine>,
     io_error: Option<String>,
+    /// User theme files that did not read at launch; themes are fixed for the
+    /// session, so this stays shown until the next.
+    theme_errors: Vec<String>,
     // MIDI input (CC -> `ccin` bus, clock-in -> cps).
     midi_in: Option<MidiIn>,
     /// In-flight MIDI input connection, connected on a background thread for the
@@ -232,6 +235,7 @@ impl RudelApp {
             midi_pending: None,
             osc: None,
             io_error: None,
+            theme_errors: Vec::new(),
             midi_in: None,
             midi_in_pending: None,
             midi_in_port: String::new(),
@@ -416,10 +420,16 @@ pub(crate) fn run() -> eframe::Result {
         Box::new(|cc| {
             crate::theme::apply(&cc.egui_ctx);
             install_gpu_stores(cc);
+            // Before anything asks for a theme: the user's own join the
+            // built-in ones for the session.
+            let theme_errors = crate::editor::themes::user_dir()
+                .map(|dir| crate::editor::themes::load_user(&dir))
+                .unwrap_or_default();
             let mut app = RudelApp::new();
             if let Some(storage) = cc.storage {
                 app.restore(storage);
             }
+            app.theme_errors = theme_errors;
             Ok(Box::new(app))
         }),
     )

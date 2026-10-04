@@ -15,6 +15,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Themes are TOML files, and you can add your own** without rebuilding:
+  put a `.toml` in rudel's themes folder (the `folder` button beside the theme
+  picker opens it) and it is read at launch. Strudel's 39 are built in as the
+  same files (`crates/rudel-app/themes/`). See the app README for the format.
+
 - **Editor settings are kept between sessions:** theme, font, size and the
   editor switches come back on the next launch, where they used to reset.
 

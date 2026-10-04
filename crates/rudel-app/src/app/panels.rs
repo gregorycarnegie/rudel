@@ -503,6 +503,9 @@ impl RudelApp {
             if let Some(e) = &self.io_error {
                 ui.colored_label(crate::theme::ACCENT, e);
             }
+            for e in &self.theme_errors {
+                ui.colored_label(crate::theme::ACCENT, e);
+            }
             if let Some(e) = &self.eval_error {
                 ui.colored_label(crate::theme::STOP, e);
             } else {
@@ -735,6 +738,15 @@ impl RudelApp {
                                 );
                             }
                         });
+                    if let Some(dir) = crate::editor::themes::user_dir() {
+                        let button = ui.small_button("folder").on_hover_text(format!(
+                            "Your own themes: a .toml file each, read at launch\n{}",
+                            dir.display()
+                        ));
+                        if button.clicked() {
+                            open_folder(&dir);
+                        }
+                    }
 
                     ui.label("font");
                     egui::ComboBox::from_id_salt("editor_font_family")
@@ -838,6 +850,19 @@ impl RudelApp {
 
 /// Collapsed-header summary for the I/O section, so what's loaded/connected
 /// shows at a glance without opening it.
+/// Show `dir` in the system's file manager, making it first if need be.
+fn open_folder(dir: &std::path::Path) {
+    let _ = std::fs::create_dir_all(dir);
+    let program = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(program).arg(dir).spawn();
+}
+
 fn io_summary(sample_count: usize, midi_in_connected: bool, midi_in_connecting: bool) -> String {
     let midi = if midi_in_connecting {
         "midi in connecting…"

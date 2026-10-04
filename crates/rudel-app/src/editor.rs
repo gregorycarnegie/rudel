@@ -13,7 +13,7 @@ mod menu;
 pub(crate) mod settings;
 mod sliders;
 mod text;
-mod themes_generated;
+pub(crate) mod themes;
 pub(crate) mod widgets;
 
 use brackets::bracket_match_spans;

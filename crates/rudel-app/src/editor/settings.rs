@@ -1,35 +1,7 @@
-use super::themes_generated::THEMES;
+use super::themes::{ThemeData, all as themes};
 use eframe::egui;
 
-/// One of Strudel's CodeMirror themes, as `tools/generate_themes.mjs` reads it
-/// out of `strudel/packages/codemirror` into `themes_generated.rs`: the
-/// `settings` `@strudel/draw` paints with, and the syntax colours of its
-/// `styles` that rudel's highlighter has a token for.
-pub(crate) struct ThemeData {
-    pub(crate) name: &'static str,
-    pub(crate) light: bool,
-    pub(crate) background: [u8; 4],
-    pub(crate) line_background: [u8; 4],
-    pub(crate) foreground: [u8; 4],
-    pub(crate) muted: [u8; 4],
-    pub(crate) caret: [u8; 4],
-    pub(crate) selection: [u8; 4],
-    pub(crate) selection_match: [u8; 4],
-    pub(crate) line_highlight: [u8; 4],
-    pub(crate) gutter_background: [u8; 4],
-    pub(crate) gutter_foreground: [u8; 4],
-    pub(crate) keyword: [u8; 4],
-    /// `propertyName`: the `.fast` of a method call.
-    pub(crate) method: [u8; 4],
-    pub(crate) string: [u8; 4],
-    pub(crate) number: [u8; 4],
-    pub(crate) comment: [u8; 4],
-    /// `punctuation`: mini-notation's `[ ] < > * /`.
-    pub(crate) mini_op: [u8; 4],
-    pub(crate) mini_word: [u8; 4],
-}
-
-/// The editor's theme: one of Strudel's, by its place in the table.
+/// The editor's theme, by its place in the list of themes ([`super::themes`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EditorTheme(usize);
 
@@ -44,22 +16,25 @@ fn rgba([r, g, b, a]: [u8; 4]) -> egui::Color32 {
 }
 
 impl EditorTheme {
-    /// Every theme, in Strudel's order.
+    /// Every theme, by name.
     pub(crate) fn all() -> impl Iterator<Item = EditorTheme> {
-        (0..THEMES.len()).map(EditorTheme)
+        (0..themes().len()).map(EditorTheme)
     }
 
     /// The theme `theme("githubDark")` names.
     pub(crate) fn named(name: &str) -> Option<EditorTheme> {
-        THEMES.iter().position(|t| t.name == name).map(EditorTheme)
+        themes()
+            .iter()
+            .position(|t| t.name == name)
+            .map(EditorTheme)
     }
 
     fn data(self) -> &'static ThemeData {
-        &THEMES[self.0]
+        &themes()[self.0]
     }
 
     pub(crate) fn label(self) -> &'static str {
-        self.data().name
+        &self.data().name
     }
 
     pub(crate) fn draw_theme(self) -> DrawTheme {

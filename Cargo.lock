@@ -4660,6 +4660,7 @@ dependencies = [
  "rudel-osc",
  "tempfile",
  "tiny-skia",
+ "toml",
  "windows",
  "winresource",
  "xcap",

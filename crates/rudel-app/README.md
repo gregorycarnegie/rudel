@@ -40,7 +40,43 @@ contextual autocomplete, and Ctrl-held reference tooltips match the CodeMirror
 REPL where their settings are enabled. The selected editor theme also supplies
 the draw colors used by inline visual surfaces, sliders, native
 `_pianoroll`/`_pitchwheel`/`_spiral`/`_claviature`/`_scope`/`_spectrum`
-widgets, and the native one-cycle visualizer.
+widgets, and the native one-cycle visualizer. The editor settings are kept
+between sessions.
+
+### Themes
+
+All 39 of Strudel's themes are built in (`themes/*.toml`). Your own go in
+rudel's themes folder, one `.toml` file each, and are read at launch; the
+`folder` button beside the theme picker opens it (`%APPDATA%\rudel\themes` on
+Windows, `~/.local/share/rudel/themes` on Linux,
+`~/Library/Application Support/rudel/themes` on macOS). A theme with a
+built-in one's name replaces it, and `theme("name")` in a script picks it like
+any other. Only `background` and `foreground` are required; every other colour
+is worked out from them unless given:
+
+```toml
+name = "midnight"          # optional: the file name otherwise
+light = false              # whether visualisers draw dark on light
+background = "#101020"
+foreground = "#e0e0ff"
+keyword = "#ff79c6"        # the rest, all optional:
+method = "#50fa7b"         # .fast in a method call
+string = "#f1fa8c"
+number = "#bd93f9"
+comment = "#6272a4"
+mini_op = "#ff79c6"        # mini-notation's [ ] < > * /
+mini_word = "#f1fa8c"
+caret = "#f8f8f0"
+selection = "#ffffff1a"    # #rrggbbaa for transparency
+selection_match = "#ffffff33"
+line_highlight = "#ffffff1a"
+line_background = "#10102099"
+gutter_background = "#101020"
+gutter_foreground = "#6272a4"
+muted = "#e0e0ff50"
+```
+
+A file that does not read is named, with what is wrong, under the editor.
 
 ## Features
 
