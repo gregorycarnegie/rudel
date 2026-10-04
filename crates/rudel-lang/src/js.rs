@@ -19,7 +19,9 @@
 use crate::{hydra::Chain, kabelsalat::NodeId};
 pub(crate) use boa_engine::Context;
 use boa_engine::{
-    JsData, JsError, JsObject, JsResult, JsString, JsValue, NativeFunction, Source, js_string,
+    JsData, JsError, JsObject, JsResult, JsString, JsValue, NativeFunction, NativeObject, Source,
+    builtins::object::OrdinaryObject,
+    js_string,
     object::{FunctionObjectBuilder, builtins::JsArray},
     property::{PropertyDescriptor, PropertyKey},
 };
@@ -460,6 +462,12 @@ fn from_js(value: &JsValue, ctx: &mut Context, depth: usize) -> Arg {
     Arg::Map(entries)
 }
 
+/// A value's object, on a shared shape as an object literal's is. A shape of
+/// its own per object was the largest single cost of handing haps to a script.
+fn object<T: NativeObject>(ctx: &Context, proto: JsObject, data: T) -> JsObject {
+    JsObject::new(ctx.root_shape(), proto, data).upcast()
+}
+
 fn to_js(arg: Arg, ctx: &mut Context) -> JsValue {
     match arg {
         Arg::Null => JsValue::undefined(),
@@ -471,21 +479,18 @@ fn to_js(arg: Arg, ctx: &mut Context) -> JsValue {
             JsArray::from_iter(items, ctx).into()
         }
         Arg::Map(entries) => {
-            let object = JsObject::with_object_proto(ctx.intrinsics());
+            let proto = ctx.intrinsics().constructors().object().prototype();
+            let object = object(ctx, proto, OrdinaryObject);
             for (key, value) in entries {
                 let value = to_js(value, ctx);
                 let _ = object.create_data_property_or_throw(JsString::from(key), value, ctx);
             }
             object.into()
         }
-        Arg::Pat(p) => {
-            JsObject::from_proto_and_data(side(ctx).pattern.clone(), JsPattern(Box::new(p))).into()
-        }
-        Arg::Frac(f) => {
-            JsObject::from_proto_and_data(side(ctx).frac.clone(), JsFrac(Box::new(f))).into()
-        }
+        Arg::Pat(p) => object(ctx, side(ctx).pattern.clone(), JsPattern(Box::new(p))).into(),
+        Arg::Frac(f) => object(ctx, side(ctx).frac.clone(), JsFrac(Box::new(f))).into(),
         Arg::Span(s) => {
-            let object = JsObject::from_proto_and_data(side(ctx).span.clone(), JsSpan(Box::new(s)));
+            let object = object(ctx, side(ctx).span.clone(), JsSpan(Box::new(s)));
             // Own properties, so `span.begin` reads as it does upstream and
             // `{...span}` copies them.
             for (key, at) in [("begin", s.begin), ("end", s.end)] {
@@ -496,13 +501,12 @@ fn to_js(arg: Arg, ctx: &mut Context) -> JsValue {
         }
         Arg::State(state) => {
             let span = to_js(Arg::Span(state.span), ctx);
-            let object =
-                JsObject::from_proto_and_data(side(ctx).state.clone(), JsState(Box::new(state)));
+            let object = object(ctx, side(ctx).state.clone(), JsState(Box::new(state)));
             let _ = object.create_data_property_or_throw(js_string!("span"), span, ctx);
             object.into()
         }
-        Arg::Hydra(h) => JsObject::from_proto_and_data(side(ctx).hydra.clone(), JsHydra(h)).into(),
-        Arg::Kabel(k) => JsObject::from_proto_and_data(side(ctx).kabel.clone(), JsKabel(k)).into(),
+        Arg::Hydra(h) => object(ctx, side(ctx).hydra.clone(), JsHydra(h)).into(),
+        Arg::Kabel(k) => object(ctx, side(ctx).kabel.clone(), JsKabel(k)).into(),
         Arg::Func(f) => f.into(),
         Arg::Native(f) => function("", f, false, ctx).into(),
         Arg::Curried(arity, f) => {
