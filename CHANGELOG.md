@@ -13,6 +13,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.23.0-beta.1] — 2026-10-04
+
+A beta: the changes below have not been through a mutation-testing run yet,
+and part of the script prelude is still JavaScript.
+
 ### Added
 
 - **Vim, Emacs, VS Code and Helix keymaps,** as Strudel's `keybindings`
@@ -154,6 +159,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - **`d1`-`d9` and `p1`-`p9` are properties, as in Strudel:** write
   `note("c").d1`, not `note("c").d1()`. `q1`-`q9` are `silence`. The call form
   now fails with "not a callable function".
+
+- **The draw canvas is about 50 times faster.** A tune drawing 200 arcs a
+  frame through `.draw` took 137 ms a frame, so animations crawled; it now
+  takes 2.5 ms. Paths, transforms and what is drawn are kept natively rather
+  than built point by point in script, and a script reads queried haps about
+  15% faster. The numbered slots, the alignment getters (`pat.add.out`) and the
+  `_name` twins are native too; they behave as before.
 
 ## [0.22.2] — 2026-10-03
 
