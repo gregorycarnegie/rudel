@@ -556,8 +556,20 @@ upstream:
   Windows), asking for 720p at 30 fps; MJPEG, YUYV and raw RGB frames are read.
   Each camera runs on a thread of its own and stops, releasing the device, a
   few seconds after nothing shows it. Upstream's `params` argument (texture
-  options) is ignored. `initVideo`/`initScreen`/`initStream` are accepted and
-  read as empty: rudel has no video file or screen capture.
+  options) is ignored.
+- `initVideo(url)` plays a video file, looping and muted like upstream's
+  `<video>` element, from the same places `initImage` reads. MP4 with H.264
+  only (the `mp4` crate demuxes, Cisco's OpenH264 decodes, built from source):
+  about 80% of the shared patterns' videos. WebM (VP8/VP9) is not read; that
+  needs libvpx. The file is held in memory.
+- `initScreen()` captures the primary monitor (xcap) about 15 times a second,
+  scaled to at most 1280 wide. Upstream lets the browser ask which screen or
+  window; there is no picker here. Not on Linux, where xcap needs PipeWire,
+  GBM and DRM development libraries to build.
+- `initStream` (another hydra user's stream) is accepted and reads as empty.
+- Every live source runs on a thread of its own and stops, releasing the
+  camera or file, a few seconds after nothing shows it
+  (`widgets/hydra_live.rs`).
 - `initHydra({feedStrudel: 1})` feeds Strudel's own canvas into `s0`. Upstream
   that is the full-screen canvas the public-spelled visuals draw on
   (`.scope()`, `.pianoroll()`, `.spiral()`, … but not `._scope()`, which is

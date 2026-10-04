@@ -54,10 +54,10 @@
   // and outputs (`osc`, `src`, `o0`, `render`, …) in global scope, over
   // Strudel's own `osc`, `noise` and `shape`, as upstream. Until then they
   // are on `Hydra`.
-  // hydra's external sources `s0`..`s3`, indices 4..7 past the four outputs.
-  // An image loads (`initImage`) and a webcam streams (`initCam(n)`, the nth
-  // camera, recorded as `camera:n`); there is no video or screen capture, so
-  // those `init*` do nothing and the source reads as empty.
+  // hydra's external sources `s0`..`s3`, indices 4..7 past the four outputs:
+  // a picture (`initImage`), a webcam (`initCam(n)`, recorded as `camera:n`),
+  // a video file (`initVideo`, as `video:url`) or the screen (`initScreen`, as
+  // `screen:`). `initStream` (a peer's stream) has no counterpart here.
   const sourceIndex = (s) => (s !== null && typeof s === 'object' && 'index' in s ? s.index : s);
   const hydraSrc = Hydra.src;
   Hydra.src = (s, ...rest) => hydraSrc(sourceIndex(s), ...rest);
@@ -65,12 +65,20 @@
     const none = function () {
       return this;
     };
-    Hydra[`s${i}`] = { index: 4 + i, init: none, initVideo: none,
+    Hydra[`s${i}`] = { index: 4 + i, init: none,
+      initVideo(url = '') {
+        Hydra._image(i, url, 'video');
+        return this;
+      },
       initCam(index = 0) {
         Hydra._image(i, 'camera:' + (Math.floor(Number(index)) || 0));
         return this;
       },
-      initScreen: none, initStream: none, clear: none,
+      initScreen() {
+        Hydra._image(i, '', 'screen');
+        return this;
+      },
+      initStream: none, clear: none,
       initImage(url = '') {
         Hydra._image(i, url);
         return this;

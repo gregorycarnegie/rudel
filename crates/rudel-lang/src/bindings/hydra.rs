@@ -215,6 +215,12 @@ pub(crate) fn register(prelude: &Scope) {
             Some(Arg::Pat(pattern)) => pattern.source.as_deref().cloned(),
             _ => None,
         };
+        // A third argument names what kind of source it is (`video`), as a
+        // prefix the app reads; a picture has none.
+        let url = match (url, a.get(2)) {
+            (Some(url), Some(Arg::Str(kind))) => Some(format!("{kind}:{url}")),
+            (url, _) => url,
+        };
         if let (Some(index), Some(url)) = (output_index(a.first()), url) {
             SCENE.with(|s| s.borrow_mut().images[index] = Some(url));
         }
@@ -466,6 +472,24 @@ src(s2).out()",
         assert_eq!(
             scene.options.get("s0"),
             Some(&WidgetOption::String("camera:0".into()))
+        );
+    }
+
+    #[test]
+    fn init_video_and_init_screen_name_their_sources() {
+        let scene = scene_of(
+            "await initHydra()
+s1.initVideo(\"https://e.org/v.mp4\")
+s3.initScreen()
+src(s1).out()",
+        );
+        assert_eq!(
+            scene.options.get("s1"),
+            Some(&WidgetOption::String("video:https://e.org/v.mp4".into()))
+        );
+        assert_eq!(
+            scene.options.get("s3"),
+            Some(&WidgetOption::String("screen:".into()))
         );
     }
 

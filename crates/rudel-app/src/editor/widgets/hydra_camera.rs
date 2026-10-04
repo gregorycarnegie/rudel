@@ -1,10 +1,6 @@
-//! hydra's `s0.initCam(index)`: a webcam as a live source.
-//!
-//! Each camera in use runs on a thread of its own, keeping the latest decoded
-//! frame for the painter. A camera nothing has read for a few seconds (its
-//! script was replaced) stops, which releases the device.
+//! hydra's `s0.initCam(index)`: a webcam as a live source (`hydra_live`).
 
-use super::hydra_images::Picture;
+use super::{hydra_images::Picture, hydra_live};
 use eframe::egui;
 use nokhwa::{
     Camera,
@@ -13,59 +9,16 @@ use nokhwa::{
         CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution,
     },
 };
-use std::{
-    collections::HashMap,
-    sync::{Arc, LazyLock, Mutex},
-    time::{Duration, Instant},
-};
-
-/// How long a camera keeps running unread.
-const IDLE: Duration = Duration::from_secs(3);
-/// How long a camera that failed to open waits before it is tried again.
-const RETRY: Duration = Duration::from_secs(5);
-
-struct Feed {
-    latest: Option<Arc<Picture>>,
-    read: Instant,
-    /// When it failed, if it did; the entry stays so the error logs once.
-    failed: Option<Instant>,
-}
-
-static CAMERAS: LazyLock<Mutex<HashMap<u32, Arc<Mutex<Feed>>>>> = LazyLock::new(Default::default);
+use std::sync::Arc;
 
 /// The latest frame of camera `index`, starting it on first use.
 pub(super) fn frame(ctx: &egui::Context, index: u32) -> Option<Arc<Picture>> {
-    let mut cameras = CAMERAS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(feed) = cameras.get(&index) {
-        let mut feed = feed.lock().unwrap_or_else(|e| e.into_inner());
-        if feed.failed.is_none_or(|at| at.elapsed() < RETRY) {
-            feed.read = Instant::now();
-            return feed.latest.clone();
-        }
-    }
-    let feed = Arc::new(Mutex::new(Feed {
-        latest: None,
-        read: Instant::now(),
-        failed: None,
-    }));
-    cameras.insert(index, feed.clone());
-    let ctx = ctx.clone();
-    std::thread::spawn(move || {
-        if let Err(e) = capture(&ctx, index, &feed) {
-            rudel_core::log_line(format!("hydra: initCam({index}): {e}"));
-            feed.lock().unwrap_or_else(|e| e.into_inner()).failed = Some(Instant::now());
-            return;
-        }
-        // Stopped for want of readers: let the next read start it afresh.
-        let mut cameras = CAMERAS.lock().unwrap_or_else(|e| e.into_inner());
-        if cameras.get(&index).is_some_and(|f| Arc::ptr_eq(f, &feed)) {
-            cameras.remove(&index);
-        }
-    });
-    None
+    hydra_live::latest(ctx, &format!("initCam({index})"), move |sink| {
+        capture(sink, index)
+    })
 }
 
-fn capture(ctx: &egui::Context, index: u32, feed: &Mutex<Feed>) -> Result<(), String> {
+fn capture(sink: &hydra_live::Sink, index: u32) -> Result<(), String> {
     // 720p at 30 fps where the camera offers it: what a background needs,
     // where asking for the highest rate can pick 1080p at 1 fps.
     let wanted = CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30);
@@ -75,23 +28,15 @@ fn capture(ctx: &egui::Context, index: u32, feed: &Mutex<Feed>) -> Result<(), St
     )
     .map_err(|e| e.to_string())?;
     camera.open_stream().map_err(|e| e.to_string())?;
-    while feed
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .read
-        .elapsed()
-        < IDLE
-    {
+    while sink.wanted() {
         let buffer = camera.frame().map_err(|e| e.to_string())?;
         let resolution = buffer.resolution();
-        let picture = decode(
+        sink.publish(decode(
             buffer.source_frame_format(),
             resolution.width(),
             resolution.height(),
             buffer.buffer(),
-        )?;
-        feed.lock().unwrap_or_else(|e| e.into_inner()).latest = Some(Arc::new(picture));
-        ctx.request_repaint();
+        )?);
     }
     Ok(())
 }

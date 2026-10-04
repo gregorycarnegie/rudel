@@ -890,7 +890,7 @@ pub(super) fn paint_hydra_gpu(
     render.hash(&mut hasher);
     for (i, picture) in pictures.iter().enumerate() {
         let url = super::options::option_str(&widget.options, &format!("s{i}"));
-        if url.and_then(super::hydra_images::camera_index).is_some() {
+        if url.is_some_and(super::hydra_images::is_live) {
             // A camera's frames come and go; only its size needs a new surface.
             picture
                 .as_ref()

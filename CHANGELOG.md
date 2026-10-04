@@ -28,8 +28,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
   inline widget, so `src(s0).kaleid(4)` folds the scope into a kaleidoscope.
   84 of the shared strudel.cc patterns use it.
 - **`s0.initCam()` streams a webcam into hydra,** as upstream: `initCam(1)`
-  picks the second camera. Video files and screen capture still read as
-  empty.
+  picks the second camera.
+- **`s0.initVideo(url)` plays a video into hydra,** looping and muted as
+  upstream: MP4 with H.264 (most shared patterns' videos), from http(s) or
+  this computer. WebM is not read.
+- **`s0.initScreen()` captures the primary monitor into hydra,** about 15
+  times a second. Not on Linux.
 - **`s0.initImage(url)` loads a picture into a hydra source,** PNG or JPEG,
   over http(s) (cached on disk like samples) or from this computer (a path,
   `~/…`, `file:///…`, or relative to the open file's folder), so `src(s0)`

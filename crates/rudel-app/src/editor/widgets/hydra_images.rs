@@ -92,9 +92,15 @@ const MAX_SIDE: u32 = 4096;
 /// The picture at `url`, once it has loaded. The first call starts the load
 /// and repaints when it lands; a failure is logged to the console once.
 pub(super) fn picture(ctx: &egui::Context, url: &str) -> Option<Arc<Picture>> {
-    // `s0.initCam(n)`: a new picture every frame the camera sends.
+    // The live sources: a new picture every frame.
     if let Some(index) = camera_index(url) {
         return super::hydra_camera::frame(ctx, index);
+    }
+    if let Some(video) = url.strip_prefix("video:") {
+        return super::hydra_video::frame(ctx, &resolve(video));
+    }
+    if url.starts_with("screen:") {
+        return super::hydra_screen::frame(ctx);
     }
     let url = &resolve(url);
     let mut pictures = PICTURES.lock().unwrap_or_else(|e| e.into_inner());
@@ -120,6 +126,14 @@ pub(super) fn picture(ctx: &egui::Context, url: &str) -> Option<Arc<Picture>> {
         ctx.request_repaint();
     });
     None
+}
+
+/// Whether a source keeps changing (a camera, video or the screen), so its
+/// frames are written into its texture rather than rebuilding the surface.
+pub(super) fn is_live(url: &str) -> bool {
+    ["camera:", "video:", "screen:"]
+        .iter()
+        .any(|kind| url.starts_with(kind))
 }
 
 /// The webcam a `camera:N` source names (what `initCam(N)` records).
