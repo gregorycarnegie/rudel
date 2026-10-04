@@ -415,7 +415,7 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<Sample, String> {
 /// Fetch a binary file (http(s) URL or local path), caching HTTP responses on
 /// disk. Used for sample files and for `.sf2` SoundFonts, which are large
 /// enough to be worth fetching once per machine.
-pub(crate) fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
+pub fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
     if !is_http(url) {
         let path = expand_home(url);
         return std::fs::read(&path).map_err(|e| format!("read {path}: {e}"));

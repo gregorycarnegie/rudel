@@ -21,7 +21,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   it in its own window, fullscreen on a double-click. hydra's array methods
   (`[1, 2].fast(2)`), `s0`-`s3`, `a` and `width`/`height` exist, so 331 of the
   390 shared strudel.cc patterns that failed on hydra now evaluate (7,422 of
-  8,004 overall). The external sources (camera, image, video) read as empty.
+  8,004 overall).
+- **`s0.initImage(url)` loads a picture into a hydra source,** PNG or JPEG,
+  over http(s) (cached on disk like samples) or from a local path, so
+  `src(s0)` shows it. Camera, video and screen sources still read as empty.
 - **Hydra arguments change every frame, as upstream:** `H(pattern)` follows
   the pattern (`shape(H("3 4 5"))` changes shape with the notes), arrays step
   through their values with hydra's `.fast`/`.smooth`/`.ease`/`.offset`, and

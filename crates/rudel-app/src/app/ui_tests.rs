@@ -723,6 +723,30 @@ fn a_hydra_argument_set_per_frame_reaches_the_shader() {
 }
 
 #[test]
+fn a_picture_loaded_into_a_source_shows_through_src() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = dir.path().join("red.png");
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255]))
+        .save(&path)
+        .expect("writes the png");
+    let url = path.to_string_lossy().replace('\\', "/");
+    let mut harness = gpu_app(&format!(
+        "Hydra.s0.initImage('{url}')\ns(\"bd\").hydra({{ chain: Hydra.src(Hydra.s0) }})"
+    ));
+    // The picture decodes on a thread; it binds on the frame after it lands.
+    let mut red = 0;
+    for _ in 0..50 {
+        harness.run_steps(1);
+        red = count(harness.render().expect("renders").as_raw(), RED);
+        if red > SURFACE * 9 / 10 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(red > SURFACE * 9 / 10, "{red}");
+}
+
+#[test]
 fn a_hydra_scene_draws_behind_the_code() {
     let mut harness = gpu_app(
         "await initHydra()

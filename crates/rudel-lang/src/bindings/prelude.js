@@ -54,9 +54,9 @@
   // and outputs (`osc`, `src`, `o0`, `render`, …) in global scope, over
   // Strudel's own `osc`, `noise` and `shape`, as upstream. Until then they
   // are on `Hydra`.
-  // hydra's external sources `s0`..`s3` take a camera, image or video. There
-  // is none here, so `init*` does nothing and `src(s0)` reads as empty: an
-  // index past the four outputs.
+  // hydra's external sources `s0`..`s3`, indices 4..7 past the four outputs.
+  // An image loads (`initImage`); there is no camera, video or screen
+  // capture, so those `init*` do nothing and the source reads as empty.
   const sourceIndex = (s) => (s !== null && typeof s === 'object' && 'index' in s ? s.index : s);
   const hydraSrc = Hydra.src;
   Hydra.src = (s, ...rest) => hydraSrc(sourceIndex(s), ...rest);
@@ -64,8 +64,13 @@
     const none = function () {
       return this;
     };
-    Hydra[`s${i}`] = { index: 4 + i, init: none, initCam: none, initImage: none,
-      initVideo: none, initScreen: none, initStream: none, clear: none };
+    Hydra[`s${i}`] = { index: 4 + i, init: none, initCam: none, initVideo: none,
+      initScreen: none, initStream: none, clear: none,
+      initImage(url = '') {
+        Hydra._image(i, url);
+        return this;
+      },
+    };
   }
   const EASINGS = ['linear', 'easeInQuad', 'easeOutQuad', 'easeInOutQuad', 'easeInCubic',
     'easeOutCubic', 'easeInOutCubic', 'easeInQuart', 'easeOutQuart', 'easeInOutQuart',

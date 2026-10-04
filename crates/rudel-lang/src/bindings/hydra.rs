@@ -32,6 +32,8 @@ struct Scene {
     /// `None` until `render` is called, which shows `o0`; `Some(None)` is
     /// `render()`, all four.
     render: Option<Option<usize>>,
+    /// The image each external source `s0`..`s3` was given (`initImage`).
+    images: [Option<String>; 4],
 }
 
 thread_local! {
@@ -48,7 +50,21 @@ pub(crate) fn reset_scene() {
 
 /// This evaluation's hydra outputs as a `_hydra` widget config, if it sent a
 /// chain to any. Its options are the ones the inline `_hydra` widget takes.
+/// The pictures loaded into `s0`..`s3`, as `_hydra` widget options: the
+/// sources are global upstream, so every hydra surface gets them.
+pub(crate) fn scene_images() -> Vec<(String, WidgetOption)> {
+    SCENE.with(|s| {
+        s.borrow()
+            .images
+            .iter()
+            .enumerate()
+            .filter_map(|(i, url)| Some((format!("s{i}"), WidgetOption::String(url.clone()?))))
+            .collect()
+    })
+}
+
 pub(crate) fn take_scene() -> Option<WidgetConfig> {
+    let images = scene_images();
     let scene = SCENE.with(|s| std::mem::take(&mut *s.borrow_mut()));
     if scene.outputs.iter().all(Option::is_none) {
         return None;
@@ -71,7 +87,7 @@ pub(crate) fn take_scene() -> Option<WidgetConfig> {
     Some(WidgetConfig {
         widget_type: "_hydra".to_string(),
         id: "hydra-background".to_string(),
-        options,
+        options: options.into_iter().chain(images).collect(),
         ..WidgetConfig::default()
     })
 }
@@ -178,6 +194,20 @@ pub(crate) fn register(prelude: &Scope) {
         _ => Err("hydra: out is not called on a chain".to_string()),
     });
     let namespace = prelude.namespace("Hydra");
+    // `s0.initImage(url)` (`prelude.js`): load an image into a source.
+    namespace.func("_image", |a| {
+        // A double-quoted URL arrives as a mini-notation literal; its text is
+        // the URL.
+        let url = match a.get(1) {
+            Some(Arg::Str(url)) => Some(url.clone()),
+            Some(Arg::Pat(pattern)) => pattern.source.as_deref().cloned(),
+            _ => None,
+        };
+        if let (Some(index), Some(url)) = (output_index(a.first()), url) {
+            SCENE.with(|s| s.borrow_mut().images[index] = Some(url));
+        }
+        Ok(Arg::Null)
+    });
     // The loudness hydra's `a` reads each frame (`prelude.js`).
     namespace.func("_loudness", |_| {
         let (frame, specific) = hydra::loudness();
@@ -358,6 +388,23 @@ n(a.fft.length)";
         hydra::set_loudness(&[10.0; 24]);
         let next = params[2].value(0.0, 0.0).expect("a number");
         assert!(next > fft0, "{next}");
+    }
+
+    #[test]
+    fn init_image_names_the_picture_a_source_shows() {
+        for quote in ['"', '\''] {
+            let src = format!(
+                "await initHydra()
+s1.initImage({quote}https://e.org/a.jpg{quote})
+src(s1).out()"
+            );
+            let scene = scene(&src).expect("a scene");
+            assert_eq!(
+                scene.options.get("s1"),
+                Some(&WidgetOption::String("https://e.org/a.jpg".into())),
+                "{quote}"
+            );
+        }
     }
 
     #[test]

@@ -324,6 +324,10 @@ fn evaluate(
             widget.options.extend(evaluated);
         }
     }
+    let images = bindings::hydra::scene_images();
+    for widget in meta.widgets.iter_mut().filter(|w| w.widget_type == "_hydra") {
+        widget.options.extend(images.iter().cloned());
+    }
     meta.hydra = bindings::hydra::take_scene();
     meta.hydra_params = bindings::hydra::take_params();
     let effects = std::mem::take(&mut *effects.lock().unwrap());

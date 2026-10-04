@@ -17,13 +17,14 @@
 //! script actually gave a chain are allocated; the rest bind a shared 1x1
 //! texture, which reads as the empty buffer it is.
 
-use super::style::WidgetDrawColors;
+use super::{hydra_images::Picture, style::WidgetDrawColors};
 use crate::editor::decorations::WidgetDecoration;
 use eframe::{egui, egui_wgpu, wgpu};
 use rudel_core::Hap;
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash as _, Hasher as _},
+    sync::Arc,
     time::Instant,
 };
 
@@ -266,6 +267,10 @@ impl HydraStore {
                         texture_entry(3, wgpu::ShaderStages::FRAGMENT),
                         texture_entry(4, wgpu::ShaderStages::FRAGMENT),
                         sampler_entry(5, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(6, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(7, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(8, wgpu::ShaderStages::FRAGMENT),
+                        texture_entry(9, wgpu::ShaderStages::FRAGMENT),
                     ],
                 })
             })
@@ -396,7 +401,53 @@ fn render_pipeline(
     })
 }
 
-fn build_surface(store: &mut HydraStore, device: &wgpu::Device, call: &HydraCallback) -> Surface {
+/// A loaded picture as a texture for an external source. In the outputs'
+/// colour space, so `src(s0)` and `src(o0)` read alike.
+fn picture_view(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    format: wgpu::TextureFormat,
+    picture: &Picture,
+) -> wgpu::TextureView {
+    let format = if format.is_srgb() {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    };
+    let size = wgpu::Extent3d {
+        width: picture.width,
+        height: picture.height,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("rudel-hydra-picture"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        texture.as_image_copy(),
+        &picture.rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * picture.width),
+            rows_per_image: Some(picture.height),
+        },
+        size,
+    );
+    texture.create_view(&Default::default())
+}
+
+fn build_surface(
+    store: &mut HydraStore,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    call: &HydraCallback,
+) -> Surface {
     let format = store.format;
     let layout = store.chain_layout(device);
     let sampler = store.sampler(device);
@@ -461,6 +512,12 @@ fn build_surface(store: &mut HydraStore, device: &wgpu::Device, call: &HydraCall
         })
     });
 
+    let pictures: [Option<wgpu::TextureView>; 4] = std::array::from_fn(|i| {
+        let picture = call.pictures[i].as_deref()?;
+        Some(picture_view(device, queue, format, picture))
+    });
+    let picture = |i: usize| pictures[i].as_ref().unwrap_or(&empty);
+
     // While writing parity `w`, every buffer read comes from `1 - w`: the set
     // the previous frame wrote. One bind group serves all four chains.
     let chain_bind = std::array::from_fn(|parity| {
@@ -497,6 +554,22 @@ fn build_surface(store: &mut HydraStore, device: &wgpu::Device, call: &HydraCall
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(picture(0)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(picture(1)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(picture(2)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::TextureView(picture(3)),
                 },
             ],
         })
@@ -557,6 +630,8 @@ fn build_surface(store: &mut HydraStore, device: &wgpu::Device, call: &HydraCall
 struct HydraCallback {
     id: String,
     sources: [Option<String>; 4],
+    /// The pictures loaded into `s0`..`s3`, as far as they have arrived.
+    pictures: [Option<Arc<Picture>>; 4],
     render: Render,
     hash: u64,
     size: (u32, u32),
@@ -580,7 +655,7 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
             .get(&self.id)
             .is_none_or(|s| s.hash != self.hash || s.size != self.size);
         if stale {
-            let surface = build_surface(store, device, self);
+            let surface = build_surface(store, device, queue, self);
             store.surfaces.insert(self.id.clone(), surface);
             super::evict_idle(&mut store.surfaces, &self.id, |s| s.used);
         }
@@ -713,9 +788,18 @@ pub(super) fn paint_hydra_gpu(
         return;
     }
 
+    // A picture that has just arrived rebuilds the surface once, to bind it.
+    let pictures: [Option<Arc<Picture>>; 4] = std::array::from_fn(|i| {
+        let url = super::options::option_str(&widget.options, &format!("s{i}"))?;
+        super::hydra_images::picture(ui.ctx(), url)
+    });
+
     let mut hasher = DefaultHasher::new();
     sources.hash(&mut hasher);
     render.hash(&mut hasher);
+    for picture in &pictures {
+        picture.as_ref().map(Arc::as_ptr).hash(&mut hasher);
+    }
     let hash = hasher.finish();
 
     let pixels_per_point = ui.ctx().pixels_per_point();
@@ -737,6 +821,7 @@ pub(super) fn paint_hydra_gpu(
         HydraCallback {
             id: super::gpu_key(ui, &widget.id),
             sources,
+            pictures,
             render,
             hash,
             size,

@@ -546,8 +546,13 @@ own, which a double-click makes fullscreen. `clearHydra()` is a no-op.
 hydra's other globals exist so tunes that use them evaluate, but do less than
 upstream:
 
-- `s0`–`s3`, the external sources, accept `initCam`/`initImage`/`initVideo`/
-  `initScreen` and read as empty: rudel has no camera, image or video input.
+- `s0`–`s3`, the external sources: `initImage(url)` loads a PNG or JPEG (from
+  http(s) through the sample cache, or a local path) off the UI thread, and
+  `src(s0)` shows it once it lands, in the scene and in inline `_hydra`
+  widgets alike. `initCam`/`initVideo`/`initScreen`/`initStream` are accepted
+  and read as empty: rudel has no camera, video or screen capture. Nor does it
+  have `initHydra({feedStrudel: 1})`, which upstream pipes Strudel's own draw
+  canvas into `s0` (84 shared patterns ask for it).
 - Arguments that change per frame work as upstream: an array steps through
   its values by hydra-synth's own rule (`time × speed × bpm/60 + offset`, bpm
   30, with `.smooth()` and the named `.ease()`s), `H(pattern)` reads the

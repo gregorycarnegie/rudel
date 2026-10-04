@@ -410,6 +410,11 @@ struct HydraUniforms {
 @group(0) @binding(3) var hBuf2: texture_2d<f32>;
 @group(0) @binding(4) var hBuf3: texture_2d<f32>;
 @group(0) @binding(5) var hSamp: sampler;
+// The external sources `s0`..`s3`: an image, or empty.
+@group(0) @binding(6) var hSrc0: texture_2d<f32>;
+@group(0) @binding(7) var hSrc1: texture_2d<f32>;
+@group(0) @binding(8) var hSrc2: texture_2d<f32>;
+@group(0) @binding(9) var hSrc3: texture_2d<f32>;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,

@@ -3,6 +3,7 @@ mod claviature;
 mod geometry;
 mod host;
 mod hydra_gpu;
+mod hydra_images;
 mod options;
 mod paint;
 mod pianoroll;

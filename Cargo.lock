@@ -2159,6 +2159,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3841,6 +3843,7 @@ version = "0.22.2"
 dependencies = [
  "eframe",
  "egui_kittest",
+ "image",
  "naga",
  "rfd",
  "rudel-audio",
