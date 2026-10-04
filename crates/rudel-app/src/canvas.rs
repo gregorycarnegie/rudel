@@ -9,7 +9,7 @@
 
 use ab_glyph::{Font as _, FontArc, ScaleFont as _};
 use eframe::egui;
-use rudel_lang::canvas::CanvasOp;
+use rudel_lang::canvas::{CanvasEvent, CanvasOp};
 use tiny_skia::{
     BlendMode, Color, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform,
 };
@@ -21,6 +21,9 @@ pub(crate) struct Canvas {
     /// The last colour that parsed, which a bad one leaves standing, as a
     /// browser ignores an invalid `fillStyle`.
     last_color: Color,
+    /// The modifiers held last frame: egui reports Ctrl/Shift/Alt pressed on
+    /// their own as a change of state, not as key events.
+    modifiers: egui::Modifiers,
 }
 
 impl Default for Canvas {
@@ -31,6 +34,7 @@ impl Default for Canvas {
             font: FontArc::try_from_slice(epaint_default_fonts::UBUNTU_LIGHT)
                 .expect("egui's default font parses"),
             last_color: Color::BLACK,
+            modifiers: egui::Modifiers::NONE,
         }
     }
 }
@@ -39,6 +43,93 @@ impl Canvas {
     /// The canvas as a texture, once something has drawn on it.
     pub(crate) fn texture(&self) -> Option<egui::TextureId> {
         self.texture.as_ref().map(egui::TextureHandle::id)
+    }
+
+    /// This frame's mouse and key input over `rect` (the editor's visible
+    /// area), as the DOM events a script's `document` handlers expect, in
+    /// canvas pixels.
+    pub(crate) fn events(&mut self, ctx: &egui::Context, rect: egui::Rect) -> Vec<CanvasEvent> {
+        ctx.input(|i| {
+            let mods = i.modifiers;
+            let base = |kind: &'static str, m: egui::Modifiers| CanvasEvent {
+                kind,
+                ctrl: m.ctrl,
+                shift: m.shift,
+                alt: m.alt,
+                meta: m.mac_cmd,
+                ..CanvasEvent::default()
+            };
+            let mut events = Vec::new();
+            for event in &i.events {
+                match event {
+                    egui::Event::PointerMoved(pos) if rect.contains(*pos) => {
+                        let at = *pos - rect.min;
+                        events.push(CanvasEvent {
+                            x: at.x,
+                            y: at.y,
+                            ..base("mousemove", mods)
+                        });
+                    }
+                    egui::Event::PointerButton {
+                        pos,
+                        button,
+                        pressed,
+                        modifiers,
+                    } if rect.contains(*pos) => {
+                        let at = *pos - rect.min;
+                        let button = match button {
+                            egui::PointerButton::Secondary => 2,
+                            egui::PointerButton::Middle => 1,
+                            _ => 0,
+                        };
+                        let kinds: &[&'static str] = if *pressed {
+                            &["mousedown"]
+                        } else {
+                            &["mouseup", "click"]
+                        };
+                        for kind in kinds {
+                            events.push(CanvasEvent {
+                                x: at.x,
+                                y: at.y,
+                                button,
+                                ..base(kind, *modifiers)
+                            });
+                        }
+                    }
+                    egui::Event::Key {
+                        key,
+                        pressed,
+                        modifiers,
+                        ..
+                    } => {
+                        let (name, code) = key_names(*key, modifiers.shift);
+                        let kind = if *pressed { "keydown" } else { "keyup" };
+                        events.push(CanvasEvent {
+                            key: name,
+                            code,
+                            ..base(kind, *modifiers)
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            for (was, is, key) in [
+                (self.modifiers.ctrl, mods.ctrl, "Control"),
+                (self.modifiers.shift, mods.shift, "Shift"),
+                (self.modifiers.alt, mods.alt, "Alt"),
+            ] {
+                if was != is {
+                    let kind = if is { "keydown" } else { "keyup" };
+                    events.push(CanvasEvent {
+                        key: key.into(),
+                        code: format!("{key}Left"),
+                        ..base(kind, mods)
+                    });
+                }
+            }
+            self.modifiers = mods;
+            events
+        })
     }
 
     /// Forget everything drawn (a new evaluation).
@@ -174,6 +265,30 @@ impl Canvas {
                 );
             }
         }
+    }
+}
+
+/// `KeyboardEvent.key` and `.code` for an egui key: a letter is lower case
+/// unless Shift is held, a digit is itself, Space is `" "`.
+fn key_names(key: egui::Key, shift: bool) -> (String, String) {
+    let name = key.name();
+    let mut chars = name.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_alphabetic() => {
+            let key = if shift {
+                c.to_ascii_uppercase()
+            } else {
+                c.to_ascii_lowercase()
+            };
+            (key.to_string(), format!("Key{}", c.to_ascii_uppercase()))
+        }
+        (Some(c), None) if c.is_ascii_digit() => (c.to_string(), format!("Digit{c}")),
+        _ if name == "Space" => (" ".into(), "Space".into()),
+        // egui's "Left" is the DOM's "ArrowLeft".
+        _ if matches!(name, "Left" | "Right" | "Up" | "Down") => {
+            (format!("Arrow{name}"), format!("Arrow{name}"))
+        }
+        _ => (name.to_string(), name.to_string()),
     }
 }
 
@@ -397,6 +512,21 @@ mod tests {
         assert_eq!(pixel(&canvas, 2), [255, 0, 0, 255]);
         canvas.draw(&ctx, &[CanvasOp::Clear { polygon: square }], 8, 8);
         assert_eq!(pixel(&canvas, 2), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn keys_are_named_as_the_dom_names_them() {
+        assert_eq!(key_names(egui::Key::A, false), ("a".into(), "KeyA".into()));
+        assert_eq!(key_names(egui::Key::A, true), ("A".into(), "KeyA".into()));
+        assert_eq!(
+            key_names(egui::Key::Num3, false),
+            ("3".into(), "Digit3".into())
+        );
+        assert_eq!(
+            key_names(egui::Key::Space, false),
+            (" ".into(), "Space".into())
+        );
+        assert_eq!(key_names(egui::Key::ArrowLeft, false).0, "ArrowLeft");
     }
 
     #[test]

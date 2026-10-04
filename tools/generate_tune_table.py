@@ -2,7 +2,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "strudel" / "packages" / "xen" / "tunejs.js"
 OUT = ROOT / "crates" / "rudel-core" / "src" / "tune_table.rs"
@@ -10,9 +9,9 @@ OUT = ROOT / "crates" / "rudel-core" / "src" / "tune_table.rs"
 
 def main() -> None:
     text = SRC.read_text(encoding="utf-8")
-    match = re.search(r"var TuningList = (\{.*\})\s*$", text, re.S)
+    match = re.search(r"var TuningList = (\{.*\})\s*$", text, re.DOTALL)
     if not match:
-        match = re.search(r"var TuningList = (\{.*?\});\s*(?:\n|$)", text, re.S)
+        match = re.search(r"var TuningList = (\{.*?\});\s*(?:\n|$)", text, re.DOTALL)
     if not match:
         raise SystemExit("TuningList not found")
 

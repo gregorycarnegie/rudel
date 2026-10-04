@@ -169,7 +169,7 @@ fn surface_size_follows_widget_size_width_and_height_options() {
 
 #[test]
 fn widget_draw_colors_follow_strudel_draw_theme_defaults() {
-    let colors = widget_draw_colors(EditorTheme::StrudelDark.draw_theme());
+    let colors = widget_draw_colors(EditorTheme::default().draw_theme());
     assert_eq!(colors.foreground, egui::Color32::WHITE);
     assert_eq!(
         colors.muted,

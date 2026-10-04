@@ -90,6 +90,22 @@ impl TriggerHooks {
     }
 }
 
+/// Editor settings a pattern changed as it played (`theme`, `fontFamily`,
+/// `fontSize`; website/src/settings.mjs), for the app to apply.
+static SETTINGS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub(crate) fn push_setting(key: String, value: String) {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((key, value));
+}
+
+/// The settings changed since the last call, oldest first.
+pub fn take_settings() -> Vec<(String, String)> {
+    std::mem::take(&mut *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 /// The hook id a hap carries, if it is `onTriggerTime`-tagged.
 pub fn trigger_id(value: &Value) -> Option<i64> {
     match value {
@@ -101,6 +117,27 @@ pub fn trigger_id(value: &Value) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use rudel_core::Frac;
+
+    #[test]
+    fn a_theme_pattern_reports_each_theme_as_it_plays() {
+        // website/src/settings.mjs's `patternSetting`, as shared tunes use it.
+        let result = crate::eval_result(r#"s("bd").theme("<githubDark nord>")"#).expect("eval");
+        let mut hooks = result.trigger_hooks;
+        let _ = super::take_settings();
+        for cycle in 0..2 {
+            let hap = result
+                .pattern
+                .query_arc(Frac::from(cycle), Frac::from(cycle + 1))
+                .remove(0);
+            assert_eq!(hooks.fire(&hap), None);
+        }
+        let themes: Vec<String> = super::take_settings()
+            .into_iter()
+            .filter(|(key, _)| key == "theme")
+            .map(|(_, value)| value)
+            .collect();
+        assert_eq!(themes, ["githubDark", "nord"]);
+    }
 
     #[test]
     fn the_hooks_keep_the_engine_alive_and_dropping_them_releases_it() {

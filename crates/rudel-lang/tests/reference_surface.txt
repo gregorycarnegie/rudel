@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1123 methods=1175 controls=675
+# functions=1131 methods=1179 controls=675
 
 [functions]
 AggregateError
@@ -67,6 +67,7 @@ WeakSet
 accelerate
 activeLabel
 add
+addEventListener
 addVoicings
 aliasBank
 all
@@ -242,6 +243,7 @@ disttype
 distvol
 div
 djf
+document
 dough
 drive
 drop
@@ -597,6 +599,8 @@ focusSpan
 focus_span
 focusspan
 fold
+fontFamily
+fontSize
 frameRate
 frames
 freeze
@@ -883,11 +887,13 @@ rarely
 ratio
 rdim
 real
+ref
 register
 registerSoundfonts
 reify
 rel
 release
+removeEventListener
 repeatCycles
 repeat_cycles
 replicate
@@ -928,6 +934,7 @@ scale_transpose
 scan
 scram
 scramble
+scrub
 seconds
 seed
 seg
@@ -1019,6 +1026,7 @@ sysexid
 sz
 tables
 take
+theme
 time
 timeCat
 timecat
@@ -1699,6 +1707,8 @@ focusSpan
 focus_span
 focusspan
 fold
+fontFamily
+fontSize
 frameRate
 frames
 freeze
@@ -1910,6 +1920,7 @@ off
 offset
 often
 onPaint
+onTrigger
 onTriggerTime
 on_trigger_time
 or
@@ -2194,6 +2205,7 @@ sysexid
 sz
 tag
 take
+theme
 timeline
 toBipolar
 to_bipolar

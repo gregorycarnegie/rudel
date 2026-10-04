@@ -1,4 +1,4 @@
-use crate::canvas::{CanvasDriver, CanvasOp};
+use crate::canvas::{CanvasDriver, CanvasEvent, CanvasOp};
 
 /// The canvas driver, and the pattern that keeps its script alive.
 fn driver(src: &str) -> (CanvasDriver, rudel_core::Pattern) {
@@ -28,7 +28,7 @@ fn draw_hands_its_function_the_haps_and_the_time() {
          ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);\n  ctx.font = '160px sans';\n  \
          ctx.fillStyle = 'tomato'\n  ctx.fillText(t.toFixed(2) + ', ' + haps.length, 430, ctx.canvas.height-50);\n},{})",
     );
-    let ops = d.frame(0.5, 0.0, 800, 600).expect("a frame");
+    let ops = d.frame(0.5, 0.0, 800, 600, &[]).expect("a frame");
     assert_eq!(
         ops[0],
         CanvasOp::Clear {
@@ -63,7 +63,7 @@ fn animation_frames_run_once_each_and_paths_are_transformed() {
          ctx.fillStyle = '#00ff00'; ctx.fillRect(0, 0, n, n)\n  requestAnimationFrame(render)\n}\n\
          requestAnimationFrame(render)\ns(\"bd\")",
     );
-    let first = d.frame(0.0, 16.0, 100, 100).expect("a frame");
+    let first = d.frame(0.0, 16.0, 100, 100, &[]).expect("a frame");
     assert_eq!(
         first[0],
         CanvasOp::Stroke {
@@ -76,7 +76,7 @@ fn animation_frames_run_once_each_and_paths_are_transformed() {
         }
     );
     // `restore` undid the transform; the callback re-armed itself once.
-    let second = d.frame(0.1, 32.0, 100, 100).expect("a frame");
+    let second = d.frame(0.1, 32.0, 100, 100, &[]).expect("a frame");
     let CanvasOp::Fill { polygons, .. } = &second[1] else {
         panic!("{second:?}")
     };
@@ -87,7 +87,7 @@ fn animation_frames_run_once_each_and_paths_are_transformed() {
 fn animate_draws_its_shapes_over_a_smearing_clear() {
     let (d, _alive) =
         driver("x(0.5).y(0.5).w(0.1).h(0.1).s('rect').fill('red').animate({ smear: 0.5 })");
-    let ops = d.frame(0.0, 1000.0, 1000, 500).expect("a frame");
+    let ops = d.frame(0.0, 1000.0, 1000, 500, &[]).expect("a frame");
     let colors: Vec<&str> = ops
         .iter()
         .map(|op| match op {
@@ -102,4 +102,42 @@ fn animate_draws_its_shapes_over_a_smearing_clear() {
     // Sized when `animate` is called, as upstream: before any frame, the
     // default 1280x720. x 0.5 of (1280 - w 128) = 576; y 0.5 of (720 - 72).
     assert_eq!(polygons[0][0], [576.0, 324.0]);
+}
+
+#[test]
+fn document_handlers_hear_the_events_the_app_sends() {
+    // 8030 "Techno mouse" by Enelg, cut down: `document.onmousemove` steers a
+    // value that `ref` reads as the pattern is queried.
+    let (d, pattern) = driver(
+        "let _x = 0
+document.onmousemove = (e) => { _x = e.clientX / document.body.clientWidth * 10 }
+         let _ctrl = 0
+document.addEventListener('keydown', (e) => { _ctrl = e.ctrlKey ? 1 : 0 })
+         n(ref(() => _x + _ctrl * 100))",
+    );
+    let n_at = |pattern: &rudel_core::Pattern| {
+        let haps = pattern.query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one());
+        match &haps[0].value {
+            rudel_core::Value::Map(m) => m.get("n").and_then(rudel_core::Value::as_f64),
+            other => other.as_f64(),
+        }
+    };
+    assert_eq!(n_at(&pattern), Some(0.0));
+    let moved = CanvasEvent {
+        kind: "mousemove",
+        x: 50.0,
+        y: 10.0,
+        ..CanvasEvent::default()
+    };
+    d.frame(0.0, 0.0, 100, 100, &[moved]).expect("a frame");
+    assert_eq!(n_at(&pattern), Some(5.0));
+    let ctrl = CanvasEvent {
+        kind: "keydown",
+        key: "Control".into(),
+        code: "ControlLeft".into(),
+        ctrl: true,
+        ..CanvasEvent::default()
+    };
+    d.frame(0.0, 0.0, 100, 100, &[ctrl]).expect("a frame");
+    assert_eq!(n_at(&pattern), Some(105.0));
 }

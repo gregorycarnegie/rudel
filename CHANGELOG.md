@@ -15,6 +15,16 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **All 39 of Strudel's editor themes,** generated from its CodeMirror theme
+  files (`tools/generate_themes.mjs`), where rudel had three.
+- **`theme`, `fontFamily` and `fontSize` work as pattern settings,** as on the
+  Strudel website: `s("bd").theme("<githubDark nord>")` switches the editor's
+  theme as the events play. `fontFamily` maps only the generic families.
+- **`onTrigger(fn)` calls `fn(hap, time)` as each event plays.** Upstream it
+  also silences the event's own sound by default; here the sound plays.
+- **`ref(() => value)`, `document` events and standalone `scrub`.** Tunes that
+  steer themselves with `document.onmousemove` or `onkeydown` and read the
+  result through `ref` now run, and so does hydra's `() => mouse.x`.
 - **Strudel's draw canvas works: `.draw(fn)`, `.onPaint`, `getDrawContext()`,
   `requestAnimationFrame` and `animate()`.** Scripts draw with a
   `CanvasRenderingContext2D` stand-in (paths, arcs, curves, transforms, text)

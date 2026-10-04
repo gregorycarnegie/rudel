@@ -1,125 +1,103 @@
+use super::themes_generated::THEMES;
 use eframe::egui;
 
+/// One of Strudel's CodeMirror themes, as `tools/generate_themes.mjs` reads it
+/// out of `strudel/packages/codemirror` into `themes_generated.rs`: the
+/// `settings` `@strudel/draw` paints with, and the syntax colours of its
+/// `styles` that rudel's highlighter has a token for.
+pub(crate) struct ThemeData {
+    pub(crate) name: &'static str,
+    pub(crate) light: bool,
+    pub(crate) background: [u8; 4],
+    pub(crate) line_background: [u8; 4],
+    pub(crate) foreground: [u8; 4],
+    pub(crate) muted: [u8; 4],
+    pub(crate) caret: [u8; 4],
+    pub(crate) selection: [u8; 4],
+    pub(crate) selection_match: [u8; 4],
+    pub(crate) line_highlight: [u8; 4],
+    pub(crate) gutter_background: [u8; 4],
+    pub(crate) gutter_foreground: [u8; 4],
+    pub(crate) keyword: [u8; 4],
+    /// `propertyName`: the `.fast` of a method call.
+    pub(crate) method: [u8; 4],
+    pub(crate) string: [u8; 4],
+    pub(crate) number: [u8; 4],
+    pub(crate) comment: [u8; 4],
+    /// `punctuation`: mini-notation's `[ ] < > * /`.
+    pub(crate) mini_op: [u8; 4],
+    pub(crate) mini_word: [u8; 4],
+}
+
+/// The editor's theme: one of Strudel's, by its place in the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EditorTheme {
-    StrudelDark,
-    Light,
-    /// Ported from `codemirror/themes/dracula.mjs` (Michael Kaminsky's port of
-    /// Zeno Rocha's scheme): its `settings` export drives the draw theme and its
-    /// `styles` list the syntax palette.
-    Dracula,
+pub(crate) struct EditorTheme(usize);
+
+impl Default for EditorTheme {
+    fn default() -> Self {
+        Self::named("strudelTheme").expect("Strudel's own theme is in the table")
+    }
+}
+
+fn rgba([r, g, b, a]: [u8; 4]) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
 }
 
 impl EditorTheme {
-    pub(crate) const ALL: [EditorTheme; 3] = [
-        EditorTheme::StrudelDark,
-        EditorTheme::Light,
-        EditorTheme::Dracula,
-    ];
+    /// Every theme, in Strudel's order.
+    pub(crate) fn all() -> impl Iterator<Item = EditorTheme> {
+        (0..THEMES.len()).map(EditorTheme)
+    }
+
+    /// The theme `theme("githubDark")` names.
+    pub(crate) fn named(name: &str) -> Option<EditorTheme> {
+        THEMES.iter().position(|t| t.name == name).map(EditorTheme)
+    }
+
+    fn data(self) -> &'static ThemeData {
+        &THEMES[self.0]
+    }
 
     pub(crate) fn label(self) -> &'static str {
-        match self {
-            EditorTheme::StrudelDark => "strudelTheme",
-            EditorTheme::Light => "whitescreen",
-            EditorTheme::Dracula => "dracula",
-        }
+        self.data().name
     }
 
     pub(crate) fn draw_theme(self) -> DrawTheme {
-        match self {
-            EditorTheme::StrudelDark => DrawTheme {
-                background: egui::Color32::from_rgb(0x22, 0x22, 0x22),
-                line_background: egui::Color32::from_rgba_unmultiplied(0x22, 0x22, 0x22, 0x99),
-                foreground: egui::Color32::WHITE,
-                muted: egui::Color32::from_rgba_unmultiplied(0x8a, 0x91, 0x99, 0x66),
-                caret: egui::Color32::from_rgb(0xff, 0xcc, 0x00),
-                selection: egui::Color32::from_rgba_unmultiplied(128, 203, 196, 128),
-                selection_match: egui::Color32::from_rgba_unmultiplied(0x03, 0x6d, 0xd6, 0x26),
-                line_highlight: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0x50),
-                gutter_background: egui::Color32::TRANSPARENT,
-                gutter_foreground: egui::Color32::from_rgba_unmultiplied(0x8a, 0x91, 0x99, 0x66),
-                light: false,
-            },
-            EditorTheme::Light => DrawTheme {
-                background: egui::Color32::WHITE,
-                line_background: egui::Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x50),
-                foreground: egui::Color32::BLACK,
-                muted: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0x50),
-                caret: egui::Color32::BLACK,
-                selection: egui::Color32::from_rgba_unmultiplied(128, 203, 196, 128),
-                selection_match: egui::Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x26),
-                line_highlight: egui::Color32::from_rgba_unmultiplied(0xcc, 0xcc, 0xcc, 0x50),
-                gutter_background: egui::Color32::TRANSPARENT,
-                gutter_foreground: egui::Color32::BLACK,
-                light: true,
-            },
-            EditorTheme::Dracula => DrawTheme {
-                background: egui::Color32::from_rgb(0x28, 0x2a, 0x36),
-                line_background: egui::Color32::from_rgba_unmultiplied(0x28, 0x2a, 0x36, 0x99),
-                foreground: egui::Color32::from_rgb(0xf8, 0xf8, 0xf2),
-                muted: egui::Color32::from_rgba_unmultiplied(0xf8, 0xf8, 0xf2, 0x50),
-                caret: egui::Color32::from_rgb(0xf8, 0xf8, 0xf0),
-                selection: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26),
-                selection_match: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 51),
-                line_highlight: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26),
-                gutter_background: egui::Color32::from_rgb(0x28, 0x2a, 0x36),
-                gutter_foreground: egui::Color32::from_rgb(0x62, 0x72, 0xa4),
-                light: false,
-            },
+        let t = self.data();
+        DrawTheme {
+            background: rgba(t.background),
+            line_background: rgba(t.line_background),
+            foreground: rgba(t.foreground),
+            muted: rgba(t.muted),
+            caret: rgba(t.caret),
+            selection: rgba(t.selection),
+            selection_match: rgba(t.selection_match),
+            line_highlight: rgba(t.line_highlight),
+            gutter_background: rgba(t.gutter_background),
+            gutter_foreground: rgba(t.gutter_foreground),
+            light: t.light,
         }
     }
 
     pub(crate) fn palette(self) -> EditorPalette {
+        let t = self.data();
         let draw = self.draw_theme();
-        match self {
-            EditorTheme::StrudelDark => EditorPalette {
-                foreground: draw.foreground,
-                keyword: egui::Color32::from_rgb(0xc7, 0x92, 0xea),
-                method: egui::Color32::from_rgb(0xc7, 0x92, 0xea),
-                string: egui::Color32::from_rgb(0xc3, 0xe8, 0x8d),
-                number: egui::Color32::from_rgb(0xc3, 0xe8, 0x8d),
-                comment: egui::Color32::from_rgb(0x7d, 0x87, 0x99),
-                mini_op: egui::Color32::from_rgb(0x82, 0xaa, 0xff),
-                mini_word: egui::Color32::from_rgb(0xc3, 0xe8, 0x8d),
-                flash: egui::Color32::from_rgba_unmultiplied(0xff, 0xcc, 0x00, 0x33),
-                bracket_flash: draw.selection_match,
-                active_line: draw.line_highlight,
-                line_number: draw.gutter_foreground,
-                line_number_active: draw.foreground,
-            },
-            EditorTheme::Light => EditorPalette {
-                foreground: draw.foreground,
-                keyword: draw.foreground,
-                method: draw.foreground,
-                string: draw.foreground,
-                number: draw.foreground,
-                comment: draw.muted,
-                mini_op: draw.foreground,
-                mini_word: draw.foreground,
-                flash: egui::Color32::from_rgba_unmultiplied(0xff, 0xcc, 0x00, 0x33),
-                bracket_flash: draw.line_highlight,
-                active_line: draw.line_highlight,
-                line_number: draw.gutter_foreground,
-                line_number_active: draw.foreground,
-            },
-            // dracula.mjs `styles`: comments/gutter `#6272a4`, strings `#f1fa8c`,
-            // numbers/atoms `#bd93f9`, keywords `#ff79c6`, property/function
-            // names (Rudel's method tokens) `#50fa7b`.
-            EditorTheme::Dracula => EditorPalette {
-                foreground: draw.foreground,
-                keyword: egui::Color32::from_rgb(0xff, 0x79, 0xc6),
-                method: egui::Color32::from_rgb(0x50, 0xfa, 0x7b),
-                string: egui::Color32::from_rgb(0xf1, 0xfa, 0x8c),
-                number: egui::Color32::from_rgb(0xbd, 0x93, 0xf9),
-                comment: egui::Color32::from_rgb(0x62, 0x72, 0xa4),
-                mini_op: egui::Color32::from_rgb(0xff, 0x79, 0xc6),
-                mini_word: egui::Color32::from_rgb(0xf1, 0xfa, 0x8c),
-                flash: egui::Color32::from_rgba_unmultiplied(0xbd, 0x93, 0xf9, 0x44),
-                bracket_flash: draw.selection_match,
-                active_line: draw.line_highlight,
-                line_number: draw.gutter_foreground,
-                line_number_active: draw.foreground,
-            },
+        let [r, g, b, _] = t.caret;
+        EditorPalette {
+            foreground: draw.foreground,
+            keyword: rgba(t.keyword),
+            method: rgba(t.method),
+            string: rgba(t.string),
+            number: rgba(t.number),
+            comment: rgba(t.comment),
+            mini_op: rgba(t.mini_op),
+            mini_word: rgba(t.mini_word),
+            // The caret's colour, faint: Strudel's own theme's `#ffcc0033`.
+            flash: egui::Color32::from_rgba_unmultiplied(r, g, b, 0x33),
+            bracket_flash: draw.selection_match,
+            active_line: draw.line_highlight,
+            line_number: draw.gutter_foreground,
+            line_number_active: draw.foreground,
         }
     }
 }
@@ -181,7 +159,7 @@ impl Default for EditorSettings {
             tooltips: true,
             tab_indentation: false,
             block_based_eval: false,
-            theme: EditorTheme::StrudelDark,
+            theme: EditorTheme::default(),
             font_family: EditorFontFamily::Monospace,
             font_size: 18.0,
         }
@@ -263,13 +241,13 @@ mod tests {
         assert!(settings.flash);
         assert!(settings.tooltips);
         assert!(!settings.tab_indentation);
-        assert_eq!(settings.theme, EditorTheme::StrudelDark);
+        assert_eq!(settings.theme, EditorTheme::default());
         assert_eq!(settings.font_size, 18.0);
     }
 
     #[test]
     fn draw_theme_matches_strudel_theme_settings() {
-        let dark = EditorTheme::StrudelDark.draw_theme();
+        let dark = EditorTheme::default().draw_theme();
         assert_eq!(dark.background, egui::Color32::from_rgb(0x22, 0x22, 0x22));
         assert_eq!(dark.foreground, egui::Color32::WHITE);
         assert_eq!(
@@ -278,10 +256,15 @@ mod tests {
         );
         assert!(!dark.light);
 
-        let light = EditorTheme::Light.draw_theme();
+        let light = EditorTheme::named("whitescreen")
+            .expect("whitescreen")
+            .draw_theme();
         assert_eq!(light.background, egui::Color32::WHITE);
         assert_eq!(light.foreground, egui::Color32::BLACK);
-        assert_eq!(EditorTheme::Light.label(), "whitescreen");
+        assert_eq!(
+            EditorTheme::named("whitescreen").map(EditorTheme::label),
+            Some("whitescreen")
+        );
         assert!(light.light);
     }
 

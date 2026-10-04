@@ -11,8 +11,8 @@ use super::{hydra_images::Picture, hydra_live};
 use eframe::egui;
 use openh264::formats::YUVSource as _;
 use std::{
-    io::{Cursor, Read as _},
     ffi::{OsStr, OsString},
+    io::{Cursor, Read as _},
     process::{Command, Stdio},
     sync::Arc,
     time::{Duration, Instant},
@@ -20,7 +20,11 @@ use std::{
 
 /// What ffmpeg says it is when it fetches a web video, as rudel's own
 /// downloads do: some hosts refuse a generic one.
-const USER_AGENT: &str = concat!("rudel/", env!("CARGO_PKG_VERSION"), " (live-coding music app)");
+const USER_AGENT: &str = concat!(
+    "rudel/",
+    env!("CARGO_PKG_VERSION"),
+    " (live-coding music app)"
+);
 
 /// No wider than this: a background does not need a 4K texture.
 const MAX_WIDTH: u32 = 1280;
@@ -73,7 +77,14 @@ fn tool(name: &str) -> Command {
 /// The first video stream's size, by `ffprobe`.
 fn probe(input: &OsStr) -> Result<(u32, u32), Probe> {
     let output = tool("ffprobe")
-        .args(["-v", "error", "-user_agent", USER_AGENT, "-select_streams", "v:0"])
+        .args([
+            "-v",
+            "error",
+            "-user_agent",
+            USER_AGENT,
+            "-select_streams",
+            "v:0",
+        ])
         .args(["-show_entries", "stream=width,height", "-of", "csv=p=0"])
         .arg(input)
         .output()

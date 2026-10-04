@@ -50,6 +50,99 @@
     Object.defineProperty(globalThis, name, { get: read, configurable: true });
   }
 
+  // `document`, as far as tunes reach for it: the page size, and mouse and
+  // key events over the editor (the app sends them each frame), through
+  // `document.onmousemove = …` or `addEventListener`. Elements they create or
+  // look up are inert.
+  const listeners = new Map();
+  const handlers = {};
+  const element = () => ({
+    style: {},
+    dataset: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    appendChild: (child) => child,
+    removeChild: (child) => child,
+    remove() {},
+    setAttribute() {},
+    getAttribute: () => null,
+    addEventListener() {},
+    removeEventListener() {},
+    getContext: () => context,
+    get clientWidth() {
+      return size.width;
+    },
+    get clientHeight() {
+      return size.height;
+    },
+  });
+  const body = element();
+  const page = {
+    body,
+    documentElement: body,
+    head: element(),
+    cookie: '',
+    createElement: (tag) => (String(tag).toLowerCase() === 'canvas' ? canvas : element()),
+    createElementNS: () => element(),
+    getElementById: () => null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getElementsByTagName: () => [],
+    addEventListener(type, fn) {
+      used = true;
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(fn);
+    },
+    removeEventListener(type, fn) {
+      const fns = listeners.get(type) ?? [];
+      if (fns.includes(fn)) fns.splice(fns.indexOf(fn), 1);
+    },
+  };
+  for (const type of ['mousemove', 'mousedown', 'mouseup', 'click', 'keydown', 'keyup']) {
+    Object.defineProperty(page, 'on' + type, {
+      get: () => handlers[type] ?? null,
+      set(fn) {
+        used = true;
+        handlers[type] = fn;
+      },
+    });
+  }
+  def(globalThis, 'document', page);
+  // `window.addEventListener('keydown', …)` hears the same events.
+  def(globalThis, 'addEventListener', page.addEventListener);
+  def(globalThis, 'removeEventListener', page.removeEventListener);
+  // hydra's `mouse` follows the pointer, so `initHydra` turns the frame on.
+  const initHydra = globalThis.initHydra;
+  def(globalThis, 'initHydra', async (options) => {
+    used = true;
+    return initHydra(options);
+  });
+  const dispatch = ([type, x, y, button, key, code, ctrl, shift, alt, meta]) => {
+    const event = {
+      type,
+      clientX: x,
+      clientY: y,
+      pageX: x,
+      pageY: y,
+      offsetX: x,
+      offsetY: y,
+      button,
+      key,
+      code,
+      ctrlKey: ctrl,
+      shiftKey: shift,
+      altKey: alt,
+      metaKey: meta,
+      repeat: false,
+      target: body,
+      preventDefault() {},
+      stopPropagation() {},
+    };
+    if (type === 'mousemove') Object.assign(Hydra.mouse, { x, y });
+    for (const fn of [handlers[type], ...(listeners.get(type) ?? [])]) {
+      if (typeof fn === 'function') attempt(`document.on${type}`, () => fn(event));
+    }
+  };
+
   // How many straight pieces a curve becomes, by its size on screen.
   const pieces = (length) => Math.max(8, Math.min(256, Math.ceil(length / 4)));
 
@@ -361,11 +454,12 @@
   };
 
   globalThis.__drawUsed = () => used;
-  globalThis.__drawFrame = (time, ms, width, height) => {
+  globalThis.__drawFrame = (time, ms, width, height, events = []) => {
     size.width = Math.max(1, Math.round(width));
     size.height = Math.max(1, Math.round(height));
     now = time;
     ops = [];
+    for (const event of events) dispatch(event);
     const due = frames;
     frames = new Map();
     for (const callback of due.values()) attempt('requestAnimationFrame', () => callback(ms));

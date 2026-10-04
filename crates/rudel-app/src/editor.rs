@@ -13,6 +13,7 @@ mod menu;
 pub(crate) mod settings;
 mod sliders;
 mod text;
+mod themes_generated;
 pub(crate) mod widgets;
 
 use brackets::bracket_match_spans;
@@ -35,8 +36,8 @@ pub(crate) use widgets::{HydraStore, ShaderStore, SpiralStore, mark_color, spira
 use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts, paint_backdrop};
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
-/// Where the editor leaves the size of its visible area for the draw canvas.
-pub(crate) const CANVAS_SIZE: &str = "rudel-draw-canvas-size";
+/// Where the editor leaves its visible area for the draw canvas.
+pub(crate) const CANVAS_RECT: &str = "rudel-draw-canvas-rect";
 
 #[derive(Default)]
 pub(crate) struct EditorOutput {
@@ -210,7 +211,7 @@ pub(crate) fn code_editor(
     // frame at that size.
     let visible = ui.clip_rect();
     ui.ctx()
-        .data_mut(|d| d.insert_temp(egui::Id::new(CANVAS_SIZE), visible.size()));
+        .data_mut(|d| d.insert_temp(egui::Id::new(CANVAS_RECT), visible));
     if let Some(texture) = draw_canvas {
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         ui.painter()

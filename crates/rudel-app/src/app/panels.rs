@@ -15,7 +15,7 @@ pub(super) const SAVED_CODE_KEY: &str = "code";
 
 /// Storage key for the file that buffer belongs to.
 pub(super) const SAVED_PATH_KEY: &str = "code_path";
-pub(crate) use crate::editor::CANVAS_SIZE;
+pub(crate) use crate::editor::CANVAS_RECT;
 
 /// How many `log`/`logValues` lines the console keeps.
 const LOG_LINES_SHOWN: usize = 512;
@@ -427,6 +427,37 @@ impl RudelApp {
                 self.eval_error = Some(e);
             }
         }
+        self.apply_pattern_settings();
+    }
+
+    /// Editor settings a pattern changed as it played (`.theme("nord")`,
+    /// `.fontSize(24)`), as the Strudel website applies them.
+    fn apply_pattern_settings(&mut self) {
+        for (key, value) in rudel_lang::triggers::take_settings() {
+            match key.as_str() {
+                "theme" => match EditorTheme::named(value.trim()) {
+                    Some(theme) => self.editor_settings.theme = theme,
+                    None => rudel_core::log_line(format!("theme: no theme named {value:?}")),
+                },
+                "fontSize" => {
+                    if let Ok(size) = value.trim().parse::<f32>()
+                        && size.is_finite()
+                    {
+                        self.editor_settings.font_size = size.clamp(6.0, 96.0);
+                    }
+                }
+                // Strudel's bundled fonts (x3270, …) are not rudel's; only the
+                // generic families map.
+                "fontFamily" => match value.trim() {
+                    "monospace" => self.editor_settings.font_family = EditorFontFamily::Monospace,
+                    "sans-serif" | "serif" | "proportional" => {
+                        self.editor_settings.font_family = EditorFontFamily::Proportional;
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
     }
 
     /// The `log`/`logValues` console — Strudel writes these to the REPL's side
@@ -593,15 +624,19 @@ impl RudelApp {
                         let cycle = self.playback_position_cycles().unwrap_or(0.0);
                         // Strudel's draw canvas: one frame of the script's
                         // painters, at the size the editor showed last frame.
-                        let size = ui
+                        let rect = ui
                             .ctx()
-                            .data(|d| d.get_temp::<egui::Vec2>(egui::Id::new(CANVAS_SIZE)))
-                            .unwrap_or(egui::vec2(1280.0, 720.0));
-                        let (w, h) = (size.x.round() as u32, size.y.round() as u32);
+                            .data(|d| d.get_temp::<egui::Rect>(egui::Id::new(CANVAS_RECT)))
+                            .unwrap_or(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(1280.0, 720.0),
+                            ));
+                        let (w, h) = (rect.width().round() as u32, rect.height().round() as u32);
                         rudel_lang::canvas::set_size(w, h);
                         if let Some(driver) = self.canvas_driver {
                             let ms = hydra_time * 1000.0;
-                            match driver.frame(cycle, ms, w, h) {
+                            let events = self.canvas.events(ui.ctx(), rect);
+                            match driver.frame(cycle, ms, w, h, &events) {
                                 Some(ops) => self.canvas.draw(ui.ctx(), &ops, w, h),
                                 None => self.canvas_driver = None,
                             }
@@ -687,7 +722,7 @@ impl RudelApp {
                     egui::ComboBox::from_id_salt("editor_theme")
                         .selected_text(self.editor_settings.theme.label())
                         .show_ui(ui, |ui| {
-                            for theme in EditorTheme::ALL {
+                            for theme in EditorTheme::all() {
                                 ui.selectable_value(
                                     &mut self.editor_settings.theme,
                                     theme,

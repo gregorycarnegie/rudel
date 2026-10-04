@@ -231,6 +231,35 @@
     Hydra._feed(!!options.feedStrudel);
   });
 
+  // `ref(accessor)` (pattern.mjs): a pattern of whatever `accessor()` returns
+  // as each cycle is queried, for values the script changes as it runs.
+  def(globalThis, 'ref', (accessor) =>
+    pure(1)
+      .withValue(() => reify(accessor()))
+      .innerJoin(),
+  );
+
+  // `onTrigger(fn, dominant)` (pattern.mjs): `fn(hap, time)` as each event
+  // plays, fired from the app's frame loop like `onTriggerTime`. Upstream a
+  // dominant trigger (the default) also silences the event's sound; here the
+  // sound plays regardless.
+  def(P, 'onTrigger', function (fn) {
+    return this.onTriggerTime((hap) => fn(hap, globalThis.getTime?.() ?? 0));
+  });
+  // The website's pattern settings (website/src/settings.mjs): `.theme(
+  // "<githubDark nord>")` switches the editor's theme as the events play.
+  // Each event carries its value (a hook registered while the pattern is
+  // queried would come too late to be kept), and one hook reports it.
+  for (const key of ['theme', 'fontFamily', 'fontSize']) {
+    const carried = `__${key}`;
+    const set = function (value) {
+      const values = reify(value).fmap((v) => ({ [carried]: Array.isArray(v) ? v.join(' ') : String(v) }));
+      return this.set(values).onTrigger((hap) => __setting(key, hap.value[carried]), false);
+    };
+    def(P, key, set);
+    def(globalThis, key, curry(2, (value, pat) => set.call(reify(pat), value)));
+  }
+
   // `createParam(names)` (controls.mjs): a control made at runtime. Returns
   // the factory and sets the method; a list of names spreads a list value
   // over them, and an object's `.value` fills the first.

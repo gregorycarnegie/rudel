@@ -719,10 +719,8 @@ impl egui_wgpu::CallbackTrait for HydraCallback {
             // Text samples the font atlas; until a copy arrives, the white
             // pixel serves every other shape.
             if let Some(atlas) = &self.atlas {
-                let delta = egui::epaint::ImageDelta::full(
-                    (**atlas).clone(),
-                    egui::TextureOptions::LINEAR,
-                );
+                let delta =
+                    egui::epaint::ImageDelta::full((**atlas).clone(), egui::TextureOptions::LINEAR);
                 renderer.update_texture(device, queue, egui::TextureId::default(), &delta);
             }
             if let (Some(renderer), Some(view)) = (

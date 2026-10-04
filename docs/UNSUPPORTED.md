@@ -59,6 +59,14 @@ them, so trails and smears work. It sits behind the code, over any hydra scene,
 the size of the editor's visible area; `window.innerWidth`/`innerHeight` and
 `canvas.width`/`height` report that size, and `devicePixelRatio` is 1.
 
+**Input.** `document` exists as far as tunes reach for it: `body.clientWidth`
+/ `clientHeight` (the canvas size), `document.onmousemove`/`onmousedown`/
+`onmouseup`/`onclick`/`onkeydown`/`onkeyup` and `addEventListener` (on
+`document` or `window`), fed with the mouse and keys over the editor once a
+frame. Modifier keys pressed on their own arrive as `Control`/`Shift`/`Alt`
+key events. Elements a tune creates or looks up are inert. hydra's `mouse`
+follows the pointer the same way.
+
 **Differences.**
 - Text is drawn in egui's default font, whatever `ctx.font` names; only its
   pixel size is read.

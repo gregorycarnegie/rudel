@@ -53,6 +53,41 @@ pub(crate) fn size() -> (u32, u32) {
     ((packed >> 32) as u32, packed as u32)
 }
 
+/// A mouse or key event over the editor, for the script's `document`
+/// handlers, in canvas pixels. `kind` is the DOM event type (`mousemove`,
+/// `mousedown`, `mouseup`, `click`, `keydown`, `keyup`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CanvasEvent {
+    pub kind: &'static str,
+    pub x: f32,
+    pub y: f32,
+    pub button: u8,
+    /// `KeyboardEvent.key` and `.code`, for key events.
+    pub key: String,
+    pub code: String,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+impl CanvasEvent {
+    fn to_arg(&self) -> Arg {
+        Arg::List(vec![
+            Arg::Str(self.kind.to_string()),
+            Arg::Num(f64::from(self.x)),
+            Arg::Num(f64::from(self.y)),
+            Arg::Num(f64::from(self.button)),
+            Arg::Str(self.key.clone()),
+            Arg::Str(self.code.clone()),
+            Arg::Bool(self.ctrl),
+            Arg::Bool(self.shift),
+            Arg::Bool(self.alt),
+            Arg::Bool(self.meta),
+        ])
+    }
+}
+
 /// What draws on the canvas for one evaluation: its painters,
 /// `requestAnimationFrame` callbacks and `animate`, run once a frame.
 #[derive(Clone, Copy)]
@@ -64,12 +99,24 @@ impl CanvasDriver {
     }
 
     /// Run one frame at transport time `cycle` and clock `ms`, on a canvas of
-    /// `width` by `height` CSS pixels, and return what it drew. `None` once
-    /// the evaluation is gone.
-    pub fn frame(&self, cycle: f64, ms: f64, width: u32, height: u32) -> Option<Vec<CanvasOp>> {
+    /// `width` by `height` CSS pixels, after handing the script this frame's
+    /// `events`, and return what it drew. `None` once the evaluation is gone.
+    pub fn frame(
+        &self,
+        cycle: f64,
+        ms: f64,
+        width: u32,
+        height: u32,
+        events: &[CanvasEvent],
+    ) -> Option<Vec<CanvasOp>> {
+        // Made into script values on the JS thread: an `Arg` is not `Send`.
+        let events = events.to_vec();
         self.0.run(move |f| {
-            let args = [cycle, ms, f64::from(width), f64::from(height)].map(Arg::Num);
-            match js::call(f, args.to_vec()) {
+            let mut args: Vec<Arg> = [cycle, ms, f64::from(width), f64::from(height)]
+                .map(Arg::Num)
+                .to_vec();
+            args.push(Arg::List(events.iter().map(CanvasEvent::to_arg).collect()));
+            match js::call(f, args) {
                 Ok(Arg::List(ops)) => ops.iter().filter_map(op).collect(),
                 _ => Vec::new(),
             }

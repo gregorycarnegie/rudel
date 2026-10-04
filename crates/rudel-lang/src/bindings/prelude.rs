@@ -795,7 +795,7 @@ pub(crate) fn register(prelude: &Scope) {
             "segment" => segment, "seg" => seg,
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask, "bypass" => bypass,
-            "struct" => struct_pat, "scale" => scale,
+            "struct" => struct_pat, "scale" => scale, "scrub" => scrub,
             "timeline" => timeline,
             // waveshaping-distortion shortcuts (pattern-last standalone form)
             "soft" => soft, "hard" => hard, "cubic" => cubic, "diode" => diode,
@@ -872,6 +872,16 @@ pub(crate) fn register(prelude: &Scope) {
     register_control_factories(prelude);
     // What upstream writes in JavaScript over the methods above, kept in it.
     crate::js::run_lent(include_str!("prelude.js"));
+    // `theme`/`fontFamily`/`fontSize` (`prelude.js`) report here as they play.
+    prelude.func("__setting", |a| {
+        let text = |i: usize| match a.get(i) {
+            Some(Arg::Str(s)) => s.clone(),
+            Some(Arg::Num(n)) => n.to_string(),
+            _ => String::new(),
+        };
+        crate::triggers::push_setting(text(0), text(1));
+        Ok(Arg::Null)
+    });
     // The canvas size the app last showed, for `canvas.js`.
     prelude.func("__canvasSize", |_| {
         let (w, h) = crate::canvas::size();
