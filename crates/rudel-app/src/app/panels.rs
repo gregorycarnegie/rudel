@@ -15,20 +15,24 @@ pub(super) const SAVED_CODE_KEY: &str = "code";
 
 /// Storage key for the file that buffer belongs to.
 pub(super) const SAVED_PATH_KEY: &str = "code_path";
+
+/// Storage key for the editor settings.
+pub(super) const SAVED_SETTINGS_KEY: &str = "editor_settings";
 pub(crate) use crate::editor::CANVAS_RECT;
 
 /// How many `log`/`logValues` lines the console keeps.
 const LOG_LINES_SHOWN: usize = 512;
 
 impl eframe::App for RudelApp {
-    /// eframe calls this on its autosave timer and on exit; the editor buffer
-    /// is the only thing here the user typed, so it is the only thing kept.
-    /// Restored in [`crate::app::run`].
+    /// eframe calls this on its autosave timer and on exit. It keeps the
+    /// editor buffer, the file it came from, and the editor settings; restored
+    /// by `RudelApp::restore`.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         storage.set_string(SAVED_CODE_KEY, self.code.clone());
         if let Some(path) = &self.file_path {
             storage.set_string(SAVED_PATH_KEY, path.to_string_lossy().into_owned());
         }
+        storage.set_string(SAVED_SETTINGS_KEY, self.editor_settings.to_saved());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

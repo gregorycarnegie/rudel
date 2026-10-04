@@ -15,6 +15,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Editor settings are kept between sessions:** theme, font, size and the
+  editor switches come back on the next launch, where they used to reset.
+
 - **`.midi(port, options)` picks the device and takes Strudel's options:**
   `isController`, `noteOffsetMs`, `latencyMs`, and default `midichannel`,
   `velocity`, `gain` and `midimap`. The port (a name part or an index) and a

@@ -299,6 +299,31 @@ impl RudelApp {
         );
     }
 
+    /// Take back what [`eframe::App::save`] kept: the last autosaved buffer, so
+    /// closing the window (or losing it) does not lose what was typed, the
+    /// file it came from so Ctrl+S still knows where to write, and the editor
+    /// settings.
+    fn restore(&mut self, storage: &dyn eframe::Storage) {
+        if let Some(code) = storage.get_string(panels::SAVED_CODE_KEY) {
+            self.code = code;
+        }
+        self.file_path = storage
+            .get_string(panels::SAVED_PATH_KEY)
+            .as_deref()
+            .and_then(files::restore_path);
+        // A restored buffer only counts as saved if it still matches the file
+        // it came from: edits that were never written stay unsaved across a
+        // restart, and still warn before being lost.
+        self.saved_code = self
+            .file_path
+            .as_deref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_else(|| self.code.clone());
+        if let Some(settings) = storage.get_string(panels::SAVED_SETTINGS_KEY) {
+            self.editor_settings = EditorSettings::from_saved(&settings);
+        }
+    }
+
     fn evaluate_current_block(&mut self) {
         self.set_picture_dir();
         let Some(range) = block_at_byte(&self.code, self.editor_cursor_byte) else {
@@ -392,25 +417,8 @@ pub(crate) fn run() -> eframe::Result {
             crate::theme::apply(&cc.egui_ctx);
             install_gpu_stores(cc);
             let mut app = RudelApp::new();
-            // Restore the last autosaved buffer, so closing the window (or
-            // losing it) does not lose what was typed, plus the file it came
-            // from so Ctrl+S still knows where to write.
             if let Some(storage) = cc.storage {
-                if let Some(code) = storage.get_string(panels::SAVED_CODE_KEY) {
-                    app.code = code;
-                }
-                app.file_path = storage
-                    .get_string(panels::SAVED_PATH_KEY)
-                    .as_deref()
-                    .and_then(files::restore_path);
-                // A restored buffer only counts as saved if it still matches
-                // the file it came from: edits that were never written stay
-                // unsaved across a restart, and still warn before being lost.
-                app.saved_code = app
-                    .file_path
-                    .as_deref()
-                    .and_then(|p| std::fs::read_to_string(p).ok())
-                    .unwrap_or_else(|| app.code.clone());
+                app.restore(storage);
             }
             Ok(Box::new(app))
         }),
@@ -585,6 +593,26 @@ mod persistence_tests {
             storage.0.get(panels::SAVED_PATH_KEY).map(String::as_str),
             Some("song.js")
         );
+    }
+
+    #[test]
+    fn editor_settings_survive_a_restart() {
+        let mut app = RudelApp::headless();
+        app.editor_settings.line_wrapping = true;
+        app.editor_settings.block_based_eval = true;
+        app.editor_settings.theme = crate::editor::settings::EditorTheme::named("dracula").unwrap();
+        app.editor_settings.font_size = 22.0;
+        let mut storage = MemoryStorage::default();
+        eframe::App::save(&mut app, &mut storage);
+
+        let mut restarted = RudelApp::headless();
+        restarted.restore(&storage);
+        assert_eq!(restarted.editor_settings, app.editor_settings);
+
+        // Nothing saved yet: the defaults.
+        let mut fresh = RudelApp::headless();
+        fresh.restore(&MemoryStorage::default());
+        assert_eq!(fresh.editor_settings, EditorSettings::default());
     }
 
     #[test]

@@ -167,6 +167,76 @@ impl Default for EditorSettings {
 }
 
 impl EditorSettings {
+    /// The on/off settings by the name they are saved under.
+    fn switches(&mut self) -> [(&'static str, &mut bool); 11] {
+        [
+            ("line_wrapping", &mut self.line_wrapping),
+            ("bracket_matching", &mut self.bracket_matching),
+            ("bracket_closing", &mut self.bracket_closing),
+            ("line_numbers", &mut self.line_numbers),
+            ("active_line", &mut self.active_line),
+            ("autocomplete", &mut self.autocomplete),
+            ("pattern_highlighting", &mut self.pattern_highlighting),
+            ("flash", &mut self.flash),
+            ("tooltips", &mut self.tooltips),
+            ("tab_indentation", &mut self.tab_indentation),
+            ("block_based_eval", &mut self.block_based_eval),
+        ]
+    }
+
+    /// The settings as `key=value` lines, for the app's storage. The theme is
+    /// saved by name, so a regenerated theme table cannot shift it.
+    pub(crate) fn to_saved(mut self) -> String {
+        let mut lines: Vec<String> = self
+            .switches()
+            .into_iter()
+            .map(|(key, on)| format!("{key}={on}"))
+            .collect();
+        lines.push(format!("theme={}", self.theme.label()));
+        lines.push(format!("font_family={}", self.font_family.label()));
+        lines.push(format!("font_size={}", self.font_size));
+        lines.join("\n")
+    }
+
+    /// Settings read back from [`Self::to_saved`]'s text. A key it does not
+    /// know, or a value that does not read, keeps its default, so a save from
+    /// an older or newer rudel still loads.
+    pub(crate) fn from_saved(text: &str) -> Self {
+        let mut settings = Self::default();
+        for (key, value) in text.lines().filter_map(|line| line.split_once('=')) {
+            match key {
+                "theme" => {
+                    if let Some(theme) = EditorTheme::named(value) {
+                        settings.theme = theme;
+                    }
+                }
+                "font_family" => {
+                    if let Some(family) = EditorFontFamily::ALL
+                        .into_iter()
+                        .find(|f| f.label() == value)
+                    {
+                        settings.font_family = family;
+                    }
+                }
+                "font_size" => {
+                    if let Ok(size) = value.parse::<f32>()
+                        && size.is_finite()
+                    {
+                        settings.font_size = size.clamp(6.0, 96.0);
+                    }
+                }
+                _ => {
+                    if let Some((_, on)) = settings.switches().into_iter().find(|(k, _)| *k == key)
+                        && let Ok(value) = value.parse()
+                    {
+                        *on = value;
+                    }
+                }
+            }
+        }
+        settings
+    }
+
     pub(crate) fn font_id(self) -> egui::FontId {
         egui::FontId::new(self.font_size, self.font_family.egui_family())
     }
@@ -227,6 +297,33 @@ pub(crate) fn apply_editor_style(ui: &mut egui::Ui, settings: &EditorSettings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_settings_read_back_and_bad_lines_keep_their_defaults() {
+        let mut settings = EditorSettings::default();
+        for (_, on) in settings.switches() {
+            *on = !*on;
+        }
+        settings.theme = EditorTheme::named("githubLight").unwrap();
+        settings.font_family = EditorFontFamily::Proportional;
+        settings.font_size = 13.5;
+        assert_eq!(EditorSettings::from_saved(&settings.to_saved()), settings);
+
+        // Unknown keys, bad values and lines without `=` are skipped.
+        let read = EditorSettings::from_saved(
+            "flash=maybe\ntheme=noSuchTheme\nfont_size=NaN\nfuture_setting=1\ngarbage\nline_numbers=false",
+        );
+        let expected = EditorSettings {
+            line_numbers: false,
+            ..EditorSettings::default()
+        };
+        assert_eq!(read, expected);
+        assert_eq!(
+            EditorSettings::from_saved("font_size=500").font_size,
+            96.0,
+            "clamped as the pattern setting is"
+        );
+    }
 
     #[test]
     fn editor_settings_default_to_native_strudel_compatible_values() {
