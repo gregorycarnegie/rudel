@@ -21,9 +21,10 @@ pub(super) const VISUAL_WIDGET_METHODS: &[&str] = &[
     "_fscope",
     "_shader",
     "_hydra",
-    // Public (non-underscore) visualizer names render the same inline widget as
-    // their `_`-prefixed variants. `canonical_widget_type` maps them back to the
-    // `_`-prefixed type the painter/host key on. `tscope` is Strudel's alias
+    // Public (non-underscore) visualizer names use the same painter as their
+    // `_`-prefixed variants, on the full-size canvas rather than inline.
+    // `canonical_widget_type` maps them back to the `_`-prefixed type the
+    // painter/host key on. `tscope` is Strudel's alias
     // for `scope` (same painter).
     "pianoroll",
     "punchcard",
@@ -253,8 +254,8 @@ pub(super) fn rewrite_editor_widgets_with_context(
             let mut options = parse_widget_options(src, call.args.first());
             // Upstream the public spellings draw on the full-screen canvas,
             // which `initHydra({feedStrudel})` turns into hydra's `s0`; the
-            // `_` ones are inline. Rudel draws both inline, and remembers which
-            // was which for the feed.
+            // `_` ones are inline. This marks the canvas ones, which the editor
+            // paints behind the code (or into the feed).
             if !method.starts_with('_') && !matches!(widget_type, "_shader" | "_hydra") {
                 options.insert(CANVAS_OPTION.to_string(), WidgetOption::Bool(true));
             }

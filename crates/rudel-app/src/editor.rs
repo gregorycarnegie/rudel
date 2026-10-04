@@ -105,14 +105,17 @@ pub(crate) fn code_editor(
         settings,
         insert_text,
     } = input;
-    // `initHydra({feedStrudel})`: the canvas visuals feed the scene's `s0`.
+    // The public spellings (`.pianoroll()`, `.scope()`) draw on Strudel's
+    // full-size canvas behind the code, the `_` ones inline.
+    let full_canvas: Vec<WidgetDecoration> = widgets
+        .iter()
+        .filter(|w| w.options.contains_key(rudel_lang::CANVAS_OPTION))
+        .cloned()
+        .collect();
+    // `initHydra({feedStrudel})`: that canvas feeds the scene's `s0` instead.
     let feeds = backdrop.is_some_and(|b| widgets::option_bool(&b.options, "feed") == Some(true));
     let canvas: Vec<WidgetDecoration> = if feeds {
-        widgets
-            .iter()
-            .filter(|w| w.options.contains_key(rudel_lang::CANVAS_OPTION))
-            .cloned()
-            .collect()
+        full_canvas.clone()
     } else {
         Vec::new()
     };
@@ -176,10 +179,10 @@ pub(crate) fn code_editor(
     // top of the code (matching Strudel's block/inline CodeMirror widgets).
     let editor_font = settings.font_id();
     let base_row_height = ui.fonts_mut(|fonts| fonts.row_height(&editor_font));
-    // A visual fed into hydra is not drawn inline, so it gets no room there.
+    // A canvas visual is not drawn inline, so it gets no room there.
     let inline: Vec<WidgetDecoration> = widgets
         .iter()
-        .filter(|w| !canvas.iter().any(|c| c.id == w.id))
+        .filter(|w| !full_canvas.iter().any(|c| c.id == w.id))
         .cloned()
         .collect();
     let line_heights = widgets::block_widget_line_heights(code, &inline, base_row_height);
@@ -216,13 +219,19 @@ pub(crate) fn code_editor(
     let visible = ui.clip_rect();
     ui.ctx()
         .data_mut(|d| d.insert_temp(egui::Id::new(CANVAS_RECT), visible));
+    let canvas_visuals = !feeds && !full_canvas.is_empty();
+    if canvas_visuals {
+        for widget in &full_canvas {
+            paint_backdrop(ui, visible, widget, paint);
+        }
+    }
     if let Some(texture) = draw_canvas {
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         ui.painter()
             .image(texture, visible, uv, egui::Color32::WHITE);
-        if backdrop.is_none() {
-            editor_bg = editor_bg.gamma_multiply(0.5);
-        }
+    }
+    if backdrop.is_none() && (canvas_visuals || draw_canvas.is_some()) {
+        editor_bg = editor_bg.gamma_multiply(0.5);
     }
     // Grow the editor to fill the remaining height of its panel so it resizes
     // with the window instead of staying a fixed 28-row box. Content longer than
@@ -527,7 +536,7 @@ pub(crate) fn code_editor(
             editor_rect: output.response.rect,
             base_row_height,
         },
-        widgets,
+        &inline,
         backdrop,
         widget_host,
         paint,

@@ -170,13 +170,27 @@ pub(super) fn paint_pianoroll(
             );
         }
 
-        if options.labels && block.width() > 16.0 && block.height() > 10.0 {
+        // As upstream: from the block's top-left, free to run past it, sized
+        // by the note's thickness (its length, rolled vertically), black on a
+        // filled block and in the block's colour on an empty one.
+        let size = if options.vertical {
+            block.height()
+        } else {
+            block.height() * 0.75
+        };
+        if options.labels && size >= 4.0 {
+            let font = if options.label_monospace {
+                egui::FontId::monospace(size)
+            } else {
+                egui::FontId::proportional(size)
+            };
+            let ink = if fill { egui::Color32::BLACK } else { color };
             painter.text(
-                block.left_center() + egui::vec2(3.0, 0.0),
-                egui::Align2::LEFT_CENTER,
+                block.left_top(),
+                egui::Align2::LEFT_TOP,
                 roll_label(hap, active),
-                egui::FontId::monospace((block.height() * 0.55).clamp(9.0, 18.0)),
-                colors.foreground,
+                font,
+                ink,
             );
         }
     }
@@ -382,10 +396,58 @@ fn roll_label(hap: &Hap, active: bool) -> String {
     if let Some(value) = custom {
         return value_short(value);
     }
-    for key in ["note", "s", "n"] {
-        if let Some(value) = controls.get(key) {
-            return value_short(value);
-        }
+    // Upstream's default: the note, else the sound with its `:n`.
+    if let Some(note) = controls.get("note") {
+        return value_short(note);
     }
-    value_short(&hap.value)
+    match (controls.get("s"), controls.get("n")) {
+        (Some(s), Some(n)) if n.as_f64() != Some(0.0) => {
+            format!("{}:{}", value_short(s), value_short(n))
+        }
+        (Some(s), _) => value_short(s),
+        (None, Some(n)) => value_short(n),
+        (None, None) => value_short(&hap.value),
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::roll_label;
+    use rudel_core::{Hap, Value, ValueMap};
+
+    fn hap(pairs: &[(&str, Value)]) -> Hap {
+        let map: ValueMap = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        let span =
+            rudel_core::TimeSpan::new(rudel_core::Frac::new(0, 1), rudel_core::Frac::new(1, 1));
+        Hap::new(Some(span), span, Value::Map(map))
+    }
+
+    #[test]
+    fn a_label_is_the_note_or_the_sound_with_its_number() {
+        let s = |v: &str| Value::Str(v.into());
+        assert_eq!(
+            roll_label(&hap(&[("note", s("c3")), ("s", s("piano"))]), false),
+            "c3"
+        );
+        assert_eq!(
+            roll_label(&hap(&[("s", s("bd")), ("n", Value::Int(3))]), false),
+            "bd:3"
+        );
+        // `n` 0 is falsy upstream, so no suffix.
+        assert_eq!(
+            roll_label(&hap(&[("s", s("bd")), ("n", Value::Int(0))]), false),
+            "bd"
+        );
+        // `activeLabel` only while sounding; `label` otherwise.
+        let labelled = hap(&[
+            ("s", s("bd")),
+            ("label", s("kick")),
+            ("activeLabel", s("KICK")),
+        ]);
+        assert_eq!(roll_label(&labelled, false), "kick");
+        assert_eq!(roll_label(&labelled, true), "KICK");
+    }
 }

@@ -759,19 +759,20 @@ fn feed_strudel_draws_the_canvas_visuals_into_s0() {
             .filter(|p| (48..120).contains(&p[0]) && p[0].abs_diff(p[2]) < 12)
             .count()
     };
-    // The punchcard fills the scene through `src(s0)`; without the feed it is
-    // only its small inline surface.
-    let fed = bright(
+    // Fed, the punchcard reaches the screen only through the scene: `src(s0)`
+    // shows it, a scene that ignores `s0` does not (the canvas itself is
+    // hidden, as upstream hides it).
+    let shown = bright(
         "await initHydra({feedStrudel: 1})
 src(s0).out()
 note(\"c e g b\").punchcard()",
     );
-    let unfed = bright(
-        "await initHydra()
-src(s0).out()
+    let ignored = bright(
+        "await initHydra({feedStrudel: 1})
+solid(0, 0, 0).out()
 note(\"c e g b\").punchcard()",
     );
-    assert!(fed > unfed * 3, "fed {fed}, unfed {unfed}");
+    assert!(shown > ignored * 3, "shown {shown}, ignored {ignored}");
 }
 
 #[test]
@@ -1291,4 +1292,23 @@ fn emacs_keys_take_over_the_editor_s_own_ctrl_keys() {
     harness.key_press_modifiers(Modifiers::CTRL, Key::A);
     type_keys(&mut harness, "x");
     assert_eq!(harness.state().code, "xs(\"bd\")\nn(1)");
+}
+
+#[test]
+fn a_public_visual_draws_on_the_canvas_behind_the_code() {
+    // Upstream `.punchcard()` paints the full-size draw canvas; `._punchcard()`
+    // is a small inline surface.
+    let painted = |code: &str| {
+        let mut harness = gpu_app(code);
+        harness.run_steps(2);
+        let image = harness.render().expect("renders");
+        image
+            .as_raw()
+            .chunks(4)
+            .filter(|p| (48..120).contains(&p[0]) && p[0].abs_diff(p[2]) < 12)
+            .count()
+    };
+    let canvas = painted("note(\"c e g b\").punchcard()");
+    let inline = painted("note(\"c e g b\")._punchcard()");
+    assert!(canvas > inline * 3, "canvas {canvas}, inline {inline}");
 }

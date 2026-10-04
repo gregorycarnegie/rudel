@@ -110,6 +110,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Pianoroll labels match Strudel's:** a sound with a number reads `bd:3`,
+  labels are sized by the note, drawn black on filled notes and in the note's
+  colour on empty ones, are no longer hidden on short notes, and `fontFamily`
+  is read.
+
 - **A re-evaluation no longer redraws what already played:** pianoroll,
   punchcard, wordfall and spiral keep the notes that had started as they were
   drawn and show the new pattern only from the playhead on, as Strudel's
@@ -138,6 +143,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
   first nudge egui gave it wrote that number over everything.
 
 ### Changed
+
+- **`.pianoroll()`, `.punchcard()`, `.wordfall()`, `.spiral()`,
+  `.pitchwheel()`, `.scope()` and `.spectrum()` draw full-size behind the
+  code,** as Strudel's do on its draw canvas; the `_`-prefixed spellings
+  (`._pianoroll()`) stay inline. They used to be inline too.
 
 - **A label used twice plays its last pattern,** as upstream's
   `pPatterns[id] = this` does, where both used to stack.

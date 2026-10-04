@@ -32,6 +32,8 @@ pub(super) struct VisualWidgetOptions {
     pub(super) overscan: f64,
     pub(super) vertical: bool,
     pub(super) labels: bool,
+    /// `fontFamily` for the labels: monospace unless it names another font.
+    pub(super) label_monospace: bool,
     pub(super) flip_time: bool,
     pub(super) flip_values: bool,
     pub(super) fold: bool,
@@ -115,6 +117,7 @@ impl VisualWidgetOptions {
                 .clamp(0.0, 1.0),
             vertical: option_bool(options, "vertical").unwrap_or(false),
             labels: option_bool(options, "labels").unwrap_or(false),
+            label_monospace: option_str(options, "fontFamily").is_none_or(|f| f.contains("mono")),
             flip_time: option_bool(options, "flipTime").unwrap_or(false),
             flip_values: option_bool(options, "flipValues").unwrap_or(false),
             fold: option_bool(options, "fold").unwrap_or(true),
