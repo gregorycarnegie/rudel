@@ -645,3 +645,67 @@ fn beat_collect_morph_xfade_via_script() {
     assert_eq!(gain("a"), Some(0.0));
     assert_eq!(gain("b"), Some(1.0));
 }
+
+fn numbers(script: &str) -> Vec<f64> {
+    values(&eval(script).expect("eval"), 0, 1)
+        .iter()
+        .map(|v| v.as_f64().expect("a number"))
+        .collect()
+}
+
+/// The values of the events that start in the first cycle: the structure,
+/// where fragments of one event would blur it.
+fn onsets(script: &str) -> Vec<f64> {
+    let mut haps = eval(script)
+        .expect("eval")
+        .query_arc(Frac::zero(), Frac::one());
+    haps.retain(|h| h.whole.is_some_and(|w| w.begin == h.part.begin));
+    haps.sort_by_key(|h| h.part.begin);
+    haps.iter()
+        .map(|h| h.value.as_f64().expect("a number"))
+        .collect()
+}
+
+#[test]
+fn alignment_getters_take_the_structure_they_name() {
+    // `add` keeps the left's structure, `add.out` the right's, and
+    // `add.squeeze` fits the right into each left event.
+    assert_eq!(onsets("seq(0, 1).add(seq(10, 20, 30))"), [10.0, 21.0]);
+    assert_eq!(
+        onsets("seq(0, 1).add.out(seq(10, 20, 30))"),
+        [10.0, 20.0, 31.0]
+    );
+    assert_eq!(
+        onsets("seq(0, 1).add.squeeze(seq(10, 20))"),
+        [10.0, 20.0, 11.0, 21.0]
+    );
+    // `mod` is `modulo`.
+    assert_eq!(numbers("seq(3, 5).mod(2)"), [1.0, 1.0]);
+}
+
+#[test]
+fn an_alignment_passed_on_uncalled_keeps_its_pattern() {
+    assert_eq!(
+        onsets("const f = seq(0, 1).add.out\nf(seq(10, 20, 30))"),
+        [10.0, 20.0, 31.0]
+    );
+}
+
+#[test]
+fn an_underscore_name_is_the_method_without_it() {
+    assert_eq!(numbers("seq(0, 1)._fast(2)"), [0.0, 1.0, 0.0, 1.0]);
+    // `_steps` is the step count, not `steps`; an unknown name stays unknown.
+    assert_eq!(
+        numbers("typeof seq(0)._steps === 'function' ? seq(1) : seq(0)"),
+        [0.0]
+    );
+    assert_eq!(
+        numbers("seq(0)._nothing === undefined ? seq(1) : seq(0)"),
+        [1.0]
+    );
+    // Everything else reads through as before, receiver and all.
+    assert_eq!(
+        numbers("seq(0).__proto__ === Pattern.prototype ? seq(1) : seq(0)"),
+        [1.0]
+    );
+}

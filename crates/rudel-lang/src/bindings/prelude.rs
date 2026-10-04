@@ -871,7 +871,15 @@ pub(crate) fn register(prelude: &Scope) {
     // Registered last and only for names the prelude has not already claimed,
     // so hand-written bindings (`note`, `n`, `s`, `i`, `freq`, …) win.
     register_control_factories(prelude);
-    // What upstream writes in JavaScript over the methods above, kept in it.
+    // What upstream defines over the methods above, once they are all in place.
+    super::pattern::insert_numbered_slots(&proto);
+    register_alignments(&proto);
+    // `pat._fast(2)`: every method upstream's `register` makes also has an
+    // unpatterned twin under a leading underscore, which given plain arguments
+    // does what the patterned one does, so any `_name` nothing else defines is
+    // `name`.
+    proto.answer_underscore_names();
+    // The rest of it, kept in JavaScript.
     crate::js::run_lent(include_str!("prelude.js"));
     // `theme`/`fontFamily`/`fontSize` (`prelude.js`) report here as they play.
     prelude.func("__setting", |a| {
@@ -896,6 +904,41 @@ pub(crate) fn register(prelude: &Scope) {
     // Strudel's draw canvas: `getDrawContext`, `.draw`, `.onPaint`,
     // `requestAnimationFrame`, `animate` (see `crate::canvas`).
     crate::js::run_lent(include_str!("canvas.js"));
+}
+
+/// The alignment getters (pattern.mjs `_setupAlignments`): `pat.add` adds,
+/// and `pat.add.out` adds with the other pattern's structure. Each cell of
+/// the matrix is a method of its own (`add_out`); `mod` is `modulo`.
+fn register_alignments(proto: &Scope) {
+    const ALIGNMENTS: [(&str, &str); 11] = [
+        ("in", ""),
+        ("out", "_out"),
+        ("mix", "_mix"),
+        ("squeeze", "_squeeze"),
+        ("squeezein", "_squeeze"),
+        ("squeezeIn", "_squeeze"),
+        ("squeezeout", "_squeezeout"),
+        ("squeezeOut", "_squeezeout"),
+        ("reset", "_reset"),
+        ("restart", "_restart"),
+        ("poly", "_poly"),
+    ];
+    for (op, bound) in [
+        ("add", "add"),
+        ("sub", "sub"),
+        ("mul", "mul"),
+        ("div", "div"),
+        ("set", "set"),
+        ("keep", "keep"),
+        ("keepif", "keepif"),
+        ("mod", "modulo"),
+        ("modulo", "modulo"),
+        ("pow", "pow"),
+    ] {
+        let methods = ALIGNMENTS.map(|(how, suffix)| (how, format!("{bound}{suffix}")));
+        let cells: Vec<(&str, &str)> = methods.iter().map(|(how, m)| (*how, m.as_str())).collect();
+        proto.bound_getter(op, bound, &cells);
+    }
 }
 
 /// Register a pattern-valued factory for every control name that is not already

@@ -168,7 +168,7 @@ fn slot_id_string(value: &Arg) -> String {
 
 /// Put the REPL slot methods `p` and `q` on `Pattern.prototype`, alongside
 /// the control methods. The numbered `d1`/`p1`/`q1` slots are properties,
-/// defined in `prelude.js` as upstream does.
+/// added last by [`insert_numbered_slots`].
 pub(crate) fn insert_slot_methods(proto: &Scope) {
     // p(id): register under the given id.
     method(proto, "p", |pat, a| {
@@ -176,4 +176,22 @@ pub(crate) fn insert_slot_methods(proto: &Scope) {
     });
     // q(id): a silent (queued/muted) slot.
     method(proto, "q", |_, _| Ok(silence().into()));
+}
+
+/// The numbered slots upstream's REPL puts on patterns (repl.mjs): `pat.d1`
+/// and `pat.p1` are getters that register the pattern as slot 1, and `pat.q1`
+/// is silence. Defined after every method, over any of the same name, as
+/// upstream's are.
+pub(crate) fn insert_numbered_slots(proto: &Scope) {
+    for i in 1..10 {
+        let id = slot_id_string(&Arg::Num(f64::from(i)));
+        for name in [format!("d{i}"), format!("p{i}")] {
+            let (id, label) = (id.clone(), name.clone());
+            proto.getter(&name, move |this| match this {
+                Arg::Pat(pat) => Ok(register_slot(&id, pat.clone()).into()),
+                _ => Err(format!("{label}: not read from a pattern")),
+            });
+        }
+        proto.value(&format!("q{i}"), silence());
+    }
 }

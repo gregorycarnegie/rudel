@@ -1,6 +1,7 @@
 // The part of the prelude upstream writes in JavaScript over its methods,
 // kept in JavaScript: what a native binding would only restate. Runs once per
-// engine, after every native binding is in place.
+// engine, after every native binding is in place. The numbered slots, the
+// alignment getters and the `_name` fallback are native (`prelude.rs`).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 (() => {
   const P = Pattern.prototype;
@@ -26,20 +27,6 @@
       return this.fmap(func)[join]();
     });
     def(globalThis, bind, curry(2, (func, pat) => reify(pat)[bind](func)));
-  }
-
-  // Numbered REPL slots (repl.mjs): `pat.d1`/`pat.p1` are getters that
-  // register the pattern as slot 1; `pat.q1` is silence.
-  for (let i = 1; i < 10; ++i) {
-    for (const name of [`d${i}`, `p${i}`]) {
-      Object.defineProperty(P, name, {
-        get() {
-          return this.p(i);
-        },
-        configurable: true,
-      });
-    }
-    def(P, `q${i}`, silence);
   }
 
   // In the browser REPL `window` is the global object, and tunes use it as a
@@ -325,60 +312,6 @@
       .slow(total)
       .innerJoin();
   });
-
-  // Alignment getters (pattern.mjs `_setupAlignments`): `pat.add` is a
-  // function that adds, and `pat.add.out` one that adds with the other
-  // pattern's structure. A getter, so `room(1).keep.out` is a function bound
-  // to its pattern even when passed on uncalled. Each cell of the matrix is a
-  // native method (`add_out`); `mod` is bound as `modulo`.
-  const ALIGNMENTS = {
-    in: '',
-    out: '_out',
-    mix: '_mix',
-    squeeze: '_squeeze',
-    squeezein: '_squeeze',
-    squeezeIn: '_squeeze',
-    squeezeout: '_squeezeout',
-    squeezeOut: '_squeezeout',
-    reset: '_reset',
-    restart: '_restart',
-    poly: '_poly',
-  };
-  const OPS = { add: 'add', sub: 'sub', mul: 'mul', div: 'div', set: 'set', keep: 'keep',
-    keepif: 'keepif', mod: 'modulo', modulo: 'modulo', pow: 'pow' };
-  for (const [op, bound] of Object.entries(OPS)) {
-    // Read before the getter replaces the plain method.
-    const cells = Object.entries(ALIGNMENTS).map(([how, suffix]) => [how, P[bound + suffix]]);
-    const plain = P[bound];
-    Object.defineProperty(P, op, {
-      configurable: true,
-      get() {
-        const pat = this;
-        const wrapper = (...args) => plain.apply(pat, args);
-        for (const [how, method] of cells) {
-          wrapper[how] = (...args) => method.apply(pat, args);
-        }
-        return wrapper;
-      },
-    });
-  }
-
-  // `pat._fast(2)`: every method `register` makes also has an unpatterned
-  // twin under a leading underscore. Given plain arguments the patterned one
-  // does the same thing, so any `_name` nothing else defines is `name`.
-  // `_steps` is not a method upstream but the step count, which scripts read.
-  Object.setPrototypeOf(
-    P,
-    new Proxy(Object.getPrototypeOf(P), {
-      get(target, key, receiver) {
-        if (typeof key === 'string' && key[0] === '_' && key[1] !== '_' && key !== '_steps') {
-          const method = receiver[key.slice(1)];
-          if (typeof method === 'function') return method;
-        }
-        return Reflect.get(target, key, receiver);
-      },
-    }),
-  );
 
   // `tokenizeNote('c#4')` (core/util.mjs): a note name's letter, accidentals
   // and octave.

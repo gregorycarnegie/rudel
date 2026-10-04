@@ -24,8 +24,8 @@ pub(in crate::bindings) use methods::{bjork_counts, euclid_call, stepwise_call};
 pub(crate) use modulate::register_modulate_fns;
 pub(super) use pick::pick_args;
 pub(crate) use repl::{
-    apply_pattern_transforms, push_all, register_slot, registered_slots, reset_slots, seed_slots,
-    set_each,
+    apply_pattern_transforms, insert_numbered_slots, push_all, register_slot, registered_slots,
+    reset_slots, seed_slots, set_each,
 };
 
 /// Fill `Pattern.prototype`: the generated and bespoke methods first, then one

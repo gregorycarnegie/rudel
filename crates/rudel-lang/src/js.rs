@@ -22,7 +22,10 @@ use boa_engine::{
     JsData, JsError, JsObject, JsResult, JsString, JsValue, NativeFunction, NativeObject, Source,
     builtins::object::OrdinaryObject,
     js_string,
-    object::{FunctionObjectBuilder, builtins::JsArray},
+    object::{
+        FunctionObjectBuilder,
+        builtins::{JsArray, JsProxy},
+    },
     property::{PropertyDescriptor, PropertyKey},
 };
 use boa_gc::{Finalize, Trace};
@@ -733,6 +736,82 @@ impl Scope {
         });
     }
 
+    /// `name` as a getter: `f` runs with `this` each time it is read, as
+    /// `pat.d1` registers its pattern.
+    pub(crate) fn getter(&self, name: &str, f: impl Fn(&Arg) -> Res + Send + Sync + 'static) {
+        lent(|ctx| {
+            let get = function(name, Arc::new(move |this, _| f(this)), false, ctx);
+            self.define_getter(name, get, ctx);
+        });
+    }
+
+    /// `name` as a getter handing back `this[method]` bound to `this`, with
+    /// each of `cells` (`(property, method)`) bound the same way as a property
+    /// of it: `pat.add(x)`, and `pat.add.out(x)` with the other pattern's
+    /// structure. A getter, so `room(1).keep.out` passed on uncalled still
+    /// knows its pattern. The methods are read now, so `method` may be `name`.
+    pub(crate) fn bound_getter(&self, name: &str, method: &str, cells: &[(&str, &str)]) {
+        lent(|ctx| {
+            let mut read = |key: &str| {
+                self.0
+                    .get(JsString::from(key), ctx)
+                    .ok()
+                    .and_then(|v| v.as_object())
+                    .filter(JsObject::is_callable)
+            };
+            let Some(plain) = read(method) else {
+                return;
+            };
+            let cells: Vec<(String, JsObject)> = cells
+                .iter()
+                .filter_map(|(how, m)| Some((how.to_string(), read(m)?)))
+                .collect();
+            // The methods are script values, so they are captures the
+            // collector traces, not part of the closure.
+            let get = NativeFunction::from_copy_closure_with_captures(
+                |this, _, (plain, cells): &(JsObject, Vec<(String, JsObject)>), ctx| {
+                    let wrapper = bound(plain, this, ctx);
+                    for (how, method) in cells {
+                        let method = bound(method, this, ctx);
+                        wrapper.set(JsString::from(how.as_str()), method, false, ctx)?;
+                    }
+                    Ok(wrapper.into())
+                },
+                (plain, cells),
+            );
+            let get = FunctionObjectBuilder::new(ctx.realm(), get)
+                .name(JsString::from(name))
+                .build();
+            self.define_getter(name, get.into(), ctx);
+        });
+    }
+
+    fn define_getter(&self, name: &str, get: JsObject, ctx: &mut Context) {
+        let _ = self.0.define_property_or_throw(
+            JsString::from(name),
+            PropertyDescriptor::builder()
+                .get(get)
+                .enumerable(false)
+                .configurable(true),
+            ctx,
+        );
+    }
+
+    /// Answer any `_name` nothing else defines with `name`, through a proxy in
+    /// front of this object's prototype. Every method upstream's `register`
+    /// makes has an unpatterned twin under a leading underscore, which given
+    /// plain arguments does what the patterned one does.
+    pub(crate) fn answer_underscore_names(&self) {
+        lent(|ctx| {
+            let Some(target) = self.0.prototype() else {
+                return;
+            };
+            if let Ok(proxy) = JsProxy::builder(target).get(underscore_get).build(ctx) {
+                self.0.set_prototype(Some(proxy.into()));
+            }
+        });
+    }
+
     /// Every name on this object, sorted.
     pub(crate) fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = lent(|ctx| self.0.own_property_keys(ctx).unwrap_or_default())
@@ -751,6 +830,45 @@ impl Scope {
 /// The lent context's canvas recording.
 pub(crate) fn with_canvas<R>(f: impl FnOnce(&mut crate::canvas::Recorder) -> R) -> R {
     lent(|ctx| f(&mut side(ctx).canvas.borrow_mut()))
+}
+
+/// `func` with `this` fixed, as `func.bind(this)` makes it.
+fn bound(func: &JsObject, this: &JsValue, ctx: &mut Context) -> JsObject {
+    let call = NativeFunction::from_copy_closure_with_captures(
+        |_, args, (func, this): &(JsObject, JsValue), ctx| func.call(this, args, ctx),
+        (func.clone(), this.clone()),
+    );
+    FunctionObjectBuilder::new(ctx.realm(), call).build().into()
+}
+
+/// The `get` trap of [`Scope::answer_underscore_names`]: `(target, key,
+/// receiver)`. `_steps` is not a method upstream but the step count, which
+/// scripts read; `__name` is left alone.
+fn underscore_get(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let arg = |i: usize| args.get(i).cloned().unwrap_or_default();
+    if let Some(key) = arg(1).as_string() {
+        let key = key.to_std_string_lossy();
+        if let Some(name) = key.strip_prefix('_')
+            && !name.starts_with('_')
+            && key != "_steps"
+            && let Some(receiver) = arg(2).as_object()
+        {
+            let method = receiver.get(JsString::from(name), ctx)?;
+            if method.is_callable() {
+                return Ok(method);
+            }
+        }
+    }
+    // Anything else as if there were no proxy.
+    let reflect_get = ctx
+        .intrinsics()
+        .objects()
+        .reflect()
+        .get(js_string!("get"), ctx)?;
+    match reflect_get.as_callable() {
+        Some(get) => get.call(&JsValue::undefined(), args, ctx),
+        None => Ok(JsValue::undefined()),
+    }
 }
 
 /// Run `source` in the lent context, for the part of the prelude written in
