@@ -144,10 +144,14 @@ fn slider_rect(layout: SliderLayout<'_>, code: &str, range: SourceRange) -> egui
     egui::Rect::from_min_size(pos, egui::vec2(SLIDER_WIDTH, SLIDER_HEIGHT))
 }
 
+/// The number the slider's literal reads now, or `None` once its range holds
+/// no number: the literal was edited away, so there is nothing left to drive.
+/// (Falling back to the last known value kept such a slider live, and egui
+/// snapping that value to the step wrote it over the slider's range, which
+/// after a select-all paste was the whole buffer.)
 fn slider_value_from_source(code: &str, slider: &SliderDecoration) -> Option<f64> {
     code.get(slider.range.from..slider.range.to)
         .and_then(|literal| literal.trim().parse().ok())
-        .or_else(|| slider.value.as_deref().and_then(|value| value.parse().ok()))
 }
 
 fn slider_bounds(slider: &SliderDecoration) -> (f64, f64) {
@@ -226,6 +230,16 @@ mod tests {
         let slider = slider(SourceRange::new(7, 10));
 
         assert_eq!(slider_value_from_source("slider(0.7)", &slider), Some(0.7));
+    }
+
+    #[test]
+    fn a_slider_whose_literal_was_pasted_over_is_gone() {
+        // Pasting over everything maps the slider's range onto the whole new
+        // text, which is not a number: the slider must not come back from its
+        // remembered value and write that over the paste.
+        let code = "note(\"c e g\")";
+        let slider = slider(SourceRange::new(0, code.len()));
+        assert_eq!(slider_value_from_source(code, &slider), None);
     }
 
     #[test]

@@ -34,6 +34,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
   silence, as upstream does without a browser window. Patterns that used them
   used to fail; 13 of the 8,004 patterns shared on strudel.cc now play.
 
+### Fixed
+
+- **Pasting over a buffer with an inline slider no longer turns it into the
+  slider's number.** A select-all paste stretched the slider's range over the
+  whole new text, the slider stayed live on its remembered value, and the
+  first nudge egui gave it wrote that number over everything.
+
 ### Changed
 
 - **`d1`-`d9` and `p1`-`p9` are properties, as in Strudel:** write
