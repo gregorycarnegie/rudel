@@ -542,3 +542,23 @@ fn a_registered_method_samples_a_patterned_argument_every_cycle() {
     let src = r#"register('plus', (x, pat) => pat.add(n(x))); n("0").plus("<0!20 7>")"#;
     assert_eq!(at(src, 20), at(r#"n(7)"#, 0));
 }
+
+#[test]
+fn echo_takes_patterns_for_every_argument() {
+    // `register` patternifies all three; "forgotten flower" passes
+    // `reify(n)` and `pure(cycles).div(n)` through its own `nest`.
+    let plain = values(&eval("s(\"bd\").echo(3, 0.25, 1)").unwrap(), 0, 1).len();
+    for src in [
+        "s(\"bd\").echo(reify(3), 0.25, 1)",
+        "s(\"bd\").echo(3, pure(1).div(4), 1)",
+        "s(\"bd\").echo(reify(3), pure(0.25), pure(1))",
+        "echo(reify(3), pure(0.25), 1, s(\"bd\"))",
+        "s(\"bd\").stut(reify(3), 1, pure(0.25))",
+    ] {
+        assert_eq!(values(&eval(src).unwrap(), 0, 1).len(), plain, "{src}");
+    }
+    assert_eq!(
+        plain, 5,
+        "three copies, two carried over from the cycle before"
+    );
+}

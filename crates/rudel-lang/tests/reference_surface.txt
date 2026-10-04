@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1118 methods=1175 controls=675
+# functions=1123 methods=1175 controls=675
 
 [functions]
 AggregateError
@@ -228,6 +228,7 @@ deltaSlide
 density
 det
 detune
+devicePixelRatio
 dfb
 dict
 dictionary
@@ -610,9 +611,11 @@ gain
 gap
 gat
 gate
+getDrawContext
 getDur
 getDuration
 getFreq
+getTime
 globalThis
 grow
 gt
@@ -657,6 +660,8 @@ inhabit
 inhabitmod
 initHydra
 innerBind
+innerHeight
+innerWidth
 inside
 into
 inv

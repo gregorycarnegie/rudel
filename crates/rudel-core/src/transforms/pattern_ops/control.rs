@@ -4,7 +4,7 @@ use crate::{
     pattern::{Pattern, silence, stack},
     signal::rand,
     state::State,
-    transforms::IntoPattern,
+    transforms::{IntoPattern, core::patternify::patternify_value3},
     value::Value,
 };
 
@@ -88,6 +88,24 @@ impl Pattern {
     /// Echo with decreasing gain (`echo`).
     pub fn echo(&self, times: i64, time: Frac, feedback: f64) -> Pattern {
         self.echo_with(times, time, move |p, i| p.gain(feedback.powi(i as i32)))
+    }
+
+    /// [`echo`] with every argument a pattern, as Strudel's `register`
+    /// patternifies it: `nest`-style helpers pass `reify(n)` and
+    /// `pure(cycles).div(n)`.
+    pub fn echo_patterned(&self, times: Pattern, time: Pattern, feedback: Pattern) -> Pattern {
+        patternify_value3(self, times, time, feedback, |pat, n, t, fb| {
+            pat.echo(
+                n.as_f64().unwrap_or(0.0) as i64,
+                t.to_frac(),
+                fb.as_f64().unwrap_or(0.0),
+            )
+        })
+    }
+
+    /// [`stut`] with every argument a pattern.
+    pub fn stut_patterned(&self, times: Pattern, feedback: Pattern, time: Pattern) -> Pattern {
+        self.echo_patterned(times, time, feedback)
     }
 
     /// Deprecated arg order of [`echo`] (`stut`).

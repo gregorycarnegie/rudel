@@ -320,14 +320,16 @@ pub(super) fn register_generated(p: &Scope) {
     pattern_pattern_arg![slice, splice, bite, beat, xfade, move_xy, speak];
     frac_frac_arg![focus, swing_by, compress, zoom, ribbon, rib];
     f64_f64_arg![range, range2, rangex];
+    // Every argument patterned, as `register` does: `nest`-style helpers
+    // pass patterns (`reify(n)`, `pure(cycles).div(n)`).
     method(p, "echo", |pat, a| {
         Ok(pat
-            .echo(i64_arg(a, 0), frac_arg(a, 1), f64_arg(a, 2))
+            .echo_patterned(pattern_arg(a, 0), pattern_arg(a, 1), pattern_arg(a, 2))
             .into())
     });
     method(p, "stut", |pat, a| {
         Ok(pat
-            .stut(i64_arg(a, 0), f64_arg(a, 1), frac_arg(a, 2))
+            .stut_patterned(pattern_arg(a, 0), pattern_arg(a, 1), pattern_arg(a, 2))
             .into())
     });
     fn_arg![

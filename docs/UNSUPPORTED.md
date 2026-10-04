@@ -40,40 +40,38 @@ everyday code wants the two-argument forms: `compress(a, b)`, `focus(a, b)`,
 
 ## Drawing and visuals
 
-### Draw runtime (`@strudel/draw` `draw.mjs`) — partial, by design
+### Draw runtime (`@strudel/draw` `draw.mjs`) — ported, on a canvas of rudel's own
 
-Strudel's `draw.mjs` drives a full-screen `<canvas>` painter lifecycle:
-`getDrawContext` grabs/creates a global canvas, `Pattern.prototype.draw` and
-`onPaint` register arbitrary JavaScript painter callbacks, `getPainters`
-collects them, and a `Framer`/`Drawer` pair runs a `requestAnimationFrame` loop
-that maintains a rolling memory of visible haps (with lookbehind/lookahead
-windows and future-hap invalidation) and calls every registered painter once per
-frame. `cleanupDraw` / `cleanupDrawContext` tear the canvas and painters down.
+Strudel's `draw.mjs` paints a full-screen `<canvas>` behind the code:
+`getDrawContext()` hands out its 2D context, `.draw(fn, {lookbehind,
+lookahead})` calls `fn(haps, time, t, pattern)` every animation frame with a
+rolling memory of recent haps, `.onPaint(painter)` calls `painter(ctx, time,
+haps, drawTime)`, and scripts run their own loops with `requestAnimationFrame`.
 
-**What Rudel does instead.** Rudel runs a scheduler-time drawing loop for the
-*inline editor widgets* only (`_pianoroll`, `_punchcard`, `_wordfall`,
-`_pitchwheel`, `_spiral`). Each frame the editor queries the active pattern over
-a draw window (`crates/rudel-app/src/editor/widgets/query.rs`) and repaints the
-reusable per-`(type, id)` native surfaces owned by the widget host
-(`crates/rudel-app/src/editor/widgets/host.rs`). This is the equivalent of
-Strudel's `Drawer` querying haps and invoking painters, but the painters are
-Rudel's native Rust drawing code, not user-supplied callbacks.
+**What Rudel does.** All of that runs (`crates/rudel-lang/src/bindings/canvas.js`):
+the context is a stand-in for `CanvasRenderingContext2D` that records drawing,
+flattening paths, curves, arcs and transforms to polygons as they are built.
+Once a frame the app runs the script's animation-frame callbacks and painters
+(`draw.mjs`'s hap memory ported) and replays what they drew (fills, strokes,
+clears and text) onto a raster of its own (`crates/rudel-app/src/canvas.rs`,
+tiny-skia). Like a browser canvas it keeps its pixels until something clears
+them, so trails and smears work. It sits behind the code, over any hydra scene,
+the size of the editor's visible area; `window.innerWidth`/`innerHeight` and
+`canvas.width`/`height` report that size, and `devicePixelRatio` is 1.
 
-**Intentional limitation.** Rudel does **not** run arbitrary user painter
-callbacks (`Pattern.draw(ctx => …)`, `onPaint`) and does not maintain a global
-full-screen draw context. (The `_shader` and `_hydra` widgets below are not
-exceptions: the user supplies WGSL, or a hydra chain that compiles to WGSL, and
-it runs on the GPU — never a script callback on the query path.) Upstream's
-painters draw on a browser `CanvasRenderingContext2D`, which Rudel has no
-equivalent of, so `draw(fn, options)` and `onPaint(fn)` are accepted and return
-the pattern unchanged, as upstream's `draw` does without a `window`: the pattern
-plays, the painter never runs. `getDrawContext` is not defined. Only the
-built-in inline visualisers are available. The
-full-screen draw context, `Framer`/`Drawer` rolling visible-hap *memory*,
-lookbehind/lookahead window bookkeeping, future-hap invalidation, and the
-`cleanupDraw`/`cleanupDrawContext` lifecycle are not ported; the inline widget
-host re-queries the pattern each frame instead of keeping painter-side hap
-memory.
+**Differences.**
+- Text is drawn in egui's default font, whatever `ctx.font` names; only its
+  pixel size is read.
+- `drawImage`, `getImageData`/`putImageData`, clipping and line dashes are
+  accepted and do nothing; a gradient or pattern fill paints in its first
+  colour; `globalCompositeOperation` is always `source-over`.
+- `onPaint` painters see the haps of the pattern they were attached to, not of
+  the whole running pattern.
+- An error in a painter or callback is logged once and the frame goes on.
+- `cleanupDraw`/`cleanupDrawContext` are not separate: each full evaluation
+  starts on a cleared canvas.
+- The canvas is not fed into hydra by `feedStrudel` (that feeds the canvas
+  visuals, `.scope()` and friends) and does not pop out.
 
 ### `spiral` — drawn as an SDF, not as strokes
 
@@ -169,28 +167,15 @@ reads it off the decoded `AudioBuffer` and returns a promise (so patterns must
 sample, so the call returns the number directly and needs no `await`. A sound
 that is unknown or not loaded yet reads as `0`.
 
-### `animate` (`@strudel/draw` `animate.mjs`) — intentionally unsupported
+### `animate` (`@strudel/draw` `animate.mjs`) — ported
 
-`animate` is built directly on the `draw.mjs` runtime: it registers a per-frame
-JavaScript painter that draws arbitrary shapes from patterned visual params
-(`x`, `y`, `w`, `h`, `angle`, `r`, `fill`, `smear`) onto the global canvas, plus
-helpers (`rescale`, `moveXY`, `zoomIn`) and a `smear`/clear toggle, and reports a
-"sync mode" status. Because it depends on the arbitrary-callback draw runtime
-described above — running user-driven drawing every animation frame — the
-`animate` painter is **intentionally unsupported** in Rudel. `animate()` returns
-`silence`, as upstream does, and draws nothing. The
-supported way to get scheduler-time visuals in Rudel is the inline editor widgets
-(`_pianoroll`, `_punchcard`, `_wordfall`, `_pitchwheel`, `_spiral`,
-`_claviature`, `_scope`, `_spectrum`).
-
-The params are ordinary controls (`x(sine).w(.1).fill("red")` evaluates), and
-the `register`-based param transforms — `rescale`, `moveXY`, `zoomIn`
-— **are** implemented (`crates/rudel-core/src/draw.rs`), since they are pure
-pattern transforms over the `x`/`y`/`w`/`h` params rather than painters. They
-evaluate and emit the same control maps as Strudel, so `.rescale(2)` /
-`.moveXY(0.1, 0.1)` / `.zoomIn(0.5)` are chainable and queryable for parity — but
-with no `animate` painter to consume `x`/`y`/`w`/`h`, they produce no visual on
-their own.
+`animate({smear, callback})` is upstream's own code on the draw canvas above:
+every animation frame it lays a translucent clear (the `smear`) and draws a
+`rect` or `ellipse` per hap from the `x`/`y`/`w`/`h`/`angle`/`r`/`fill`
+controls, then calls `callback(ctx, value, hap)`; it returns `silence`, as
+upstream does. The `register`-based param transforms `rescale`, `moveXY` and
+`zoomIn` are in `crates/rudel-core/src/draw.rs`. Upstream's "sync mode" is
+commented out there too.
 
 ### Audio analyzer visuals — `scope`/`tscope`/`fscope`/`spectrum` (`@strudel/webaudio`) — implemented
 

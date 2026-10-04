@@ -51,6 +51,36 @@ where
     .inner_join()
 }
 
+/// [`patternify_value2`] for three arguments: `register`'s shape, the first
+/// argument's structure with the others `appLeft`-sampled, then `innerJoin`.
+pub(crate) fn patternify_value3<F>(
+    pat: &Pattern,
+    a: Pattern,
+    b: Pattern,
+    c: Pattern,
+    f: F,
+) -> Pattern
+where
+    F: Fn(&Pattern, &Value, &Value, &Value) -> Pattern + Send + Sync + 'static,
+{
+    if let (Some(av), Some(bv), Some(cv)) = (&a.pure_value, &b.pure_value, &c.pure_value) {
+        let loc = a.pure_loc.or(b.pure_loc).or(c.pure_loc);
+        return push_loc(f(pat, av, bv, cv), loc);
+    }
+    let pat = pat.clone();
+    let f = Arc::new(f);
+    a.fmap(move |av| {
+        let (pat, f) = (pat.clone(), f.clone());
+        Value::func(move |bv| {
+            let (pat, f, av) = (pat.clone(), f.clone(), av.clone());
+            Value::func(move |cv| Value::Pat(Box::new(f(&pat, &av, &bv, &cv))))
+        })
+    })
+    .app_left(&b)
+    .app_left(&c)
+    .inner_join()
+}
+
 /// Patternify a single `Frac`-valued argument, applying raw op `f(pat, frac)`.
 pub(super) fn patternify_frac<F>(pat: &Pattern, arg: Pattern, f: F) -> Pattern
 where

@@ -15,6 +15,7 @@ pub(super) const SAVED_CODE_KEY: &str = "code";
 
 /// Storage key for the file that buffer belongs to.
 pub(super) const SAVED_PATH_KEY: &str = "code_path";
+pub(crate) use crate::editor::CANVAS_SIZE;
 
 /// How many `log`/`logValues` lines the console keeps.
 const LOG_LINES_SHOWN: usize = 512;
@@ -119,6 +120,7 @@ impl eframe::App for RudelApp {
         // hydra's scene animates on its own clock, playing or not.
         if self.playing
             || self.editor_decorations.backdrop().is_some()
+            || self.canvas_driver.is_some()
             || !self.sample_jobs.is_empty()
             || self.clock_sync
             || self.midi_in.is_some()
@@ -589,6 +591,22 @@ impl RudelApp {
                             ));
                         }
                         let cycle = self.playback_position_cycles().unwrap_or(0.0);
+                        // Strudel's draw canvas: one frame of the script's
+                        // painters, at the size the editor showed last frame.
+                        let size = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<egui::Vec2>(egui::Id::new(CANVAS_SIZE)))
+                            .unwrap_or(egui::vec2(1280.0, 720.0));
+                        let (w, h) = (size.x.round() as u32, size.y.round() as u32);
+                        rudel_lang::canvas::set_size(w, h);
+                        if let Some(driver) = self.canvas_driver {
+                            let ms = hydra_time * 1000.0;
+                            match driver.frame(cycle, ms, w, h) {
+                                Some(ops) => self.canvas.draw(ui.ctx(), &ops, w, h),
+                                None => self.canvas_driver = None,
+                            }
+                        }
+                        let canvas = self.canvas_driver.and(self.canvas.texture());
                         let hydra_values: Vec<Option<f64>> = self
                             .hydra_params
                             .iter()
@@ -615,6 +633,7 @@ impl RudelApp {
                                 backdrop: backdrop.as_ref(),
                                 hydra_time,
                                 hydra_values: &hydra_values,
+                                draw_canvas: canvas,
                                 widget_host: &mut self.widget_host,
                                 settings: &self.editor_settings,
                                 insert_text,

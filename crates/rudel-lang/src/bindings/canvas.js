@@ -1,0 +1,435 @@
+// Strudel's draw canvas (@strudel/draw `draw.mjs`, `animate.mjs`) for rudel.
+//
+// Upstream a full-screen <canvas> sits behind the code, and `.draw(fn)`,
+// `.onPaint(painter)`, `getDrawContext()` and `requestAnimationFrame` paint
+// on it. Here the 2D context is a stand-in that records what is drawn: paths
+// and transforms are flattened to polygons as they are built, so the app only
+// replays fills, strokes, clears and text onto a canvas of its own, which,
+// like a browser's, keeps its pixels until something clears them.
+//
+// The app calls `__drawFrame` once per frame: it runs the animation-frame
+// callbacks and painters and returns that frame's drawing.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+(() => {
+  const def = (object, name, value) =>
+    Object.defineProperty(object, name, { value, writable: true, configurable: true });
+
+  let ops = [];
+  let used = false;
+  let now = 0;
+  // The canvas size in CSS pixels: set by each frame, and before the first
+  // the size the app last showed (a script reads `innerWidth` as it runs).
+  const shown = __canvasSize();
+  const size = { width: shown[0], height: shown[1] };
+  const canvas = {
+    get width() {
+      return size.width;
+    },
+    set width(_) {},
+    get height() {
+      return size.height;
+    },
+    set height(_) {},
+    get clientWidth() {
+      return size.width;
+    },
+    get clientHeight() {
+      return size.height;
+    },
+    style: {},
+    getContext: () => context,
+    addEventListener() {},
+    removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: size.width, height: size.height }),
+  };
+  for (const [name, read] of [
+    ['innerWidth', () => size.width],
+    ['innerHeight', () => size.height],
+    ['devicePixelRatio', () => 1],
+  ]) {
+    Object.defineProperty(globalThis, name, { get: read, configurable: true });
+  }
+
+  // How many straight pieces a curve becomes, by its size on screen.
+  const pieces = (length) => Math.max(8, Math.min(256, Math.ceil(length / 4)));
+
+  const defaults = () => ({
+    fillStyle: '#000000',
+    strokeStyle: '#000000',
+    lineWidth: 1,
+    lineCap: 'butt',
+    lineJoin: 'miter',
+    globalAlpha: 1,
+    font: '10px sans-serif',
+    textAlign: 'start',
+    textBaseline: 'alphabetic',
+    globalCompositeOperation: 'source-over',
+    t: [1, 0, 0, 1, 0, 0],
+  });
+
+  // A gradient or pattern fill has no counterpart; its first colour stands in.
+  const style = (s) => (s && typeof s === 'object' ? s.color ?? '#000000' : String(s));
+
+  class Context2D {
+    constructor() {
+      Object.assign(this, defaults());
+      this.canvas = canvas;
+      this.stack = [];
+      this.path = [];
+    }
+    // --- state
+    save() {
+      const { stack, path, canvas: _c, ...state } = this;
+      this.stack.push({ ...state, t: [...this.t] });
+    }
+    restore() {
+      const state = this.stack.pop();
+      if (state) Object.assign(this, state);
+    }
+    reset() {
+      Object.assign(this, defaults());
+      this.stack = [];
+      this.path = [];
+      this.clearRect(0, 0, size.width, size.height);
+    }
+    // --- transforms: `t` maps user space to canvas pixels
+    setTransform(a, b, c, d, e, f) {
+      if (a && typeof a === 'object') ({ a, b, c, d, e, f } = a);
+      this.t = [a, b, c, d, e, f].map(Number);
+    }
+    resetTransform() {
+      this.t = [1, 0, 0, 1, 0, 0];
+    }
+    getTransform() {
+      const [a, b, c, d, e, f] = this.t;
+      return { a, b, c, d, e, f };
+    }
+    transform(a, b, c, d, e, f) {
+      const [A, B, C, D, E, F] = this.t;
+      this.t = [A * a + C * b, B * a + D * b, A * c + C * d, B * c + D * d, A * e + C * f + E, B * e + D * f + F];
+    }
+    translate(x, y) {
+      this.transform(1, 0, 0, 1, x, y);
+    }
+    scale(x, y = x) {
+      this.transform(x, 0, 0, y, 0, 0);
+    }
+    rotate(a) {
+      this.transform(Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0);
+    }
+    point(x, y) {
+      const [a, b, c, d, e, f] = this.t;
+      return [a * x + c * y + e, b * x + d * y + f];
+    }
+    // How much the transform scales lengths, for line widths and font sizes.
+    get unit() {
+      const [a, b, c, d] = this.t;
+      return Math.sqrt(Math.abs(a * d - b * c)) || 1;
+    }
+    // --- paths: subpaths of canvas-pixel points
+    beginPath() {
+      this.path = [];
+    }
+    current() {
+      return this.path[this.path.length - 1];
+    }
+    moveTo(x, y) {
+      this.path.push({ points: [...this.point(x, y)], closed: false, user: [x, y], first: [x, y] });
+    }
+    lineTo(x, y) {
+      const sub = this.current();
+      if (!sub) return this.moveTo(x, y);
+      sub.points.push(...this.point(x, y));
+      sub.user = [x, y];
+    }
+    closePath() {
+      const sub = this.current();
+      if (!sub) return;
+      sub.closed = true;
+      // The next segment starts where this subpath did.
+      this.path.push({ points: sub.points.slice(0, 2), closed: false, user: sub.first, first: sub.first });
+    }
+    rect(x, y, w, h) {
+      this.moveTo(x, y);
+      this.lineTo(x + w, y);
+      this.lineTo(x + w, y + h);
+      this.lineTo(x, y + h);
+      this.closePath();
+    }
+    roundRect(x, y, w, h) {
+      this.rect(x, y, w, h);
+    }
+    ellipse(x, y, rx, ry, rotation, start, end, ccw = false) {
+      let sweep = end - start;
+      const tau = 2 * Math.PI;
+      if (!ccw && sweep < 0) sweep = (sweep % tau) + tau;
+      if (ccw && sweep > 0) sweep = (sweep % tau) - tau;
+      if (Math.abs(end - start) >= tau) sweep = ccw ? -tau : tau;
+      const n = pieces(Math.abs(sweep) * Math.max(rx, ry) * this.unit);
+      const [cos, sin] = [Math.cos(rotation), Math.sin(rotation)];
+      for (let i = 0; i <= n; i++) {
+        const a = start + (sweep * i) / n;
+        const [ex, ey] = [rx * Math.cos(a), ry * Math.sin(a)];
+        const px = x + ex * cos - ey * sin;
+        const py = y + ex * sin + ey * cos;
+        if (i === 0 && !this.current()) this.moveTo(px, py);
+        else this.lineTo(px, py);
+      }
+    }
+    arc(x, y, r, start, end, ccw = false) {
+      this.ellipse(x, y, r, r, 0, start, end, ccw);
+    }
+    arcTo(x1, y1, x2, y2) {
+      this.lineTo(x1, y1);
+      this.lineTo(x2, y2);
+    }
+    curve(to, at) {
+      const sub = this.current();
+      const [x0, y0] = sub ? sub.user : to;
+      const n = pieces(Math.hypot(to[0] - x0, to[1] - y0) * this.unit);
+      for (let i = 1; i <= n; i++) this.lineTo(...at(x0, y0, i / n));
+    }
+    quadraticCurveTo(cx, cy, x, y) {
+      this.curve([x, y], (x0, y0, s) => {
+        const u = 1 - s;
+        return [u * u * x0 + 2 * u * s * cx + s * s * x, u * u * y0 + 2 * u * s * cy + s * s * y];
+      });
+    }
+    bezierCurveTo(c1x, c1y, c2x, c2y, x, y) {
+      this.curve([x, y], (x0, y0, s) => {
+        const u = 1 - s;
+        const [a, b, c, d] = [u * u * u, 3 * u * u * s, 3 * u * s * s, s * s * s];
+        return [a * x0 + b * c1x + c * c2x + d * x, a * y0 + b * c1y + c * c2y + d * y];
+      });
+    }
+    subpaths(stroke) {
+      return this.path
+        .filter((sub) => sub.points.length >= (stroke ? 4 : 6))
+        .map((sub) => (stroke ? [sub.closed, sub.points] : sub.points));
+    }
+    // --- drawing
+    fill(rule) {
+      if (typeof rule === 'object') rule = arguments[1];
+      ops.push(['fill', style(this.fillStyle), this.globalAlpha, rule === 'evenodd', this.subpaths(false)]);
+    }
+    stroke() {
+      ops.push([
+        'stroke',
+        style(this.strokeStyle),
+        this.globalAlpha,
+        this.lineWidth * this.unit,
+        this.lineCap,
+        this.lineJoin,
+        this.subpaths(true),
+      ]);
+    }
+    corners(x, y, w, h) {
+      return [...this.point(x, y), ...this.point(x + w, y), ...this.point(x + w, y + h), ...this.point(x, y + h)];
+    }
+    fillRect(x, y, w, h) {
+      ops.push(['fill', style(this.fillStyle), this.globalAlpha, false, [this.corners(x, y, w, h)]]);
+    }
+    strokeRect(x, y, w, h) {
+      const s = [true, this.corners(x, y, w, h)];
+      ops.push(['stroke', style(this.strokeStyle), this.globalAlpha, this.lineWidth * this.unit, this.lineCap, this.lineJoin, [s]]);
+    }
+    clearRect(x, y, w, h) {
+      ops.push(['clear', this.corners(x, y, w, h)]);
+    }
+    fontSize() {
+      const m = /(\d*\.?\d+)px/.exec(this.font);
+      return (m ? Number(m[1]) : 10) * this.unit;
+    }
+    text(text, x, y, fill) {
+      const [px, py] = this.point(x, y);
+      const color = style(fill ? this.fillStyle : this.strokeStyle);
+      ops.push(['text', String(text), px, py, this.fontSize(), color, this.globalAlpha, this.textAlign, this.textBaseline]);
+    }
+    fillText(text, x, y) {
+      this.text(text, x, y, true);
+    }
+    strokeText(text, x, y) {
+      this.text(text, x, y, false);
+    }
+    measureText(text) {
+      const size = this.fontSize() / this.unit;
+      return { width: String(text).length * size * 0.55, actualBoundingBoxAscent: size * 0.8, actualBoundingBoxDescent: size * 0.2 };
+    }
+    // --- what has no counterpart: accepted, and drawn as nothing
+    drawImage() {}
+    putImageData() {}
+    getImageData(x, y, w, h) {
+      return { width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w * h * 4)) };
+    }
+    createImageData(w, h) {
+      return this.getImageData(0, 0, w, h);
+    }
+    createLinearGradient() {
+      return { color: undefined, addColorStop(_, c) { this.color ??= c; } };
+    }
+    createRadialGradient() {
+      return this.createLinearGradient();
+    }
+    createConicGradient() {
+      return this.createLinearGradient();
+    }
+    createPattern() {
+      return { color: '#000000' };
+    }
+    setLineDash() {}
+    getLineDash() {
+      return [];
+    }
+    clip() {}
+    isPointInPath() {
+      return false;
+    }
+  }
+  const context = new Context2D();
+
+  def(globalThis, 'getDrawContext', () => {
+    used = true;
+    return context;
+  });
+  def(globalThis, 'getTime', () => now);
+
+  // Animation frames: called on the next frame, with its time in milliseconds.
+  let frames = new Map();
+  let nextFrame = 1;
+  def(globalThis, 'requestAnimationFrame', (callback) => {
+    used = true;
+    frames.set(nextFrame, callback);
+    return nextFrame++;
+  });
+  def(globalThis, 'cancelAnimationFrame', (id) => frames.delete(id));
+
+  // A hap as upstream's draw code reads one.
+  const n = (x) => Number(x?.valueOf?.() ?? x);
+  const drawable = (hap) =>
+    Object.assign(hap, {
+      hasOnset() {
+        return !!hap.whole && n(hap.whole.begin) === n(hap.part.begin);
+      },
+      get endClipped() {
+        return n((hap.whole ?? hap.part).end);
+      },
+      isInFuture(t) {
+        return n(hap.whole?.begin ?? hap.part.begin) > t;
+      },
+      isInNearPast(margin, t) {
+        return n((hap.whole ?? hap.part).end) >= t - margin;
+      },
+      isActive(t) {
+        const span = hap.whole ?? hap.part;
+        return n(span.begin) <= t && n(span.end) >= t;
+      },
+    });
+  const query = (pattern, begin, end) => pattern.queryArc(begin, end).map(drawable);
+
+  // `.draw(fn, {lookbehind, lookahead})` (draw.mjs): `fn(haps, time, t,
+  // pattern)` every frame, with the haps seen recently.
+  const painters = [];
+  def(Pattern.prototype, 'draw', function (fn, options = {}) {
+    used = true;
+    const lookbehind = Math.abs(options.lookbehind ?? 0);
+    const lookahead = options.lookahead ?? 0;
+    painters.push({ pattern: this, fn, lookbehind, lookahead, memory: null, last: null });
+    return this;
+  });
+  // `.onPaint(painter)`: `painter(ctx, time, haps, drawTime)` every frame,
+  // with the haps from two cycles back to two ahead. Upstream passes the haps
+  // of the whole running pattern; here, of the pattern it was attached to.
+  const onPaints = [];
+  def(Pattern.prototype, 'onPaint', function (painter) {
+    used = true;
+    onPaints.push({ pattern: this, painter });
+    return this;
+  });
+
+  // An error in one painter is said once, not every frame.
+  const said = new Set();
+  const attempt = (what, run) => {
+    try {
+      run();
+    } catch (e) {
+      const message = `${what}: ${e?.message ?? e}`;
+      if (!said.has(message)) {
+        said.add(message);
+        console.log(message);
+      }
+    }
+  };
+
+  globalThis.__drawUsed = () => used;
+  globalThis.__drawFrame = (time, ms, width, height) => {
+    size.width = Math.max(1, Math.round(width));
+    size.height = Math.max(1, Math.round(height));
+    now = time;
+    ops = [];
+    const due = frames;
+    frames = new Map();
+    for (const callback of due.values()) attempt('requestAnimationFrame', () => callback(ms));
+    for (const p of painters) {
+      attempt('draw', () => {
+        const t = time + p.lookahead;
+        if (p.memory === null) {
+          p.memory = query(p.pattern, time, t).filter((h) => h.hasOnset());
+        }
+        p.memory = p.memory.filter((h) => h.isInNearPast(p.lookbehind, time));
+        const begin = Math.max(p.last ?? t, t - 1 / 10);
+        if (t > begin) p.memory.push(...query(p.pattern, begin, t).filter((h) => h.hasOnset()));
+        p.last = t;
+        p.fn(p.memory, time, t, p.pattern);
+      });
+    }
+    for (const p of onPaints) {
+      attempt('onPaint', () => p.painter(context, time, query(p.pattern, time - 2, time + 2), [-2, 2]));
+    }
+    return ops;
+  };
+
+  // `animate` (animate.mjs), ported: shapes from the `x`/`y`/`w`/`h`/`angle`/
+  // `r`/`fill` controls, drawn every frame over a translucent clear that
+  // leaves a smear.
+  def(Pattern.prototype, 'animate', function ({ callback, smear = 0.5 } = {}) {
+    globalThis.frame && cancelAnimationFrame(globalThis.frame);
+    const ctx = getDrawContext();
+    const { clientWidth: ww, clientHeight: wh } = ctx.canvas;
+    let smearPart = smear === 0 ? '99' : Number((1 - smear) * 100).toFixed(0);
+    smearPart = smearPart.length === 1 ? `0${smearPart}` : smearPart;
+    const clearColor = `#200010${smearPart}`;
+    const render = (t) => {
+      t = Math.round(t);
+      const frame = this.slow(1000).queryArc(t, t);
+      ctx.fillStyle = clearColor;
+      ctx.fillRect(0, 0, ww, wh);
+      frame.forEach((f) => {
+        let { x, y, w, h, s, r, angle = 0, fill = 'darkseagreen' } = f.value;
+        w *= ww;
+        h *= wh;
+        if (r !== undefined && angle !== undefined) {
+          const radians = angle * 2 * Math.PI;
+          const [cx, cy] = [(ww - w) / 2, (wh - h) / 2];
+          x = cx + Math.cos(radians) * r * cx;
+          y = cy + Math.sin(radians) * r * cy;
+        } else {
+          x *= ww - w;
+          y *= wh - h;
+        }
+        const val = { ...f.value, x, y, w, h };
+        ctx.fillStyle = fill;
+        if (s === 'rect') {
+          ctx.fillRect(x, y, w, h);
+        } else if (s === 'ellipse') {
+          ctx.beginPath();
+          ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        callback && callback(ctx, val, f);
+      });
+      globalThis.frame = requestAnimationFrame(render);
+    };
+    globalThis.frame = requestAnimationFrame(render);
+    return silence;
+  });
+})();

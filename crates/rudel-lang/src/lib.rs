@@ -19,6 +19,7 @@ use std::{
 };
 
 use bindings::{apply_pattern_transforms, method_names, register, reset_registered, reset_slots};
+pub mod canvas;
 pub mod hydra;
 pub mod kabelsalat;
 
@@ -46,6 +47,9 @@ pub struct EvalMeta {
     /// The per-frame arguments every hydra chain of this evaluation reads,
     /// by slot (`H(pattern)`, arrays, functions); the app fills them in.
     pub hydra_params: Vec<hydra::HydraParam>,
+    /// What the script draws on Strudel's canvas behind the code, run once a
+    /// frame by the app. `None` when it draws nothing.
+    pub canvas: Option<canvas::CanvasDriver>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -139,7 +143,9 @@ pub fn reference() -> Reference {
             let global = Scope::global();
             register(&global);
             register_samples(&global, Arc::default());
-            (global.names(), method_names())
+            // `__`-names are rudel's own plumbing (`__drawFrame`), not for scripts.
+            let names = global.names().into_iter().filter(|n| !n.starts_with("__"));
+            (names.collect(), method_names())
         })
     });
     Reference {
@@ -302,6 +308,7 @@ fn evaluate(
         widgets: preprocessed.widgets,
         hydra: None,
         hydra_params: Vec::new(),
+        canvas: None,
     };
     // Clear any REPL slots (`p`/`d1`/…) registered by a previous evaluation so
     // they don't leak into this one (Strudel calls `hush()` at eval start).
@@ -362,6 +369,16 @@ fn evaluate(
     // The transforms are script functions of this context; let them go with it.
     reset_slots();
     let pattern = combined?;
+    // Kept before parking, so a script that draws keeps its context alive.
+    meta.canvas = match js::run(
+        &mut ctx,
+        "globalThis.__drawUsed() ? __drawFrame : undefined",
+    ) {
+        Ok(frame @ Arg::Func(_)) => {
+            js::lend(&mut ctx, || js::keep(&frame)).map(canvas::CanvasDriver::new)
+        }
+        _ => None,
+    };
     let session = js::park(ctx);
     let trigger_hooks = triggers::TriggerHooks::take(session.clone());
     let pattern = match session {

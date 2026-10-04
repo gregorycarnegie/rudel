@@ -57,15 +57,11 @@ macro_rules! register_pattern_fns {
             Ok(subject(a).$e2(x, y).into())
         });)*
         $($p.curried($n_ja, 4, |a| {
-            let x = arg_to_f64(lead(a, 0)) as i64;
-            let y = Frac::from_f64(arg_to_f64(lead(a, 1)));
-            let z = arg_to_f64(lead(a, 2));
+            let [x, y, z] = [0, 1, 2].map(|i| arg_to_pattern(lead(a, i)));
             Ok(subject(a).$ja(x, y, z).into())
         });)*
         $($p.curried($n_jb, 4, |a| {
-            let x = arg_to_f64(lead(a, 0)) as i64;
-            let y = arg_to_f64(lead(a, 1));
-            let z = Frac::from_f64(arg_to_f64(lead(a, 2)));
+            let [x, y, z] = [0, 1, 2].map(|i| arg_to_pattern(lead(a, i)));
             Ok(subject(a).$jb(x, y, z).into())
         });)*
         $($p.curried($n_g2, 3, |a| {
@@ -848,8 +844,8 @@ pub(crate) fn register(prelude: &Scope) {
             "ribbon" => ribbon, "rib" => rib,
             "swingBy" => swing_by, "swing_by" => swing_by,
         ];
-        i64_frac_f64: ["echo" => echo];
-        i64_f64_frac: ["stut" => stut];
+        i64_frac_f64: ["echo" => echo_patterned];
+        i64_f64_frac: ["stut" => stut_patterned];
         pat2: [
             "slice" => slice, "splice" => splice, "bite" => bite,
             "beat" => beat, "xfade" => xfade,
@@ -876,6 +872,17 @@ pub(crate) fn register(prelude: &Scope) {
     register_control_factories(prelude);
     // What upstream writes in JavaScript over the methods above, kept in it.
     crate::js::run_lent(include_str!("prelude.js"));
+    // The canvas size the app last showed, for `canvas.js`.
+    prelude.func("__canvasSize", |_| {
+        let (w, h) = crate::canvas::size();
+        Ok(Arg::List(vec![
+            Arg::Num(f64::from(w)),
+            Arg::Num(f64::from(h)),
+        ]))
+    });
+    // Strudel's draw canvas: `getDrawContext`, `.draw`, `.onPaint`,
+    // `requestAnimationFrame`, `animate` (see `crate::canvas`).
+    crate::js::run_lent(include_str!("canvas.js"));
 }
 
 /// Register a pattern-valued factory for every control name that is not already

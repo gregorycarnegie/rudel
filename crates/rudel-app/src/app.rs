@@ -98,6 +98,9 @@ pub(crate) struct RudelApp {
     /// When hydra's clock started: it runs in seconds from launch, as
     /// upstream's does from `initHydra`, transport or no.
     hydra_epoch: Instant,
+    /// What the script draws on Strudel's canvas each frame, and the canvas.
+    canvas_driver: Option<rudel_lang::canvas::CanvasDriver>,
+    canvas: crate::canvas::Canvas,
     editor_cursor_byte: usize,
     block_flash: Option<(SourceRange, Instant)>,
 
@@ -209,6 +212,8 @@ impl RudelApp {
             widget_host: WidgetHostState::default(),
             hydra_params: Vec::new(),
             hydra_epoch: Instant::now(),
+            canvas_driver: None,
+            canvas: crate::canvas::Canvas::default(),
             editor_cursor_byte: 0,
             block_flash: None,
             sample_dir: String::new(),
@@ -265,6 +270,9 @@ impl RudelApp {
                 self.trigger_fired_upto = None;
                 self.editor_decorations.replace_all(&result.meta);
                 self.hydra_params = result.meta.hydra_params;
+                // A new evaluation starts on a clean canvas.
+                self.canvas_driver = result.meta.canvas;
+                self.canvas.clear();
                 self.eval_error = None;
                 self.status = "evaluated".to_string();
                 self.route();
@@ -315,6 +323,11 @@ impl RudelApp {
                 // two hydra blocks ever have to animate side by side.
                 if !result.meta.hydra_params.is_empty() {
                     self.hydra_params = result.meta.hydra_params;
+                }
+                // A block that draws takes the canvas over; one that does not
+                // leaves the drawing running.
+                if result.meta.canvas.is_some() {
+                    self.canvas_driver = result.meta.canvas;
                 }
                 self.eval_error = None;
                 self.block_flash = Some((source_range, Instant::now()));

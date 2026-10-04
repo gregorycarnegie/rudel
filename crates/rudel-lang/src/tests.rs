@@ -2,6 +2,7 @@ mod common;
 
 mod basics;
 mod callbacks;
+mod canvas;
 mod controls;
 mod engine;
 mod kabelsalat;

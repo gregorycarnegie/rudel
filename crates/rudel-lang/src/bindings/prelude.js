@@ -45,10 +45,6 @@
   // In the browser REPL `window` is the global object, and tunes use it as a
   // namespace shared between blocks (`window.spag = …`).
   def(globalThis, 'window', globalThis);
-  // A tune that sees `window` may schedule frames. There is no canvas to
-  // paint, so a requested frame never comes.
-  def(globalThis, 'requestAnimationFrame', () => 0);
-  def(globalThis, 'cancelAnimationFrame', () => {});
 
   // `initHydra()` (@strudel/hydra) loads hydra-synth, which puts its sources
   // and outputs (`osc`, `src`, `o0`, `render`, …) in global scope, over
@@ -277,16 +273,6 @@
     names.reduce((acc, name) => Object.assign(acc, { [name]: createParam(name) }), {}),
   );
 
-  // draw.mjs / animate.mjs paint a browser canvas every animation frame.
-  // There is none here, so they keep upstream's return values and draw
-  // nothing: `draw` and `onPaint` return the pattern, `animate` silence.
-  def(P, 'draw', function () {
-    return this;
-  });
-  def(P, 'onPaint', function () {
-    return this;
-  });
-  def(P, 'animate', () => silence);
 
   // `shrinklist(amount, pat)`: the list of views `shrink` concatenates.
   for (const name of ['shrinklist', 's_taperlist']) {

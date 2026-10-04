@@ -15,6 +15,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Strudel's draw canvas works: `.draw(fn)`, `.onPaint`, `getDrawContext()`,
+  `requestAnimationFrame` and `animate()`.** Scripts draw with a
+  `CanvasRenderingContext2D` stand-in (paths, arcs, curves, transforms, text)
+  on a canvas behind the code that keeps its pixels until cleared, as a
+  browser's does, so trails and `animate`'s smear work.
+  `window.innerWidth`/`innerHeight` report its size. These used to evaluate
+  and draw nothing.
 - **Hydra draws behind the code, as in Strudel.** `await initHydra()` puts
   hydra's functions in global scope and `osc(10).out()` / `render(o1)` draw
   the scene behind the editor; "Pop out hydra" in the right-click menu shows
@@ -63,13 +70,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
   Strudel: `const {movement} = createParams('movement')`.
 - **The `animate` shape params `x`, `y`, `w`, `h`, `angle`, `r` and `fill` are
   controls.** They were missing, so any pattern naming them failed to evaluate.
-- **`draw`, `onPaint` and `animate` evaluate.** There is no canvas to paint,
-  so `draw` and `onPaint` return the pattern unchanged and `animate` returns
-  silence, as upstream does without a browser window. Patterns that used them
-  used to fail; 13 of the 8,004 patterns shared on strudel.cc now play.
 
 ### Fixed
 
+- **`echo` and `stut` take patterns for every argument,** as upstream's
+  `register` makes them. A count given as a pattern (`echo(reify(3), …)`)
+  made no echoes at all, and a patterned time stacked every copy at once.
 - **Downloads say they come from rudel.** Samples, pictures and videos were
   fetched with the HTTP library's generic user agent, which some hosts
   (Wikimedia) refuse.

@@ -35,6 +35,8 @@ pub(crate) use widgets::{HydraStore, ShaderStore, SpiralStore, mark_color, spira
 use widgets::{WidgetHostState, WidgetLayout, WidgetPaintInput, draw_widget_hosts, paint_backdrop};
 
 const CODE_EDITOR_ID: &str = "rudel_code_editor";
+/// Where the editor leaves the size of its visible area for the draw canvas.
+pub(crate) const CANVAS_SIZE: &str = "rudel-draw-canvas-size";
 
 #[derive(Default)]
 pub(crate) struct EditorOutput {
@@ -68,6 +70,8 @@ pub(crate) struct CodeEditorInput<'a> {
     /// hydra's clock, and this frame's per-frame hydra argument values.
     pub(crate) hydra_time: f64,
     pub(crate) hydra_values: &'a [Option<f64>],
+    /// Strudel's draw canvas, drawn behind the code over any hydra scene.
+    pub(crate) draw_canvas: Option<egui::TextureId>,
     pub(crate) widget_host: &'a mut WidgetHostState,
     pub(crate) settings: &'a EditorSettings,
     /// Text to insert at the cursor this frame (a double-clicked reference).
@@ -94,6 +98,7 @@ pub(crate) fn code_editor(
         backdrop,
         hydra_time,
         hydra_values,
+        draw_canvas,
         widget_host,
         settings,
         insert_text,
@@ -200,6 +205,19 @@ pub(crate) fn code_editor(
     if let Some(backdrop) = backdrop {
         paint_backdrop(ui, ui.clip_rect(), backdrop, paint);
         editor_bg = editor_bg.gamma_multiply(0.5);
+    }
+    // The canvas is the size of what the editor shows; the app draws the next
+    // frame at that size.
+    let visible = ui.clip_rect();
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(egui::Id::new(CANVAS_SIZE), visible.size()));
+    if let Some(texture) = draw_canvas {
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        ui.painter()
+            .image(texture, visible, uv, egui::Color32::WHITE);
+        if backdrop.is_none() {
+            editor_bg = editor_bg.gamma_multiply(0.5);
+        }
     }
     // Grow the editor to fill the remaining height of its panel so it resizes
     // with the window instead of staying a fixed 28-row box. Content longer than
