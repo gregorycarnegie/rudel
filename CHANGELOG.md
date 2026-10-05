@@ -42,6 +42,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- Spiral haps fade out fully at the edge of the draw window, as on
+  strudel.cc; they used to bottom out at 8% opacity.
 - The REPL's wavetable bank plays as wavetables: `s("wt_digital")` and the
   other `wt_` sounds Strudel preloads reach the wavetable oscillator, as any
   `wt_` name in a `samples(...)` map does upstream. Before they played as

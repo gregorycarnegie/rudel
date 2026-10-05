@@ -6,7 +6,7 @@ use super::{
     pitchwheel::freq_to_angle,
     query::{hap_matches_widget, in_window, widget_haps},
     size::{default_surface_size, surface_size},
-    spiral::spiral_point,
+    spiral::{spiral_bands, spiral_point},
     style::{color_with_alpha, resolve_color, widget_draw_colors},
     *,
 };
@@ -626,4 +626,36 @@ fn a_synced_widget_has_a_surface_and_an_unknown_one_does_not() {
     host.sync(std::slice::from_ref(&known));
     assert!(host.surface(&known).is_some());
     assert!(host.surface(&widget("_pianoroll", "w2", 0, 5)).is_none());
+}
+
+#[test]
+fn spiral_haps_fade_with_their_distance_from_now() {
+    // spiral.mjs: `opacity = fade ? 1 - |begin - time| / 2 : 1`, 2 cycles being
+    // the draw window's lookbehind.
+    let at = |begin: i64| {
+        Hap::new(
+            Some(rudel_core::TimeSpan::new(
+                Frac::new(begin, 2),
+                Frac::new(begin + 1, 2),
+            )),
+            rudel_core::TimeSpan::new(Frac::new(begin, 2), Frac::new(begin + 1, 2)),
+            Value::Map(ValueMap::new()),
+        )
+    };
+    let haps = [at(0), at(-1), at(-2), at(-4)];
+    let haps: Vec<&Hap> = haps.iter().collect();
+    let colors = widget_draw_colors(EditorTheme::default().draw_theme());
+    let alphas = |fade: bool| {
+        let mut options = VisualWidgetOptions::from_widget(&widget("_spiral", "s", 0, 1));
+        options.fade = fade;
+        options.colorize_spiral_inactive = true;
+        let (_, bands) = spiral_bands(&haps, 0.0, colors, options);
+        bands[..haps.len()]
+            .iter()
+            .map(|band| band.color.a())
+            .collect::<Vec<_>>()
+    };
+    // Now, half a cycle ago, a cycle ago, two cycles ago (the window's edge).
+    assert_eq!(alphas(true), [255, 191, 128, 0]);
+    assert_eq!(alphas(false), [255; 4]);
 }

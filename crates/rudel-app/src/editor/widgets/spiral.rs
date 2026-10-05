@@ -69,7 +69,7 @@ pub(super) fn spiral_bands(
         };
         let opacity = if options.fade {
             let distance = ((begin - time) as f32).abs();
-            (1.0 - distance / fade_span).clamp(0.08, 1.0)
+            (1.0 - distance / fade_span).clamp(0.0, 1.0)
         } else {
             1.0
         };
