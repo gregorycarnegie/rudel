@@ -45,6 +45,12 @@ pub const DEFAULT_SAMPLE_BANKS: &[&str] = &[
     // which the tunes that want it load themselves, exactly as upstream.
     "https://strudel.b-cdn.net/Dirt-Samples.json",
 ];
+
+/// The drum-machine bank aliases the Strudel REPL registers after its banks
+/// (`bank("TR909")` for `RolandTR909`), vendored from
+/// `https://strudel.b-cdn.net/tidal-drum-machines-alias.json` so they work
+/// offline too.
+pub const DEFAULT_BANK_ALIASES: &[u8] = include_bytes!("tidal-drum-machines-alias.json");
 /// A group of samples sharing one tuning. Flat (drum-machine) sounds use a
 /// single group with `note: None`; pitched (note-keyed) maps have one group per
 /// note name, used to pick the closest sample and repitch it.
@@ -170,6 +176,25 @@ impl SampleBank {
             .insert(alias.to_string(), canonical.to_string());
         self.bank_aliases
             .insert(alias.to_lowercase(), canonical.to_string());
+    }
+
+    /// Register every alias in an `aliasBank` JSON map,
+    /// `{ canonical: alias | [alias, ...] }`, returning how many it registered.
+    pub fn alias_bank_json(&mut self, json: &[u8]) -> Result<usize, String> {
+        let map: HashMap<String, serde_json::Value> =
+            serde_json::from_slice(json).map_err(|e| format!("bank alias map: {e}"))?;
+        let mut count = 0;
+        for (canonical, aliases) in &map {
+            let aliases = match aliases {
+                serde_json::Value::Array(list) => list.iter().collect(),
+                one => vec![one],
+            };
+            for alias in aliases.into_iter().filter_map(serde_json::Value::as_str) {
+                self.alias_bank(canonical, alias);
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 
     /// Resolve a bank name through the alias map (returns the input unchanged if

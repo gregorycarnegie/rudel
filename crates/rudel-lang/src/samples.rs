@@ -15,6 +15,8 @@ pub struct SampleEffects {
     pub maps: Vec<(String, String)>,
     /// `aliasBank(canonical, alias, ...)` pairs to register.
     pub bank_aliases: Vec<(String, String)>,
+    /// `aliasBank(url)` sources: JSON files of `{ canonical: alias | [alias] }`.
+    pub bank_alias_sources: Vec<String>,
     /// Optional global tempo requested by `setCps`/`setcps`/`setCpm`/`setcpm`.
     pub cps: Option<f64>,
     /// Where soundfont presets are fetched from (`setSoundfontUrl`).
@@ -166,15 +168,28 @@ pub(crate) fn register_samples(prelude: &Scope, effects: Arc<Mutex<SampleEffects
         }))
     });
 
-    // aliasBank(canonical, alias, ...): each extra string is an alias.
+    // aliasBank(canonical, alias | [alias, ...], ...), aliasBank({ canonical:
+    // alias | [alias, ...] }), or aliasBank(url) of a JSON file of that map.
     let eff = effects.clone();
     prelude.func("aliasBank", move |args| {
-        let strs: Vec<String> = args.iter().filter_map(arg_to_raw_str).collect();
-        if let Some((canonical, aliases)) = strs.split_first() {
-            let mut eff = eff.lock().unwrap();
-            for alias in aliases {
-                eff.bank_aliases.push((canonical.clone(), alias.clone()));
+        let mut eff = eff.lock().unwrap();
+        match args {
+            [Arg::Map(map)] => {
+                for (canonical, aliases) in map {
+                    for alias in alias_strs(std::slice::from_ref(aliases)) {
+                        eff.bank_aliases.push((canonical.clone(), alias));
+                    }
+                }
             }
+            [source] => eff.bank_alias_sources.extend(arg_to_raw_str(source)),
+            [canonical, aliases @ ..] => {
+                if let Some(canonical) = arg_to_raw_str(canonical) {
+                    for alias in alias_strs(aliases) {
+                        eff.bank_aliases.push((canonical.clone(), alias));
+                    }
+                }
+            }
+            [] => {}
         }
         done()
     });
@@ -242,6 +257,16 @@ fn cc_mapping_from(value: &Arg) -> Option<CcMapping> {
         Arg::Num(n) => Some(CcMapping::new(ccn(*n))),
         _ => None,
     }
+}
+
+/// The alias names in `aliasBank` arguments: strings, or lists of them.
+fn alias_strs(args: &[Arg]) -> Vec<String> {
+    args.iter()
+        .flat_map(|arg| match arg {
+            Arg::List(items) => items.iter().filter_map(arg_to_raw_str).collect::<Vec<_>>(),
+            arg => arg_to_raw_str(arg).into_iter().collect(),
+        })
+        .collect()
 }
 
 /// Collect a `{ control: ccn | { ccn, min, max, exp } }` object into the

@@ -31,6 +31,8 @@ pub use record::Recorder;
 pub use rudel_core::Clock;
 /// Radix-2 FFT, re-exported so UI analysers share the DSP one.
 pub use rudel_dsp::Fft;
-pub use samples::{DEFAULT_SAMPLE_BANKS, SampleBank, request_sample, take_sample_requests};
+pub use samples::{
+    DEFAULT_BANK_ALIASES, DEFAULT_SAMPLE_BANKS, SampleBank, request_sample, take_sample_requests,
+};
 pub use scope::{ScopeTap, ScopeTaps};
 pub use soundfont::{gm_names, request_font, set_soundfont_url, take_font_requests};

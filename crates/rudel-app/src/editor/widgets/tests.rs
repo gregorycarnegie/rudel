@@ -267,6 +267,18 @@ fn visual_widget_options_read_strudel_style_booleans_numbers_and_colors() {
 }
 
 #[test]
+fn deprecated_timeframe_draws_from_zero_to_its_value() {
+    let options = VisualWidgetOptions::from_widget(&widget_with_options(
+        "_pianoroll",
+        &[
+            ("cycles", rudel_lang::WidgetOption::Number(8.0)),
+            ("timeframe", rudel_lang::WidgetOption::Number(2.0)),
+        ],
+    ));
+    assert_eq!((options.cycles, options.playhead), (2.0, 0.0));
+}
+
+#[test]
 fn spiral_options_map_inline_canvas_size_to_draw_size() {
     let default = VisualWidgetOptions::from_widget(&widget("_spiral", "spiral", 0, 1));
     let sized = VisualWidgetOptions::from_widget(&widget_with_options(

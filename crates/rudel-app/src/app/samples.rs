@@ -119,6 +119,8 @@ impl RudelApp {
         let Some(engine) = &self.engine else {
             return;
         };
+        // Vendored, so this cannot fail short of a bad build.
+        let _ = engine.alias_bank_json(rudel_audio::DEFAULT_BANK_ALIASES);
         for source in rudel_audio::DEFAULT_SAMPLE_BANKS {
             let source = (*source).to_string();
             if !self.loaded_sample_sources.insert(source.clone()) {
@@ -213,6 +215,17 @@ impl RudelApp {
         if let Some(engine) = &self.engine {
             for (canonical, alias) in &effects.bank_aliases {
                 engine.alias_bank(canonical, alias);
+            }
+            for source in &effects.bank_alias_sources {
+                let key = format!("aliasBank:{source}");
+                if self.loaded_sample_sources.insert(key.clone()) {
+                    self.sample_jobs.push(SampleJob {
+                        key,
+                        label: format!("aliasBank({source:?})"),
+                        handle: engine.spawn_alias_bank(source.clone()),
+                        quiet: false,
+                    });
+                }
             }
         }
         for source in &effects.sources {

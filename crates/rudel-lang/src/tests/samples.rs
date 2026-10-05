@@ -185,6 +185,32 @@ fn alias_bank_collects_pairs() {
 }
 
 #[test]
+fn alias_bank_takes_a_map_a_list_or_a_url() {
+    let (_pat, effects) = eval_with_samples(
+        r#"
+aliasBank({ RolandTR808: "808", LinnDrum: ["linn", "ld"] })
+aliasBank("RolandTR606", ["606"])
+aliasBank("https://example.test/aliases.json")
+"#,
+    )
+    .expect("eval");
+    let pair = |c: &str, a: &str| (c.to_string(), a.to_string());
+    assert_eq!(
+        effects.bank_aliases,
+        vec![
+            pair("RolandTR808", "808"),
+            pair("LinnDrum", "linn"),
+            pair("LinnDrum", "ld"),
+            pair("RolandTR606", "606"),
+        ]
+    );
+    assert_eq!(
+        effects.bank_alias_sources,
+        vec!["https://example.test/aliases.json".to_string()]
+    );
+}
+
+#[test]
 fn soundfont_helpers_collect_their_effects() {
     // `setSoundfontUrl` / `loadSoundfont` are side effects the host applies,
     // like `samples()`; `loadSoundfont` hands back the sound name to play.

@@ -382,6 +382,20 @@ impl Engine {
         write_lock(&self.bank).alias_bank(canonical, alias);
     }
 
+    /// Register every alias in an `aliasBank` JSON map.
+    pub fn alias_bank_json(&self, json: &[u8]) -> Result<usize, String> {
+        write_lock(&self.bank).alias_bank_json(json)
+    }
+
+    /// Fetch an `aliasBank(url)` JSON map in the background and register it.
+    pub fn spawn_alias_bank(&self, source: String) -> JoinHandle<Result<usize, String>> {
+        let bank = self.bank.clone();
+        std::thread::spawn(move || {
+            let json = samples::fetch_cached_bytes(&source)?;
+            write_lock(&bank).alias_bank_json(&json)
+        })
+    }
+
     /// Register a single decoded sample under `name`.
     pub fn register_sample(&self, name: &str, sample: Arc<rudel_dsp::Sample>) {
         write_lock(&self.bank).register(name, sample);

@@ -109,12 +109,20 @@ impl VisualWidgetOptions {
             option_f32(options, "size").unwrap_or(80.0)
         }
         .max(0.001);
+        // pianoroll's deprecated `timeframe: t` draws from 0 to t, i.e. `t`
+        // cycles with the playhead at the left edge.
+        let timeframe = option_f64(options, "timeframe").filter(|t| *t != 0.0);
         Self {
-            cycles: option_f64(options, "cycles").unwrap_or(4.0).max(0.001),
+            cycles: timeframe
+                .or(option_f64(options, "cycles"))
+                .unwrap_or(4.0)
+                .max(0.001),
             overscan: option_f64(options, "overscan").unwrap_or(0.0).max(0.0),
-            playhead: option_f64(options, "playhead")
-                .unwrap_or(0.5)
-                .clamp(0.0, 1.0),
+            playhead: match timeframe {
+                Some(_) => 0.0,
+                None => option_f64(options, "playhead").unwrap_or(0.5),
+            }
+            .clamp(0.0, 1.0),
             vertical: option_bool(options, "vertical").unwrap_or(false),
             labels: option_bool(options, "labels").unwrap_or(false),
             label_monospace: option_str(options, "fontFamily").is_none_or(|f| f.contains("mono")),

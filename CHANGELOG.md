@@ -13,6 +13,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **Drum machines answer to their model names**, as on strudel.cc:
+  `bank("TR909")`, `bank("RZ1")`, `bank("LM1")` and the rest of the 66
+  aliases Strudel registers at startup. `aliasBank` takes upstream's other
+  forms too: a map (`aliasBank({RolandTR808: "808"})`), a list of aliases,
+  and the URL of a JSON map.
+- Pianoroll's deprecated `timeframe` option (draws from 0 to its value).
+
 ### Changed
 
 - **The script prelude and the draw canvas are native.** What was left in

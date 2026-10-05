@@ -608,3 +608,21 @@ fn a_cached_text_fetch_reads_a_local_path_directly() {
         "instr 1\nendin\n"
     );
 }
+
+#[test]
+fn the_default_alias_map_names_drum_machines_by_their_model() {
+    let mut bank = SampleBank::new();
+    assert_eq!(bank.alias_bank_json(DEFAULT_BANK_ALIASES), Ok(66));
+    assert_eq!(bank.canonical_bank("TR909"), "RolandTR909");
+    assert_eq!(bank.canonical_bank("rz1"), "CasioRZ1");
+}
+
+#[test]
+fn an_alias_map_entry_may_list_several_aliases() {
+    let mut bank = SampleBank::new();
+    let json = br#"{"LinnDrum": ["linn", "LD"], "Bad": 3}"#;
+    assert_eq!(bank.alias_bank_json(json), Ok(2));
+    assert_eq!(bank.canonical_bank("linn"), "LinnDrum");
+    assert_eq!(bank.canonical_bank("ld"), "LinnDrum");
+    assert!(bank.alias_bank_json(b"[1]").is_err());
+}
