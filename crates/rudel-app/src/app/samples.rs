@@ -329,7 +329,7 @@ impl RudelApp {
     /// The open can block while the OS MIDI subsystem starts, so it runs on a
     /// background thread like the UI-selected input; the factory the script
     /// already holds reads zero/no notes until the connection lands.
-    fn queue_midi_input(&mut self, device: String) {
+    pub(super) fn queue_midi_input(&mut self, device: String) {
         if self.script_midi_ins.contains_key(&device)
             || self
                 .script_midi_in_pending
@@ -356,9 +356,19 @@ impl RudelApp {
             let (device, handle) = self.script_midi_in_pending.swap_remove(i);
             match handle.join() {
                 Ok(Ok(input)) => {
+                    self.midi_input_opened(&device, input.port_name());
                     self.script_midi_ins.insert(device, input);
                 }
-                Ok(Err(e)) => self.io_error = Some(format!("midin({device:?}): {e}")),
+                Ok(Err(e)) => {
+                    // Not plugged in yet: open it when it appears, as upstream
+                    // waits for a device it cannot find.
+                    if e.starts_with("no MIDI input port")
+                        && !self.midi_in_waiting.contains(&device)
+                    {
+                        self.midi_in_waiting.push(device.clone());
+                    }
+                    self.io_error = Some(format!("midin({device:?}): {e}"));
+                }
                 Err(_) => {
                     self.io_error = Some(format!("midin({device:?}): connect thread panicked"))
                 }

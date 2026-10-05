@@ -33,6 +33,10 @@ impl eframe::App for RudelApp {
             storage.set_string(SAVED_PATH_KEY, path.to_string_lossy().into_owned());
         }
         storage.set_string(SAVED_SETTINGS_KEY, self.editor_settings.to_saved());
+        storage.set_string(
+            super::midi_in::SAVED_MIDI_CC_KEY,
+            super::midi_in::saved_cc_state(),
+        );
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -57,6 +61,7 @@ impl eframe::App for RudelApp {
             self.editor_settings.font_family.web_font(),
         ));
         self.poll_font_requests();
+        self.watch_midi_inputs(ui.ctx());
         self.poll_sample_requests();
         self.poll_sample_jobs(ui.ctx());
         let midi_connecting =

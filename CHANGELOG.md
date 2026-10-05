@@ -21,6 +21,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   forms too: a map (`aliasBank({RolandTR808: "808"})`), a list of aliases,
   and the URL of a JSON map.
 - Pianoroll's deprecated `timeframe` option (draws from 0 to its value).
+- **`midin` devices behave as on strudel.cc:** their knob and fader values
+  are kept between sessions, a controller that is unplugged (or not plugged
+  in yet) is reopened when it comes back, and on connect its last values are
+  sent back to it so motorised faders and LED rings show where they were.
 - **Strudel's editor fonts.** The font picker and the `fontFamily` pattern
   setting offer the website's whole list (PressStart, mode7, teletext,
   Monocraft, FiraCode, JetBrains, …). Each is downloaded from strudel.cc the

@@ -69,9 +69,9 @@ pub use controls::{
 };
 // MIDI input bus (written by `rudel-midi`, read via the `cc_in` signal).
 pub use input::{
-    cc_in, cc_in_from, clear_cc, clear_keys, clear_midi_notes, get_cc, get_cc_from, get_pointer,
-    key_down, keys_down, midi_keys, mousex, mousey, push_midi_note, set_cc, set_cc_from,
-    set_keys_held, set_pointer, take_midi_notes,
+    cc_devices, cc_in, cc_in_from, cc_values_from, clear_cc, clear_keys, clear_midi_notes, get_cc,
+    get_cc_from, get_pointer, key_down, keys_down, midi_keys, mousex, mousey, push_midi_note,
+    restore_cc, set_cc, set_cc_from, set_keys_held, set_pointer, take_midi_notes,
 };
 // MIDI output CC maps (written by the language layer, read by `rudel-midi`).
 pub use midimap::{CcMapping, has_midimap, midimap_ccs, set_midimap};

@@ -1,5 +1,6 @@
 mod files;
 mod hydra_audio;
+mod midi_in;
 mod panels;
 mod routing;
 mod samples;
@@ -149,6 +150,10 @@ pub(crate) struct RudelApp {
     script_midi_ins: HashMap<String, MidiIn>,
     /// `midin`/`midikeys` port opens still in flight, as `(name, handle)`.
     script_midi_in_pending: Vec<(String, JoinHandle<Result<MidiIn, String>>)>,
+    /// `midin` devices whose port is gone (unplugged, or not there yet),
+    /// reopened when it comes back; and when the port list was last read.
+    midi_in_waiting: Vec<String>,
+    midi_ports_checked: Option<std::time::Instant>,
     /// Lines written by `log`/`logValues`-tagged events, drained off the
     /// scheduler each frame and shown in the console panel.
     pub(super) log_lines: Vec<String>,
@@ -242,6 +247,8 @@ impl RudelApp {
             clock_sync: false,
             script_midi_ins: HashMap::new(),
             script_midi_in_pending: Vec::new(),
+            midi_in_waiting: Vec::new(),
+            midi_ports_checked: None,
             log_lines: Vec::new(),
             trigger_hooks: rudel_lang::triggers::TriggerHooks::default(),
             trigger_fired_upto: None,
@@ -325,6 +332,9 @@ impl RudelApp {
             .unwrap_or_else(|| self.code.clone());
         if let Some(settings) = storage.get_string(panels::SAVED_SETTINGS_KEY) {
             self.editor_settings = EditorSettings::from_saved(&settings);
+        }
+        if let Some(state) = storage.get_string(midi_in::SAVED_MIDI_CC_KEY) {
+            midi_in::restore_cc_state(&state);
         }
     }
 

@@ -66,6 +66,46 @@ pub fn get_cc(channel: u8, cc: u8) -> f64 {
     get_cc_from("", channel, cc)
 }
 
+/// Every value the CC bus holds for the named `device`, as
+/// `(channel, cc, value)` with channel `0` for its any-channel entry, sorted.
+/// What `midin` keeps between sessions and sends back to a controller that
+/// reconnects, as upstream's `MidiInput` state does.
+pub fn cc_values_from(device: &str) -> Vec<(u8, u8, f64)> {
+    let mut values: Vec<(u8, u8, f64)> = CC_BUS
+        .read()
+        .unwrap()
+        .iter()
+        .filter(|((d, _, _), _)| d == device)
+        .map(|((_, channel, cc), value)| (*channel, *cc, *value))
+        .collect();
+    values.sort_by_key(|&(channel, cc, _)| (channel, cc));
+    values
+}
+
+/// The named devices the CC bus holds values for, sorted.
+pub fn cc_devices() -> Vec<String> {
+    let mut devices: Vec<String> = CC_BUS
+        .read()
+        .unwrap()
+        .keys()
+        .filter(|(d, _, _)| !d.is_empty())
+        .map(|(d, _, _)| d.clone())
+        .collect();
+    devices.sort();
+    devices.dedup();
+    devices
+}
+
+/// Put back one value [`cc_values_from`] reported. Unlike a live message it
+/// writes only that entry, so a restored device does not stand in for the
+/// latest value from any device.
+pub fn restore_cc(device: &str, channel: u8, cc: u8, value: f64) {
+    CC_BUS
+        .write()
+        .unwrap()
+        .insert((device.to_string(), channel, cc), value);
+}
+
 /// Clear all recorded CC state (device reset / tests).
 pub fn clear_cc() {
     CC_BUS.write().unwrap().clear();
@@ -369,6 +409,29 @@ mod tests {
         assert_eq!(get_cc(3, 40), 0.0);
         assert!(take_midi_notes("dev-c").is_empty());
         assert!(take_midi_notes("").is_empty());
+    }
+
+    #[test]
+    fn a_device_s_cc_values_snapshot_and_restore_on_their_own() {
+        let _guard = input_lock();
+        clear_cc();
+        set_cc_from("dev-s", 2, 7, 0.25);
+        set_cc_from("dev-s", 1, 9, 0.5);
+        assert_eq!(cc_devices(), ["dev-s"]);
+        let saved = cc_values_from("dev-s");
+        assert_eq!(
+            saved,
+            [(0, 7, 0.25), (0, 9, 0.5), (1, 9, 0.5), (2, 7, 0.25)]
+        );
+
+        clear_cc();
+        for &(channel, cc, value) in &saved {
+            restore_cc("dev-s", channel, cc, value);
+        }
+        assert_eq!(cc_values_from("dev-s"), saved);
+        assert_eq!(get_cc_from("dev-s", 2, 7), 0.25);
+        assert_eq!(get_cc(0, 7), 0.0, "not the any-device value");
+        clear_cc();
     }
 
     #[test]
