@@ -2862,3 +2862,21 @@ fn the_feedback_delay_matches_webaudio() {
         &failures[..failures.len().min(5)]
     );
 }
+
+#[test]
+fn a_filter_lfo_reaches_the_rendered_voice() {
+    // `lpdepth` (and its siblings) were parsed and ignored.
+    let saw = || {
+        rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+            .note(rudel_core::Value::Int(45))
+            .cutoff(rudel_core::Value::F64(500.0))
+    };
+    let plain = render_pattern(&saw(), 1.0, 0.5);
+    let swept = render_pattern(
+        &saw().ctrl("lpdepth", rudel_core::Value::F64(1.0)),
+        1.0,
+        0.5,
+    );
+    let diff: f32 = plain.iter().zip(&swept).map(|(a, b)| (a - b).abs()).sum();
+    assert!(diff > 1.0, "the LFO should move the cutoff ({diff})");
+}

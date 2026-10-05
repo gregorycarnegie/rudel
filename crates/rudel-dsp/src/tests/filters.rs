@@ -250,3 +250,92 @@ fn biquad_impulse_response_matches_webaudio() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn a_filter_lfo_follows_create_filter() {
+    // helpers.mjs `createFilter`: any of depth/depthfrequency/skew/shape/rate
+    // makes an LFO on the cutoff, `depth` (default 1) times the cutoff unless
+    // `depthfrequency` says, at one cycle unless `rate`/`sync` says.
+    use crate::filter::FilterSet;
+    use rudel_core::{Value, ValueMap};
+    let set = |pairs: &[(&str, f64)]| {
+        let mut m = ValueMap::new();
+        for (k, v) in pairs {
+            m.insert(k.to_string(), Value::F64(*v));
+        }
+        let mut set = FilterSet::from_controls(&m);
+        set.set_lfos(&m, 0.5, 3.0);
+        set
+    };
+    let lp = set(&[("cutoff", 800.0), ("lpdepth", 0.5)])
+        .lp
+        .lfo
+        .expect("lpdepth starts one");
+    assert_eq!((lp.depth, lp.frequency, lp.dcoffset), (400.0, 0.5, -0.5));
+    assert_eq!((lp.min, lp.max), (-770.0, 19200.0));
+    assert_eq!(lp.time, 6.0, "phase follows cycle time");
+    let hp = set(&[
+        ("hcutoff", 300.0),
+        ("hpsync", 2.0),
+        ("hpdepthfrequency", 50.0),
+    ])
+    .hp
+    .lfo
+    .expect("hpsync starts one");
+    assert_eq!((hp.frequency, hp.depth), (1.0, 50.0));
+    let bp = set(&[
+        ("bandf", 1000.0),
+        ("bprate", 3.0),
+        ("bpdc", 0.0),
+        ("bpskew", 0.2),
+    ])
+    .bp
+    .lfo
+    .expect("bprate starts one");
+    assert_eq!(
+        (bp.frequency, bp.dcoffset, bp.skew, bp.depth),
+        (3.0, 0.0, 0.2, 1000.0)
+    );
+    assert!(
+        set(&[("cutoff", 800.0)]).lp.lfo.is_none(),
+        "no LFO controls, no LFO"
+    );
+    assert!(
+        set(&[("lpdepth", 1.0)]).lp.lfo.is_none(),
+        "no filter, no LFO"
+    );
+    assert!(
+        set(&[("cutoff", 800.0), ("lpdepth", 0.0)]).lp.lfo.is_none(),
+        "depth 0"
+    );
+}
+
+#[test]
+fn the_filter_lfo_rides_on_the_cutoff_in_hz() {
+    // getParamLfo connects the LFO to the frequency param: its output is
+    // summed onto the cutoff, exactly as a modulator's offset is.
+    use crate::filter::{FilterKind, FilterParams, VoiceFilter};
+    use crate::modulator::{Lfo, LfoConfig};
+    let cfg = LfoConfig {
+        frequency: 5.0,
+        depth: 600.0,
+        min: -770.0,
+        max: 19200.0,
+        ..LfoConfig::default()
+    };
+    let fp = FilterParams {
+        freq: Some(800.0),
+        lfo: Some(cfg),
+        ..FilterParams::default()
+    };
+    let plain_fp = FilterParams { lfo: None, ..fp };
+    let mut with_lfo = VoiceFilter::new(FilterKind::Low, &fp, 44100.0);
+    let mut fed = VoiceFilter::new(FilterKind::Low, &plain_fp, 44100.0);
+    let mut lfo = Lfo::new(&cfg, 44100.0);
+    for i in 0..2000 {
+        let x = ((i * 7919) % 200) as f32 / 100.0 - 1.0;
+        let a = with_lfo.process(x, 0.0, 1.0, 44100.0, 0.0, 0.0);
+        let b = fed.process(x, 0.0, 1.0, 44100.0, lfo.tick() as f32, 0.0);
+        assert_eq!(a, b, "sample {i}");
+    }
+}

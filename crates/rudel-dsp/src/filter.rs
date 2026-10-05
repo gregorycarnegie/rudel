@@ -1,6 +1,6 @@
 use crate::{
     envelope::{Adsr, adsr_value},
-    modulator::{ModBank, ModTarget},
+    modulator::{Lfo, LfoConfig, ModBank, ModTarget, shape_index},
 };
 use rudel_core::{Value, ValueMap};
 use std::f32::consts::TAU;
@@ -222,6 +222,10 @@ pub struct FilterParams {
     /// `drive`: ladder input drive (superdough's default 0.69). Unused by the
     /// biquad models.
     pub drive: f32,
+    /// The LFO `createFilter` puts on the cutoff (`lprate`/`lpdepth`/…),
+    /// in Hz around it. Needs the pattern clock, so [`FilterSet::set_lfos`]
+    /// fills it in.
+    pub lfo: Option<LfoConfig>,
 }
 
 impl Default for FilterParams {
@@ -238,11 +242,59 @@ impl Default for FilterParams {
             anchor: 0.0,
             model: FilterModel::Db12,
             drive: 0.69,
+            lfo: None,
         }
     }
 }
 
 impl FilterParams {
+    /// `createFilter`'s cutoff LFO for this slot, from its controls named with
+    /// `prefix` (`lp`, `hp`, `bp`): present when any of `depth`,
+    /// `depthfrequency`, `skew`, `shape` or a rate (`rate`, or `sync` in
+    /// cycles) is set. Its depth is `depthfrequency`, or `depth` (default 1)
+    /// times the cutoff; its rate defaults to one cycle; it keeps the cutoff
+    /// between 30 Hz and 20 kHz.
+    fn lfo_from_controls(
+        &self,
+        map: &ValueMap,
+        prefix: &str,
+        cps: f64,
+        cycle: f64,
+    ) -> Option<LfoConfig> {
+        let frequency = self.freq? as f64;
+        let get = |k: &str| map.get(&format!("{prefix}{k}")).and_then(|v| v.as_f64());
+        let rate = match get("sync") {
+            Some(sync) => Some(cps * sync),
+            None => get("rate"),
+        };
+        let shape = map.get(&format!("{prefix}shape"));
+        let has_lfo = get("depth").is_some()
+            || get("depthfrequency").is_some()
+            || get("skew").is_some()
+            || shape.is_some()
+            || rate.is_some();
+        if !has_lfo {
+            return None;
+        }
+        let depth = get("depthfrequency").unwrap_or(get("depth").unwrap_or(1.0) * frequency);
+        // `getParamLfo` makes no LFO at depth 0.
+        if depth == 0.0 {
+            return None;
+        }
+        let d = LfoConfig::default();
+        Some(LfoConfig {
+            shape: shape_index(shape),
+            frequency: rate.unwrap_or(cps),
+            skew: get("skew").unwrap_or(d.skew),
+            depth,
+            dcoffset: get("dc").unwrap_or(d.dcoffset),
+            time: cycle / cps.max(1e-9),
+            curve: 1.0,
+            min: -frequency + 30.0,
+            max: 20000.0 - frequency,
+            ..d
+        })
+    }
     fn has_env(&self) -> bool {
         self.env.is_some()
             || self.attack.is_some()
@@ -260,6 +312,21 @@ pub struct FilterSet {
     pub lp: FilterParams,
     pub hp: FilterParams,
     pub bp: FilterParams,
+}
+
+impl FilterSet {
+    /// Give each active slot the cutoff LFO its controls ask for. Separate from
+    /// [`from_controls`](Self::from_controls) because the LFO needs the pattern
+    /// clock: its default rate is one cycle, and its phase follows cycle time.
+    pub fn set_lfos(&mut self, map: &ValueMap, cps: f64, cycle: f64) {
+        for (slot, prefix) in [
+            (&mut self.lp, "lp"),
+            (&mut self.hp, "hp"),
+            (&mut self.bp, "bp"),
+        ] {
+            slot.lfo = slot.lfo_from_controls(map, prefix, cps, cycle);
+        }
+    }
 }
 
 impl FilterSet {
@@ -433,6 +500,8 @@ pub(crate) struct VoiceFilter {
     core: FilterCore,
     /// `(adsr, min_hz, max_hz)` when a cutoff envelope is active.
     env: Option<(Adsr, f32, f32)>,
+    /// The cutoff LFO, summed onto the frequency in Hz.
+    lfo: Option<Lfo>,
 }
 
 impl VoiceFilter {
@@ -476,6 +545,7 @@ impl VoiceFilter {
             base_freq: base,
             core,
             env,
+            lfo: fp.lfo.map(|c| Lfo::new(&c, sample_rate as f64)),
         }
     }
 
@@ -501,7 +571,8 @@ impl VoiceFilter {
         freq_mod: f32,
         q_mod: f32,
     ) -> f32 {
-        let modulated = freq_mod != 0.0 || q_mod != 0.0;
+        let freq_mod = freq_mod + self.lfo.as_mut().map_or(0.0, |l| l.tick() as f32);
+        let modulated = freq_mod != 0.0 || q_mod != 0.0 || self.lfo.is_some();
         if self.env.is_some() || modulated {
             // The envelope sweep is the base when present, the static cutoff
             // otherwise; the modulator rides on top of either.

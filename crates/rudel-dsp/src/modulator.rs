@@ -59,7 +59,7 @@ pub fn waveshape(shape: usize, phase: f64, skew: f64) -> f64 {
 
 /// Configuration for an [`Lfo`], mirroring the `lfo-processor` parameters and
 /// `getLfo`'s defaults.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LfoConfig {
     pub shape: usize,
     pub frequency: f64,

@@ -48,6 +48,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Filter LFOs** (`lprate`, `lpsync`, `lpdepth`, `lpdepthfrequency`,
+  `lpshape`, `lpdc`, `lpskew`, and the `hp`/`bp` equivalents) sweep the
+  cutoff, as `createFilter` does: depth times the cutoff, one cycle per sweep
+  unless a rate says otherwise. They were parsed and ignored.
 - **Samples take every filter.** A loaded sample only had a lowpass, so
   `hpf`, `bpf`, the filter envelopes (`lpenv`, …) did nothing on samples.
   They now run the same filters as synths, resonance in dB included.

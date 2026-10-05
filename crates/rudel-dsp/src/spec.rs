@@ -150,6 +150,27 @@ impl VoiceSpec {
         }
     }
 
+    /// Give the voice's filters the cutoff LFOs their controls ask for
+    /// ([`FilterSet::set_lfos`]), which need the pattern clock.
+    pub fn set_filter_lfos(&mut self, map: &rudel_core::ValueMap, cps: f64, cycle: f64) {
+        match self {
+            VoiceSpec::Synth(p) => {
+                let mut set = FilterSet {
+                    lp: p.lp,
+                    hp: p.hp,
+                    bp: p.bp,
+                };
+                set.set_lfos(map, cps, cycle);
+                (p.lp, p.hp, p.bp) = (set.lp, set.hp, set.bp);
+            }
+            VoiceSpec::Sampler(p) => p.filters.set_lfos(map, cps, cycle),
+            VoiceSpec::Drum(p) => p.filters.set_lfos(map, cps, cycle),
+            VoiceSpec::Zzfx(p) => p.filters.set_lfos(map, cps, cycle),
+            VoiceSpec::ByteBeat(p) => p.filters.set_lfos(map, cps, cycle),
+            VoiceSpec::Bus(p) => p.filters.set_lfos(map, cps, cycle),
+        }
+    }
+
     /// Read one of the voice's filter slots; every voice type carries the same
     /// three.
     fn filter_param(&self, f: impl Fn(&FilterSet) -> f32) -> f32 {

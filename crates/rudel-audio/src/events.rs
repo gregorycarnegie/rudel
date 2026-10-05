@@ -350,13 +350,14 @@ pub fn collect_events_at(
     let events = control_events
         .into_iter()
         .map(|ev| {
-            let spec = spec_for(
+            let mut spec = spec_for(
                 &ev.controls,
                 ev.duration_seconds as f32,
                 bank,
                 clock.cps(),
                 ev.onset_cycle,
             );
+            spec.set_filter_lfos(&ev.controls, clock.cps(), ev.onset_cycle);
             let fx = PostFx::from_controls(&ev.controls);
             // `FX(...)` stages arrive as a list of control maps under `FX`.
             let fx_chain = match ev.controls.get("FX") {
@@ -364,7 +365,9 @@ pub fn collect_events_at(
                     .iter()
                     .filter_map(|stage| match stage {
                         rudel_core::Value::Map(map) => {
-                            Some(FxStage::from_controls(map, ev.duration_seconds as f32))
+                            let mut stage = FxStage::from_controls(map, ev.duration_seconds as f32);
+                            stage.filters.set_lfos(map, clock.cps(), ev.onset_cycle);
+                            Some(stage)
                         }
                         _ => None,
                     })
