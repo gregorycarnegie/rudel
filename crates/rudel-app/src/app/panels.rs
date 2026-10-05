@@ -52,6 +52,10 @@ impl eframe::App for RudelApp {
                 .send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         pump_input_bus(ui.ctx());
+        self.log_lines.extend(crate::editor::fonts::install(
+            ui.ctx(),
+            self.editor_settings.font_family.web_font(),
+        ));
         self.poll_font_requests();
         self.poll_sample_requests();
         self.poll_sample_jobs(ui.ctx());
@@ -450,15 +454,11 @@ impl RudelApp {
                         self.editor_settings.font_size = size.clamp(6.0, 96.0);
                     }
                 }
-                // Strudel's bundled fonts (x3270, …) are not rudel's; only the
-                // generic families map.
-                "fontFamily" => match value.trim() {
-                    "monospace" => self.editor_settings.font_family = EditorFontFamily::Monospace,
-                    "sans-serif" | "serif" | "proportional" => {
-                        self.editor_settings.font_family = EditorFontFamily::Proportional;
+                "fontFamily" => {
+                    if let Some(family) = EditorFontFamily::named(&value) {
+                        self.editor_settings.font_family = family;
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
         }
@@ -766,7 +766,7 @@ impl RudelApp {
                     egui::ComboBox::from_id_salt("editor_font_family")
                         .selected_text(self.editor_settings.font_family.label())
                         .show_ui(ui, |ui| {
-                            for family in EditorFontFamily::ALL {
+                            for family in EditorFontFamily::all() {
                                 ui.selectable_value(
                                     &mut self.editor_settings.font_family,
                                     family,

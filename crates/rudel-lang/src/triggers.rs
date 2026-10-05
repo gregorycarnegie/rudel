@@ -43,9 +43,46 @@ pub(crate) fn kpattern_on_trigger_time(pat: &Pattern, a: &[Arg]) -> Res {
         p.push(func);
         p.len() as i64 - 1
     });
+    // A hap already tagged keeps its earlier hooks, which fire first: upstream's
+    // `onTrigger` runs the previously set trigger before the new one, so
+    // `.fontFamily(..).fontSize(..)` applies both.
+    const EARLIER: &str = "_ontrigger_earlier";
+    let set_aside = |v: Value| match v {
+        Value::Map(mut m) => {
+            if let Some(ids) = m.shift_remove(TRIGGER_KEY) {
+                m.insert(EARLIER.to_string(), ids);
+            }
+            Value::Map(m)
+        }
+        v => v,
+    };
+    let append = |v: Value| match v {
+        Value::Map(mut m) => {
+            if let Some(earlier) = m.shift_remove(EARLIER) {
+                let mut ids = trigger_ids(&earlier);
+                ids.extend(m.get(TRIGGER_KEY).map(trigger_ids).unwrap_or_default());
+                m.insert(
+                    TRIGGER_KEY.to_string(),
+                    Value::List(ids.into_iter().map(Value::Int).collect()),
+                );
+            }
+            Value::Map(m)
+        }
+        v => v,
+    };
     Ok(pat
+        .with_value(set_aside)
         .ctrl(TRIGGER_KEY, rudel_core::pure(Value::Int(id)))
+        .with_value(append)
         .into())
+}
+
+/// The hook ids a `TRIGGER_KEY` value holds: one, or a list, oldest first.
+fn trigger_ids(value: &Value) -> Vec<i64> {
+    match value {
+        Value::List(ids) => ids.iter().flat_map(trigger_ids).collect(),
+        v => v.as_f64().map(|n| n as i64).into_iter().collect(),
+    }
 }
 
 /// The callbacks an evaluation registered. Holding one keeps the evaluation's
@@ -78,15 +115,22 @@ impl TriggerHooks {
         self.hooks.is_empty()
     }
 
-    /// Fire the callback `hap` is tagged for, passing the hap as the object a
-    /// `filter` predicate sees. Returns the callback's error message, if it
-    /// raised one, so the host can surface it.
+    /// Fire the callbacks `hap` is tagged for, oldest first, passing the hap
+    /// as the object a `filter` predicate sees. Returns the first callback
+    /// error, if one raised, so the host can surface it.
     pub fn fire(&mut self, hap: &Hap) -> Option<String> {
-        let id = trigger_id(&hap.value)?;
-        let func = *self.hooks.get(&id)?;
-        let hap = hap.clone();
-        func.run(move |f| js::call(f, vec![crate::bindings::hap_to_filter_arg(&hap)]).err())
-            .flatten()
+        let mut error = None;
+        for id in trigger_ids_of(&hap.value) {
+            let Some(&func) = self.hooks.get(&id) else {
+                continue;
+            };
+            let hap = hap.clone();
+            let e = func
+                .run(move |f| js::call(f, vec![crate::bindings::hap_to_filter_arg(&hap)]).err())
+                .flatten();
+            error = error.or(e);
+        }
+        error
     }
 }
 
@@ -106,11 +150,11 @@ pub fn take_settings() -> Vec<(String, String)> {
     std::mem::take(&mut *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-/// The hook id a hap carries, if it is `onTriggerTime`-tagged.
-pub fn trigger_id(value: &Value) -> Option<i64> {
+/// The hook ids a hap carries, oldest first; none unless `onTriggerTime`-tagged.
+pub fn trigger_ids_of(value: &Value) -> Vec<i64> {
     match value {
-        Value::Map(m) => m.get(TRIGGER_KEY).and_then(Value::as_f64).map(|n| n as i64),
-        _ => None,
+        Value::Map(m) => m.get(TRIGGER_KEY).map(trigger_ids).unwrap_or_default(),
+        _ => Vec::new(),
     }
 }
 
@@ -118,8 +162,12 @@ pub fn trigger_id(value: &Value) -> Option<i64> {
 mod tests {
     use rudel_core::Frac;
 
+    /// The settings queue is process-global; tests that drain it take turns.
+    static SETTINGS_QUEUE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn a_theme_pattern_reports_each_theme_as_it_plays() {
+        let _queue = SETTINGS_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
         // website/src/settings.mjs's `patternSetting`, as shared tunes use it.
         let result = crate::eval_result(r#"s("bd").theme("<githubDark nord>")"#).expect("eval");
         let mut hooks = result.trigger_hooks;
@@ -137,6 +185,29 @@ mod tests {
             .map(|(_, value)| value)
             .collect();
         assert_eq!(themes, ["githubDark", "nord"]);
+    }
+
+    #[test]
+    fn chained_settings_each_fire_in_the_order_written() {
+        let _queue = SETTINGS_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+        let result =
+            crate::eval_result(r#"s("bd").fontFamily("PressStart").fontSize(20)"#).expect("eval");
+        let mut hooks = result.trigger_hooks;
+        let hap = result
+            .pattern
+            .query_arc(Frac::zero(), Frac::one())
+            .remove(0);
+        let _ = super::take_settings();
+        assert_eq!(hooks.fire(&hap), None);
+        let fonts: Vec<(String, String)> = super::take_settings()
+            .into_iter()
+            .filter(|(key, _)| key.starts_with("font"))
+            .collect();
+        let pair = |k: &str, v: &str| (k.to_string(), v.to_string());
+        assert_eq!(
+            fonts,
+            [pair("fontFamily", "PressStart"), pair("fontSize", "20")]
+        );
     }
 
     #[test]

@@ -346,22 +346,27 @@ nope()"
 }
 
 #[test]
-fn only_a_tagged_control_map_carries_a_trigger_id() {
-    use crate::triggers::trigger_id;
+fn only_a_tagged_control_map_carries_trigger_ids() {
+    use crate::triggers::trigger_ids_of;
     use rudel_core::{TRIGGER_KEY, Value, ValueMap};
 
-    let tagged = |v: Value| trigger_id(&Value::Map(ValueMap::from([(TRIGGER_KEY.to_string(), v)])));
-    assert_eq!(tagged(Value::Int(2)), Some(2));
-    assert_eq!(tagged(Value::Int(0)), Some(0));
-    // Anything that is not a tagged map has no hook.
-    assert_eq!(trigger_id(&Value::Int(2)), None);
-    assert_eq!(trigger_id(&Value::Str("2".into())), None);
+    let tagged =
+        |v: Value| trigger_ids_of(&Value::Map(ValueMap::from([(TRIGGER_KEY.to_string(), v)])));
+    assert_eq!(tagged(Value::Int(2)), [2]);
+    assert_eq!(tagged(Value::Int(0)), [0]);
     assert_eq!(
-        trigger_id(&Value::Map(ValueMap::from([(
+        tagged(Value::List(vec![Value::Int(1), Value::Int(3)])),
+        [1, 3]
+    );
+    // Anything that is not a tagged map has no hook.
+    assert!(trigger_ids_of(&Value::Int(2)).is_empty());
+    assert!(trigger_ids_of(&Value::Str("2".into())).is_empty());
+    assert!(
+        trigger_ids_of(&Value::Map(ValueMap::from([(
             "s".to_string(),
             Value::Str("bd".into())
-        )]))),
-        None
+        )])))
+        .is_empty()
     );
 }
 

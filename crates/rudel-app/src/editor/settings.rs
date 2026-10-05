@@ -1,3 +1,4 @@
+use super::fonts::{self, WEB_FONTS, WebFont};
 use super::keymap::Keymap;
 use super::themes::{ThemeData, all as themes};
 use eframe::egui;
@@ -82,23 +83,56 @@ impl EditorTheme {
 pub(crate) enum EditorFontFamily {
     Monospace,
     Proportional,
+    /// One of Strudel's web fonts, by index into [`WEB_FONTS`].
+    Web(usize),
 }
 
 impl EditorFontFamily {
-    pub(crate) const ALL: [EditorFontFamily; 2] =
-        [EditorFontFamily::Monospace, EditorFontFamily::Proportional];
+    pub(crate) fn all() -> impl Iterator<Item = EditorFontFamily> {
+        [EditorFontFamily::Monospace, EditorFontFamily::Proportional]
+            .into_iter()
+            .chain((0..WEB_FONTS.len()).map(EditorFontFamily::Web))
+    }
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             EditorFontFamily::Monospace => "monospace",
             EditorFontFamily::Proportional => "proportional",
+            EditorFontFamily::Web(i) => WEB_FONTS[i].name,
         }
     }
 
-    fn egui_family(self) -> egui::FontFamily {
+    /// The family a saved setting or Strudel's `fontFamily` names. `Hack` is
+    /// egui's own monospace and `Courier` the browser's; CSS generic names map
+    /// to their egui families.
+    pub(crate) fn named(name: &str) -> Option<Self> {
+        match name.trim() {
+            "Hack" | "Courier" => Some(EditorFontFamily::Monospace),
+            "sans-serif" | "serif" => Some(EditorFontFamily::Proportional),
+            name => Self::all().find(|f| f.label().eq_ignore_ascii_case(name)),
+        }
+    }
+
+    pub(crate) fn web_font(self) -> Option<&'static WebFont> {
         match self {
-            EditorFontFamily::Monospace => egui::FontFamily::Monospace,
-            EditorFontFamily::Proportional => egui::FontFamily::Proportional,
+            EditorFontFamily::Web(i) => WEB_FONTS.get(i),
+            _ => None,
+        }
+    }
+
+    /// The font at `size`. A web font that has not arrived yet draws in
+    /// monospace, as a browser shows its fallback while a font loads.
+    fn font_id(self, size: f32) -> egui::FontId {
+        match self {
+            EditorFontFamily::Monospace => egui::FontId::monospace(size),
+            EditorFontFamily::Proportional => egui::FontId::proportional(size),
+            EditorFontFamily::Web(i) => match WEB_FONTS.get(i) {
+                Some(font) if fonts::is_installed(font) => egui::FontId::new(
+                    size * font.size_adjust,
+                    egui::FontFamily::Name(font.name.into()),
+                ),
+                _ => egui::FontId::monospace(size),
+            },
         }
     }
 }
@@ -191,10 +225,7 @@ impl EditorSettings {
                     }
                 }
                 "font_family" => {
-                    if let Some(family) = EditorFontFamily::ALL
-                        .into_iter()
-                        .find(|f| f.label() == value)
-                    {
+                    if let Some(family) = EditorFontFamily::named(value) {
                         settings.font_family = family;
                     }
                 }
@@ -223,7 +254,7 @@ impl EditorSettings {
     }
 
     pub(crate) fn font_id(self) -> egui::FontId {
-        egui::FontId::new(self.font_size, self.font_family.egui_family())
+        self.font_family.font_id(self.font_size)
     }
 
     pub(crate) fn draw_theme(self) -> DrawTheme {
@@ -371,6 +402,48 @@ mod tests {
             }
             .font_id(),
             egui::FontId::new(17.0, egui::FontFamily::Monospace)
+        );
+    }
+
+    #[test]
+    fn strudel_font_names_are_read_and_saved() {
+        let family = EditorFontFamily::named("PressStart").expect("a Strudel font");
+        assert_eq!(family.label(), "PressStart");
+        assert_eq!(EditorFontFamily::named("pressstart"), Some(family));
+        assert_eq!(
+            EditorFontFamily::named("Hack"),
+            Some(EditorFontFamily::Monospace)
+        );
+        assert_eq!(EditorFontFamily::named("NoSuchFont"), None);
+        let settings = EditorSettings {
+            font_family: family,
+            ..Default::default()
+        };
+        assert_eq!(EditorSettings::from_saved(&settings.to_saved()), settings);
+        // Not fetched in a test, so it draws in monospace meanwhile.
+        assert_eq!(
+            settings.font_id(),
+            egui::FontId::monospace(settings.font_size)
+        );
+    }
+
+    #[test]
+    fn an_arrived_web_font_draws_at_its_size_adjust() {
+        let ctx = egui::Context::default();
+        let font = &WEB_FONTS[0];
+        fonts::install_for_test(&ctx, font, epaint_default_fonts::UBUNTU_LIGHT);
+        fonts::install(&ctx, None);
+        let settings = EditorSettings {
+            font_family: EditorFontFamily::Web(0),
+            font_size: 10.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            settings.font_id(),
+            egui::FontId::new(
+                10.0 * font.size_adjust,
+                egui::FontFamily::Name(font.name.into())
+            )
         );
     }
 }

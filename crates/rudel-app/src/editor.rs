@@ -8,6 +8,7 @@ mod completion;
 mod contract;
 pub(crate) mod decorations;
 mod edit;
+pub(crate) mod fonts;
 mod highlight;
 pub(crate) mod keymap;
 mod menu;

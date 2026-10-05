@@ -21,6 +21,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
   forms too: a map (`aliasBank({RolandTR808: "808"})`), a list of aliases,
   and the URL of a JSON map.
 - Pianoroll's deprecated `timeframe` option (draws from 0 to its value).
+- **Strudel's editor fonts.** The font picker and the `fontFamily` pattern
+  setting offer the website's whole list (PressStart, mode7, teletext,
+  Monocraft, FiraCode, JetBrains, …). Each is downloaded from strudel.cc the
+  first time it is chosen and cached; the editor stays in monospace until it
+  arrives.
 
 ### Changed
 
@@ -30,6 +35,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
   `document`) is Rust now, with no bundled JavaScript left. Scripts see the
   same behaviour: every hap of the 90-song collection is unchanged. Building a
   script engine takes about half as long (3–4 ms, was 7–8).
+
+### Fixed
+
+- Chained `onTrigger` hooks all fire, as upstream's compose: before only the
+  last ran, so `.fontFamily("mode7").fontSize(28)` set the size and dropped the
+  font.
 
 ## [0.23.0-beta.1] — 2026-10-04
 
