@@ -1,5 +1,5 @@
 use crate::{
-    filter::{FilterKind, FilterModel, FilterParams, VoiceFilter},
+    filter::{FilterSet, VoiceFilters},
     modulator::{ModBank, ModSpec, ModTarget},
     pitch::PitchMod,
     voice::VoiceLike,
@@ -23,12 +23,9 @@ pub struct SamplerParams {
     pub speed: f32,
     pub attack: f32,
     pub release: f32,
-    pub cutoff: Option<f32>,
-    pub resonance: f32,
-    /// `ftype`: which lowpass model to run (12dB biquad, Moog ladder, 24dB).
-    pub model: FilterModel,
-    /// `drive`: ladder input drive; unused by the biquad models.
-    pub drive: f32,
+    /// The lowpass, highpass and bandpass, as every other voice has them:
+    /// superdough filters a sample with the same `createFilter` as a synth.
+    pub filters: FilterSet,
     /// Hold time in seconds (0 = play to the sample's natural end).
     pub duration: f32,
     /// Start/end positions as fractions of the sample (0..1).
@@ -62,10 +59,7 @@ impl SamplerParams {
             // short of its own end — and there it was five times too long, so a
             // clipped note bled into the next one.
             release: 0.01,
-            cutoff: None,
-            resonance: 0.707,
-            model: FilterModel::Db12,
-            drive: 0.69,
+            filters: FilterSet::default(),
             duration: 0.0,
             begin: 0.0,
             end: 1.0,
@@ -88,18 +82,7 @@ impl SamplerParams {
         if let Some(s) = map.get("speed").and_then(|v| v.as_f64()) {
             self.speed = s as f32;
         }
-        if let Some(c) = map.get("cutoff").and_then(|v| v.as_f64()) {
-            self.cutoff = Some(c as f32);
-        }
-        if let Some(q) = map.get("resonance").and_then(|v| v.as_f64()) {
-            self.resonance = (q as f32).max(0.1);
-        }
-        if let Some(v) = map.get("ftype") {
-            self.model = FilterModel::from_value(v);
-        }
-        if let Some(d) = map.get("drive").and_then(|v| v.as_f64()) {
-            self.drive = d as f32;
-        }
+        self.filters = FilterSet::from_controls(map);
         if let Some(b) = map.get("begin").and_then(|v| v.as_f64()) {
             self.begin = (b as f32).clamp(0.0, 1.0);
         }
@@ -142,8 +125,8 @@ pub struct SamplerVoice {
     t: f32,
     hold_end: f32,
     sample_rate: f32,
-    filter: Option<VoiceFilter>,
-    /// Modulators targeting this voice (gain and the lowpass).
+    filters: VoiceFilters,
+    /// Modulators targeting this voice (gain and the filters).
     mods: ModBank,
     done: bool,
     /// Looping: when active, `pos` wraps within `[loop_start, loop_end)` (in
@@ -205,18 +188,7 @@ impl SamplerVoice {
         } else {
             natural as f32
         };
-        // The sampler's lowpass has no envelope, so it reuses the voice filter
-        // slot with `env` unset — that also gives it `ftype`/`drive` for free.
-        let filter = params.cutoff.map(|c| {
-            let fp = FilterParams {
-                freq: Some(c),
-                q: params.resonance,
-                model: params.model,
-                drive: params.drive,
-                ..FilterParams::default()
-            };
-            VoiceFilter::new(FilterKind::Low, &fp, sample_rate)
-        });
+        let filters = VoiceFilters::new(&params.filters, sample_rate, false);
         SamplerVoice {
             sample: params.sample.clone(),
             pos: begin,
@@ -230,7 +202,7 @@ impl SamplerVoice {
             t: 0.0,
             hold_end,
             sample_rate,
-            filter,
+            filters,
             mods: ModBank::new(mods, sample_rate as f64),
             done: false,
             loop_on,
@@ -285,17 +257,9 @@ impl VoiceLike for SamplerVoice {
         let s1 = self.frame(i + 1);
         let mut s = s0 + (s1 - s0) * frac;
         self.mods.tick();
-        if let Some(f) = &mut self.filter {
-            let (ft, qt) = f.mod_targets();
-            s = f.process(
-                s,
-                self.t,
-                self.hold_end,
-                self.sample_rate,
-                self.mods.get(ft),
-                self.mods.get(qt),
-            );
-        }
+        s = self
+            .filters
+            .process(s, self.t, self.hold_end, self.sample_rate, &self.mods);
         s *= self.envelope() * (self.gain + self.mods.get(ModTarget::Gain));
 
         // Vibrato / pitch envelope detune the playback rate, which is what

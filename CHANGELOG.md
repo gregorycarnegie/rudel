@@ -48,6 +48,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Samples take every filter.** A loaded sample only had a lowpass, so
+  `hpf`, `bpf`, the filter envelopes (`lpenv`, …) did nothing on samples.
+  They now run the same filters as synths, resonance in dB included.
 - **`s("pulse")` is superdough's pulse oscillator.** It was a plain
   duty-cycle square; it is now the two half-Tomisawa feedback oscillators
   upstream's worklet runs, checked sample for sample against that worklet.

@@ -27,8 +27,8 @@ fn sampler() -> VoiceSpec {
     });
     let mut p = SamplerParams::new(sample);
     p.gain = 0.5;
-    p.cutoff = Some(800.0);
-    p.resonance = 5.0;
+    p.filters.lp.freq = Some(800.0);
+    p.filters.lp.q = 5.0;
     VoiceSpec::Sampler(p)
 }
 

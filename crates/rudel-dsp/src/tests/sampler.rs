@@ -569,14 +569,14 @@ fn the_filter_slot_carries_every_control_it_is_given() {
     };
 
     let dry = energy(&|_| {});
-    let cut = energy(&|p| p.cutoff = Some(300.0));
+    let cut = energy(&|p| p.filters.lp.freq = Some(300.0));
     assert!(
         cut < dry * 0.5,
         "the cutoff removes the 8k tone: {cut} {dry}"
     );
     // And it is the cutoff asked for, not some default: one above the tone
     // lets it through.
-    let open = energy(&|p| p.cutoff = Some(16_000.0));
+    let open = energy(&|p| p.filters.lp.freq = Some(16_000.0));
     assert!(
         open > dry * 0.8,
         "a 16k cutoff keeps the 8k tone: {open} {dry}"
@@ -584,30 +584,30 @@ fn the_filter_slot_carries_every_control_it_is_given() {
 
     // Resonance, model and drive each change the result of the same cutoff.
     let base = energy(&|p| {
-        p.cutoff = Some(1000.0);
-        p.model = FilterModel::Ladder;
+        p.filters.lp.freq = Some(1000.0);
+        p.filters.lp.model = FilterModel::Ladder;
     });
     let resonant = energy(&|p| {
-        p.cutoff = Some(1000.0);
-        p.model = FilterModel::Ladder;
-        p.resonance = 12.0;
+        p.filters.lp.freq = Some(1000.0);
+        p.filters.lp.model = FilterModel::Ladder;
+        p.filters.lp.q = 12.0;
     });
     assert!(
         (resonant - base).abs() > base * 0.01,
         "resonance changes it: {resonant} vs {base}"
     );
     let driven = energy(&|p| {
-        p.cutoff = Some(1000.0);
-        p.model = FilterModel::Ladder;
-        p.drive = 8.0;
+        p.filters.lp.freq = Some(1000.0);
+        p.filters.lp.model = FilterModel::Ladder;
+        p.filters.lp.drive = 8.0;
     });
     assert!(
         (driven - base).abs() > base * 0.01,
         "drive changes it: {driven} vs {base}"
     );
     let other_model = energy(&|p| {
-        p.cutoff = Some(1000.0);
-        p.model = FilterModel::Db24;
+        p.filters.lp.freq = Some(1000.0);
+        p.filters.lp.model = FilterModel::Db24;
     });
     assert!(
         (other_model - base).abs() > base * 0.01,
@@ -634,14 +634,26 @@ fn apply_controls_maps_the_pattern_names_onto_the_parameters() {
     assert_eq!(with("gain", Value::F64(0.25)).gain, 0.25);
     assert_eq!(with("pan", Value::F64(0.75)).pan, 0.75);
     assert_eq!(with("speed", Value::F64(2.5)).speed, 2.5);
-    assert_eq!(with("cutoff", Value::F64(800.0)).cutoff, Some(800.0));
-    assert_eq!(with("drive", Value::F64(3.0)).drive, 3.0);
+    assert_eq!(
+        with("cutoff", Value::F64(800.0)).filters.lp.freq,
+        Some(800.0)
+    );
+    assert_eq!(
+        with("hcutoff", Value::F64(300.0)).filters.hp.freq,
+        Some(300.0)
+    );
+    assert_eq!(
+        with("bandf", Value::F64(900.0)).filters.bp.freq,
+        Some(900.0)
+    );
+    assert_eq!(with("drive", Value::F64(3.0)).filters.lp.drive, 3.0);
     assert_eq!(with("attack", Value::F64(0.2)).attack, 0.2);
     assert_eq!(with("release", Value::F64(0.3)).release, 0.3);
 
-    // Resonance has a floor: a Q of zero is a divide-by-zero in the biquad.
-    assert_eq!(with("resonance", Value::F64(4.0)).resonance, 4.0);
-    assert_eq!(with("resonance", Value::F64(0.0)).resonance, 0.1);
+    // Resonance is in dB, as a Web Audio lowpass reads it, so 0 is a real
+    // value (a linear Q of 1), not one to floor.
+    assert_eq!(with("resonance", Value::F64(4.0)).filters.lp.q, 4.0);
+    assert_eq!(with("resonance", Value::F64(0.0)).filters.lp.q, 0.0);
 
     // Positions are fractions, clamped rather than read past the buffer.
     assert_eq!(with("begin", Value::F64(0.3)).begin, 0.3);
@@ -819,5 +831,35 @@ fn bus_input_reaches_the_voices_modulators() {
     assert!(
         peak_with(true) > peak_with(false),
         "feeding the bus should reach the gain modulator"
+    );
+}
+
+#[test]
+fn a_sample_takes_the_highpass_and_bandpass_too() {
+    // superdough filters a sample with the same createFilter as a synth; the
+    // sampler only ever had a lowpass, so `.hpf`/`.bpf` on a sample did
+    // nothing.
+    let sr = 44100.0;
+    let s = Arc::new(Sample {
+        data: (0..4410)
+            .map(|i| (TAU * 100.0 * i as f32 / sr).sin())
+            .collect(),
+        sample_rate: sr,
+    });
+    let energy = |apply: &dyn Fn(&mut SamplerParams)| {
+        let mut p = plain(s.clone());
+        apply(&mut p);
+        play(p, sr).iter().map(|x| x * x).sum::<f32>()
+    };
+    let dry = energy(&|_| {});
+    let high = energy(&|p| p.filters.hp.freq = Some(2000.0));
+    let band = energy(&|p| p.filters.bp.freq = Some(4000.0));
+    assert!(
+        high < dry * 0.05,
+        "a 2k highpass removes a 100Hz tone: {high} {dry}"
+    );
+    assert!(
+        band < dry * 0.05,
+        "a 4k bandpass removes a 100Hz tone: {band} {dry}"
     );
 }

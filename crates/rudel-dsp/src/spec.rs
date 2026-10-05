@@ -140,14 +140,8 @@ impl VoiceSpec {
                 VoiceSpec::ByteBeat(p) => p.gain,
                 VoiceSpec::Bus(p) => p.gain,
             },
-            ModTarget::Cutoff => match self {
-                VoiceSpec::Sampler(p) => p.cutoff.unwrap_or(0.0),
-                _ => self.filter_param(|f| f.lp.freq.unwrap_or(0.0)),
-            },
-            ModTarget::Resonance => match self {
-                VoiceSpec::Sampler(p) => p.resonance,
-                _ => self.filter_param(|f| f.lp.q),
-            },
+            ModTarget::Cutoff => self.filter_param(|f| f.lp.freq.unwrap_or(0.0)),
+            ModTarget::Resonance => self.filter_param(|f| f.lp.q),
             ModTarget::Hcutoff => self.filter_param(|f| f.hp.freq.unwrap_or(0.0)),
             ModTarget::Hresonance => self.filter_param(|f| f.hp.q),
             ModTarget::Bandf => self.filter_param(|f| f.bp.freq.unwrap_or(0.0)),
@@ -156,8 +150,8 @@ impl VoiceSpec {
         }
     }
 
-    /// Read one of the voice's filter slots. Every voice type but the sampler
-    /// (whose filters predate `FilterSet`) carries the same three slots.
+    /// Read one of the voice's filter slots; every voice type carries the same
+    /// three.
     fn filter_param(&self, f: impl Fn(&FilterSet) -> f32) -> f32 {
         match self {
             VoiceSpec::Synth(p) => f(&FilterSet {
@@ -169,7 +163,7 @@ impl VoiceSpec {
             VoiceSpec::Zzfx(p) => f(&p.filters),
             VoiceSpec::ByteBeat(p) => f(&p.filters),
             VoiceSpec::Bus(p) => f(&p.filters),
-            VoiceSpec::Sampler(_) => 0.0,
+            VoiceSpec::Sampler(p) => f(&p.filters),
         }
     }
 }
