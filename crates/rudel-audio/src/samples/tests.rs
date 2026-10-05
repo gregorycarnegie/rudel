@@ -599,6 +599,21 @@ fn a_sample_map_is_fetched_over_http() {
 }
 
 #[test]
+fn concurrent_fetches_of_one_url_download_it_once() {
+    // The server answers a single request: any second download would fail.
+    let url = serve_once("one body");
+    let fetches: Vec<_> = (0..4)
+        .map(|_| {
+            let url = url.clone();
+            std::thread::spawn(move || super::loading::fetch_cached_bytes(&url))
+        })
+        .collect();
+    for fetch in fetches {
+        assert_eq!(fetch.join().unwrap().as_deref(), Ok(&b"one body"[..]));
+    }
+}
+
+#[test]
 fn a_cached_text_fetch_reads_a_local_path_directly() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("live.orc");
@@ -625,4 +640,26 @@ fn an_alias_map_entry_may_list_several_aliases() {
     assert_eq!(bank.canonical_bank("linn"), "LinnDrum");
     assert_eq!(bank.canonical_bank("ld"), "LinnDrum");
     assert!(bank.alias_bank_json(b"[1]").is_err());
+}
+
+#[test]
+fn a_wt_sound_in_a_sample_map_loads_as_a_wavetable() {
+    // superdough's `registerSampleSource`: a `wt_` key is a wavetable, which is
+    // how the REPL's own `uzu-wavetables` bank reaches the oscillator.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_wav(&root.join("table.wav"), &[0.25; 4096], 44100);
+    let map = root.join("strudel.json");
+    std::fs::write(&map, r#"{ "wt_test": "table.wav" }"#).unwrap();
+
+    let mut bank = SampleBank::new();
+    bank.register_samples_source(map.to_str().unwrap())
+        .expect("register map");
+    bank.load_pending("wt_test").expect("load pending");
+    let table = bank.resolve_table("wt_test", 0).expect("a wavetable");
+    assert_eq!(table.frames.len(), 2, "two frames of 2048");
+    assert!(bank.get("wt_test", 0).is_none(), "not also a sample");
+    assert!(bank.pending_files("wt_test").is_none());
+    assert!(bank.contains("wt_test"), "still a sound it can play");
+    assert_eq!(bank.names(), ["wt_test"]);
 }

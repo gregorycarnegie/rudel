@@ -38,6 +38,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- The REPL's wavetable bank plays as wavetables: `s("wt_digital")` and the
+  other `wt_` sounds Strudel preloads reach the wavetable oscillator, as any
+  `wt_` name in a `samples(...)` map does upstream. Before they played as
+  one-shot samples.
+- Two loads of the same file at once download it once, and a half-written
+  cache file can no longer be read as a whole one.
 - Chained `onTrigger` hooks all fire, as upstream's compose: before only the
   last ran, so `.fontFamily("mode7").fontSize(28)` set the size and dropped the
   font.

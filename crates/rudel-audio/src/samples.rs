@@ -143,9 +143,11 @@ impl SampleBank {
     }
 
     /// Check if the bank can play the given sound name — registered counts,
-    /// whether or not the audio has been downloaded yet.
+    /// whether or not the audio has been downloaded yet, and so do wavetables.
     pub fn contains(&self, name: &str) -> bool {
-        self.map.contains_key(name) || self.pending.contains_key(name)
+        self.map.contains_key(name)
+            || self.pending.contains_key(name)
+            || self.tables.contains_key(name)
     }
 
     /// Register a sound's files without downloading them, so a map can be known
@@ -215,6 +217,7 @@ impl SampleBank {
             .map
             .keys()
             .chain(self.pending.keys())
+            .chain(self.tables.keys())
             .cloned()
             .collect();
         names.sort();

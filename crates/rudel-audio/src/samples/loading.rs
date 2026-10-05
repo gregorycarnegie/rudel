@@ -4,8 +4,9 @@ use super::{SampleBank, decoding::decode_sample_bytes};
 use crate::sample_map;
 use rudel_dsp::{Sample, WaveTable};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, mpsc},
+    sync::{Arc, LazyLock, Mutex, mpsc},
 };
 
 /// A sample parsed and loaded, but not yet merged into a [`SampleBank`].
@@ -76,9 +77,15 @@ impl SampleBank {
     }
 
     /// Merges loaded samples into this bank, returning the count of added samples.
+    /// A `wt_` name is a wavetable, as superdough's `registerSampleSource`
+    /// decides, sliced into frames of its default 2048 samples.
     pub(crate) fn extend_loaded(&mut self, loaded: Vec<LoadedSample>) -> usize {
         let count = loaded.len();
         for LoadedSample { name, note, sample } in loaded {
+            if name.starts_with("wt_") {
+                self.register_table(&name, WaveTable::from_samples(&sample.data, 2048));
+                continue;
+            }
             match note {
                 Some(midi) => self.register_note(&name, midi, sample),
                 None => self.register(&name, sample),
@@ -431,6 +438,18 @@ pub fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
         let path = expand_home(url);
         return std::fs::read(&path).map_err(|e| format!("read {path}: {e}"));
     }
+    // One download per URL at a time, like superdough's `loadCache`: a second
+    // caller waits for the first and then reads what it cached.
+    // ponytail: one gate per URL ever fetched, never freed; a few bytes each.
+    static IN_FLIGHT: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
+        LazyLock::new(Mutex::default);
+    let gate = IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(url.to_string())
+        .or_default()
+        .clone();
+    let _downloading = gate.lock().unwrap_or_else(|e| e.into_inner());
     let cache = cache_path(url);
     if let Some(path) = &cache
         && let Ok(bytes) = std::fs::read(path)
@@ -446,11 +465,16 @@ pub fn fetch_cached_bytes(url: &str) -> Result<Vec<u8>, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| format!("read {url}: {e}"))?;
     // Best-effort cache write; a failed write just re-downloads next time.
+    // Written aside and renamed into place, so another process reading the
+    // cache never sees half a file.
     if let Some(path) = &cache
         && let Some(parent) = path.parent()
         && std::fs::create_dir_all(parent).is_ok()
     {
-        let _ = std::fs::write(path, &bytes);
+        let part = path.with_extension(format!("part{}", std::process::id()));
+        if std::fs::write(&part, &bytes).is_err() || std::fs::rename(&part, path).is_err() {
+            let _ = std::fs::remove_file(&part);
+        }
     }
     Ok(bytes)
 }
