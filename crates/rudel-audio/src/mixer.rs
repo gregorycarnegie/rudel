@@ -67,7 +67,9 @@ impl StereoDelay {
     /// changing `delaytime` glides rather than clicking to silence.
     fn configure(&mut self, cfg: DelayConfig) {
         let max = self.left.len();
-        self.delay_samples = ((self.sample_rate * cfg.time) as usize).clamp(1, max);
+        // The nearest whole sample: Web Audio's `DelayNode` interpolates a
+        // fractional delay, which truncating would put up to a sample early.
+        self.delay_samples = ((self.sample_rate * cfg.time).round() as usize).clamp(1, max);
         self.feedback = cfg.feedback.clamp(0.0, 0.98);
     }
 

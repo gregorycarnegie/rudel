@@ -180,8 +180,9 @@ fn biquad_impulse_response_matches_webaudio() {
     // node-web-audio-api; see tools/oracle/gen_biquad_oracle.mjs). Only the
     // bandpass/notch types are golden-tested, because their Q is linear in both
     // WebAudio and the RBJ cookbook so they match Rudel's `Biquad` exactly;
-    // lowpass/highpass use WebAudio's dB-Q convention and stay on smoke tests.
-    use crate::filter::Biquad;
+    // lowpass/highpass read their Q in dB, so those cases go through the voice
+    // filter, with the case's Q as the pattern's `lpq`/`hpq`.
+    use crate::filter::{Biquad, FilterKind, FilterParams, VoiceFilter};
 
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../../../../tools/oracle/biquad_golden.json"))
@@ -205,14 +206,36 @@ fn biquad_impulse_response_matches_webaudio() {
             .map(|v| v.as_f64().unwrap() as f32)
             .collect();
 
-        let mut filter = match kind {
-            "bandpass" => Biquad::bandpass(sr, freq, q),
-            "notch" => Biquad::notch(sr, freq, q),
+        let voice = |kind| {
+            let fp = FilterParams {
+                freq: Some(freq),
+                q,
+                ..FilterParams::default()
+            };
+            VoiceFilter::new(kind, &fp, sr)
+        };
+        let mut filter: Box<dyn FnMut(f32) -> f32> = match kind {
+            "bandpass" => {
+                let mut b = Biquad::bandpass(sr, freq, q);
+                Box::new(move |x| b.process(x))
+            }
+            "notch" => {
+                let mut b = Biquad::notch(sr, freq, q);
+                Box::new(move |x| b.process(x))
+            }
+            "lowpass" | "highpass" => {
+                let mut f = voice(if kind == "lowpass" {
+                    FilterKind::Low
+                } else {
+                    FilterKind::High
+                });
+                Box::new(move |x| f.process(x, 0.0, 1.0, sr, 0.0, 0.0))
+            }
             other => panic!("unexpected filter type in golden: {other}"),
         };
         for (i, &expected) in want.iter().enumerate().take(n) {
             let x = if i == 0 { 1.0 } else { 0.0 };
-            let got = filter.process(x);
+            let got = filter(x);
             let d = (got - expected).abs();
             if d > EPS {
                 failures.push(format!(

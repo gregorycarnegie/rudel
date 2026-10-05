@@ -2686,7 +2686,9 @@ fn an_fx_chain_applies_its_stages_in_order() {
     );
 
     // Filters reach a stage too — upstream's own example is `.FX(lpf(500))`.
-    let filtered = saw().fx(&[stage("cutoff", 300.0)]);
+    // Below the 220 Hz fundamental: just above it, upstream's default 1 dB
+    // resonance lifts the fundamental about as much as the cut takes away.
+    let filtered = saw().fx(&[stage("cutoff", 150.0)]);
     assert!(
         level(&filtered) < level(&plain) * 0.9,
         "a filter in a stage should cut the signal ({} -> {})",
@@ -2823,4 +2825,40 @@ fn an_orbit_stops_after_twice_its_tail_plus_a_second_of_silence() {
         bus.mix_into(&mut out);
     }
     assert_eq!(bus.idle_frames, (61_740 / 512 + 1) * 512);
+}
+
+#[test]
+fn the_feedback_delay_matches_webaudio() {
+    // tools/oracle/gen_delay_oracle.mjs: superdough's FeedbackDelayNode graph
+    // rendered by Web Audio, one impulse per case, whole-sample delay times.
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../tools/oracle/delay_golden.json"))
+            .expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap() as f32;
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let samples = case["delaySamples"].as_f64().unwrap() as f32;
+        let feedback = case["feedback"].as_f64().unwrap() as f32;
+        let cfg = rudel_dsp::DelayConfig {
+            time: samples / sr,
+            feedback,
+        };
+        let mut delay = StereoDelay::new(sr, cfg);
+        for (i, want) in case["samples"].as_array().unwrap().iter().enumerate() {
+            let x = if i == 0 { 1.0 } else { 0.0 };
+            let (got, _) = delay.process(x, x);
+            let want = want.as_f64().unwrap() as f32;
+            // Web Audio's line leaks ~1e-4 into the next sample, as
+            // `441 / 44100` is not exact in floating point.
+            if (got - want).abs() > 1e-3 {
+                failures.push(format!("{samples}@{feedback} [{i}]: {got} vs {want}"));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} mismatches, first: {:?}",
+        failures.len(),
+        &failures[..failures.len().min(5)]
+    );
 }

@@ -5,11 +5,10 @@
 // inside an OfflineAudioContext (via node-web-audio-api, a faithful native
 // implementation of the Web Audio API) and dumps the impulse response.
 //
-// We only golden the `bandpass` and `notch` types, whose Q is linear in both
-// the WebAudio spec and the RBJ Audio EQ Cookbook, so they match Rudel's
-// `Biquad` (rudel-dsp/src/filter.rs) exactly. `lowpass`/`highpass` are skipped
-// here because WebAudio interprets their Q in dB, a different convention from
-// Rudel's linear-Q filter controls.
+// `bandpass` and `notch` take a linear Q, as the RBJ Audio EQ Cookbook does;
+// `lowpass`/`highpass` read theirs in dB (alpha = sin(w0) / (2 * 10^(Q/20))),
+// which is what superdough's `lpq`/`hpq` hand them, so the Rust side runs
+// those through the voice filter that converts a pattern's resonance.
 //
 // Run: node gen_biquad_oracle.mjs  (writes biquad_golden.json)
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -42,6 +41,11 @@ const specs = [
   { type: 'bandpass', frequency: 5000, q: 0.5 },
   { type: 'notch', frequency: 1000, q: 1 },
   { type: 'notch', frequency: 2500, q: 3 },
+  { type: 'lowpass', frequency: 1000, q: 1 },
+  { type: 'lowpass', frequency: 300, q: 12 },
+  { type: 'lowpass', frequency: 4000, q: 0 },
+  { type: 'highpass', frequency: 1000, q: 1 },
+  { type: 'highpass', frequency: 200, q: 6 },
 ];
 
 const cases = [];

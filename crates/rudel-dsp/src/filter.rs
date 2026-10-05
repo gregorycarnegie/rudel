@@ -228,7 +228,8 @@ impl Default for FilterParams {
     fn default() -> Self {
         FilterParams {
             freq: None,
-            q: 0.707,
+            // superdough's `createFilter` default, for every filter type.
+            q: 1.0,
             env: None,
             attack: None,
             decay: None,
@@ -254,7 +255,7 @@ impl FilterParams {
 /// The three filter slots a voice runs, as superdough configures them from one
 /// control map: `cutoff`/`resonance`, `hcutoff`/`hresonance`, `bandf`/`bandq`,
 /// each with its own envelope, plus the shared `fanchor`/`ftype`/`drive`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FilterSet {
     pub lp: FilterParams,
     pub hp: FilterParams,
@@ -269,28 +270,16 @@ impl FilterSet {
     }
 }
 
-impl Default for FilterSet {
-    fn default() -> FilterSet {
-        FilterSet {
-            lp: FilterParams::default(),
-            hp: FilterParams::default(),
-            // superdough's band-pass defaults to Q 1 rather than 0.707.
-            bp: FilterParams {
-                q: 1.0,
-                ..FilterParams::default()
-            },
-        }
-    }
-}
-
 impl FilterSet {
     pub fn from_controls(map: &ValueMap) -> FilterSet {
         let mut s = FilterSet::default();
         let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
         // Low-pass (cutoff/lpf) + its envelope.
         s.lp.freq = get("cutoff");
+        // Decibels, as a `BiquadFilterNode` reads a lowpass Q: 0 and below are
+        // meaningful, so there is no floor (see `biquad_q`).
         if let Some(q) = get("resonance") {
-            s.lp.q = q.max(0.1);
+            s.lp.q = q;
         }
         s.lp.env = get("lpenv");
         s.lp.attack = get("lpattack");
@@ -300,7 +289,7 @@ impl FilterSet {
         // High-pass (hcutoff/hpf) + its envelope.
         s.hp.freq = get("hcutoff");
         if let Some(q) = get("hresonance") {
-            s.hp.q = q.max(0.1);
+            s.hp.q = q;
         }
         s.hp.env = get("hpenv");
         s.hp.attack = get("hpattack");
@@ -413,6 +402,16 @@ fn run(
     x
 }
 
+/// The linear Q a voice filter's resonance means. superdough hands `lpq`/`hpq`
+/// to a `BiquadFilterNode`, which reads a lowpass or highpass Q in decibels
+/// (`alpha = sin(w0) / (2 * 10^(Q/20))`), and a bandpass Q as it is.
+fn biquad_q(kind: FilterKind, q: f32) -> f32 {
+    match kind {
+        FilterKind::Low | FilterKind::High => 10f32.powf(q / 20.0),
+        FilterKind::Band | FilterKind::Notch => q.max(0.1),
+    }
+}
+
 /// The resonant core of a filter slot, selected by `ftype`.
 #[derive(Clone)]
 enum FilterCore {
@@ -426,6 +425,8 @@ enum FilterCore {
 #[derive(Clone)]
 pub(crate) struct VoiceFilter {
     kind: FilterKind,
+    /// The pattern's resonance as written: decibels for lowpass/highpass, a
+    /// linear Q for bandpass (see [`biquad_q`]).
     q: f32,
     /// The static cutoff, used as the base when a modulator offsets it.
     base_freq: f32,
@@ -437,7 +438,7 @@ pub(crate) struct VoiceFilter {
 impl VoiceFilter {
     pub(crate) fn new(kind: FilterKind, fp: &FilterParams, sample_rate: f32) -> VoiceFilter {
         let base = fp.freq.unwrap_or(1000.0);
-        let q = fp.q.max(0.1);
+        let q = biquad_q(kind, fp.q);
         let env = if fp.has_env() {
             // superdough: min = 2^-offset * f, max = 2^(|env|-offset) * f
             let env_oct = fp.env.unwrap_or(1.0);
@@ -460,7 +461,9 @@ impl VoiceFilter {
             None
         };
         let core = match fp.model {
-            FilterModel::Ladder => FilterCore::Ladder(Ladder::new(sample_rate, base, q, fp.drive)),
+            FilterModel::Ladder => {
+                FilterCore::Ladder(Ladder::new(sample_rate, base, fp.q.max(0.1), fp.drive))
+            }
             FilterModel::Db24 => FilterCore::Biquad(
                 Biquad::new(kind, sample_rate, base, q),
                 Some(Biquad::new(kind, sample_rate, base, q)),
@@ -469,7 +472,7 @@ impl VoiceFilter {
         };
         VoiceFilter {
             kind,
-            q,
+            q: fp.q,
             base_freq: base,
             core,
             env,
@@ -507,7 +510,7 @@ impl VoiceFilter {
                 None => self.base_freq,
             };
             let freq = base + freq_mod;
-            let q = (self.q + q_mod).max(0.1);
+            let q = biquad_q(self.kind, self.q + q_mod);
             match &mut self.core {
                 FilterCore::Biquad(b1, b2) => {
                     b1.update(self.kind, sample_rate, freq, q);

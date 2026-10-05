@@ -42,6 +42,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Filter resonance reads in decibels, as on strudel.cc.** superdough hands
+  `lpq`/`hpq` to a Web Audio lowpass/highpass, which reads its Q in dB; rudel
+  read it as a linear Q, so `.lpq(10)` rang about twice as hard, and the
+  default resonance was 0.707 instead of superdough's 1. Lowpass and highpass
+  are now golden-tested sample for sample against Web Audio. Bandpass `bpq`
+  was already right (Web Audio reads it linearly).
+- The delay line rounds `delaytime` to the nearest sample rather than down.
 - Spiral haps fade out fully at the edge of the draw window, as on
   strudel.cc; they used to bottom out at 8% opacity.
 - The REPL's wavetable bank plays as wavetables: `s("wt_digital")` and the
