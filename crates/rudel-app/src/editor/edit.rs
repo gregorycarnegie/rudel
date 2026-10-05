@@ -20,6 +20,8 @@ pub(super) struct EditorShortcuts {
     pub(super) complete_next: bool,
     pub(super) complete_prev: bool,
     pub(super) complete_dismiss: bool,
+    /// Ctrl+Space: CodeMirror's explicit completion.
+    pub(super) complete_explicit: bool,
 }
 
 pub(super) fn capture_editor_shortcuts(
@@ -64,6 +66,7 @@ pub(super) fn capture_editor_shortcuts(
             complete_next,
             complete_prev,
             complete_dismiss,
+            complete_explicit: settings.autocomplete && i.consume_key(Modifiers::CTRL, Key::Space),
         }
     })
 }

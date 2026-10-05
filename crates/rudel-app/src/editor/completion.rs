@@ -1,5 +1,6 @@
 use super::{
     highlight::{Token, tokenize},
+    strudel_docs::{DOCS, Doc},
     text::char_index_at_byte,
 };
 use crate::reference::{DRUMS, LANGUAGE_KEYWORDS, WAVEFORMS};
@@ -7,7 +8,8 @@ use eframe::egui::{
     self,
     text::{ByteIndex, CharIndex},
 };
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::LazyLock;
 
 const MAX_COMPLETIONS: usize = 12;
 const PITCH_NAMES: &[&str] = &[
@@ -99,6 +101,9 @@ pub(super) struct Completion {
     pub(super) start: ByteIndex,
     pub(super) items: Vec<CompletionItem>,
     pub(super) selected: usize,
+    /// Opened with Ctrl+Space, CodeMirror's explicit completion, which stays
+    /// explicit while it is open.
+    pub(super) explicit: bool,
 }
 
 /// Draw the autocomplete suggestions just below the editor, with the selected
@@ -122,7 +127,9 @@ pub(super) fn completion_popup(
                         i == state.selected,
                         egui::RichText::new(text).monospace(),
                     );
-                    if let Some(detail) = &item.detail {
+                    if let Some(doc) = doc(&item.label) {
+                        response.on_hover_text(doc.description);
+                    } else if let Some(detail) = &item.detail {
                         response.on_hover_text(detail);
                     }
                 }
@@ -136,20 +143,92 @@ pub(super) fn completion_tooltip(
     response: &egui::Response,
     item: &CompletionItem,
 ) {
+    let pos = response.rect.right_top() + egui::vec2(8.0, 0.0);
+    // As wide as the room right of the editor allows, so a long description
+    // wraps there rather than pushing the tooltip back over the code.
+    let room = ui.ctx().content_rect().right() - pos.x - 24.0;
     egui::Area::new(id.with("tooltip"))
         .order(egui::Order::Tooltip)
-        .fixed_pos(response.rect.right_top() + egui::vec2(8.0, 0.0))
+        .fixed_pos(pos)
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_max_width(280.0);
+                ui.set_max_width(room.clamp(120.0, 360.0));
                 ui.label(egui::RichText::new(&item.label).monospace().strong());
                 ui.weak(item.kind.label());
-                if let Some(detail) = &item.detail {
-                    ui.separator();
-                    ui.label(detail);
+                match doc(&item.label) {
+                    Some(doc) => show_doc(ui, doc, &item.label),
+                    None => {
+                        if let Some(detail) = &item.detail {
+                            ui.separator();
+                            ui.label(detail);
+                        }
+                    }
                 }
             });
         });
+}
+
+/// Strudel's autocomplete info panel (`Autocomplete` in
+/// codemirror/autocomplete.mjs): the other names it goes by, its description,
+/// parameters and examples. Reached through a synonym, the synonyms list the
+/// documented name in its place, as `getSynonymDoc` does.
+fn show_doc(ui: &mut egui::Ui, doc: &'static Doc, label: &str) {
+    let synonyms = synonyms_for(doc, label);
+    if !synonyms.is_empty() {
+        ui.weak(format!("Synonyms: {}", synonyms.join(", ")));
+    }
+    ui.separator();
+    if !doc.description.is_empty() {
+        ui.label(doc.description);
+    }
+    if !doc.params.is_empty() {
+        ui.strong("Parameters");
+        for (name, ty, description) in doc.params {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(*name).monospace());
+                ui.weak(*ty);
+                if !description.is_empty() {
+                    ui.label(*description);
+                }
+            });
+        }
+    }
+    if !doc.examples.is_empty() {
+        ui.strong("Examples");
+        for example in doc.examples {
+            ui.label(egui::RichText::new(*example).monospace());
+        }
+    }
+}
+
+/// The other names `label` goes by: the documented name and its synonyms,
+/// less the one in hand.
+fn synonyms_for(doc: &'static Doc, label: &str) -> Vec<&'static str> {
+    std::iter::once(doc.name)
+        .chain(doc.synonyms.iter().copied())
+        .filter(|name| *name != label)
+        .collect()
+}
+
+/// Strudel's doc for `name`, found by its documented name or a synonym; the
+/// first doc to claim a name keeps it, as Strudel's completion list does.
+pub(super) fn doc(name: &str) -> Option<&'static Doc> {
+    static BY_NAME: LazyLock<HashMap<&'static str, &'static Doc>> = LazyLock::new(|| {
+        let mut by_name = HashMap::new();
+        for doc in DOCS {
+            for name in std::iter::once(&doc.name).chain(doc.synonyms) {
+                by_name.entry(*name).or_insert(doc);
+            }
+        }
+        by_name
+    });
+    BY_NAME.get(name).copied()
+}
+
+/// Left out of completion, as Strudel's `hasExcludedTags` leaves out what is
+/// tagged `superdirtOnly` or `noAutocomplete`. Hovering still explains it.
+fn doc_excluded(name: &str) -> bool {
+    doc(name).is_some_and(|doc| doc.excluded)
 }
 
 /// Replace the prefix bytes `start..cursor` with the accepted item, returning
@@ -171,17 +250,28 @@ pub(super) fn completion_at(
     code: &str,
     cursor: ByteIndex,
     catalog: &CompletionCatalog<'_>,
+    explicit: bool,
 ) -> Option<(ByteIndex, ByteIndex, Vec<CompletionItem>)> {
-    completion_at_bytes(code, cursor.0, catalog)
+    completions(code, cursor.0, catalog, explicit)
         .map(|(start, end, items)| (ByteIndex(start), ByteIndex(end), items))
 }
 
 /// Byte-domain implementation of [`completion_at`]; everything below works in
 /// plain `usize` byte offsets (no char indices in sight).
+#[cfg(test)]
 fn completion_at_bytes(
     code: &str,
     cursor: usize,
     catalog: &CompletionCatalog<'_>,
+) -> Option<(usize, usize, Vec<CompletionItem>)> {
+    completions(code, cursor, catalog, false)
+}
+
+fn completions(
+    code: &str,
+    cursor: usize,
+    catalog: &CompletionCatalog<'_>,
+    explicit: bool,
 ) -> Option<(usize, usize, Vec<CompletionItem>)> {
     if cursor > code.len() {
         return None;
@@ -199,7 +289,7 @@ fn completion_at_bytes(
     if let Some(result) = chord_completion(code, cursor) {
         return result;
     }
-    if let Some(result) = scale_completion(code, cursor) {
+    if let Some(result) = scale_completion(code, cursor, explicit) {
         return result;
     }
     if let Some(result) = mode_completion(code, cursor) {
@@ -265,7 +355,7 @@ fn control_completion(
     let fragment = &ctx.inside[start..];
     let items = control_items(catalog)
         .into_iter()
-        .filter(|item| item.label.starts_with(fragment))
+        .filter(|item| item.label.starts_with(fragment) && !doc_excluded(&item.label))
         .collect();
     Some(non_empty_result(
         ctx.absolute_inside_start + start,
@@ -302,6 +392,7 @@ fn chord_completion(
 fn scale_completion(
     code: &str,
     cursor: usize,
+    explicit: bool,
 ) -> Option<Option<(usize, usize, Vec<CompletionItem>)>> {
     let ctx = quoted_arg_context(code, cursor, &["scale"])?;
     if let Some(colon) = ctx.inside.rfind(':') {
@@ -321,6 +412,11 @@ fn scale_completion(
         ));
     }
 
+    // Before the colon the root is offered only when asked for (Ctrl+Space),
+    // as `scaleHandler` does: typing a root should not open a popup.
+    if !explicit {
+        return Some(None);
+    }
     let start = fragment_start(&ctx.inside, |ch| {
         ch.is_ascii_alphabetic() || matches!(ch, '#' | 'b')
     });
@@ -381,7 +477,11 @@ fn fallback_completion(
 
     let mut items: Vec<_> = fallback_items(catalog)
         .into_iter()
-        .filter(|item| item.label.len() > prefix.len() && item.label.starts_with(&prefix))
+        .filter(|item| {
+            item.label.len() > prefix.len()
+                && item.label.starts_with(&prefix)
+                && !doc_excluded(&item.label)
+        })
         .collect();
     items.sort_by(|a, b| {
         a.label
@@ -718,7 +818,7 @@ mod tests {
     fn a_scale_argument_completes_its_type_after_the_colon() {
         //        0123456789
         let code = r#"scale("c:maj")"#;
-        let got = scale_completion(code, 12).expect("in a scale argument");
+        let got = scale_completion(code, 12, false).expect("in a scale argument");
         let (start, end, items) = got.expect("some scale names");
         assert_eq!((start, end), (9, 12), "replaces just the type fragment");
         assert!(
@@ -728,7 +828,7 @@ mod tests {
         );
         // A two-word scale name is applied with a `:` between the words, which
         // is how mini-notation spells it.
-        let got = scale_completion(r#"scale("c:harmonic")"#, 17)
+        let got = scale_completion(r#"scale("c:harmonic")"#, 17, false)
             .expect("in a scale argument")
             .expect("some scale names");
         assert!(
@@ -950,6 +1050,50 @@ mod tests {
     }
 
     #[test]
+    fn a_scale_root_is_offered_only_when_asked_for() {
+        // autocomplete.mjs `scaleHandler`: before the colon, pitch names come
+        // only with explicit completion (Ctrl+Space).
+        let reference = reference(&[]);
+        let idents = HashSet::new();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+        let code = r#"scale("D"#;
+        assert!(completions(code, code.len(), &catalog, false).is_none());
+        let (start, _, items) = completions(code, code.len(), &catalog, true).unwrap();
+        assert_eq!(start, 7);
+        assert_eq!(labels(items), ["D", "D#", "Db"]);
+    }
+
+    #[test]
+    fn strudel_docs_are_found_by_name_or_synonym() {
+        let fast = doc("fast").expect("fast is documented");
+        assert!(fast.description.starts_with("Speed up a pattern"));
+        assert_eq!(fast.params[0].0, "factor");
+        assert!(!fast.examples.is_empty());
+        // `density` is also documented on its own (the crackle control): the
+        // doc that comes first in doc.json keeps the label, as in Strudel's list.
+        assert_eq!(synonyms_for(fast, "fast"), ["density"]);
+        assert_eq!(synonyms_for(fast, "density"), ["fast"]);
+        let through_synonym = doc("density").expect("density is documented");
+        assert!(!through_synonym.description.is_empty());
+        assert!(doc("no_such_function").is_none());
+    }
+
+    #[test]
+    fn superdirt_only_names_are_not_offered() {
+        // autocomplete.mjs `hasExcludedTags`: `accelerate` is `superdirtOnly`.
+        assert!(doc("accelerate").is_some_and(|d| d.excluded));
+        let reference = reference(&["accelerate", "acos_like"]);
+        let idents = HashSet::new();
+        let sample_names = Vec::new();
+        let catalog = catalog(&reference, &idents, &sample_names);
+        let (_, _, items) = completion_at_bytes("ac", 2, &catalog).unwrap();
+        assert_eq!(labels(items), ["acos_like"]);
+        // Hovering it still explains it.
+        assert!(reference_tooltip_at("accelerate", ByteIndex(2), &catalog).is_some());
+    }
+
+    #[test]
     fn tooltip_finds_reference_items_at_cursor() {
         let reference = reference(&["stack"]);
         let idents: HashSet<String> = ["stack"].into_iter().map(str::to_string).collect();
@@ -1054,8 +1198,9 @@ mod tests {
         assert!(!items.is_empty());
 
         // scale("c d — a pattern of tonics; the fragment is the last one.
+        // Tonics are offered on explicit completion only.
         let code = r#"scale("c d"#;
-        let (start, end, _) = completion_at_bytes(code, code.len(), &catalog).unwrap();
+        let (start, end, _) = completions(code, code.len(), &catalog, true).unwrap();
         assert_eq!((start, end), (9, code.len()), "replaces `d` only");
 
         // ctrl("bank ga — again a fragment that is not the first thing in
@@ -1074,10 +1219,10 @@ mod tests {
         let idents: HashSet<String> = ["stack"].into_iter().map(str::to_string).collect();
         let sample_names = Vec::new();
         let catalog = catalog(&reference, &idents, &sample_names);
-        let (start, end, items) = completion_at("st", ByteIndex(2), &catalog).unwrap();
+        let (start, end, items) = completion_at("st", ByteIndex(2), &catalog, false).unwrap();
         assert_eq!((start, end), (ByteIndex(0), ByteIndex(2)));
         assert_eq!(labels(items), vec!["stack".to_string()]);
-        assert!(completion_at("", ByteIndex(0), &catalog).is_none());
+        assert!(completion_at("", ByteIndex(0), &catalog, false).is_none());
     }
 
     #[test]

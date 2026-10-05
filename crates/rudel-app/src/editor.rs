@@ -14,6 +14,7 @@ pub(crate) mod keymap;
 mod menu;
 pub(crate) mod settings;
 mod sliders;
+mod strudel_docs;
 mod text;
 pub(crate) mod themes;
 pub(crate) mod widgets;
@@ -348,15 +349,17 @@ pub(crate) fn code_editor(
             }
             // Open on typing, refresh while already open, otherwise close.
             let prev = completion.take();
-            if settings.autocomplete && (typed_text.is_some() || prev.is_some()) {
+            let explicit = shortcuts.complete_explicit || prev.as_ref().is_some_and(|p| p.explicit);
+            if settings.autocomplete && (typed_text.is_some() || prev.is_some() || explicit) {
                 let cursor_byte = byte_index_at_char(code, cursor);
-                completion = completion_at(code, cursor_byte, &completion_catalog).map(
+                completion = completion_at(code, cursor_byte, &completion_catalog, explicit).map(
                     |(start, _, items)| {
                         let selected = carried_selection(prev.as_ref(), start, items.len());
                         Completion {
                             start,
                             items,
                             selected,
+                            explicit,
                         }
                     },
                 );
@@ -514,10 +517,22 @@ pub(crate) fn code_editor(
     if let Some(state) = &completion {
         completion_popup(ui, completion_id, &output.response, state);
     }
+    // Strudel's Ctrl tooltip is a hover tooltip: the word under the pointer.
+    // Failing that (the pointer off any name), the word at the text cursor.
+    let hovered_byte = output
+        .response
+        .hover_pos()
+        .filter(|pos| output.galley_pos.y <= pos.y)
+        .map(|pos| {
+            let at = output.galley.cursor_from_pos(pos - output.galley_pos);
+            byte_index_at_char(code, at.index)
+        });
     if settings.tooltips
         && ui.input(|i| i.modifiers.ctrl)
-        && let Some(cursor) = cursor_byte
-        && let Some(item) = reference_tooltip_at(code, cursor, &completion_catalog)
+        && let Some(item) = [hovered_byte, cursor_byte]
+            .into_iter()
+            .flatten()
+            .find_map(|at| reference_tooltip_at(code, at, &completion_catalog))
     {
         completion_tooltip(ui, tooltip_id, &output.response, &item);
     }
@@ -929,6 +944,7 @@ mod tests {
             start: egui::text::ByteIndex(start),
             items: Vec::new(),
             selected,
+            explicit: false,
         };
         let at = egui::text::ByteIndex(4);
 

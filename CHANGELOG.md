@@ -31,6 +31,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
   first time it is chosen and cached; the editor stays in monospace until it
   arrives.
 
+- **Strudel's documentation in the editor.** The Ctrl tooltip and the
+  completion list show each function's description, parameters, examples
+  and synonyms, generated from Strudel's own jsdoc (`tools/generate_docs.mjs`).
+  SuperDirt-only names are no longer offered in completion. Ctrl+Space opens
+  completion on demand, and the Ctrl tooltip follows the mouse pointer.
+
 ### Changed
 
 - **The script prelude and the draw canvas are native.** What was left in
