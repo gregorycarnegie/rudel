@@ -133,41 +133,41 @@ fn a_noise_source_bypasses_the_oscillator_entirely() {
 #[test]
 fn the_additive_table_takes_precedence_over_the_waveform() {
     // With `partials` set, the built table is the source; the `s` waveform is
-    // only the base series it was built from.
+    // only the base series it was built from. One saw partial is a pure sine,
+    // inverted: `waveformN`'s saw series is `-1/n`.
     let table =
         crate::oscillator::build_additive(&[1.0], None, crate::oscillator::AdditiveType::Saw);
     let mut additive = voice(VoiceParams {
         additive: Some(table),
-        waveform: Waveform::Pulse,
+        waveform: Waveform::Square,
         freq: 100.0,
         duration: 1.0,
         ..Default::default()
     });
     let mut square = voice(VoiceParams {
-        waveform: Waveform::Pulse,
+        waveform: Waveform::Square,
         freq: 100.0,
         duration: 1.0,
         ..Default::default()
     });
-    // A single-partial saw table is a sine, which a pulse is not: the pulse
-    // is on a rail at every sample, the table is not.
-    let from_table: Vec<f32> = (0..64).map(|_| additive.next_source()).collect();
-    let from_square: Vec<f32> = (0..64).map(|_| square.next_source()).collect();
-    assert!(
-        from_square.iter().all(|s| s.abs() > 0.99),
-        "the square source should sit on its rails"
-    );
-    assert!(
-        from_table.iter().any(|s| s.abs() < 0.9),
-        "the additive table should be used instead of the square"
-    );
+    let mut differs = false;
+    for i in 0..64 {
+        let want = -(TAU * 100.0 * i as f32 / SR).sin();
+        let got = additive.next_source();
+        assert!(
+            (got - want).abs() < 1e-3,
+            "sample {i}: {got} is not the sine {want}"
+        );
+        differs |= (square.next_source() - got).abs() > 0.1;
+    }
+    assert!(differs, "the square source is not the table");
 }
 
 #[test]
 fn pulse_width_reaches_the_source() {
-    // `s("pulse")` reads `pw`, unlike every other waveform. A narrow duty
-    // spends most of the cycle low, so the mean goes negative.
-    let mean = |pw: f32| {
+    // `s("pulse")` is superdough's pulse worklet ([`PulseOsc`], golden-tested
+    // in tests::oscillator) driven by `pw`, which no other waveform reads.
+    let render = |pw: f32| {
         let mut v = voice(VoiceParams {
             waveform: Waveform::Pulse,
             pw,
@@ -175,12 +175,17 @@ fn pulse_width_reaches_the_source() {
             duration: 1.0,
             ..Default::default()
         });
-        let n = 441;
-        (0..n).map(|_| v.next_source()).sum::<f32>() / n as f32
+        let mut osc = crate::pulse::PulseOsc::default();
+        (0..441)
+            .map(|_| {
+                let got = v.next_source();
+                assert_eq!(got, osc.next(100.0, pw as f64, SR as f64));
+                got
+            })
+            .collect::<Vec<f32>>()
     };
-    assert!(mean(0.1) < -0.5, "a 10% duty should sit mostly low");
-    assert!(mean(0.9) > 0.5, "a 90% duty should sit mostly high");
-    assert!(mean(0.5).abs() < 0.1, "a 50% duty is balanced");
+    let (narrow, wide) = (render(0.1), render(0.9));
+    assert!(narrow.iter().zip(&wide).any(|(a, b)| (a - b).abs() > 0.05));
 }
 
 #[test]

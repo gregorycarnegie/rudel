@@ -221,27 +221,6 @@ fn waveform_sample_matches_its_definition() {
 }
 
 #[test]
-fn pulse_width_moves_the_duty_cycle() {
-    // The duty is the fraction of the cycle spent high, so the switch point
-    // tracks `pw` rather than sitting at the square wave's 0.5.
-    assert_eq!(Waveform::pulse(0.24, 0.25), 1.0);
-    assert_eq!(Waveform::pulse(0.26, 0.25), -1.0);
-    assert_eq!(Waveform::pulse(0.74, 0.75), 1.0);
-    assert_eq!(Waveform::pulse(0.76, 0.75), -1.0);
-
-    // A duty of 0.5 is the square wave, and the extremes are stuck rails.
-    for p in [0.0f32, 0.1, 0.49, 0.51, 0.9] {
-        assert_eq!(Waveform::pulse(p, 0.5), Waveform::Square.sample(p));
-    }
-    assert!((0..10).all(|i| Waveform::pulse(i as f32 / 10.0, 0.0) == -1.0));
-    assert!((0..10).all(|i| Waveform::pulse(i as f32 / 10.0, 1.0) == 1.0));
-
-    // Out-of-range duty clamps rather than wrapping.
-    assert_eq!(Waveform::pulse(0.5, 2.0), 1.0);
-    assert_eq!(Waveform::pulse(0.5, -1.0), -1.0);
-}
-
-#[test]
 fn sample_table_interpolates_between_neighbours_and_wraps() {
     let table = [0.0f32, 1.0, 2.0, 3.0];
 
@@ -317,4 +296,47 @@ fn band_limited_oscillators_match_chrome() {
         }
     }
     assert!(failures.is_empty(), "vs Chrome:\n{}", failures.join("\n"));
+}
+
+#[test]
+fn the_pulse_matches_superdoughs_worklet() {
+    // tools/oracle/gen_pulse_oracle.mjs runs the `pulse-oscillator` processor
+    // from superdough's own worklets.mjs.
+    use crate::pulse::PulseOsc;
+
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../tools/oracle/pulse_golden.json"))
+            .expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap();
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let freq = case["frequency"].as_f64().unwrap();
+        let detune = case["detune"].as_f64().unwrap_or(0.0);
+        let width = |i: usize| match &case["pulsewidth"] {
+            serde_json::Value::String(_) => {
+                0.5 + 0.4 * (std::f64::consts::TAU * i as f64 / 512.0).sin()
+            }
+            w => w.as_f64().unwrap(),
+        };
+        let mut osc = PulseOsc::default();
+        let f = freq * 2f64.powf(detune / 100.0 / 12.0);
+        for (i, want) in case["samples"].as_array().unwrap().iter().enumerate() {
+            // The oracle's a-rate width is a Float32Array.
+            let got = osc.next(f, width(i) as f32 as f64, sr);
+            let want = want.as_f64().unwrap() as f32;
+            if (got - want).abs() > 1e-5 {
+                failures.push(format!(
+                    "{case_f} pw={} [{i}]: {got} vs {want}",
+                    case["pulsewidth"],
+                    case_f = freq
+                ));
+                break;
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "vs superdough:\n{}",
+        failures.join("\n")
+    );
 }

@@ -19,6 +19,7 @@ mod oscillator;
 mod params;
 mod pitch;
 mod postfx;
+mod pulse;
 mod sampler;
 mod spec;
 mod synth;

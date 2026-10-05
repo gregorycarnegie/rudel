@@ -2,6 +2,7 @@ use crate::{
     envelope::{Adsr, adsr_values},
     filter::{FilterParams, FilterSet},
     fm::FmSpec,
+    modulator::LfoConfig,
     oscillator::{AdditiveType, NoiseKind, Waveform, build_additive},
     pitch::note_to_freq,
     wavetable::{ParamMod, WarpMode, WaveTable},
@@ -12,8 +13,11 @@ pub struct VoiceParams {
     pub waveform: Waveform,
     /// When set, the source is noise rather than the oscillator.
     pub noise: Option<NoiseKind>,
-    /// Pulse-wave duty cycle (`pw`, 0..1) for `s("pulse")`.
+    /// Pulse width (`pw`, 0.5 square) for `s("pulse")`. Unclamped here: the
+    /// worklet's param floors it at 0 and the oscillator clamps it at 0.99.
     pub pw: f32,
+    /// `s("pulse")`'s width LFO (`pwrate` Hz, `pwsweep` depth), when it has one.
+    pub pw_lfo: Option<LfoConfig>,
     /// Pink-noise mix amount (`noise`, 0..1) blended into the oscillator.
     pub noise_mix: f32,
     /// Precomputed additive wavetable (`partials`); overrides `waveform`.
@@ -85,6 +89,7 @@ impl Default for VoiceParams {
             waveform: Waveform::Triangle,
             noise: None,
             pw: 0.5,
+            pw_lfo: None,
             noise_mix: 0.0,
             additive: None,
             supersaw: false,
@@ -117,6 +122,28 @@ impl Default for VoiceParams {
             wtphaserand: None,
         }
     }
+}
+
+/// The `pulse` synth's width LFO (synth.mjs): `pwsweep` defaults to 0.3 when
+/// `pwrate` is set and 0 when not, `pwrate` to 1 Hz, and no sweep means no LFO.
+/// Upstream starts its phase from the note's audio-context time, which is
+/// arbitrary; `time` here is the note's onset on the pattern clock.
+fn pulse_width_lfo(map: &ValueMap, time: f64) -> Option<LfoConfig> {
+    let get = |k: &str| map.get(k).and_then(|v| v.as_f64());
+    let rate = get("pwrate");
+    let sweep = get("pwsweep").unwrap_or(if rate.is_some() { 0.3 } else { 0.0 });
+    if sweep == 0.0 {
+        return None;
+    }
+    let d = LfoConfig::default();
+    Some(LfoConfig {
+        frequency: rate.unwrap_or(1.0),
+        depth: sweep,
+        time,
+        min: d.dcoffset * sweep,
+        max: d.dcoffset * sweep + sweep,
+        ..d
+    })
 }
 
 impl VoiceParams {
@@ -186,8 +213,9 @@ impl VoiceParams {
         }
         // Pulse-wave duty cycle and oscillator noise-mix amount.
         if let Some(w) = map.get("pw").and_then(|v| v.as_f64()) {
-            p.pw = (w as f32).clamp(0.0, 1.0);
+            p.pw = w as f32;
         }
+        p.pw_lfo = pulse_width_lfo(map, cycle / cps.max(1e-9));
         if let Some(n) = map.get("noise").and_then(|v| v.as_f64()) {
             p.noise_mix = (n as f32).clamp(0.0, 1.0);
         }

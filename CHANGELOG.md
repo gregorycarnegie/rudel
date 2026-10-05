@@ -48,6 +48,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **`s("pulse")` is superdough's pulse oscillator.** It was a plain
+  duty-cycle square; it is now the two half-Tomisawa feedback oscillators
+  upstream's worklet runs, checked sample for sample against that worklet.
+  `pwrate`/`pwsweep` now sweep the width (they did nothing), with upstream's
+  defaults (a rate alone sweeps by 0.3, a sweep alone runs at 1 Hz).
 - **Saw, square and triangle are band-limited, as in the browser.** They were
   naive waveforms, so high notes aliased into inharmonic noise. They are now
   Chrome's own band-limited tables, checked sample for sample against Chrome,

@@ -1,9 +1,10 @@
 use crate::bandlimited::{Pitch, WaveTables};
+use crate::pulse::PulseOsc;
 use crate::{
     envelope::adsr_value,
     filter::{FilterSet, VoiceFilters},
     fm::FM_OPS,
-    modulator::{ModBank, ModSpec, ModTarget},
+    modulator::{Lfo, ModBank, ModSpec, ModTarget},
     oscillator::{NoiseGen, NoiseKind, Waveform, sample_table, wrap01},
     params::VoiceParams,
     pitch::PitchMod,
@@ -59,6 +60,9 @@ pub struct Voice {
     fm_phases: [f32; FM_OPS + 1],
     /// The band-limited table choice of the source and of each FM operator.
     pitch_cache: Pitch,
+    /// `s("pulse")`'s oscillator and its width LFO.
+    pulse: PulseOsc,
+    pw_lfo: Option<Lfo>,
     fm_pitches: [Pitch; FM_OPS + 1],
     /// Per-voice phases for the super-saw source.
     /// `pub(crate)` so `tests::supersaw` can plant the oracle's initial phases;
@@ -196,6 +200,10 @@ impl Voice {
                 ParamModRunner::new(&params.warp, sample_rate as f64),
             )
         });
+        let pw_lfo = params
+            .pw_lfo
+            .as_ref()
+            .map(|c| Lfo::new(c, sample_rate as f64));
         Voice {
             params,
             sample_rate,
@@ -208,6 +216,8 @@ impl Voice {
             noise: NoiseGen::new(),
             fm_phases: [0.0; FM_OPS + 1],
             pitch_cache: Pitch::default(),
+            pulse: PulseOsc::default(),
+            pw_lfo,
             fm_pitches: [Pitch::default(); FM_OPS + 1],
             super_phases,
             super_incr_ratio,
@@ -362,13 +372,23 @@ impl Voice {
         } else {
             carrier / sr
         };
+        if self.params.additive.is_none() && self.params.waveform == Waveform::Pulse {
+            // superdough's pulse worklet: its own oscillator, no noise mix.
+            let lfo = self.pw_lfo.as_mut().map_or(0.0, |l| l.tick());
+            let width = (self.params.pw as f64 + lfo).max(0.0);
+            self.phase = wrap01(self.phase + inc);
+            return self.pulse.next((inc * sr) as f64, width, sr as f64);
+        }
         let mut s = if let Some(table) = &self.params.additive {
             sample_table(table, self.phase)
         } else {
-            match self.params.waveform {
-                Waveform::Pulse => Waveform::pulse(self.phase, self.params.pw),
-                w => band_limited(w, self.phase, inc, sr, &mut self.pitch_cache),
-            }
+            band_limited(
+                self.params.waveform,
+                self.phase,
+                inc,
+                sr,
+                &mut self.pitch_cache,
+            )
         };
         self.phase = wrap01(self.phase + inc);
         // `noise` blends pink noise into the oscillator (superdough's drywet
@@ -379,6 +399,13 @@ impl Voice {
             s = s * wetfade(w) + pink * wetfade(1.0 - w);
         }
         s
+    }
+
+    /// Whether the source is `s("pulse")`'s worklet oscillator.
+    fn is_pulse(&self) -> bool {
+        self.params.waveform == Waveform::Pulse
+            && self.params.additive.is_none()
+            && self.params.noise.is_none()
     }
 
     /// Render the next stereo sample `(left, right)`.
@@ -414,7 +441,10 @@ impl Voice {
         } else {
             let raw = self.next_source();
             let osc = self.filters.process(raw, t, hold_end, sr, &self.mods);
-            let s = osc * env * gain * 0.3;
+            // The 0.3 is the oscillator synths' turn-down; the pulse worklet
+            // sets its own level (its output is `0.15 · (out0 − out1)`).
+            let turn_down = if self.is_pulse() { 1.0 } else { 0.3 };
+            let s = osc * env * gain * turn_down;
             (s * self.left_gain, s * self.right_gain)
         };
 

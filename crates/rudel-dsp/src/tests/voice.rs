@@ -1,5 +1,4 @@
 use super::common::*;
-use proptest::prelude::*;
 
 #[test]
 fn voice_produces_sound_then_finishes() {
@@ -284,36 +283,6 @@ fn partials_count_expands_to_equal_harmonics() {
 }
 
 #[test]
-fn pulse_width_sets_the_duty_cycle() {
-    // pw fraction of the cycle is high (+1), the rest low (-1).
-    assert_eq!(Waveform::pulse(0.1, 0.25), 1.0);
-    assert_eq!(Waveform::pulse(0.3, 0.25), -1.0);
-    assert_eq!(Waveform::pulse(0.6, 0.75), 1.0);
-    // pw 0.5 matches the square wave.
-    for &p in &[0.1, 0.4, 0.6, 0.9] {
-        assert_eq!(Waveform::pulse(p, 0.5), Waveform::Square.sample(p));
-    }
-}
-
-proptest! {
-    #[test]
-    fn pulse_matches_its_threshold_rule(phase in -4.0f32..4.0f32, pw in -1.0f32..2.0f32) {
-        let expected = if phase.rem_euclid(1.0) < pw.clamp(0.0, 1.0) {
-            1.0
-        } else {
-            -1.0
-        };
-
-        prop_assert_eq!(Waveform::pulse(phase, pw), expected);
-    }
-
-    #[test]
-    fn half_width_pulse_matches_square_wave(phase in -4.0f32..4.0f32) {
-        prop_assert_eq!(Waveform::pulse(phase, 0.5), Waveform::Square.sample(phase));
-    }
-}
-
-#[test]
 fn pulse_resolves_from_s_and_pw_changes_output() {
     let map = |pw: f32| {
         let mut m = ValueMap::new();
@@ -578,4 +547,25 @@ fn a_wavetable_voice_sweeps_its_frames_and_sounds() {
     let mut v = Voice::new(p, 44100.0);
     let out: Vec<f32> = (0..4000).map(|_| v.tick().0).collect();
     assert_is_signal(&out, "wavetable voice");
+}
+
+#[test]
+fn a_pulse_width_lfo_follows_superdoughs_defaults() {
+    // synth.mjs: `pwrate` alone sweeps by 0.3, `pwsweep` alone runs at 1 Hz,
+    // and neither (or a zero sweep) means no LFO.
+    let lfo = |pairs: &[(&str, f64)]| {
+        let mut m = ValueMap::new();
+        m.insert("s".to_string(), Value::Str("pulse".into()));
+        for (k, v) in pairs {
+            m.insert(k.to_string(), Value::F64(*v));
+        }
+        VoiceParams::from_controls(&m, 1.0).pw_lfo
+    };
+    let rate_only = lfo(&[("pwrate", 5.0)]).expect("pwrate starts an LFO");
+    assert_eq!((rate_only.frequency, rate_only.depth), (5.0, 0.3));
+    let sweep_only = lfo(&[("pwsweep", 0.2)]).expect("pwsweep starts an LFO");
+    assert_eq!((sweep_only.frequency, sweep_only.depth), (1.0, 0.2));
+    assert_eq!((sweep_only.min, sweep_only.max), (-0.1, 0.1));
+    assert!(lfo(&[]).is_none());
+    assert!(lfo(&[("pwrate", 5.0), ("pwsweep", 0.0)]).is_none());
 }

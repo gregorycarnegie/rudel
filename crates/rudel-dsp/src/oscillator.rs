@@ -16,7 +16,8 @@ pub enum Waveform {
     Saw,
     Square,
     Triangle,
-    /// Variable-duty pulse (`s("pulse")` + `pw`). Sampled via [`Waveform::pulse`].
+    /// `s("pulse")`: superdough's pulse worklet ([`crate::pulse::PulseOsc`]).
+    /// [`Waveform::sample`] is only its fallback as an FM operator wave.
     Pulse,
 }
 
@@ -45,15 +46,6 @@ impl Waveform {
                 }
             }
             Waveform::Triangle => 4.0 * (if p < 0.5 { p } else { 1.0 - p }) - 1.0,
-        }
-    }
-
-    /// A pulse wave with the given duty cycle (`pw`, 0..1). 0.5 == square.
-    pub(crate) fn pulse(phase: f32, pw: f32) -> f32 {
-        if wrap01(phase) < pw.clamp(0.0, 1.0) {
-            1.0
-        } else {
-            -1.0
         }
     }
 }
