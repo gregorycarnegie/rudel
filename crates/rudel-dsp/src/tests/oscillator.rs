@@ -261,3 +261,60 @@ fn sample_table_interpolates_between_neighbours_and_wraps() {
     assert_eq!(sample_table(&table, 1.25), sample_table(&table, 0.25));
     assert_eq!(sample_table(&table, -0.75), sample_table(&table, 0.25));
 }
+
+#[test]
+fn band_limited_oscillators_match_chrome() {
+    // tools/oracle/gen_chrome_oscillator_oracle.mjs: OscillatorNode rendered by
+    // Chrome itself. Constant pitches across the range, a sweep crossing range
+    // tables every sample, and LFO rates on the Lagrange interpolators.
+    use crate::bandlimited::WaveTables;
+    use crate::oscillator::Waveform;
+
+    let golden: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../tools/oracle/chrome_oscillator_golden.json"
+    ))
+    .expect("parse golden");
+    let sr = golden["sampleRate"].as_f64().unwrap();
+    let n = golden["length"].as_u64().unwrap() as usize;
+    let mut failures = Vec::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let kind = case["type"].as_str().unwrap();
+        let shape = match kind {
+            "sawtooth" => Waveform::Saw,
+            "square" => Waveform::Square,
+            "triangle" => Waveform::Triangle,
+            other => panic!("unexpected type {other}"),
+        };
+        let f0 = case["frequency"].as_f64().unwrap();
+        let f1 = case["to"].as_f64().unwrap_or(f0);
+        let tables = WaveTables::get(shape, sr as f32);
+        // Chrome keeps the read position in a double, advanced by a float.
+        let mut phase = 0.0f64;
+        let mut worst = (0.0f32, 0usize);
+        for (i, want) in case["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .take(n)
+        {
+            let freq = f0 + (f1 - f0) * i as f64 / n as f64;
+            let cycles = (freq / sr) as f32;
+            let got = tables.sample(phase as f32, cycles);
+            let d = (got - want.as_f64().unwrap() as f32).abs();
+            if d > worst.0 {
+                worst = (d, i);
+            }
+            phase = (phase + cycles as f64).rem_euclid(1.0);
+        }
+        // rudel's phase is an f32 where Chrome reads from a double: ~1e-8 of a
+        // cycle, worth about 1.5e-4 on a 55 Hz edge late in the render.
+        if worst.0 > 2e-4 {
+            failures.push(format!(
+                "{kind} {f0}->{f1}: worst {:.2e} at [{}]",
+                worst.0, worst.1
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "vs Chrome:\n{}", failures.join("\n"));
+}

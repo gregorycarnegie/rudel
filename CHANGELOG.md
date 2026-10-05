@@ -48,6 +48,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Saw, square and triangle are band-limited, as in the browser.** They were
+  naive waveforms, so high notes aliased into inharmonic noise. They are now
+  Chrome's own band-limited tables, checked sample for sample against Chrome,
+  and they start at zero as the Web Audio waveforms do. FM operators use them
+  too.
 - **Filter resonance reads in decibels, as on strudel.cc.** superdough hands
   `lpq`/`hpq` to a Web Audio lowpass/highpass, which reads its Q in dB; rudel
   read it as a linear Q, so `.lpq(10)` rang about twice as hard, and the

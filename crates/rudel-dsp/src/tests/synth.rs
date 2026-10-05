@@ -138,18 +138,18 @@ fn the_additive_table_takes_precedence_over_the_waveform() {
         crate::oscillator::build_additive(&[1.0], None, crate::oscillator::AdditiveType::Saw);
     let mut additive = voice(VoiceParams {
         additive: Some(table),
-        waveform: Waveform::Square,
+        waveform: Waveform::Pulse,
         freq: 100.0,
         duration: 1.0,
         ..Default::default()
     });
     let mut square = voice(VoiceParams {
-        waveform: Waveform::Square,
+        waveform: Waveform::Pulse,
         freq: 100.0,
         duration: 1.0,
         ..Default::default()
     });
-    // A single-partial saw table is a sine, which a square is not: the square
+    // A single-partial saw table is a sine, which a pulse is not: the pulse
     // is on a rail at every sample, the table is not.
     let from_table: Vec<f32> = (0..64).map(|_| additive.next_source()).collect();
     let from_square: Vec<f32> = (0..64).map(|_| square.next_source()).collect();
@@ -905,7 +905,8 @@ fn an_fm_voice_runs_at_the_carrier_plus_its_deviation() {
     let mut ops = [FmOp::default(); crate::fm::FM_OPS + 1];
     ops[1] = FmOp {
         ratio: 1.0,
-        wave: Waveform::Square,
+        // A pulse is exactly ±1; the band-limited square is not.
+        wave: Waveform::Pulse,
         env: None,
     };
     let mut amt = [[0.0f32; crate::fm::FM_OPS + 1]; crate::fm::FM_OPS + 1];
@@ -992,7 +993,7 @@ fn a_frequency_modulator_and_fm_both_reach_the_wavetable_source() {
     let mut ops = [FmOp::default(); crate::fm::FM_OPS + 1];
     ops[1] = FmOp {
         ratio: 0.01,
-        wave: Waveform::Square,
+        wave: Waveform::Pulse,
         env: None,
     };
     let mut amt = [[0.0f32; crate::fm::FM_OPS + 1]; crate::fm::FM_OPS + 1];

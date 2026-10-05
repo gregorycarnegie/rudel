@@ -9,13 +9,14 @@ use crate::fm::FM_OPS;
 const SR: f32 = 44100.0;
 
 /// A one-operator FM voice: operator 1 modulating the carrier at `amt`, with a
-/// square operator wave so its output is ±1 rather than something that starts
-/// at zero and hides every multiplication behind it.
+/// pulse operator wave so its output is ±1 rather than something that starts
+/// at zero and hides every multiplication behind it. (A pulse, not a square:
+/// the square is band-limited, so it is not exactly ±1 at every sample.)
 fn voice(amt: f32, ratio: f32) -> Voice {
     let mut ops = [FmOp::default(); FM_OPS + 1];
     ops[1] = FmOp {
         ratio,
-        wave: Waveform::Square,
+        wave: Waveform::Pulse,
         env: None,
     };
     let mut amts = [[0.0f32; FM_OPS + 1]; FM_OPS + 1];
@@ -74,7 +75,7 @@ fn a_modulated_operator_uses_the_previous_samples_value() {
     // through the same `amt * freq * out` product.
     let square = FmOp {
         ratio: 1.0,
-        wave: Waveform::Square,
+        wave: Waveform::Pulse,
         env: None,
     };
     let mut ops = [FmOp::default(); FM_OPS + 1];
@@ -126,7 +127,7 @@ fn a_modulated_operator_uses_the_previous_samples_value() {
 fn chain(cross: f32) -> Voice {
     let square = FmOp {
         ratio: 1.0,
-        wave: Waveform::Square,
+        wave: Waveform::Pulse,
         env: None,
     };
     let mut ops = [FmOp::default(); FM_OPS + 1];
@@ -175,7 +176,7 @@ fn every_operator_slot_is_addressable() {
     for k in 1..=FM_OPS {
         ops[k] = FmOp {
             ratio: k as f32,
-            wave: Waveform::Square,
+            wave: Waveform::Pulse,
             env: None,
         };
         amt[k][0] = 1.0;

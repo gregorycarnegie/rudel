@@ -100,6 +100,7 @@ impl Engine {
         sample_rate: f32,
         open: impl FnOnce(Render) -> Result<Box<dyn std::any::Any>, String>,
     ) -> Result<Engine, String> {
+        rudel_dsp::prepare_oscillators(sample_rate);
         let (tx, rx) = mpsc::channel::<NoteEvent>();
         let played = Arc::new(AtomicU64::new(0));
         let pattern = Arc::new(RwLock::new(rudel_core::silence()));

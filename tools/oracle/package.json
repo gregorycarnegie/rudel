@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "jsdoc": "^4.0.5",
-    "jsdoc-json": "^2.0.2"
+    "jsdoc-json": "^2.0.2",
+    "playwright-core": "^1.63.0"
   }
 }

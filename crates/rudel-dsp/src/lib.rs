@@ -4,6 +4,7 @@
 // Param model mirrors strudel/packages/superdough/synth.mjs.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod bandlimited;
 mod bus;
 mod bytebeat;
 mod convolver;
@@ -26,6 +27,7 @@ mod voice;
 mod wavetable;
 mod zzfx;
 
+pub use bandlimited::prepare_oscillators;
 pub use bus::{BusParams, BusVoice, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig};
 pub use bytebeat::{ByteBeatExpr, ByteBeatParams, ByteBeatVoice, DEFAULT_BEATS};
 pub use convolver::{Convolver, ImpulseResponse, adjust_length, generate_reverb_ir};

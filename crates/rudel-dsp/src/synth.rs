@@ -1,3 +1,4 @@
+use crate::bandlimited::{Pitch, WaveTables};
 use crate::{
     envelope::adsr_value,
     filter::{FilterSet, VoiceFilters},
@@ -56,6 +57,9 @@ pub struct Voice {
     noise: NoiseGen,
     /// Per-operator FM phases (index `1..=FM_OPS`).
     fm_phases: [f32; FM_OPS + 1],
+    /// The band-limited table choice of the source and of each FM operator.
+    pitch_cache: Pitch,
+    fm_pitches: [Pitch; FM_OPS + 1],
     /// Per-voice phases for the super-saw source.
     /// `pub(crate)` so `tests::supersaw` can plant the oracle's initial phases;
     /// upstream seeds them from `Math.random()`, so a parity golden has to pin
@@ -203,6 +207,8 @@ impl Voice {
             filters,
             noise: NoiseGen::new(),
             fm_phases: [0.0; FM_OPS + 1],
+            pitch_cache: Pitch::default(),
+            fm_pitches: [Pitch::default(); FM_OPS + 1],
             super_phases,
             super_incr_ratio,
             super_gain_l,
@@ -236,7 +242,13 @@ impl Voice {
         for k in 1..=n {
             let op = self.params.fm.ops[k];
             op_freq[k] = carrier * op.ratio;
-            let osc = op.wave.sample(self.fm_phases[k]);
+            let osc = band_limited(
+                op.wave,
+                self.fm_phases[k],
+                op_freq[k] / sr,
+                sr,
+                &mut self.fm_pitches[k],
+            );
             let env = op.env.map_or(1.0, |e| adsr_value(&e, t, hold_end));
             op_out[k] = osc * env;
         }
@@ -343,18 +355,20 @@ impl Voice {
         // Oscillator, optionally frequency-modulated. A `freq`/`note` modulator
         // is an additive Hz offset on the source's frequency param.
         let carrier = self.params.freq * pitch + self.mods.get(ModTarget::Frequency);
+        // The frequency this sample plays at, FM included: a Web Audio
+        // oscillator picks its band-limited table from its a-rate frequency.
+        let inc = if self.params.fm.active() {
+            (carrier + self.fm_deviation(carrier)) / sr
+        } else {
+            carrier / sr
+        };
         let mut s = if let Some(table) = &self.params.additive {
             sample_table(table, self.phase)
         } else {
             match self.params.waveform {
                 Waveform::Pulse => Waveform::pulse(self.phase, self.params.pw),
-                w => w.sample(self.phase),
+                w => band_limited(w, self.phase, inc, sr, &mut self.pitch_cache),
             }
-        };
-        let inc = if self.params.fm.active() {
-            (carrier + self.fm_deviation(carrier)) / sr
-        } else {
-            carrier / sr
         };
         self.phase = wrap01(self.phase + inc);
         // `noise` blends pink noise into the oscillator (superdough's drywet
@@ -425,5 +439,24 @@ impl VoiceLike for Voice {
     }
     fn is_done(&self) -> bool {
         self.done
+    }
+}
+
+/// A built-in waveform as Web Audio's `OscillatorNode` plays it: saw, square
+/// and triangle from Chrome's band-limited tables ([`WaveTables`]), the sine
+/// as itself, and a pulse (superdough's own worklet, not an `OscillatorNode`)
+/// as it is.
+fn band_limited(
+    wave: Waveform,
+    phase: f32,
+    cycles_per_sample: f32,
+    sample_rate: f32,
+    cache: &mut Pitch,
+) -> f32 {
+    match wave {
+        Waveform::Saw | Waveform::Square | Waveform::Triangle => {
+            WaveTables::get(wave, sample_rate).sample_cached(phase, cycles_per_sample, cache)
+        }
+        w => w.sample(phase),
     }
 }
