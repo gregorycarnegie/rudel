@@ -2,7 +2,7 @@
 
 Rudel is a **native Rust** application. Strudel is a **browser** application. A
 number of Strudel packages exist only to bridge to browser/web-platform APIs
-(WebGL, DeviceMotion, Web Serial, the Gamepad API, MQTT-over-WebSockets, the
+(WebGL, DeviceMotion, Web Serial, MQTT-over-WebSockets, the
 Csound WASM build, web components / iframes) or to provide alternative language
 front-ends (Tidal). Rudel deliberately does not port these; this page is
 the authoritative list of what is intentionally unsupported, what is deferred,
@@ -709,19 +709,19 @@ path. The inline form applies during evaluation; a string source is fetched in
 the background like `samples(...)`, so the first cycles after a fresh
 `midimaps(url)` send no mapped CCs (upstream `await`s the fetch instead).
 
-### Gamepad (`@strudel/gamepad`) — intentionally unsupported (no native input source yet)
+### Gamepad (`@strudel/gamepad`) — supported, read natively
 
-`@strudel/gamepad` (`gamepad`, `buttonMap`, `getGamepadStates`,
-`clearGamepadStates`) reads controllers through the browser
-[Gamepad API](https://developer.mozilla.org/docs/Web/API/Gamepad_API) and
-exposes axes/buttons as patternable signals. Rudel has no gamepad input source
-wired into the engine, so this is **currently unsupported** and patterns
-referencing `gamepad` have no input. Unlike the strictly browser-only packages,
-a native port is technically feasible (e.g. via a Rust controller crate such as
-`gilrs`) — the input bus that already carries the pointer, keyboard and MIDI CC
-would be its home — but it needs a new dependency and a polling thread for a
-surface of ~60 names (16 buttons in four spellings each, plus axes, toggles and
-the button-sequence detector), so it is not implemented and not yet planned.
+`gamepad(index)`, `buttonMap`, `getGamepadStates` and `clearGamepadStates` work
+as upstream: `x1`…`y2` (0..1) and the bipolar `x1_2`…, `buttons[i].value` and
+`.toggle`, every `buttonMap` name in both cases with its `tgl` toggle, and the
+button-sequence checks (`btnseq` and its aliases, a 2 s window). The first call
+to `gamepad()` starts a thread that reads controllers through
+[gilrs](https://crates.io/crates/gilrs) (Windows.Gaming.Input, IOKit, evdev) in
+the browser's standard layout. Pads take the lowest free index as they
+connect, as in the browser, and `gamepad(0)` picks up the first pad to
+connect. How a controller's buttons map to that layout is up to gilrs's
+mapping database rather than the browser's, so an unusual pad can map
+differently.
 
 ### Serial and MQTT (`@strudel/serial`, `@strudel/mqtt`) — intentionally unsupported
 

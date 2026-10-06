@@ -62,6 +62,7 @@ impl eframe::App for RudelApp {
         ));
         self.poll_font_requests();
         self.watch_midi_inputs(ui.ctx());
+        crate::gamepad::start_if_requested();
         self.poll_sample_requests();
         self.poll_sample_jobs(ui.ctx());
         let midi_connecting =

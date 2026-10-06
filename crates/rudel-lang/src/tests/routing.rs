@@ -427,3 +427,36 @@ fn midimaps_register_control_to_cc_tables() {
         [(74, 1.0)]
     );
 }
+
+#[test]
+fn gamepad_reads_the_pad_bus() {
+    use rudel_core::gamepad::{PadState, set_gamepad};
+    // Slot 7: nothing else here touches it (`gamepad(0)` would adopt any pad).
+    let mut buttons = vec![0.0; 17];
+    buttons[0] = 1.0; // a
+    set_gamepad(
+        7,
+        PadState {
+            axes: vec![1.0, -1.0, 0.0, 0.0],
+            buttons,
+        },
+    );
+    let at = |src: &str| values(&eval(src).expect(src), 0, 1)[0].as_f64();
+    assert_eq!(at("gamepad(7).x1.segment(1)"), Some(1.0));
+    assert_eq!(at("gamepad(7).y1.segment(1)"), Some(0.0));
+    assert_eq!(at("gamepad(7).x1_2.segment(1)"), Some(1.0), "bipolar");
+    assert_eq!(at("gamepad(7).A.segment(1)"), Some(1.0));
+    assert_eq!(at("gamepad(7).buttons[0].value.segment(1)"), Some(1.0));
+    assert_eq!(at("gamepad(7).b.segment(1)"), Some(0.0));
+    assert_eq!(
+        at("gamepad(7).tgla.segment(1)"),
+        Some(1.0),
+        "the first press flips it"
+    );
+    assert_eq!(at(r#"gamepad(7).btnseq("a").segment(1)"#), Some(1.0));
+    assert_eq!(at(r#"gamepad(7).btnSequence(["b"]).segment(1)"#), Some(0.0));
+    assert_eq!(at("pure(buttonMap.start)"), Some(9.0));
+    assert!(eval("gamepad(7).raw").is_ok());
+    assert!(eval("getGamepadStates(); clearGamepadStates(); s('bd')").is_ok());
+    rudel_core::gamepad::remove_gamepad(7);
+}

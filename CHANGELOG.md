@@ -15,6 +15,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Added
 
+- **Game controllers** (`@strudel/gamepad`): `gamepad(index)` gives the
+  sticks (`x1`…`y2`, and bipolar `x1_2`…), every button by index and by name
+  (`a`, `B`, `lt`, `start`, …) with a `tgl` toggle, and `btnseq("uudd")`-style
+  button sequences, as on strudel.cc. Controllers are read natively, from
+  the first `gamepad()` call on.
 - **Drum machines answer to their model names**, as on strudel.cc:
   `bank("TR909")`, `bank("RZ1")`, `bank("LM1")` and the rest of the 66
   aliases Strudel registers at startup. `aliasBank` takes upstream's other

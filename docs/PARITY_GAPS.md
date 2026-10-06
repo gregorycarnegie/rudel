@@ -11,7 +11,7 @@ Strudel's docs.
 
 These are all possible natively. None of them depends on the browser.
 
-- [ ] **Gamepad** (`@strudel/gamepad`): buttons, axes and the button-sequence
+- [x] **Gamepad** (`@strudel/gamepad`): buttons, axes and the button-sequence
       helpers, read from a native gamepad library on Windows, macOS and Linux.
 - [ ] **Serial output** (`@strudel/serial`): send haps to a serial port, as the
       Web Serial version does.

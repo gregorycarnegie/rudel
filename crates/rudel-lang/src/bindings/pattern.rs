@@ -16,7 +16,7 @@ pub(crate) use args::method;
 pub(crate) use callback::register_standalone_callbacks;
 pub(crate) use convert::{arg_to_f64, arg_to_pattern, arg_to_raw_str, arg0, fn_to_value};
 pub(super) use convert::{
-    arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, to_value,
+    arg_to_group, arg_to_pattern_weight, arg_to_value, arg_to_weighted_pair, to_value, value_to_arg,
 };
 pub(crate) use engine::{register_engine_fns, register_span_fns};
 pub(crate) use methods::hap_to_filter_arg;

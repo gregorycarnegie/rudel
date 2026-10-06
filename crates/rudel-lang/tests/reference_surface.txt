@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1131 methods=1179 controls=675
+# functions=1135 methods=1179 controls=675
 
 [functions]
 AggregateError
@@ -137,6 +137,7 @@ brandBy
 brshift
 bus
 busgain
+buttonMap
 bxor
 bypass
 byteBeatExpression
@@ -169,6 +170,7 @@ chunkback
 chunkbackinto
 chunkinto
 clamp
+clearGamepadStates
 clearHydra
 clearScope
 clip
@@ -612,6 +614,7 @@ fshiftphase
 ftype
 fxr
 gain
+gamepad
 gap
 gat
 gate
@@ -619,6 +622,7 @@ getDrawContext
 getDur
 getDuration
 getFreq
+getGamepadStates
 getTime
 globalThis
 grow

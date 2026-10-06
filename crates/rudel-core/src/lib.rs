@@ -12,6 +12,7 @@ pub mod draw;
 pub mod edo;
 pub mod euclid;
 pub mod fraction;
+pub mod gamepad;
 pub mod hap;
 pub mod host;
 pub mod impure;

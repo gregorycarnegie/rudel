@@ -46,6 +46,9 @@ epaint_default_fonts = "0.36.2"
 # Editor themes are TOML files (themes/, and the user's own themes folder).
 # Already in the tree through the Windows resource build step.
 toml = "1.1.6"
+# `@strudel/gamepad`: controllers through each platform's own API (Windows.Gaming.Input,
+# IOKit, evdev via libudev).
+gilrs = "0.11.2"
 
 # SAPI, for `.speak(...)`. Already in the tree via cpal, so this asks the same
 # crate for two more of its feature-gated modules rather than adding one.

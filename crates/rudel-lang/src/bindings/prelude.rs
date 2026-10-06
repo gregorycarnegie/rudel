@@ -635,6 +635,30 @@ pub(crate) fn register(prelude: &Scope) {
     ] {
         prelude.value(name, f());
     }
+    // @strudel/gamepad. The host reads the controllers once a script asks.
+    prelude.func("gamepad", |a| {
+        Ok(gamepad_object(
+            a.first().map_or(0.0, arg_to_f64).max(0.0) as usize
+        ))
+    });
+    prelude.value(
+        "buttonMap",
+        Arg::Map(
+            rudel_core::gamepad::BUTTON_MAP
+                .iter()
+                .map(|&(k, i)| (k.to_string(), Arg::Num(i as f64)))
+                .collect(),
+        ),
+    );
+    prelude.func("getGamepadStates", |_| {
+        Ok(super::pattern::value_to_arg(Value::Map(
+            rudel_core::gamepad::gamepad_states(),
+        )))
+    });
+    prelude.func("clearGamepadStates", |_| {
+        rudel_core::gamepad::clear_gamepad_states();
+        Ok(Arg::Null)
+    });
     // brandBy(p): a 0/1 signal that is 1 with probability `p`.
     prelude.func("brandBy", |a| {
         Ok(rudel_core::brand_by(arg_to_f64(arg0(a))).into())
@@ -972,4 +996,66 @@ pub(super) fn key_down_pattern(arg: &Arg) -> Pattern {
         };
         rudel_core::Value::Bool(rudel_core::keys_down(names))
     })
+}
+
+/// `gamepad(index)`: upstream's object of signals — `x1`…`y2` (0..1) and their
+/// bipolar `x1_2`…, `buttons[16]` of `{ value, toggle }`, every `buttonMap`
+/// name in both cases with a `tgl` toggle, the sequence checks, and `raw`.
+fn gamepad_object(index: usize) -> Arg {
+    use rudel_core::gamepad::{BUTTON_MAP, Gamepad, SequenceTarget};
+    let pad = Gamepad::new(index);
+    let mut obj = Vec::new();
+    for (i, name) in ["x1", "y1", "x2", "y2"].into_iter().enumerate() {
+        let axis = pad.axis(i);
+        obj.push((format!("{name}_2"), axis.to_bipolar().into()));
+        obj.push((name.to_string(), axis.into()));
+    }
+    let buttons: Vec<(Pattern, Pattern)> =
+        (0..16).map(|i| (pad.button(i), pad.toggle(i))).collect();
+    obj.push((
+        "buttons".to_string(),
+        Arg::List(
+            buttons
+                .iter()
+                .map(|(value, toggle)| {
+                    Arg::Map(vec![
+                        ("value".to_string(), value.clone().into()),
+                        ("toggle".to_string(), toggle.clone().into()),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    for &(key, i) in BUTTON_MAP {
+        let (value, toggle) = &buttons[i];
+        obj.push((key.to_string(), value.clone().into()));
+        obj.push((key.to_uppercase(), value.clone().into()));
+        obj.push((format!("tgl{key}"), toggle.clone().into()));
+        obj.push((format!("tgl{}", key.to_uppercase()), toggle.clone().into()));
+    }
+    let raw = pad.raw();
+    let sequence = Arg::native(move |a| {
+        let target = match arg0(a) {
+            Arg::List(items) => SequenceTarget::List(
+                items
+                    .iter()
+                    .map(|x| match x {
+                        Arg::Num(n) => n.to_string(),
+                        other => arg_to_raw_str(other).unwrap_or_default(),
+                    })
+                    .collect(),
+            ),
+            other => match arg_to_raw_str(other) {
+                Some(s) => SequenceTarget::Text(s),
+                // Upstream logs and answers 0.
+                None => return Ok(rudel_core::steady(Value::F64(0.0)).into()),
+            },
+        };
+        Ok(pad.sequence(target).into())
+    });
+    for name in ["checkSequence", "btnSequence", "btnSeq", "btnseq"] {
+        obj.push((name.to_string(), sequence.clone()));
+    }
+    obj.push(("raw".to_string(), raw.into()));
+    Arg::Map(obj)
 }

@@ -183,7 +183,7 @@ pub(in crate::bindings) fn to_value(value: &Arg) -> Value {
     }
 }
 
-pub(super) fn value_to_arg(value: Value) -> Arg {
+pub(in crate::bindings) fn value_to_arg(value: Value) -> Arg {
     match value {
         Value::Null => Arg::Null,
         Value::Bool(b) => Arg::Bool(b),
