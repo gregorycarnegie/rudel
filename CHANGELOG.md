@@ -39,6 +39,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Changed
 
+- **A note with no `gain` plays at 0.8, as on strudel.cc** (superdough's
+  default gain). rudel used 1.0, so everything was about 1.9 dB louder than
+  Strudel. Patterns that set `gain` explicitly are unchanged, and so is what
+  Csound and other outputs are sent.
+
 - **The script prelude and the draw canvas are native.** What was left in
   JavaScript (`bind` and kin, `createParam`, `ref`, `onTrigger`, the pattern
   settings, the hydra glue and the whole of `.draw`/`.onPaint`/`animate`/

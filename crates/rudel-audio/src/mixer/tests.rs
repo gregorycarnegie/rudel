@@ -533,7 +533,8 @@ fn s_bus_plays_back_what_another_pattern_sent_to_the_bus() {
 
     // Together, the player reproduces the sender's signal. Both envelopes
     // are at sustain across this window, and `s("bus")`'s own is 1 there, so
-    // what is left is its centre-pan gain of cos(pi/4).
+    // what is left is its centre-pan gain of cos(pi/4) and its own default
+    // gain stage of 0.8 (superdough runs one for the bus voice as for any).
     let direct = peak_between(&render_pattern(&held, 1.0, 0.6), 0.3, 0.5);
     let piped = peak_between(
         &render_pattern(&rudel_core::stack(&[sender, player]), 1.0, 0.6),
@@ -542,7 +543,7 @@ fn s_bus_plays_back_what_another_pattern_sent_to_the_bus() {
     );
     let ratio = piped / direct;
     assert!(
-        (ratio - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.05,
+        (ratio - 0.8 * std::f32::consts::FRAC_1_SQRT_2).abs() < 0.05,
         "the bus should play back at the source's level ({ratio})"
     );
 }
@@ -3438,4 +3439,19 @@ fn every_modulation_target_does_what_superdough_does() {
         wrong.len(),
         wrong.join("\n")
     );
+}
+
+#[test]
+fn a_note_without_gain_plays_at_superdoughs_default() {
+    let saw = || {
+        rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+            .note(rudel_core::Value::Int(57))
+    };
+    let default = rms(&render_pattern(&saw(), 1.0, 0.3));
+    let unity = rms(&render_pattern(
+        &saw().ctrl("gain", rudel_core::Value::F64(1.0)),
+        1.0,
+        0.3,
+    ));
+    assert!((default / unity - 0.8).abs() < 1e-3, "{}", default / unity);
 }

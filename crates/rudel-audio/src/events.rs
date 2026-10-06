@@ -351,8 +351,19 @@ pub fn collect_events_at(
     let events = control_events
         .into_iter()
         .map(|ev| {
+            // superdough's gain stage reads `getDefaultValue('gain')`, 0.8, for
+            // a note that sets no gain of its own. Only the voice is built
+            // from the defaulted map: the hap's controls stay as they are, so
+            // what a Csound score or an output carries is unchanged.
+            let voice_controls = if ev.controls.contains_key("gain") {
+                std::borrow::Cow::Borrowed(&ev.controls)
+            } else {
+                let mut map = ev.controls.clone();
+                map.insert("gain".to_string(), rudel_core::Value::F64(0.8));
+                std::borrow::Cow::Owned(map)
+            };
             let mut spec = spec_for(
-                &ev.controls,
+                &voice_controls,
                 ev.duration_seconds as f32,
                 bank,
                 clock.cps(),
@@ -668,8 +679,8 @@ mod tests {
                 _ => panic!("expected a synth voice"),
             }
         };
-        // Against the voice's own default gain of 1.0...
-        assert!((gain_of(r#"note("c3").velocity(0.5)"#) - 0.5).abs() < 1e-6);
+        // Against superdough's default gain of 0.8...
+        assert!((gain_of(r#"note("c3").velocity(0.5)"#) - 0.4).abs() < 1e-6);
         // ...and multiplying an explicit gain.
         assert!((gain_of(r#"note("c3").gain(0.8).velocity(0.5)"#) - 0.4).abs() < 1e-6);
         // No velocity, or a velocity of 1, leaves gain exactly as it was.
