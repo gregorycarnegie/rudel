@@ -268,10 +268,9 @@ fn shift_peaks(ch: &mut Channel, pitch_factor: f32, time_cursor: f32) {
 
 /// Sample-at-a-time adapter around [`PhaseVocoder`], for the per-sample voice
 /// chain. Buffers a hop of input, processes it, then drains it — so the stage
-/// adds `HOP_SIZE` samples of latency on top of the vocoder's own (superdough
-/// compensates for the total by starting a stretched voice 0.04s early; Rudel's
-/// scheduler has no per-effect pre-roll, so a stretched voice is that fraction
-/// of a beat late).
+/// adds `HOP_SIZE` samples of latency on top of the vocoder's own. The
+/// scheduler starts a stretched hap 0.04s early, as superdough does for the
+/// vocoder's; the extra hop is the part an AudioWorklet does not have.
 pub struct StretchStage {
     vocoder: PhaseVocoder,
     in_l: [f32; HOP_SIZE],

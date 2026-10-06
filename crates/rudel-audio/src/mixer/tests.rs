@@ -2712,7 +2712,11 @@ fn an_fx_stage_has_its_own_delay_and_reverb() {
     use rudel_core::Value;
     let saw = || rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(57));
     let stage = |pairs: &[(&'static str, f64)]| {
-        pairs.iter().fold(rudel_core::pure(Value::Null), |p, (k, v)| p.ctrl(*k, Value::F64(*v)))
+        pairs
+            .iter()
+            .fold(rudel_core::pure(Value::Null), |p, (k, v)| {
+                p.ctrl(*k, Value::F64(*v))
+            })
     };
     let frames = |p: &Pattern| render_pattern(p, 1.0, 0.5);
     let plain = frames(&saw());
@@ -2722,7 +2726,9 @@ fn an_fx_stage_has_its_own_delay_and_reverb() {
     let echo = &[("delay", 0.5), ("delaytime", 0.05)];
     let staged = frames(&saw().fx(&[stage(echo)]));
     assert_ne!(staged, plain, "a stage's delay should be heard");
-    let main = echo.iter().fold(saw(), |p, (k, v)| p.ctrl(*k, Value::F64(*v)));
+    let main = echo
+        .iter()
+        .fold(saw(), |p, (k, v)| p.ctrl(*k, Value::F64(*v)));
     assert_ne!(staged, frames(&main), "a stage's delay is not the orbit's");
     // Until the first echo comes round, the stage passes the note dry (through
     // its own gain stage, as any stage does).
@@ -3476,7 +3482,11 @@ fn a_modulator_reaches_a_stages_own_delay_and_reverb() {
     let num = |v: f64| Value::F64(v);
     let saw = || rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(48));
     let stage = |pairs: &[(&'static str, f64)]| {
-        pairs.iter().fold(rudel_core::pure(Value::Null), |p, (k, v)| p.ctrl(*k, num(*v)))
+        pairs
+            .iter()
+            .fold(rudel_core::pure(Value::Null), |p, (k, v)| {
+                p.ctrl(*k, num(*v))
+            })
     };
     // An LFO on `control`, sent to stage 0 with `fxi`.
     let lfo = |p: &Pattern, control: &str| {
@@ -3505,7 +3515,11 @@ fn a_modulator_reaches_a_stages_own_delay_and_reverb() {
         (&delayed, "delayfeedback"),
         (&roomy, "room"),
     ] {
-        assert_ne!(render(&lfo(base, control)), render(base), "{control} on a stage");
+        assert_ne!(
+            render(&lfo(base, control)),
+            render(base),
+            "{control} on a stage"
+        );
     }
     // A stage without the effect has no such node: the modulator is skipped.
     let crushed = saw().fx(&[stage(&[("crush", 4.0)])]);

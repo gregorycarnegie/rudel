@@ -24,7 +24,7 @@ These are all possible natively. None of them depends on the browser.
       live input.
 - [x] **`FX` stage sends**: a stage's own `delay`/`room` sends. Today a stage
       uses the main controls' delay and reverb.
-- [ ] **`stretch` pre-roll**: superdough starts a stretched voice 0.04 s early
+- [x] **`stretch` pre-roll**: superdough starts a stretched voice 0.04 s early
       to cover the phase vocoder's latency; rudel starts it on time, so it
       sounds late.
 - [ ] **The last vendored tune**: one of the 27 tunes in Strudel's test

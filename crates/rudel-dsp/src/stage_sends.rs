@@ -196,21 +196,32 @@ mod tests {
     fn the_delay_is_inline_dry_plus_wet_echoes() {
         // 10 ms at 1 kHz is 10 samples; each echo is the last one times the
         // feedback, and the wet level scales them all.
-        let out = render(&[("delay", 0.5), ("delaytime", 0.01), ("delayfeedback", 0.5)], 31);
+        let out = render(
+            &[("delay", 0.5), ("delaytime", 0.01), ("delayfeedback", 0.5)],
+            31,
+        );
         assert_eq!(out[0], 1.0, "the dry signal passes at `dry` (1)");
         assert_eq!((out[10], out[20], out[30]), (0.5, 0.25, 0.125));
         assert_eq!(out[1..10].iter().sum::<f32>(), 0.0);
         let dry0 = render(&[("delay", 0.5), ("delaytime", 0.01), ("dry", 0.0)], 11);
-        assert_eq!((dry0[0], dry0[10]), (0.0, 0.5), "`dry` scales only the dry path");
+        assert_eq!(
+            (dry0[0], dry0[10]),
+            (0.0, 0.5),
+            "`dry` scales only the dry path"
+        );
     }
 
     #[test]
     fn no_delay_without_all_three_positive_and_no_room_at_zero() {
-        let none = |map: &[(&str, f64)]| !StageSends::from_controls(
-            &map.iter().map(|(k, v)| (k.to_string(), rudel_core::Value::F64(*v))).collect(),
-            1.0,
-        )
-        .is_active();
+        let none = |map: &[(&str, f64)]| {
+            !StageSends::from_controls(
+                &map.iter()
+                    .map(|(k, v)| (k.to_string(), rudel_core::Value::F64(*v)))
+                    .collect(),
+                1.0,
+            )
+            .is_active()
+        };
         assert!(none(&[]));
         assert!(none(&[("delay", 0.5), ("delayfeedback", 0.0)]));
         assert!(none(&[("delay", 0.5), ("delaytime", 0.0)]));
@@ -222,6 +233,9 @@ mod tests {
         // The convolver returns one 1024-sample partition late.
         let out = render(&[("room", 1.0), ("size", 0.1)], 3000);
         assert_eq!(out[0], 1.0);
-        assert!(out[1..].iter().any(|x| x.abs() > 1e-4), "a reverb tail follows");
+        assert!(
+            out[1..].iter().any(|x| x.abs() > 1e-4),
+            "a reverb tail follows"
+        );
     }
 }

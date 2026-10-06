@@ -71,6 +71,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- A hap with `stretch` starts 0.04 s early, as superdough starts it to
+  cover the phase vocoder's latency; it sounded late.
 - kabelsalat's `midifreq`, `midigate`, `midivel`, `midicc`, `cc` and
   `mouseX`/`mouseY` in a `K(...)` graph output what they do in Strudel (their
   initial values) rather than their first input.

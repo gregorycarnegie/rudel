@@ -407,11 +407,12 @@ same way (`max(0, (v < 0 ? v * 0.25 : v) + 1)`), so `stretch(1)` is an octave up
 and `stretch(-1)` is a minor third down. It runs per voice, at the head of the
 post-effect chain, as it does upstream.
 
-Two differences: it is by far Rudel's most expensive per-voice effect (two
-2048-point FFTs per 128 samples per channel — the same cost upstream pays), and
-upstream compensates the vocoder's latency by scheduling a stretched voice 0.04s
-early, which Rudel's scheduler has no per-effect pre-roll for, so a stretched
-voice sounds fractionally late.
+It is by far Rudel's most expensive per-voice effect (two 2048-point FFTs per
+128 samples per channel — the same cost upstream pays). A hap with `stretch`
+starts 0.04 s early, as upstream's does to cover the vocoder's latency. The one
+difference left is a hop: rudel's per-sample chain buffers 128 samples before
+the vocoder sees them, where an AudioWorklet gets the block at once, so a
+stretched voice is 128 samples (under 3 ms) later than upstream's.
 
 **`s("bytebeat")`** plays an integer expression sampled per audio frame, with
 `byteBeatExpression` (`bb`) choosing the formula and `n` selecting one of the 15

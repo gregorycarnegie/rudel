@@ -454,7 +454,15 @@ pub fn collect_events_at(
             // bank), so it is filled in here.
             send.reverb.ir = reverb_ir(&ev.controls, bank);
             NoteEvent {
-                onset_seconds: clock.seconds_at(ev.onset_cycle),
+                // superdough starts a stretched hap 0.04 s early, "to account
+                // for phase vocoder latency": the whole hap moves, not just
+                // the vocoder.
+                onset_seconds: clock.seconds_at(ev.onset_cycle)
+                    - if ev.controls.contains_key("stretch") {
+                        STRETCH_PREROLL
+                    } else {
+                        0.0
+                    },
                 spec,
                 fx,
                 fx_chain,
@@ -474,6 +482,9 @@ pub fn collect_events_at(
         .collect();
     (events, cps_change)
 }
+
+/// How early superdough starts a hap with `stretch`, in seconds.
+const STRETCH_PREROLL: f64 = 0.04;
 
 /// The loaded sample `ir`/`iresponse` names, as a reverb's impulse response.
 fn reverb_ir(map: &rudel_core::ValueMap, bank: &SampleBank) -> Option<Arc<Sample>> {
@@ -552,6 +563,17 @@ mod tests {
         assert!((worklet(&[("n", Value::Int(57))]).freq - 220.0).abs() < 1e-3);
         assert_eq!(worklet(&[]).freq, 440.0);
         assert!(worklet(&[]).inputs.is_empty());
+    }
+
+    #[test]
+    fn a_stretched_hap_starts_early_by_the_vocoders_latency() {
+        let bank = SampleBank::new();
+        let stretched = seq3().ctrl("stretch", rudel_core::Value::F64(1.5));
+        let plain = collect_events(&seq3(), 1.0, 0.0, 1.0, &bank);
+        let early = collect_events(&stretched, 1.0, 0.0, 1.0, &bank);
+        for (a, b) in plain.iter().zip(&early) {
+            assert!((a.onset_seconds - b.onset_seconds - 0.04).abs() < 1e-12);
+        }
     }
 
     #[test]
