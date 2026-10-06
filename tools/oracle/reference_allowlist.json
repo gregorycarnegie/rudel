@@ -55,13 +55,6 @@
         "rotationZ"
       ]
     },
-    "unsupported_package": {
-      "status": "unsupported",
-      "reason": "Browser-only / alternative-engine features and config setters with no native analog: `worklet(src, ...)`, which takes kabelsalat source as *text* for superdough to evaluate at play time. `K` is no longer here: it builds the graph inline and compiles it (crates/rudel-lang/src/kabelsalat.rs), which is what leaves `worklet` — the string form — as the part still missing. `FX` is no longer here: the chain is insert effects around the voice (crates/rudel-dsp/src/spec.rs `into_chained_voice`). Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs). Nor is `speak`, which now drives the platform speech synthesiser (crates/rudel-app/src/speech.rs), or `addVoicings`, which registers a dictionary at runtime (crates/rudel-core/src/voicing.rs).",
-      "names": [
-        "worklet"
-      ]
-    },
     "doc_artifact": {
       "status": "unsupported",
       "reason": "Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).",

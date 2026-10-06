@@ -350,9 +350,11 @@ nothing to pin them against until that is fixed.
 unreachable and a floatbeat is heard as a bytebeat. Rudel does the same, on the
 grounds that parity beats correctness here.
 
-**`worklet(src, ...)` is still unsupported.** That is the string-taking form
-Strudel's transpiler emits, and it expects source *text* to be evaluated at play
-time. `K(...)` needs no such thing, so only the spelling is missing.
+**`worklet(src, ...inputs)` works too.** That is the string-taking form
+Strudel's transpiler turns `K(...)` into, with the patterns lifted out as
+`pat[i]`. Upstream substitutes each hap's input values into the text and
+compiles it at play time; rudel evaluates the text once, as the `K(...)` it
+came from, with `pat[i]` reading input `i` per hap the way `S(...)` does.
 
 ### Soundfonts — supported, but General MIDI fetches over the network
 

@@ -16,14 +16,13 @@ A row that is not `implemented` carries the allowlist category it falls under in
 - **doc artifact** — Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).
 - **editor theme** — CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is one of the 39 Strudel themes generated into crates/rudel-app/themes/*.toml (tools/generate_themes.mjs), selectable in the editor settings panel or by `theme("dracula")` as a pattern setting, so it never appears in `rudel_lang::reference()`.
 - **motion** — @strudel/motion browser DeviceMotion/DeviceOrientation sensor signals; no native sensor source (docs/UNSUPPORTED.md).
-- **unsupported package** — Browser-only / alternative-engine features and config setters with no native analog: `worklet(src, ...)`, which takes kabelsalat source as *text* for superdough to evaluate at play time. `K` is no longer here: it builds the graph inline and compiles it (crates/rudel-lang/src/kabelsalat.rs), which is what leaves `worklet` — the string form — as the part still missing. `FX` is no longer here: the chain is insert effects around the voice (crates/rudel-dsp/src/spec.rs `into_chained_voice`). Csound is no longer here: it runs against the installed libcsound (crates/rudel-audio/src/csound.rs). Nor is `speak`, which now drives the platform speech synthesiser (crates/rudel-app/src/speech.rs), or `addVoicings`, which registers a dictionary at runtime (crates/rudel-core/src/voicing.rs).
 
 ## Summary
 
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 618 | 614 | 4 | 0 | 0 |
+| `core` | 618 | 615 | 3 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
@@ -34,7 +33,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **656** | **53** | **0** | **0** |
+| **Total** | **709** | **657** | **52** | **0** | **0** |
 
 ## `codemirror`
 
@@ -636,7 +635,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `when` | implemented |  |
 | `whenKey` | implemented |  |
 | `within` | implemented |  |
-| `worklet` | intentional | unsupported package |
+| `worklet` | implemented |  |
 | `wrandcat` | implemented |  |
 | `wt` | implemented |  |
 | `wtatt` | implemented |  |

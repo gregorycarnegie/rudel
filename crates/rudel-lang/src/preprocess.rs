@@ -13,6 +13,12 @@ mod widgets;
 pub use widgets::CANVAS_OPTION;
 
 use kabelsalat::scope_kabelsalat_calls;
+
+/// Qualify the kabelsalat names in `src`'s `K(...)` calls (for `worklet`,
+/// whose source arrives as text at run time).
+pub(crate) fn scope_kabelsalat(src: &str) -> String {
+    scope_kabelsalat_calls(src)
+}
 pub(crate) use labels::LabelLine;
 use labels::rewrite_labels;
 use mini::annotate_mini_offsets;

@@ -18,7 +18,7 @@ These are all possible natively. None of them depends on the browser.
 - [x] **MQTT** (`@strudel/mqtt`): publish haps to an MQTT broker.
 - [x] **`registerVoicings`**: register a voicing dictionary by name, as
       `addVoicings` already can.
-- [ ] **`worklet("…")`**: the string form of a kabelsalat graph, evaluated at
+- [x] **`worklet("…")`**: the string form of a kabelsalat graph, evaluated at
       play time. `K(...)` works.
 - [ ] **kabelsalat live-input nodes**: the parts of a `K(...)` graph that read
       live input.

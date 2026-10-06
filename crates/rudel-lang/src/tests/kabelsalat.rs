@@ -442,3 +442,31 @@ fn a_stereo_mix_spreads_the_channels_evenly_across_the_image() {
     let (types, ..) = program("K(Kabel.sine([220, 330]).mix().out())");
     assert!(types.iter().any(|t| t == "mix"), "{types:?}");
 }
+
+#[test]
+fn a_block_bodied_k_is_called() {
+    // pattern.mjs's own `K(() => { ... .out() })` example form.
+    let (types, ..) = program("K(() => { const f = 110; Kabel.saw(f).out() })");
+    assert_eq!(types, ["n", "saw"]);
+}
+
+#[test]
+fn worklet_text_is_the_k_it_came_from() {
+    // What upstream's transpiler makes of a `K(...)`: the graph as text, its
+    // patterns lifted out as `pat[i]` and passed after it.
+    let pairs = [
+        (
+            r#"K(saw(S("110 220")).mul(0.5).out())"#,
+            r#"worklet('saw(pat[0]).mul(0.5).out()', "110 220")"#,
+        ),
+        (
+            r#"note("c e").K(() => { const d = S(rand.range(0.05, 0.2)); saw(n(sFreq)).mul(sGate.ad(0.01, d)).out() })"#,
+            r#"note("c e").worklet('(() => { const d = pat[0]; saw(n(sFreq)).mul(sGate.ad(0.01, d)).out() })()', rand.range(0.05, 0.2))"#,
+        ),
+    ];
+    for (k, w) in pairs {
+        let k_pat = eval(k).unwrap_or_else(|e| panic!("{k}: {e}"));
+        let w_pat = eval(w).unwrap_or_else(|e| panic!("{w}: {e}"));
+        assert_eq!(values(&w_pat, 0, 2), values(&k_pat, 0, 2), "{w}");
+    }
+}

@@ -375,17 +375,52 @@ pub(crate) fn register(prelude: &Scope, pattern: &Scope) {
     });
     // `K(graph)` on its own is a control pattern, to be combined like any
     // other.
-    prelude.func("K", |a| match a.first() {
-        Some(value) => Ok(compile_arg(value).into()),
-        None => Err("K: expected a kabelsalat expression".to_string()),
-    });
+    prelude.func("K", |a| Ok(compile_arg(&graph_arg(a)?).into()));
     // `pat.K(graph)` sets the control on a pattern, which is the form a tune
     // actually uses — upstream's transpiler rewrites it to `pat.worklet(...)`.
     // The graph is fixed once, so the pattern keeps its own structure.
-    crate::bindings::method(pattern, "K", |pat, a| match a.first() {
-        Some(value) => Ok(pat.set(compile_arg(value)).into()),
-        None => Err("K: expected a kabelsalat expression".to_string()),
+    crate::bindings::method(pattern, "K", |pat, a| {
+        Ok(pat.set(compile_arg(&graph_arg(a)?)).into())
     });
+    // `worklet(src, ...inputs)`: the form upstream's transpiler turns `K(...)`
+    // into, the graph as text with its patterns lifted out as `pat[i]`.
+    prelude.func("worklet", |a| Ok(worklet(a)?.into()));
+    crate::bindings::method(pattern, "worklet", |pat, a| Ok(pat.set(worklet(a)?).into()));
+}
+
+/// `K`'s argument. A function — `K(() => { ... saw(f).out() })`, the block
+/// form that lets a patch name its nodes — is called, as upstream's
+/// transpiler calls it before stringifying.
+fn graph_arg(a: &[Arg]) -> js::Res {
+    match a.first() {
+        Some(f) if f.is_callable() => js::call(f, Vec::new()),
+        Some(value) => Ok(value.clone()),
+        None => Err("K: expected a kabelsalat expression".to_string()),
+    }
+}
+
+/// Evaluate a `worklet` source as the `K(...)` it came from, with `pat` the
+/// inputs. Upstream substitutes each hap's input values into the text before
+/// compiling it; here `pat[i]` is the input pattern, which an inlet reads per
+/// hap the same way `S(...)` does.
+fn worklet(a: &[Arg]) -> Result<rudel_core::Pattern, String> {
+    let src = a
+        .first()
+        .and_then(crate::bindings::arg_to_raw_str)
+        .ok_or("worklet: expected the kabelsalat source as a string")?;
+    let code = format!(
+        "(pat) => {}",
+        crate::preprocess::scope_kabelsalat(&format!("K({src})"))
+    );
+    let make = js::with_ctx(|ctx| js::run(ctx, &code)).ok_or("worklet: no script engine")??;
+    let inputs = Arg::List(a.get(1..).unwrap_or_default().to_vec());
+    match js::call(&make, vec![inputs])? {
+        Arg::Pat(p) => Ok(p),
+        other => Err(format!(
+            "worklet: the source gave {}, not a graph",
+            other.kind()
+        )),
+    }
 }
 
 /// `.out()` with no argument is stereo, as kabelsalat's `[0, 1]` default.

@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1136 methods=1181 controls=675
+# functions=1137 methods=1182 controls=675
 
 [functions]
 AggregateError
@@ -1107,6 +1107,7 @@ when
 whenKey
 window
 within
+worklet
 wrandcat
 wt
 wtatt
@@ -2289,6 +2290,7 @@ withValue
 with_base
 within
 wordfall
+worklet
 wt
 wtatt
 wtattack
