@@ -386,16 +386,24 @@ fn distorttype_selects_the_algorithm_in_the_voice() {
 
 #[test]
 fn tremolo_modulates_amplitude() {
-    // depth=1, 100 Hz: gain swings across [0, 1] over one LFO period.
-    let fx = PostFx {
-        tremolo: Some(100.0),
-        tremolodepth: 1.0,
-        ..Default::default()
-    };
+    // superdough's tremolo is an LFO (0..1, curve 1.5) on an AM gain of
+    // `1 − depth`. With no shape named, its skew is 1: a triangle that is all
+    // rise, so a ramp, which the curve bends to `phase^1.5`.
+    let mut map = ValueMap::new();
+    map.insert("tremolo".to_string(), Value::F64(100.0));
+    let mut fx = PostFx::from_controls(&map);
+    fx.set_clock(&map, 0.5, 0.0);
+    assert_eq!(fx.tremolodepth, 1.0, "tremolodepth defaults to 1");
     let sr = 44100.0;
     let mut v = PostFxVoice::new(Box::new(ConstVoice(1.0)), fx, sr);
     let period = (sr / 100.0) as usize; // 441 samples
     let out: Vec<f32> = (0..period).map(|_| v.tick().0).collect();
+    let quarter = out[period / 4];
+    let want = (((period / 4) as f32) * 100.0 / sr).powf(1.5);
+    assert!(
+        (quarter - want).abs() < 1e-3,
+        "a ramp to the 1.5: {quarter} vs {want}"
+    );
     let min = out.iter().cloned().fold(f32::INFINITY, f32::min);
     let max = out.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     assert!(min < 0.05, "tremolo should dip near zero, got min {min}");

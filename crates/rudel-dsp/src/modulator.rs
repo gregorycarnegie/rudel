@@ -95,18 +95,31 @@ impl Default for LfoConfig {
 }
 
 /// A stateful per-sample LFO (one `lfo-processor` instance).
+///
+/// The worklet reads its params once per 128-frame render quantum
+/// (`parameters[name][0]`), so params another modulator drives are latched at
+/// the start of each quantum, counted from the LFO's own start.
 #[derive(Clone, Debug)]
 pub struct Lfo {
     phase: f64,
+    sample_rate: f64,
+    cfg: LfoConfig,
+    /// The params in force for the current quantum.
     dt: f64,
     shape: usize,
     skew: f64,
     depth: f64,
     dcoffset: f64,
     curve: f64,
-    min: f64,
-    max: f64,
+    /// Frames into the current quantum.
+    frame: u32,
+    /// A shape driven off the table's integer indices makes the worklet throw
+    /// (`waveshapes[undefined]`), after which it outputs nothing.
+    dead: bool,
 }
+
+/// Web Audio's render quantum.
+const QUANTUM: u32 = 128;
 
 impl Lfo {
     pub fn new(cfg: &LfoConfig, sample_rate: f64) -> Lfo {
@@ -114,25 +127,50 @@ impl Lfo {
         let init = cfg.time * cfg.frequency + cfg.phaseoffset;
         Lfo {
             phase: init - init.trunc(),
+            sample_rate,
+            cfg: *cfg,
             dt: cfg.frequency / sample_rate,
             shape: cfg.shape,
             skew: cfg.skew,
             depth: cfg.depth,
             dcoffset: cfg.dcoffset,
             curve: cfg.curve,
-            min: cfg.min,
-            max: cfg.max,
+            frame: 0,
+            dead: false,
         }
     }
 
     /// The next modulation value.
     pub fn tick(&mut self) -> f64 {
+        self.tick_with(&ParamOffsets::default())
+    }
+
+    /// The next value, with `inputs` added to its params by other modulators.
+    fn tick_with(&mut self, inputs: &ParamOffsets) -> f64 {
+        if self.frame == 0 {
+            let c = &self.cfg;
+            self.dt = (c.frequency + inputs.get(ModParam::Frequency)) / self.sample_rate;
+            self.skew = c.skew + inputs.get(ModParam::Skew);
+            self.depth = c.depth + inputs.get(ModParam::Depth);
+            self.dcoffset = c.dcoffset + inputs.get(ModParam::Dcoffset);
+            self.curve = c.curve + inputs.get(ModParam::Curve);
+            let shape = c.shape as f64 + inputs.get(ModParam::Shape);
+            if shape.fract() != 0.0 || !(0.0..7.0).contains(&shape) {
+                self.dead = true;
+            } else {
+                self.shape = shape as usize;
+            }
+        }
+        self.frame = (self.frame + 1) % QUANTUM;
+        if self.dead {
+            return 0.0;
+        }
         let mut modval =
             (waveshape(self.shape, self.phase, self.skew) + self.dcoffset) * self.depth;
         modval = modval.powf(self.curve);
         // JS `clamp` is min(max(v,min),max), which (unlike f64::clamp) does not
         // assume min <= max and never panics.
-        let out = modval.max(self.min).min(self.max);
+        let out = modval.max(self.cfg.min).min(self.cfg.max);
         self.phase += self.dt;
         if self.phase > 1.0 {
             self.phase -= 1.0;
@@ -143,7 +181,7 @@ impl Lfo {
 
 /// Configuration for a [`ModEnv`], mirroring the `envelope-processor`
 /// parameter descriptors.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct EnvConfig {
     pub attack: f64,
     pub decay: f64,
@@ -215,7 +253,7 @@ impl ModEnv {
             val: 0.0,
             // The worklet enters state 1 (attack) as soon as `begin` passes.
             state: 1,
-            cfg: cfg.clone(),
+            cfg: *cfg,
         }
     }
 
@@ -238,8 +276,7 @@ impl ModEnv {
 
     /// The segment table, rebuilt per sample like the worklet does (its params
     /// are a-rate, so it reads them inside the loop).
-    fn segments(&self) -> [EnvSeg; 5] {
-        let c = &self.cfg;
+    fn segments(c: &EnvConfig) -> [EnvSeg; 5] {
         let idle = EnvSeg {
             time: f64::INFINITY,
             start: 0.0,
@@ -279,7 +316,19 @@ impl ModEnv {
 
     /// The next modulation value.
     pub fn tick(&mut self) -> f64 {
-        let segs = self.segments();
+        self.tick_with(&ParamOffsets::default())
+    }
+
+    /// The next value, with `inputs` added to its params by other modulators;
+    /// the worklet reads them every sample.
+    fn tick_with(&mut self, inputs: &ParamOffsets) -> f64 {
+        let mut c = self.cfg;
+        c.attack += inputs.get(ModParam::Attack);
+        c.decay += inputs.get(ModParam::Decay);
+        c.sustain += inputs.get(ModParam::Sustain);
+        c.release += inputs.get(ModParam::Release);
+        c.depth += inputs.get(ModParam::Depth);
+        let segs = Self::segments(&c);
         let seg = segs[self.state];
         // `_advance`: the phase runs from the *trigger*, not from the segment
         // start, so `time` is cumulative.
@@ -294,134 +343,429 @@ impl ModEnv {
             self.state = (self.state + 1) % segs.len();
             time = segs[self.state].time;
         }
-        let out = (self.val * self.cfg.depth)
-            .max(self.cfg.min)
-            .min(self.cfg.max);
+        let out = (self.val * c.depth).max(c.min).min(c.max);
         self.t += self.dt;
         out
     }
 }
 
 // ---------------------------------------------------------------------------
-// Routing: binding a modulation source to a voice parameter.
+// Routing: binding a modulation source to a parameter.
 //
 // superdough connects a modulator node to a target `AudioParam`, and Web Audio
-// *sums* a connection into the param's intrinsic value. So a modulator is an
-// additive offset on top of the control's own value, which is exactly how the
-// bank below is consumed. `modulators.mjs`'s `CONTROL_TARGETS` names the param
-// per control; the subset here is the one Rudel's scalar DSP can vary per
-// sample.
+// *sums* every connection into the param's intrinsic value. So a modulator is
+// an additive offset on the control's own value, and two modulators on one
+// param add. Which param a modulator lands on is decided in `routing.rs`, by
+// superdough's own rules; this section names rudel's params and runs the
+// sources.
 
-/// A control a modulator can be routed to.
-///
-/// Strudel's table (`superdoughdata.mjs`) covers every node parameter in the
-/// Web Audio graph. Rudel bakes most controls into a voice at construction, so
-/// only the parameters it already recomputes per sample can be modulated; the
-/// rest are listed in `docs/UNSUPPORTED.md`.
+/// A parameter of a modulator itself, which another modulator can drive
+/// (`lfo({ c: 'lfo_0', sc: 'rate' })`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModParam {
+    Frequency,
+    Depth,
+    Skew,
+    Curve,
+    Dcoffset,
+    Shape,
+    Attack,
+    Decay,
+    Sustain,
+    Release,
+}
+
+impl ModParam {
+    const COUNT: usize = 10;
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The LFO worklet's AudioParam of this name (`lfo-processor`). `begin`,
+    /// `time`, `end`, `phaseoffset`, `min` and `max` exist too but only take
+    /// effect at setup, so nothing modulating them would be heard.
+    pub(crate) fn lfo_param(name: &str) -> Option<ModParam> {
+        Some(match name {
+            "frequency" => ModParam::Frequency,
+            "depth" => ModParam::Depth,
+            "skew" => ModParam::Skew,
+            "curve" => ModParam::Curve,
+            "dcoffset" => ModParam::Dcoffset,
+            "shape" => ModParam::Shape,
+            _ => return None,
+        })
+    }
+
+    /// The envelope worklet's AudioParam of this name (`envelope-processor`).
+    pub(crate) fn env_param(name: &str) -> Option<ModParam> {
+        Some(match name {
+            "attack" => ModParam::Attack,
+            "decay" => ModParam::Decay,
+            "sustain" => ModParam::Sustain,
+            "release" => ModParam::Release,
+            "depth" => ModParam::Depth,
+            _ => return None,
+        })
+    }
+}
+
+/// Offsets other modulators are adding to a modulator's own params this sample.
+#[derive(Clone, Copy, Debug, Default)]
+struct ParamOffsets([f64; ModParam::COUNT]);
+
+impl ParamOffsets {
+    fn get(&self, p: ModParam) -> f64 {
+        self.0[p.index()]
+    }
+}
+
+/// Which of a voice's three filters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterSlot {
+    Low,
+    High,
+    Band,
+}
+
+/// The dynamics compressor's params.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompParam {
+    Threshold,
+    Ratio,
+    Knee,
+    Attack,
+    Release,
+}
+
+/// A parameter a modulator can be routed to: one entry per AudioParam that
+/// superdough's table reaches and that exists, named for rudel's DSP.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModTarget {
-    /// Oscillator frequency (`s`/`freq`/`note` -> `source.frequency`).
+    /// The source's frequency in Hz (`s`/`freq`/`note` on an oscillator or a
+    /// synth worklet).
     Frequency,
-    /// Voice gain (`gain`).
+    /// A buffer source's `detune` in cents: what `s`/`freq`/`note` reach on a
+    /// sample, a soundfont or a noise source, which have no `frequency`.
+    Detune,
+    /// Supersaw and wavetable unison: frequency spread and stereo spread.
+    Freqspread,
+    Panspread,
+    /// Wavetable position and warp, and the LFOs on them.
+    WtPosition,
+    WtWarp,
+    WtLfo(ModParam),
+    WarpLfo(ModParam),
+    /// The pulse width and its LFO.
+    Pulsewidth,
+    PwLfo(ModParam),
+    /// FM operator `n` (1..=8): its modulation index, and its frequency in Hz.
+    FmGain(u8),
+    FmFreq(u8),
+    /// Vibrato rate in Hz, and depth in cents.
+    VibFreq,
+    VibGain,
+    /// The voice's gain stage, and its pan (bipolar, `2·pan − 1`).
     Gain,
-    /// Low-pass cutoff (`cutoff`) and resonance (`resonance`).
+    Pan,
+    /// The filters, and the cutoff LFOs on them.
     Cutoff,
     Resonance,
-    /// High-pass cutoff (`hcutoff`) and resonance (`hresonance`).
     Hcutoff,
     Hresonance,
-    /// Band-pass centre (`bandf`) and Q (`bandq`).
     Bandf,
     Bandq,
-    /// Post-fx amounts.
-    Postgain,
+    FilterLfo(FilterSlot, ModParam),
+    /// Post-effects.
+    Vowel,
+    Coarse,
+    Crush,
     Shape,
     Shapevol,
     Distort,
     Distortvol,
-    Crush,
-    Coarse,
+    Postgain,
+    Stretch,
+    Tremolo(ModParam),
+    TremoloGain,
+    Compressor(CompParam),
+    PhaserLfo(ModParam),
+    PhaserCenter,
+    PhaserQ,
+    /// The orbit: this voice's sends, and the shared delay and DJ filter.
+    DelaySend,
+    DelayTime,
+    DelayFeedback,
+    RoomSend,
+    Djf,
+    /// Another modulator in the same bank (by its position there), one of its
+    /// own params.
+    Modulator(usize, ModParam),
 }
 
 /// Which part of the signal chain applies a target, so each can own (and tick)
 /// only the modulators it is able to consume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModOwner {
-    /// The synth/sampler voice: oscillator frequency, gain and the filters.
+    /// The synth/sampler voice: the source, gain, pan and the filters.
     Voice,
     /// The post-effect chain.
     PostFx,
+    /// The orbit's sends and shared effects, applied by the mixer.
+    Orbit,
+    /// One `FX(...)` stage's gain and filters, and its post-effect rack.
+    StageVoice(usize),
+    StagePost(usize),
 }
 
 impl ModTarget {
-    /// Every target, in declaration order; also the offset-table layout.
-    const ALL: [ModTarget; 15] = [
-        ModTarget::Frequency,
-        ModTarget::Gain,
-        ModTarget::Cutoff,
-        ModTarget::Resonance,
-        ModTarget::Hcutoff,
-        ModTarget::Hresonance,
-        ModTarget::Bandf,
-        ModTarget::Bandq,
-        ModTarget::Postgain,
-        ModTarget::Shape,
-        ModTarget::Shapevol,
-        ModTarget::Distort,
-        ModTarget::Distortvol,
-        ModTarget::Crush,
-        ModTarget::Coarse,
-    ];
+    /// Number of offset slots (every target but [`ModTarget::Modulator`]):
+    /// 34 single params, 5 compressor params, five LFOs of [`ModParam::COUNT`]
+    /// params each plus three filter LFOs, and 8 FM gains and 8 frequencies.
+    pub const SLOTS: usize = 39 + 8 * ModParam::COUNT + 16;
 
-    /// Resolve a canonical control name (the descriptor's `control` value is
-    /// already run through `getControlName`). `None` for controls Rudel cannot
-    /// modulate.
-    pub fn from_control(name: &str) -> Option<ModTarget> {
-        Some(match name {
-            "s" | "freq" | "note" => ModTarget::Frequency,
-            "gain" => ModTarget::Gain,
-            "cutoff" => ModTarget::Cutoff,
-            "resonance" => ModTarget::Resonance,
-            "hcutoff" => ModTarget::Hcutoff,
-            "hresonance" => ModTarget::Hresonance,
-            "bandf" => ModTarget::Bandf,
-            "bandq" => ModTarget::Bandq,
-            "postgain" => ModTarget::Postgain,
-            "shape" => ModTarget::Shape,
-            "shapevol" => ModTarget::Shapevol,
-            "distort" => ModTarget::Distort,
-            "distortvol" => ModTarget::Distortvol,
-            "crush" => ModTarget::Crush,
-            "coarse" => ModTarget::Coarse,
-            _ => return None,
-        })
-    }
-
-    fn owner(self) -> ModOwner {
+    /// The offset slot of a parameter target.
+    pub fn index(self) -> usize {
+        use ModTarget::*;
+        const LFO: usize = 39;
+        const N: usize = ModParam::COUNT;
+        let lfo = |block: usize, m: ModParam| LFO + block * N + m.index();
         match self {
-            ModTarget::Frequency
-            | ModTarget::Gain
-            | ModTarget::Cutoff
-            | ModTarget::Resonance
-            | ModTarget::Hcutoff
-            | ModTarget::Hresonance
-            | ModTarget::Bandf
-            | ModTarget::Bandq => ModOwner::Voice,
-            _ => ModOwner::PostFx,
+            Frequency => 0,
+            Detune => 1,
+            Freqspread => 2,
+            Panspread => 3,
+            WtPosition => 4,
+            WtWarp => 5,
+            Pulsewidth => 6,
+            VibFreq => 7,
+            VibGain => 8,
+            Gain => 9,
+            Pan => 10,
+            Cutoff => 11,
+            Resonance => 12,
+            Hcutoff => 13,
+            Hresonance => 14,
+            Bandf => 15,
+            Bandq => 16,
+            Vowel => 17,
+            Coarse => 18,
+            Crush => 19,
+            Shape => 20,
+            Shapevol => 21,
+            Distort => 22,
+            Distortvol => 23,
+            Postgain => 24,
+            Stretch => 25,
+            TremoloGain => 26,
+            PhaserCenter => 27,
+            PhaserQ => 28,
+            DelaySend => 29,
+            DelayTime => 30,
+            DelayFeedback => 31,
+            RoomSend => 32,
+            Djf => 33,
+            Compressor(c) => 34 + c as usize,
+            WtLfo(m) => lfo(0, m),
+            WarpLfo(m) => lfo(1, m),
+            PwLfo(m) => lfo(2, m),
+            Tremolo(m) => lfo(3, m),
+            PhaserLfo(m) => lfo(4, m),
+            FilterLfo(slot, m) => lfo(5 + slot as usize, m),
+            FmGain(n) => LFO + 8 * N + (n as usize - 1),
+            FmFreq(n) => LFO + 8 * N + 8 + (n as usize - 1),
+            Modulator(..) => panic!("a modulator target has no offset slot"),
         }
     }
 
-    /// True when the underlying Web Audio param is a `frequency`, which is what
-    /// `getRangeForParam` keys its 20Hz..24kHz clamp off.
+    /// Every parameter target (all but [`ModTarget::Modulator`]).
+    #[cfg(test)]
+    pub(crate) fn all() -> Vec<ModTarget> {
+        use ModParam::{Dcoffset, Depth, Frequency as Rate, Shape as Wave, Skew};
+        use ModTarget::*;
+        let mut all = vec![
+            Frequency,
+            Detune,
+            Freqspread,
+            Panspread,
+            WtPosition,
+            WtWarp,
+            Pulsewidth,
+            VibFreq,
+            VibGain,
+            Gain,
+            Pan,
+            Cutoff,
+            Resonance,
+            Hcutoff,
+            Hresonance,
+            Bandf,
+            Bandq,
+            Vowel,
+            Coarse,
+            Crush,
+            Shape,
+            Shapevol,
+            Distort,
+            Distortvol,
+            Postgain,
+            Stretch,
+            TremoloGain,
+            PhaserCenter,
+            PhaserQ,
+            DelaySend,
+            DelayTime,
+            DelayFeedback,
+            RoomSend,
+            Djf,
+        ];
+        for c in [
+            CompParam::Threshold,
+            CompParam::Ratio,
+            CompParam::Knee,
+            CompParam::Attack,
+            CompParam::Release,
+        ] {
+            all.push(Compressor(c));
+        }
+        // The LFO params superdough's table reaches on each LFO node.
+        for m in [Rate, Depth, Skew] {
+            all.extend([WtLfo(m), WarpLfo(m)]);
+        }
+        all.extend([PwLfo(Rate), PwLfo(Depth), PhaserLfo(Rate), PhaserLfo(Depth)]);
+        all.extend([Tremolo(Rate), Tremolo(Skew), Tremolo(Wave)]);
+        for slot in [FilterSlot::Low, FilterSlot::High, FilterSlot::Band] {
+            for m in [Depth, Wave, Dcoffset, Skew] {
+                all.push(FilterLfo(slot, m));
+            }
+        }
+        for n in 1..=8 {
+            all.extend([FmGain(n), FmFreq(n)]);
+        }
+        all
+    }
+
+    /// Who applies it, for a modulator connected through `fxi`.
+    pub fn owner(self, fxi: crate::routing::Fxi) -> ModOwner {
+        use ModTarget::*;
+        let post = match self {
+            Vowel | Coarse | Crush | Shape | Shapevol | Distort | Distortvol | Postgain
+            | Stretch | Tremolo(_) | TremoloGain | Compressor(_) | PhaserLfo(_) | PhaserCenter
+            | PhaserQ => true,
+            DelaySend | DelayTime | DelayFeedback | RoomSend | Djf => {
+                return ModOwner::Orbit;
+            }
+            _ => false,
+        };
+        match (fxi, post) {
+            (crate::routing::Fxi::Stage(i), true) => ModOwner::StagePost(i),
+            (crate::routing::Fxi::Stage(i), false) => ModOwner::StageVoice(i),
+            (_, true) => ModOwner::PostFx,
+            (_, false) => ModOwner::Voice,
+        }
+    }
+
+    /// `getRangeForParam` keys its 20 Hz..24 kHz clamp off a param *named*
+    /// `frequency`; a buffer source's `detune` counts, since the lookup asked
+    /// for `frequency` before falling back to it.
     fn is_frequency(self) -> bool {
+        use ModTarget::*;
         matches!(
             self,
-            ModTarget::Frequency | ModTarget::Cutoff | ModTarget::Hcutoff | ModTarget::Bandf
+            Frequency
+                | Detune
+                | Cutoff
+                | Hcutoff
+                | Bandf
+                | Vowel
+                | PhaserCenter
+                | VibFreq
+                | FmFreq(_)
+                | WtLfo(ModParam::Frequency)
+                | WarpLfo(ModParam::Frequency)
+                | PwLfo(ModParam::Frequency)
+                | Tremolo(ModParam::Frequency)
+                | PhaserLfo(ModParam::Frequency)
+                | Modulator(_, ModParam::Frequency)
         )
     }
 
-    fn index(self) -> usize {
-        ModTarget::ALL.iter().position(|&t| t == self).unwrap()
+    /// The main-chain target of a control when every node is present: what
+    /// the routing finds for a plain synth voice with every effect on. Used by
+    /// tests and by [`ModSpecs::from_controls`].
+    pub fn from_control(name: &str) -> Option<ModTarget> {
+        let (node, param) = crate::routing::control_data(name, None)?;
+        ModTarget::of_node(node, param)
+    }
+
+    /// The target for a node key and param name, when the node is present.
+    /// `None` when that node has no such param (the throwing case) or the node
+    /// is not one a voice builds.
+    pub(crate) fn of_node(node: &str, param: &str) -> Option<ModTarget> {
+        use ModTarget::*;
+        let lfo = ModParam::lfo_param;
+        Some(match (node, param) {
+            ("source", "frequency") => Frequency,
+            ("source", "freqspread") => Freqspread,
+            ("source", "panspread") => Panspread,
+            ("source", "position") => WtPosition,
+            ("source", "warp") => WtWarp,
+            ("source", "pulsewidth") => Pulsewidth,
+            ("wt_lfo", p) => WtLfo(lfo(p)?),
+            ("warp_lfo", p) => WarpLfo(lfo(p)?),
+            ("pw_lfo", p) => PwLfo(lfo(p)?),
+            ("vib", "frequency") => VibFreq,
+            ("vib_gain", "gain") => VibGain,
+            ("gain", "gain") => Gain,
+            ("pan", "pan") => Pan,
+            ("lpf", "frequency") => Cutoff,
+            ("lpf", "Q") => Resonance,
+            ("hpf", "frequency") => Hcutoff,
+            ("hpf", "Q") => Hresonance,
+            ("bpf", "frequency") => Bandf,
+            ("bpf", "Q") => Bandq,
+            ("lpf_lfo", p) => FilterLfo(FilterSlot::Low, lfo(p)?),
+            ("hpf_lfo", p) => FilterLfo(FilterSlot::High, lfo(p)?),
+            ("bpf_lfo", p) => FilterLfo(FilterSlot::Band, lfo(p)?),
+            ("vowel", "frequency") => Vowel,
+            ("coarse", "coarse") => Coarse,
+            ("crush", "crush") => Crush,
+            ("shape", "shape") => Shape,
+            ("shape", "postgain") => Shapevol,
+            ("distort", "distort") => Distort,
+            ("distort", "postgain") => Distortvol,
+            ("post", "gain") => Postgain,
+            ("stretch", "pitchFactor") => Stretch,
+            ("tremolo", p) => Tremolo(lfo(p)?),
+            ("tremolo_gain", "gain") => TremoloGain,
+            ("compressor", "threshold") => Compressor(CompParam::Threshold),
+            ("compressor", "ratio") => Compressor(CompParam::Ratio),
+            ("compressor", "knee") => Compressor(CompParam::Knee),
+            ("compressor", "attack") => Compressor(CompParam::Attack),
+            ("compressor", "release") => Compressor(CompParam::Release),
+            ("phaser_lfo", p) => PhaserLfo(lfo(p)?),
+            ("phaser", "frequency") => PhaserCenter,
+            ("phaser", "Q") => PhaserQ,
+            ("delay_mix", "gain") => DelaySend,
+            ("delay", "delayTime") => DelayTime,
+            ("delay", "feedback") => DelayFeedback,
+            ("room_mix", "gain") => RoomSend,
+            ("djf", "value") => Djf,
+            (fm, p) if fm.starts_with("fm_") => {
+                let rest = &fm[3..];
+                let (n, gain) = match rest.strip_suffix("_gain") {
+                    Some(n) => (n, true),
+                    None => (rest, false),
+                };
+                let n: u8 = n.parse().ok().filter(|n| (1..=8).contains(n))?;
+                match (gain, p) {
+                    (true, "gain") => FmGain(n),
+                    (false, "frequency") => FmFreq(n),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        })
     }
 }
 
@@ -461,7 +805,7 @@ enum SourceConfig {
     Bus(BusConfig),
 }
 
-/// One resolved modulator: the control it offsets plus its source config.
+/// One resolved modulator: the param it offsets plus its source config.
 ///
 /// Sample-rate free, so the scheduler can resolve it from the hap while the
 /// mixer instantiates it at the device rate ([`ModBank::new`]).
@@ -471,17 +815,27 @@ pub struct ModSpec {
     source: SourceConfig,
 }
 
-/// The modulators a hap carries, split by which part of the chain can consume
-/// them so each side ticks only its own.
+/// The modulators a hap carries, split by which part of the chain applies
+/// them so each side ticks only its own. A modulator that modulates another
+/// lives with the one it modulates.
 #[derive(Clone, Debug, Default)]
 pub struct ModSpecs {
     pub voice: Vec<ModSpec>,
     pub post: Vec<ModSpec>,
+    pub orbit: Vec<ModSpec>,
+    /// Per `FX(...)` stage, by index: its voice side and its post-effects.
+    pub stages: Vec<(Vec<ModSpec>, Vec<ModSpec>)>,
 }
 
 impl ModSpecs {
     pub fn is_empty(&self) -> bool {
-        self.voice.is_empty() && self.post.is_empty()
+        self.voice.is_empty()
+            && self.post.is_empty()
+            && self.orbit.is_empty()
+            && self
+                .stages
+                .iter()
+                .all(|(v, p)| v.is_empty() && p.is_empty())
     }
 
     /// The specs for one owner.
@@ -489,6 +843,26 @@ impl ModSpecs {
         match owner {
             ModOwner::Voice => &self.voice,
             ModOwner::PostFx => &self.post,
+            ModOwner::Orbit => &self.orbit,
+            ModOwner::StageVoice(i) => self.stages.get(i).map_or(&[], |s| s.0.as_slice()),
+            ModOwner::StagePost(i) => self.stages.get(i).map_or(&[], |s| s.1.as_slice()),
+        }
+    }
+
+    fn list_mut(&mut self, owner: ModOwner) -> &mut Vec<ModSpec> {
+        match owner {
+            ModOwner::Voice => &mut self.voice,
+            ModOwner::PostFx => &mut self.post,
+            ModOwner::Orbit => &mut self.orbit,
+            ModOwner::StageVoice(i) | ModOwner::StagePost(i) => {
+                if self.stages.len() <= i {
+                    self.stages.resize(i + 1, (Vec::new(), Vec::new()));
+                }
+                match owner {
+                    ModOwner::StageVoice(_) => &mut self.stages[i].0,
+                    _ => &mut self.stages[i].1,
+                }
+            }
         }
     }
 }
@@ -516,7 +890,7 @@ impl BusMod {
     }
 }
 
-/// A live modulation source bound to a target control.
+/// A live modulation source bound to a target.
 #[derive(Clone, Debug)]
 enum ModSource {
     Lfo(Lfo),
@@ -529,13 +903,16 @@ enum ModSource {
 struct Modulation {
     target: ModTarget,
     source: ModSource,
+    /// What later modulators add to this one's params, this sample.
+    inputs: ParamOffsets,
 }
 
 impl Modulation {
     fn tick(&mut self) -> f64 {
+        let inputs = std::mem::take(&mut self.inputs);
         match &mut self.source {
-            ModSource::Lfo(l) => l.tick(),
-            ModSource::Env(e) => e.tick(),
+            ModSource::Lfo(l) => l.tick_with(&inputs),
+            ModSource::Env(e) => e.tick_with(&inputs),
             ModSource::Bus(b) => b.tick(),
         }
     }
@@ -550,10 +927,19 @@ fn range_for(target: ModTarget, current: f64) -> Option<(f64, f64)> {
 
 /// A bank of modulators owned by one part of the chain, ticked once per sample
 /// into a small offset table the consumer reads by target.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ModBank {
     mods: Vec<Modulation>,
-    offsets: [f32; ModTarget::ALL.len()],
+    offsets: Box<[f32; ModTarget::SLOTS]>,
+}
+
+impl Default for ModBank {
+    fn default() -> ModBank {
+        ModBank {
+            mods: Vec::new(),
+            offsets: Box::new([0.0; ModTarget::SLOTS]),
+        }
+    }
 }
 
 impl ModBank {
@@ -562,10 +948,24 @@ impl ModBank {
         self.mods.is_empty()
     }
 
-    /// Advance every source by one sample.
+    /// Advance every source by one sample. Later modulators run first, because
+    /// a modulator can only drive one created before it: so each one has heard
+    /// this sample's input from those modulating it before it runs.
     pub fn tick(&mut self) {
-        for m in &mut self.mods {
-            self.offsets[m.target.index()] = m.tick() as f32;
+        if self.mods.is_empty() {
+            return;
+        }
+        self.offsets.fill(0.0);
+        for i in (0..self.mods.len()).rev() {
+            let value = self.mods[i].tick();
+            match self.mods[i].target {
+                ModTarget::Modulator(j, param) => {
+                    if let Some(m) = self.mods.get_mut(j) {
+                        m.inputs.0[param.index()] += value;
+                    }
+                }
+                target => self.offsets[target.index()] += value as f32,
+            }
         }
     }
 
@@ -590,9 +990,10 @@ impl ModBank {
                             pos: 0,
                         }),
                     },
+                    inputs: ParamOffsets::default(),
                 })
                 .collect(),
-            offsets: [0.0; ModTarget::ALL.len()],
+            offsets: Box::new([0.0; ModTarget::SLOTS]),
         }
     }
 
@@ -613,114 +1014,280 @@ impl ModBank {
     }
 }
 
+/// A graph in which every node a voice can build is present and every param
+/// reads `base(target)`: the shape [`ModSpecs::from_controls`] resolves against.
+struct EveryNode<F>(F);
+
+impl<F: Fn(ModTarget) -> f32> crate::routing::ModGraph for EveryNode<F> {
+    fn lookup(&self, _: crate::routing::Fxi, node: &str, param: &str) -> crate::routing::Lookup {
+        use crate::routing::Lookup;
+        let known = [
+            "source",
+            "gain",
+            "post",
+            "pan",
+            "stretch",
+            "tremolo",
+            "tremolo_gain",
+            "lpf",
+            "hpf",
+            "bpf",
+            "lpf_lfo",
+            "hpf_lfo",
+            "bpf_lfo",
+            "vowel",
+            "coarse",
+            "crush",
+            "shape",
+            "distort",
+            "compressor",
+            "phaser",
+            "phaser_lfo",
+            "delay",
+            "delay_mix",
+            "room_mix",
+            "djf",
+            "vib",
+            "vib_gain",
+            "wt_lfo",
+            "warp_lfo",
+            "pw_lfo",
+        ];
+        if !known.contains(&node) && !node.starts_with("fm_") {
+            return Lookup::Absent;
+        }
+        match ModTarget::of_node(node, param) {
+            Some(t) => Lookup::Found(t, (self.0)(t) as f64),
+            None => Lookup::NoParam,
+        }
+    }
+}
+
+/// A modulator created so far: where it lives and what it is, so a later one
+/// can reach it by name.
+struct Created {
+    name: String,
+    owner: ModOwner,
+    /// Its position in its owner's list.
+    index: usize,
+    lfo: bool,
+    /// Its params' current values, for a relative depth.
+    config: SourceConfig,
+}
+
 impl ModSpecs {
-    /// Resolve a hap's `lfo`/`env`/`bmod` descriptors.
-    ///
-    /// `base` supplies the target control's own value, which relative `depth`
-    /// scales (superdough reads it off the target `AudioParam`). Entries naming
-    /// a control Rudel cannot modulate are skipped — upstream logs "may not be
-    /// modulatable" and carries on, and so does this.
+    /// Resolve a hap's `lfo`/`env`/`bmod` descriptors against a graph where
+    /// every node a voice can build is present and each param reads
+    /// `base(target)` — the main controls only.
     pub fn from_controls(
         map: &ValueMap,
         ctx: &ModContext,
         base: impl Fn(ModTarget) -> f32,
     ) -> ModSpecs {
+        ModSpecs::resolve(map, &[], ctx, &EveryNode(base))
+    }
+
+    /// Resolve a hap's `lfo`/`env`/`bmod` descriptors as superdough's final
+    /// loop does: each `FX` stage's modulators and then the main controls',
+    /// `lfo` before `env` before `bmod`, each in `__ids` order, against the
+    /// hap's own `graph`. A modulator whose target throws drops itself and
+    /// every one after it.
+    pub fn resolve(
+        map: &ValueMap,
+        stages: &[ValueMap],
+        ctx: &ModContext,
+        graph: &dyn crate::routing::ModGraph,
+    ) -> ModSpecs {
+        use crate::routing::{Fxi, Outcome, resolve};
         let mut out = ModSpecs::default();
-        for kind in ["lfo", "env", "bmod"] {
-            let Some(Value::Map(desc)) = map.get(kind) else {
-                continue;
-            };
-            let Some(Value::List(ids)) = desc.get("__ids") else {
-                continue;
-            };
-            for id in ids {
-                let key = id_key(id);
-                let Some(Value::Map(entry)) = desc.get(&key) else {
+        let mut created: Vec<Created> = Vec::new();
+        let maps = stages.iter().enumerate().map(|(i, m)| (Fxi::Stage(i), m));
+        for (key, fx) in maps.chain(std::iter::once((Fxi::Main, map))) {
+            for kind in ["lfo", "env", "bmod"] {
+                let Some(Value::Map(desc)) = fx.get(kind) else {
                     continue;
                 };
-                let Some(target) = entry
-                    .get("control")
-                    .and_then(|v| v.as_str())
-                    .and_then(ModTarget::from_control)
-                else {
+                let Some(Value::List(ids)) = desc.get("__ids") else {
                     continue;
                 };
-                let get = |k: &str| entry.get(k).and_then(|v| v.as_f64());
-                // `currentValue === 0 ? 1 : currentValue`, then
-                // `depthabs ?? depth * currentValue`.
-                let current = match base(target) as f64 {
-                    0.0 => 1.0,
-                    v => v,
-                };
-                let depth = get("depthabs").unwrap_or(get("depth").unwrap_or(1.0) * current);
-                let range = range_for(target, current);
-                let source = if kind == "lfo" {
-                    let d = LfoConfig::default();
-                    let dcoffset = get("dcoffset").unwrap_or(d.dcoffset);
-                    let (min, max) = range.unwrap_or((dcoffset * depth, dcoffset * depth + depth));
-                    let retrig = get("retrig").unwrap_or(0.0);
-                    let cfg = LfoConfig {
-                        shape: shape_index(entry.get("shape")),
-                        // `sync` is in cycles, `rate` in Hz.
-                        frequency: match get("sync") {
-                            Some(s) => s * ctx.cps,
-                            None => get("rate").unwrap_or(1.0),
-                        },
-                        skew: get("skew").unwrap_or(d.skew),
-                        depth,
-                        dcoffset,
-                        phaseoffset: get("phaseoffset").unwrap_or(d.phaseoffset),
-                        curve: get("curve").unwrap_or(d.curve),
-                        // Unless it retriggers, the phase is locked to the
-                        // global cycle clock rather than the note onset.
-                        time: if retrig > 0.5 {
-                            0.0
-                        } else {
-                            ctx.cycle / ctx.cps.max(1e-9)
-                        },
-                        min,
-                        max,
+                for id in ids {
+                    let id = id_key(id);
+                    let Some(Value::Map(entry)) = desc.get(&id) else {
+                        continue;
                     };
-                    SourceConfig::Lfo(cfg)
-                } else if kind == "bmod" {
-                    // A `bmod` with no bus reads `getBus(undefined)` upstream,
-                    // which nothing ever sends to; skipping is the same silence.
-                    let Some(bus) = get("bus") else { continue };
-                    let (min, max) = range.unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
-                    SourceConfig::Bus(BusConfig {
-                        bus: bus as i32,
-                        dc: get("dc").unwrap_or(0.0),
-                        gain: depth / 0.3,
-                        min,
-                        max,
-                    })
-                } else {
-                    let d = EnvConfig::default();
-                    let (min, max) = range.unwrap_or((d.min, d.max));
-                    let cfg = EnvConfig {
-                        attack: get("attack").unwrap_or(d.attack),
-                        decay: get("decay").unwrap_or(d.decay),
-                        sustain: get("sustain").unwrap_or(d.sustain),
-                        release: get("release").unwrap_or(d.release),
-                        attack_curve: get("acurve").unwrap_or(d.attack_curve),
-                        decay_curve: get("dcurve").unwrap_or(d.decay_curve),
-                        release_curve: get("rcurve").unwrap_or(d.release_curve),
-                        depth,
-                        min,
-                        max,
-                        sustain_time: ctx.note_seconds,
+                    let Some(control) = entry.get("control").and_then(Value::as_str) else {
+                        continue;
                     };
-                    SourceConfig::Env(cfg)
-                };
-                let spec = ModSpec { target, source };
-                match target.owner() {
-                    ModOwner::Voice => out.voice.push(spec),
-                    ModOwner::PostFx => out.post.push(spec),
+                    let sub = entry.get("subControl").and_then(Value::as_str);
+                    // `params.fxi ??= key`: a number is a stage, anything
+                    // else the main chain.
+                    let fxi = match entry.get("fxi").and_then(Value::as_f64) {
+                        Some(i) if i >= 0.0 => Fxi::Stage(i as usize),
+                        _ if entry.get("fxi").is_some() => Fxi::Main,
+                        _ => key,
+                    };
+                    let outcome = match fxi {
+                        // Modulators are registered in `nodes.main` only.
+                        Fxi::Main => match resolve_modulator(&created, control, sub) {
+                            Some(found) => found,
+                            None => resolve(graph, fxi, control, sub),
+                        },
+                        Fxi::Stage(_) => resolve(graph, fxi, control, sub),
+                    };
+                    let (target, current, owner) = match outcome {
+                        Outcome::Skip => continue,
+                        Outcome::Throw => return out,
+                        Outcome::Connect(ModTarget::Modulator(index, param), current) => {
+                            let into = &created[index];
+                            (ModTarget::Modulator(into.index, param), current, into.owner)
+                        }
+                        Outcome::Connect(target, current) => (target, current, target.owner(fxi)),
+                    };
+                    let Some(source) = source_config(kind, entry, ctx, target, current) else {
+                        continue;
+                    };
+                    let list = out.list_mut(owner);
+                    if kind != "bmod" {
+                        // `nodeTracker.main[`lfo_${id}`] = [lfoNode]`: a later
+                        // modulator can reach this one by name.
+                        created.retain(|c| c.name != format!("{kind}_{id}"));
+                        created.push(Created {
+                            name: format!("{kind}_{id}"),
+                            owner,
+                            index: list.len(),
+                            lfo: kind == "lfo",
+                            config: source.clone(),
+                        });
+                    }
+                    list.push(ModSpec { target, source });
                 }
             }
         }
         out
     }
+}
+
+/// A modulator reached by name (`lfo_0`, `env_mod`): the same table lookup
+/// as any other control, against the modulators created so far. `None` when
+/// no such modulator exists, so the graph is asked instead.
+fn resolve_modulator(
+    created: &[Created],
+    control: &str,
+    sub: Option<&str>,
+) -> Option<crate::routing::Outcome> {
+    use crate::routing::{Outcome, control_data};
+    let position = created.iter().rposition(|c| c.name == control)?;
+    let found = &created[position];
+    let (_, param) = control_data(control, sub)?;
+    let param = if found.lfo {
+        ModParam::lfo_param(param)
+    } else {
+        ModParam::env_param(param)
+    };
+    Some(match param {
+        Some(p) => Outcome::Connect(
+            ModTarget::Modulator(position, p),
+            current_of(&found.config, p),
+        ),
+        None => Outcome::Throw,
+    })
+}
+
+/// A modulator param's value at setup.
+fn current_of(config: &SourceConfig, p: ModParam) -> f64 {
+    match config {
+        SourceConfig::Lfo(c) => match p {
+            ModParam::Frequency => c.frequency,
+            ModParam::Depth => c.depth,
+            ModParam::Skew => c.skew,
+            ModParam::Curve => c.curve,
+            ModParam::Dcoffset => c.dcoffset,
+            ModParam::Shape => c.shape as f64,
+            _ => 0.0,
+        },
+        SourceConfig::Env(c) => match p {
+            ModParam::Attack => c.attack,
+            ModParam::Decay => c.decay,
+            ModParam::Sustain => c.sustain,
+            ModParam::Release => c.release,
+            ModParam::Depth => c.depth,
+            _ => 0.0,
+        },
+        SourceConfig::Bus(_) => 0.0,
+    }
+}
+
+/// `connectLFO`/`connectEnvelope`/`connectBusModulator`: the source a
+/// descriptor builds for a param whose value is `current`.
+fn source_config(
+    kind: &str,
+    entry: &ValueMap,
+    ctx: &ModContext,
+    target: ModTarget,
+    current: f64,
+) -> Option<SourceConfig> {
+    let get = |k: &str| entry.get(k).and_then(|v| v.as_f64());
+    // `currentValue === 0 ? 1 : currentValue`, then
+    // `depthabs ?? depth * currentValue`.
+    let current = if current == 0.0 { 1.0 } else { current };
+    let depth = get("depthabs").unwrap_or(get("depth").unwrap_or(1.0) * current);
+    let range = range_for(target, current);
+    Some(if kind == "lfo" {
+        let d = LfoConfig::default();
+        let dcoffset = get("dcoffset").unwrap_or(d.dcoffset);
+        let (min, max) = range.unwrap_or((dcoffset * depth, dcoffset * depth + depth));
+        let retrig = get("retrig").unwrap_or(0.0);
+        SourceConfig::Lfo(LfoConfig {
+            shape: shape_index(entry.get("shape")),
+            // `sync` is in cycles, `rate` in Hz.
+            frequency: match get("sync") {
+                Some(s) => s * ctx.cps,
+                None => get("rate").unwrap_or(1.0),
+            },
+            skew: get("skew").unwrap_or(d.skew),
+            depth,
+            dcoffset,
+            phaseoffset: get("phaseoffset").unwrap_or(d.phaseoffset),
+            curve: get("curve").unwrap_or(d.curve),
+            // Unless it retriggers, the phase is locked to the global cycle
+            // clock rather than the note onset.
+            time: if retrig > 0.5 {
+                0.0
+            } else {
+                ctx.cycle / ctx.cps.max(1e-9)
+            },
+            min,
+            max,
+        })
+    } else if kind == "bmod" {
+        // A `bmod` with no bus reads `getBus(undefined)` upstream, which
+        // nothing ever sends to; skipping is the same silence.
+        let bus = get("bus")?;
+        let (min, max) = range.unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
+        SourceConfig::Bus(BusConfig {
+            bus: bus as i32,
+            dc: get("dc").unwrap_or(0.0),
+            gain: depth / 0.3,
+            min,
+            max,
+        })
+    } else {
+        let d = EnvConfig::default();
+        let (min, max) = range.unwrap_or((d.min, d.max));
+        SourceConfig::Env(EnvConfig {
+            attack: get("attack").unwrap_or(d.attack),
+            decay: get("decay").unwrap_or(d.decay),
+            sustain: get("sustain").unwrap_or(d.sustain),
+            release: get("release").unwrap_or(d.release),
+            attack_curve: get("acurve").unwrap_or(d.attack_curve),
+            decay_curve: get("dcurve").unwrap_or(d.decay_curve),
+            release_curve: get("rcurve").unwrap_or(d.release_curve),
+            depth,
+            min,
+            max,
+            sustain_time: ctx.note_seconds,
+        })
+    })
 }
 
 /// superdough's `getModulationShapeInput`: a number indexes the waveshape table
@@ -829,49 +1396,26 @@ mod tests {
     }
 
     #[test]
-    fn no_two_controls_share_a_target_and_none_is_unreachable() {
-        // Guards the table against a swapped pair, which leaves every target
-        // reachable and so slips past the list above if one is ever edited to
-        // match the code rather than the intent.
-        let names = [
-            "s",
-            "freq",
-            "note",
-            "gain",
-            "cutoff",
-            "resonance",
-            "hcutoff",
-            "hresonance",
-            "bandf",
-            "bandq",
-            "postgain",
-            "shape",
-            "shapevol",
-            "distort",
-            "distortvol",
-            "crush",
-            "coarse",
-        ];
-        let mut seen: Vec<ModTarget> = Vec::new();
-        for name in names {
-            let t = ModTarget::from_control(name).expect("a target");
-            seen.push(t);
+    fn every_target_is_reachable_from_some_control() {
+        // Guards `of_node` against a dropped or swapped arm: every parameter
+        // target is what some row of superdough's table lands on (`Detune` is
+        // the buffer-source fallback for `frequency`, found by the graph).
+        let reached: Vec<ModTarget> = crate::routing::tests_support::all_rows()
+            .filter_map(|(node, param)| ModTarget::of_node(node, param))
+            .collect();
+        for target in ModTarget::all() {
+            if target == ModTarget::Detune {
+                continue;
+            }
+            assert!(reached.contains(&target), "{target:?} is unreachable");
         }
-        for target in ModTarget::ALL {
-            assert!(
-                seen.contains(&target),
-                "{target:?} cannot be reached by any control name"
-            );
-        }
-        // Every target appears, and only pitch appears more than once.
-        let mut unique = seen.clone();
-        unique.sort_by_key(|t| format!("{t:?}"));
-        unique.dedup();
-        assert_eq!(unique.len(), ModTarget::ALL.len());
         assert_eq!(
-            seen.iter().filter(|t| **t == ModTarget::Frequency).count(),
+            reached
+                .iter()
+                .filter(|t| **t == ModTarget::Frequency)
+                .count(),
             3,
-            "only the pitch control has aliases"
+            "s, freq and note all reach the source's frequency"
         );
     }
 
@@ -976,20 +1520,23 @@ mod tests {
         ] {
             assert_eq!(range_for(target, 1000.0), None, "{target:?}");
         }
-        // ...and the frequency-like ones are exactly the four.
-        let clamped: Vec<_> = ModTarget::ALL
+        // ...and the clamped ones are exactly the params superdough names
+        // `frequency` (a buffer source's `detune` stands in for one).
+        let clamped: Vec<_> = ModTarget::all()
             .into_iter()
             .filter(|t| range_for(*t, 440.0).is_some())
             .collect();
-        assert_eq!(
-            clamped,
-            vec![
-                ModTarget::Frequency,
-                ModTarget::Cutoff,
-                ModTarget::Hcutoff,
-                ModTarget::Bandf
-            ]
-        );
+        let named_frequency: Vec<_> = crate::routing::tests_support::all_rows()
+            .filter(|(_, param)| *param == "frequency")
+            .filter_map(|(node, param)| ModTarget::of_node(node, param))
+            .chain([ModTarget::Detune])
+            .collect();
+        for t in &clamped {
+            assert!(named_frequency.contains(t), "{t:?} is clamped");
+        }
+        for t in &named_frequency {
+            assert!(clamped.contains(t), "{t:?} is not clamped");
+        }
     }
 
     #[test]
@@ -1195,9 +1742,12 @@ mod tests {
     fn every_target_has_its_own_slot() {
         // `index` is the offset table's key: two targets sharing a slot would
         // have one modulator overwrite the other's value every sample.
-        for (i, &target) in ModTarget::ALL.iter().enumerate() {
-            assert_eq!(target.index(), i, "{target:?}");
-        }
+        let mut slots: Vec<usize> = ModTarget::all().into_iter().map(ModTarget::index).collect();
+        assert!(slots.iter().all(|&i| i < ModTarget::SLOTS));
+        let n = slots.len();
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), n, "two targets share a slot");
     }
 
     #[test]
@@ -1346,5 +1896,167 @@ mod tests {
         assert_ne!(at_cycle(0.25, 0.0), restarted, "a quarter cycle is not");
         // Retriggering ignores the clock entirely.
         assert_eq!(at_cycle(0.25, 1.0), restarted);
+    }
+
+    // --- the routing core ------------------------------------------------
+
+    /// A descriptor map holding several modulators of one kind, keyed 0, 1, ...
+    fn several(kind: &str, entries: &[&[(&str, Value)]]) -> ValueMap {
+        let mut desc = ValueMap::new();
+        desc.insert(
+            "__ids".to_string(),
+            Value::List((0..entries.len() as i64).map(Value::Int).collect()),
+        );
+        for (i, entry) in entries.iter().enumerate() {
+            let e: ValueMap = entry
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect();
+            desc.insert(i.to_string(), Value::Map(e));
+        }
+        [(kind.to_string(), Value::Map(desc))].into_iter().collect()
+    }
+
+    fn run(specs: &[ModSpec], n: usize) -> Vec<f32> {
+        let mut bank = ModBank::new(specs, 1000.0);
+        (0..n)
+            .map(|_| {
+                bank.tick();
+                bank.get(ModTarget::Cutoff)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn two_modulators_on_one_param_add() {
+        // Web Audio sums every connection into an AudioParam.
+        let lfo = |rate: f64| -> Vec<(&'static str, Value)> {
+            vec![
+                ("control", Value::from("cutoff")),
+                ("rate", Value::F64(rate)),
+                ("depthabs", Value::F64(10.0)),
+            ]
+        };
+        let one = ModSpecs::from_controls(&several("lfo", &[&lfo(3.0)]), &ctx(), |_| 500.0);
+        let other = ModSpecs::from_controls(&several("lfo", &[&lfo(7.0)]), &ctx(), |_| 500.0);
+        let both =
+            ModSpecs::from_controls(&several("lfo", &[&lfo(3.0), &lfo(7.0)]), &ctx(), |_| 500.0);
+        let (a, b, ab) = (
+            run(&one.voice, 300),
+            run(&other.voice, 300),
+            run(&both.voice, 300),
+        );
+        for i in 0..300 {
+            assert!((ab[i] - (a[i] + b[i])).abs() < 1e-4, "sample {i}");
+        }
+    }
+
+    #[test]
+    fn a_modulator_can_drive_another_ones_rate() {
+        // `s("saw").lfo().lpf(500).lfo({ s: 0.3 })` in Strudel's own docs: the
+        // second LFO defaults to `lfo_0`, the first one's rate.
+        let first = vec![
+            ("control", Value::from("cutoff")),
+            ("rate", Value::F64(2.0)),
+        ];
+        let second = vec![
+            ("control", Value::from("lfo_0")),
+            ("subControl", Value::from("rate")),
+            ("rate", Value::F64(0.5)),
+            ("depthabs", Value::F64(40.0)),
+        ];
+        let specs = ModSpecs::from_controls(&several("lfo", &[&first, &second]), &ctx(), |_| 500.0);
+        assert_eq!(specs.voice.len(), 2, "both live with the cutoff");
+        assert_eq!(
+            specs.voice[1].target,
+            ModTarget::Modulator(0, ModParam::Frequency)
+        );
+        let alone = ModSpecs::from_controls(&several("lfo", &[&first]), &ctx(), |_| 500.0);
+        assert_ne!(run(&specs.voice, 600), run(&alone.voice, 600));
+    }
+
+    #[test]
+    fn a_target_without_its_param_drops_every_modulator_after_it() {
+        // `tremolo` has no `phase` param: `targetParams[0].value` throws, and
+        // the rest of the hap's modulator setup never runs.
+        let before = vec![("control", Value::from("cutoff"))];
+        let broken = vec![("control", Value::from("tremolophase"))];
+        let after = vec![("control", Value::from("gain"))];
+        let specs =
+            ModSpecs::from_controls(&several("lfo", &[&before, &broken, &after]), &ctx(), |_| {
+                1.0
+            });
+        assert_eq!(specs.voice.len(), 1);
+        assert_eq!(specs.voice[0].target, ModTarget::Cutoff);
+        // An unknown control is only skipped.
+        let unknown = vec![("control", Value::from("velocity"))];
+        let specs = ModSpecs::from_controls(&several("lfo", &[&unknown, &after]), &ctx(), |_| 1.0);
+        assert_eq!(specs.voice.len(), 1);
+        assert_eq!(specs.voice[0].target, ModTarget::Gain);
+    }
+
+    #[test]
+    fn an_fxi_sends_a_modulator_to_its_stage() {
+        let to_stage = vec![("control", Value::from("cutoff")), ("fxi", Value::F64(1.0))];
+        let specs = ModSpecs::from_controls(&several("lfo", &[&to_stage]), &ctx(), |_| 500.0);
+        assert!(specs.voice.is_empty());
+        assert_eq!(specs.for_owner(ModOwner::StageVoice(1)).len(), 1);
+        let crush = vec![("control", Value::from("crush")), ("fxi", Value::F64(0.0))];
+        let specs = ModSpecs::from_controls(&several("lfo", &[&crush]), &ctx(), |_| 4.0);
+        assert_eq!(specs.for_owner(ModOwner::StagePost(0)).len(), 1);
+    }
+
+    #[test]
+    fn lfo_params_latch_once_per_render_quantum() {
+        // The worklet reads `parameters.frequency[0]`: a rate driven mid-block
+        // only takes effect at the next 128-frame boundary.
+        let cfg = LfoConfig {
+            frequency: 1.0,
+            ..LfoConfig::default()
+        };
+        let mut faster = ParamOffsets::default();
+        faster.0[ModParam::Frequency.index()] = 50.0;
+        // A mid-quantum change waits for the boundary.
+        let mut lfo = Lfo::new(&cfg, 1000.0);
+        let mut reference = Lfo::new(&cfg, 1000.0);
+        for i in 0..128 {
+            let inputs = if i >= 64 {
+                faster
+            } else {
+                ParamOffsets::default()
+            };
+            assert_eq!(lfo.tick_with(&inputs), reference.tick(), "frame {i}");
+        }
+        // At the boundary the new rate is latched: the sample after it moves.
+        assert_eq!(lfo.tick_with(&faster), reference.tick());
+        assert_ne!(lfo.tick_with(&faster), reference.tick(), "the next quantum");
+    }
+
+    #[test]
+    fn a_shape_off_the_table_silences_the_lfo() {
+        // `waveShapeNames[2.5]` is undefined, and calling `waveshapes[undefined]`
+        // throws inside the worklet, which outputs nothing from then on.
+        let cfg = LfoConfig {
+            depth: 1.0,
+            dcoffset: 0.0,
+            min: -1.0,
+            max: 1.0,
+            ..LfoConfig::default()
+        };
+        let mut lfo = Lfo::new(&cfg, 1000.0);
+        let mut half = ParamOffsets::default();
+        half.0[ModParam::Shape.index()] = 0.5;
+        assert_eq!(lfo.tick_with(&half), 0.0);
+        for _ in 0..500 {
+            assert_eq!(lfo.tick(), 0.0, "it stays silent");
+        }
+        let mut whole = ParamOffsets::default();
+        whole.0[ModParam::Shape.index()] = 1.0;
+        let mut sine = Lfo::new(&cfg, 1000.0);
+        let mut moved = false;
+        for _ in 0..200 {
+            moved |= sine.tick_with(&whole) != 0.0;
+        }
+        assert!(moved, "a whole step to another shape still plays");
     }
 }

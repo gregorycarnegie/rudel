@@ -7,7 +7,10 @@ mod tests;
 pub use engine::{CsoundSource, Engine, FakeOutput};
 
 use crate::{NoteEvent, csound::Csound, scope::ScopeTaps, sync::read_lock};
-use rudel_dsp::{Convolver, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig, VoiceLike};
+use rudel_dsp::{
+    Convolver, DelayConfig, Djf, Duck, DuckEnv, ModBank, ModTarget, OrbitSend, ReverbConfig,
+    VoiceLike,
+};
 use std::{
     collections::HashMap,
     sync::{
@@ -75,11 +78,27 @@ impl StereoDelay {
 
     /// Process a single stereo input frame and return the delayed output frame.
     fn process(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
+        self.process_with(in_l, in_r, 0.0, 0.0)
+    }
+
+    /// [`process`](Self::process) with modulators adding `time` seconds to the
+    /// delay time and `feedback` to the feedback this frame — both a-rate
+    /// AudioParams on superdough's shared `FeedbackDelayNode`.
+    fn process_with(&mut self, in_l: f32, in_r: f32, time: f32, feedback: f32) -> (f32, f32) {
         let len = self.left.len();
-        let read = (self.write + len - self.delay_samples) % len;
+        let delay_samples = if time == 0.0 {
+            self.delay_samples
+        } else {
+            let base = self.delay_samples as f32 / self.sample_rate;
+            (((base + time) * self.sample_rate).round().max(1.0) as usize).min(len)
+        };
+        let read = (self.write + len - delay_samples) % len;
         let (out_l, out_r) = (self.left[read], self.right[read]);
-        self.left[self.write] = in_l + out_l * self.feedback;
-        self.right[self.write] = in_r + out_r * self.feedback;
+        // The feedback gain is clamped where superdough sets it (0.995 at
+        // most); a modulator rides on that.
+        let fb = self.feedback + feedback;
+        self.left[self.write] = in_l + out_l * fb;
+        self.right[self.write] = in_r + out_r * fb;
         self.write = (self.write + 1) % len;
         (out_l, out_r)
     }
@@ -101,6 +120,12 @@ struct OrbitBus {
     /// Sidechain duck on this orbit's output gain, driven by other orbits'
     /// `duckorbit` events.
     duck: DuckEnv,
+    /// What voices' modulators add, per frame, to the orbit's shared delay
+    /// time and feedback and its DJ filter: Web Audio sums every connection
+    /// into the shared node's param. `None` while nothing modulates them.
+    mods: Option<OrbitMods>,
+    /// The DJ filter's own value, which a modulator offsets.
+    djf_value: f32,
     /// Dry / reverb-send / delay-send accumulation buffers for this orbit.
     dry_l: Vec<f32>,
     dry_r: Vec<f32>,
@@ -125,6 +150,8 @@ impl OrbitBus {
                 .djf
                 .map(|v| (Djf::new(sample_rate, v), Djf::new(sample_rate, v))),
             duck: DuckEnv::default(),
+            mods: None,
+            djf_value: send.djf.unwrap_or(0.5),
             dry_l: Vec::new(),
             dry_r: Vec::new(),
             room_l: Vec::new(),
@@ -161,6 +188,7 @@ impl OrbitBus {
             self.delay_cfg = send.delay_cfg;
         }
         if let Some(v) = send.djf {
+            self.djf_value = v;
             match &mut self.djf {
                 Some((l, r)) => {
                     l.set_value(v);
@@ -188,6 +216,18 @@ impl OrbitBus {
             }
             b[..n].fill(0.0);
         }
+        if let Some(m) = &mut self.mods {
+            m.clear(n);
+        }
+    }
+
+    /// The modulation buffers, created on first use, for `n` frames.
+    fn mods_mut(&mut self, n: usize) -> &mut OrbitMods {
+        self.mods.get_or_insert_with(|| {
+            let mut m = OrbitMods::default();
+            m.clear(n);
+            m
+        })
     }
 
     /// Start (or restart) a sidechain duck on this orbit's output.
@@ -223,11 +263,28 @@ impl OrbitBus {
             self.idle_frames = self.idle_frames.saturating_add(n as u64);
         }
 
+        let mods = self.mods.as_ref().filter(|m| m.active);
         for (i, frame) in out.iter_mut().enumerate() {
-            let (dl, dr) = self.delay.process(self.delay_l[i], self.delay_r[i]);
+            let (dl, dr) = match mods {
+                Some(m) => self.delay.process_with(
+                    self.delay_l[i],
+                    self.delay_r[i],
+                    m.delay_time[i],
+                    m.delay_feedback[i],
+                ),
+                None => self.delay.process(self.delay_l[i], self.delay_r[i]),
+            };
             let (rl, rr) = self.reverb.process(self.room_l[i], self.room_r[i]);
             let (mut l, mut r) = (self.dry_l[i] + dl + rl, self.dry_r[i] + dr + rr);
             if let Some((fl, fr)) = &mut self.djf {
+                // The DJ filter worklet reads its value once per quantum.
+                if let Some(m) = mods
+                    && i % 128 == 0
+                {
+                    let v = self.djf_value + m.djf[i];
+                    fl.set_value(v);
+                    fr.set_value(v);
+                }
                 l = fl.process(l);
                 r = fr.process(r);
             }
@@ -263,6 +320,35 @@ struct ActiveVoice {
     /// The fade running this voice out, if one is. `None` means the voice is
     /// playing normally.
     choke: Option<Choke>,
+    /// Modulators on this voice's sends and its orbit's shared effects,
+    /// ticked alongside the voice. `None` for the common case.
+    orbit_mods: Option<ModBank>,
+}
+
+/// Per-frame modulation of an orbit's shared effects, summed over voices.
+#[derive(Default)]
+struct OrbitMods {
+    /// Whether any voice wrote this block.
+    active: bool,
+    delay_time: Vec<f32>,
+    delay_feedback: Vec<f32>,
+    djf: Vec<f32>,
+}
+
+impl OrbitMods {
+    fn clear(&mut self, n: usize) {
+        self.active = false;
+        for b in [
+            &mut self.delay_time,
+            &mut self.delay_feedback,
+            &mut self.djf,
+        ] {
+            if b.len() < n {
+                b.resize(n, 0.0);
+            }
+            b[..n].fill(0.0);
+        }
+    }
 }
 
 /// A voice fading to silence: what is left of its gain, and how much of it each
@@ -491,12 +577,15 @@ impl Mixer {
                         w.end,
                     ));
                 }
+                let orbit_mods = (!ev.mods.orbit.is_empty())
+                    .then(|| ModBank::new(&ev.mods.orbit, self.sample_rate as f64));
                 self.active.push(ActiveVoice {
                     voice,
                     tags: ev.tags,
                     cut: ev.cut,
                     send: ev.send,
                     choke: None,
+                    orbit_mods,
                 });
             } else {
                 i += 1;
@@ -564,6 +653,9 @@ impl Mixer {
         active.retain_mut(|av| {
             for (id, (l, r)) in signal_buses.iter() {
                 av.voice.set_bus_input(*id, &l[..len], &r[..len]);
+                if let Some(bank) = &mut av.orbit_mods {
+                    bank.set_bus_input(*id, &l[..len], &r[..len]);
+                }
             }
             av.voice.process_block(&mut src_l[..len], &mut src_r[..len]);
             // `bus` sends the voice's post-fx output on to a signal bus, on top
@@ -598,7 +690,49 @@ impl Mixer {
                 b.clear(len);
                 b
             });
-            if let Some(choke) = &mut av.choke {
+            // Modulated sends and orbit params go frame by frame: tick this
+            // voice's orbit modulators, scale its sends by what they add, and
+            // sum their delay/djf offsets into the orbit for it to apply.
+            if let Some(bank) = &mut av.orbit_mods {
+                let fade = av.choke.map_or(1.0, |c| c.gain);
+                let step = av.choke.map_or(0.0, |c| c.step);
+                let mut gain = fade;
+                for i in 0..len {
+                    bank.tick();
+                    let (a, b) = (src_l[i] * gain, src_r[i] * gain);
+                    bus.dry_l[i] += a * dry;
+                    bus.dry_r[i] += b * dry;
+                    let room = room + bank.get(ModTarget::RoomSend);
+                    if room != 0.0 {
+                        bus.room_l[i] += a * room;
+                        bus.room_r[i] += b * room;
+                    }
+                    let dsend = dsend + bank.get(ModTarget::DelaySend);
+                    if dsend != 0.0 {
+                        bus.delay_l[i] += a * dsend;
+                        bus.delay_r[i] += b * dsend;
+                    }
+                    let (time, feedback, djf) = (
+                        bank.get(ModTarget::DelayTime),
+                        bank.get(ModTarget::DelayFeedback),
+                        bank.get(ModTarget::Djf),
+                    );
+                    if time != 0.0 || feedback != 0.0 || djf != 0.0 {
+                        let m = bus.mods_mut(len);
+                        m.active = true;
+                        m.delay_time[i] += time;
+                        m.delay_feedback[i] += feedback;
+                        m.djf[i] += djf;
+                    }
+                    gain -= step;
+                }
+                if let Some(choke) = &mut av.choke {
+                    if gain <= 0.0 {
+                        return false;
+                    }
+                    choke.gain = gain;
+                }
+            } else if let Some(choke) = &mut av.choke {
                 // Choked voices fade per sample; drop the voice once silent.
                 let (mut gain, choke_step) = (choke.gain, choke.step);
                 for i in 0..len {

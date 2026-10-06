@@ -18,6 +18,9 @@ use crate::{
 pub struct FxStage {
     pub fx: PostFx,
     pub filters: FilterSet,
+    /// The stage's own gain stage: superdough runs one per `FX` entry, with
+    /// `gain` (default 0.8) times `velocity`, both through the gain curve.
+    pub gain: f32,
     /// The note's length, which drives this stage's filter envelope — the same
     /// value the voice under it was built with.
     pub duration: f32,
@@ -25,9 +28,14 @@ pub struct FxStage {
 
 impl FxStage {
     pub fn from_controls(map: &rudel_core::ValueMap, duration: f32) -> FxStage {
+        let get = |k: &str, d: f64| {
+            let v = map.get(k).and_then(|v| v.as_f64()).unwrap_or(d);
+            rudel_core::apply_gain_curve(v) as f32
+        };
         FxStage {
             fx: PostFx::from_controls(map),
             filters: FilterSet::from_controls(map),
+            gain: get("gain", 0.8) * get("velocity", 1.0),
             duration,
         }
     }
@@ -101,19 +109,25 @@ impl VoiceSpec {
     ) -> Box<dyn VoiceLike> {
         let post = mods.for_owner(ModOwner::PostFx);
         let mut voice = self.into_voice_with_mods(sample_rate, mods.for_owner(ModOwner::Voice));
-        for stage in chain {
-            // Filters first, then the post-fx rack: the order the two sit in
-            // within a single voice, so a stage behaves like one.
-            if stage.filters.is_active() {
-                voice = Box::new(FilterStageVoice::new(
+        for (i, stage) in chain.iter().enumerate() {
+            // Gain and filters first, then the post-fx rack: the order they
+            // sit in within a single voice, so a stage behaves like one.
+            voice = Box::new(FilterStageVoice::new(
+                voice,
+                &stage.filters,
+                stage.gain,
+                sample_rate,
+                stage.duration,
+                mods.for_owner(ModOwner::StageVoice(i)),
+            ));
+            let stage_post = mods.for_owner(ModOwner::StagePost(i));
+            if stage.fx.is_active() || !stage_post.is_empty() {
+                voice = Box::new(PostFxVoice::with_mods(
                     voice,
-                    &stage.filters,
+                    stage.fx,
                     sample_rate,
-                    stage.duration,
+                    stage_post,
                 ));
-            }
-            if stage.fx.is_active() {
-                voice = Box::new(PostFxVoice::new(voice, stage.fx, sample_rate));
             }
         }
         if fx.is_active() || !post.is_empty() {

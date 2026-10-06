@@ -993,6 +993,7 @@ fn master_volume_scales_the_final_mix() {
         cut: None,
         send: OrbitSend::default(),
         choke: None,
+        orbit_mods: None,
     });
 
     assert_eq!(mixer.render_frame(), (0.5, 0.5));
@@ -2396,6 +2397,7 @@ fn render_choked_from_the_start(send: OrbitSend, pan: f32, n: usize) -> Vec<(f32
         cut: None,
         send,
         choke: Some(Choke::over(CHOKE_SECS, mixer.sample_rate)),
+        orbit_mods: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); n];
     mixer.render_block(&mut out);
@@ -2516,6 +2518,7 @@ fn a_choked_voices_bus_send_fades_with_it() {
                 gain: choke,
                 step: 0.0,
             }),
+            orbit_mods: None,
         });
         let mut out = vec![(0.0f32, 0.0f32); 64];
         mixer.render_block(&mut out);
@@ -2879,4 +2882,79 @@ fn a_filter_lfo_reaches_the_rendered_voice() {
     );
     let diff: f32 = plain.iter().zip(&swept).map(|(a, b)| (a - b).abs()).sum();
     assert!(diff > 1.0, "the LFO should move the cutoff ({diff})");
+}
+
+/// `pat.lfo({ ...config })`, as a script writes it.
+fn with_lfo(pat: Pattern, config: &[(&str, rudel_core::Value)]) -> Pattern {
+    rudel_core::modulate(
+        &pat,
+        "lfo",
+        config
+            .iter()
+            .map(|(k, v)| (k.to_string(), rudel_core::pure(v.clone())))
+            .collect(),
+        rudel_core::pure(rudel_core::Value::Null),
+    )
+}
+
+fn diff(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).map(|(x, y)| (x - y).abs()).sum()
+}
+
+#[test]
+fn modulators_reach_the_orbits_shared_effects() {
+    // `delay`, `delaytime` and `djf` modulate the orbit: the voice's send, and
+    // the shared delay line and DJ filter, which every modulating voice adds to.
+    let saw = || {
+        rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+            .note(rudel_core::Value::Int(57))
+            .ctrl("delay", rudel_core::Value::F64(0.5))
+            .ctrl("djf", rudel_core::Value::F64(0.3))
+    };
+    let plain = render_pattern(&saw(), 1.0, 1.0);
+    for control in ["delay", "delaytime", "delayfeedback", "djf"] {
+        let modulated = with_lfo(
+            saw(),
+            &[
+                ("control", rudel_core::Value::Str(control.into())),
+                ("rate", rudel_core::Value::F64(3.0)),
+            ],
+        );
+        let out = render_pattern(&modulated, 1.0, 1.0);
+        assert!(diff(&plain, &out) > 1.0, "{control} should move the orbit");
+    }
+}
+
+#[test]
+fn a_modulator_on_a_missing_node_is_skipped_but_a_missing_param_drops_the_rest() {
+    let saw = || {
+        rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
+            .note(rudel_core::Value::Int(57))
+            .ctrl("tremolo", rudel_core::Value::F64(2.0))
+    };
+    let gain_lfo = |p: Pattern| {
+        with_lfo(
+            p,
+            &[
+                ("control", rudel_core::Value::Str("gain".into())),
+                ("rate", rudel_core::Value::F64(5.0)),
+            ],
+        )
+    };
+    let plain = render_pattern(&saw(), 1.0, 0.5);
+    let gained = render_pattern(&gain_lfo(saw()), 1.0, 0.5);
+    assert!(diff(&plain, &gained) > 1.0, "the gain LFO is heard");
+    // No highpass: the cutoff modulator is skipped, and the gain one still runs.
+    let skipped = with_lfo(
+        saw(),
+        &[("control", rudel_core::Value::Str("hcutoff".into()))],
+    );
+    assert_eq!(render_pattern(&gain_lfo(skipped), 1.0, 0.5), gained);
+    // The tremolo has no `phase` param: setup throws, and the gain LFO after
+    // it never connects.
+    let thrown = with_lfo(
+        saw(),
+        &[("control", rudel_core::Value::Str("tremolophase".into()))],
+    );
+    assert_eq!(render_pattern(&gain_lfo(thrown), 1.0, 0.5), plain);
 }

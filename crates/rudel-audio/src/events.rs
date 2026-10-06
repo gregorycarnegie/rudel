@@ -5,8 +5,9 @@
 use crate::{Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
-    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, KabelProgram, ModContext,
-    ModSpecs, OrbitSend, PostFx, Sample, SamplerParams, VoiceParams, VoiceSpec, ZzfxParams,
+    BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, HapGraph, KabelProgram,
+    ModContext, ModSpecs, OrbitSend, PostFx, Sample, SamplerParams, VoiceParams, VoiceSpec,
+    ZzfxParams,
 };
 use std::sync::Arc;
 
@@ -358,22 +359,28 @@ pub fn collect_events_at(
                 ev.onset_cycle,
             );
             spec.set_filter_lfos(&ev.controls, clock.cps(), ev.onset_cycle);
-            let fx = PostFx::from_controls(&ev.controls);
+            let mut fx = PostFx::from_controls(&ev.controls);
+            fx.set_clock(&ev.controls, clock.cps(), ev.onset_cycle);
             // `FX(...)` stages arrive as a list of control maps under `FX`.
-            let fx_chain = match ev.controls.get("FX") {
+            let stage_maps: Vec<rudel_core::ValueMap> = match ev.controls.get("FX") {
                 Some(rudel_core::Value::List(stages)) => stages
                     .iter()
                     .filter_map(|stage| match stage {
-                        rudel_core::Value::Map(map) => {
-                            let mut stage = FxStage::from_controls(map, ev.duration_seconds as f32);
-                            stage.filters.set_lfos(map, clock.cps(), ev.onset_cycle);
-                            Some(stage)
-                        }
+                        rudel_core::Value::Map(map) => Some(map.clone()),
                         _ => None,
                     })
                     .collect(),
                 _ => Vec::new(),
             };
+            let fx_chain: Vec<FxStage> = stage_maps
+                .iter()
+                .map(|map| {
+                    let mut stage = FxStage::from_controls(map, ev.duration_seconds as f32);
+                    stage.filters.set_lfos(map, clock.cps(), ev.onset_cycle);
+                    stage.fx.set_clock(map, clock.cps(), ev.onset_cycle);
+                    stage
+                })
+                .collect();
             let worklet = ev.controls.get("worklet").and_then(|value| {
                 let duration = ev.duration_seconds as f32;
                 // superdough ends the worklet at `endWithRelease`, so an
@@ -397,15 +404,24 @@ pub fn collect_events_at(
                     },
                 })
             });
-            // A modulator's relative `depth` scales the target control's own
-            // value, so the sources are resolved against the built voice.
+            let mut send = OrbitSend::from_controls(&ev.controls, clock.cps());
+            // Modulators are resolved against the hap's own graph, as
+            // superdough does once it has built it: which nodes exist decides
+            // what each can reach, and a param's value scales a relative depth.
             let ctx = ModContext {
                 cps: clock.cps(),
                 cycle: ev.onset_cycle,
                 note_seconds: ev.duration_seconds,
             };
-            let mods = ModSpecs::from_controls(&ev.controls, &ctx, |t| spec.mod_base(t, &fx));
-            let mut send = OrbitSend::from_controls(&ev.controls, clock.cps());
+            let graph = HapGraph {
+                spec: &spec,
+                fx: &fx,
+                send: &send,
+                controls: &ev.controls,
+                stages: &fx_chain,
+                stage_maps: &stage_maps,
+            };
+            let mods = ModSpecs::resolve(&ev.controls, &stage_maps, &ctx, &graph);
             // `ir`/`iresponse` names a loaded sample to use as the reverb's
             // impulse response. `OrbitSend` cannot resolve it (rudel-dsp has no
             // bank), so it is filled in here.

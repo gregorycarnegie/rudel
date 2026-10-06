@@ -615,6 +615,8 @@ impl VoiceFilter {
 /// wrapped voice was built with.
 pub struct FilterStageVoice {
     inner: Box<dyn crate::voice::VoiceLike>,
+    /// The stage's gain stage, which superdough runs ahead of its filters.
+    gain: f32,
     filters: VoiceFilters,
     mods: ModBank,
     sample_rate: f32,
@@ -627,13 +629,16 @@ impl FilterStageVoice {
     pub fn new(
         inner: Box<dyn crate::voice::VoiceLike>,
         set: &FilterSet,
+        gain: f32,
         sample_rate: f32,
         duration: f32,
+        mods: &[crate::modulator::ModSpec],
     ) -> FilterStageVoice {
         FilterStageVoice {
             inner,
+            gain,
             filters: VoiceFilters::new(set, sample_rate, true),
-            mods: ModBank::default(),
+            mods: ModBank::new(mods, sample_rate as f64),
             sample_rate,
             duration,
             t: 0.0,
@@ -644,7 +649,10 @@ impl FilterStageVoice {
 
 impl crate::voice::VoiceLike for FilterStageVoice {
     fn tick(&mut self) -> (f32, f32) {
+        self.mods.tick();
         let (l, r) = self.inner.tick();
+        let gain = self.gain + self.mods.get(ModTarget::Gain);
+        let (l, r) = (l * gain, r * gain);
         let (l, r) =
             self.filters
                 .process_stereo(l, r, self.t, self.duration, self.sample_rate, &self.mods);
@@ -766,7 +774,7 @@ mod stage_tests {
     fn a_filter_stage_filters_its_inner_voice_and_passes_the_rest_through() {
         // A low-pass lets a constant through, on each side separately.
         let (inner, bus) = probe(|| (1.0, 0.5), false);
-        let mut stage = FilterStageVoice::new(inner, &lowpass(1000.0), 44100.0, 1.0);
+        let mut stage = FilterStageVoice::new(inner, &lowpass(1000.0), 1.0, 44100.0, 1.0, &[]);
         let mut last = (0.0, 0.0);
         for _ in 0..4410 {
             last = stage.tick();
@@ -779,7 +787,7 @@ mod stage_tests {
         assert_eq!(*bus.lock().unwrap(), Some((3, vec![0.25], vec![0.75])));
         assert!(!stage.is_done());
         let (done, _) = probe(|| (0.0, 0.0), true);
-        assert!(FilterStageVoice::new(done, &lowpass(1000.0), 44100.0, 1.0).is_done());
+        assert!(FilterStageVoice::new(done, &lowpass(1000.0), 1.0, 44100.0, 1.0, &[]).is_done());
     }
 
     #[test]
@@ -800,7 +808,7 @@ mod stage_tests {
         set.lp.env = Some(5.0);
         set.lp.attack = Some(0.5);
         set.lp.sustain = Some(1.0);
-        let mut stage = FilterStageVoice::new(inner, &set, sr, 1.0);
+        let mut stage = FilterStageVoice::new(inner, &set, 1.0, sr, 1.0, &[]);
         let out: Vec<f32> = (0..24_000).map(|_| stage.tick().0).collect();
         let peak =
             |range: std::ops::Range<usize>| out[range].iter().fold(0.0f32, |m, s| m.max(s.abs()));

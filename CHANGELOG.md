@@ -48,6 +48,18 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- **Modulators resolve as superdough's do.** A modulator now finds its target
+  in the note's own graph: a control whose effect is not on is skipped, a
+  param the node lacks drops every modulator after it (as upstream throws),
+  two modulators on one param add instead of the last one winning, `fxi`
+  reaches an `FX` stage, and a modulator can drive another one
+  (`lfo({ c: 'lfo_0', sc: 'rate' })`, the default for a second `.lfo()`).
+  `delay`, `delaytime`, `delayfeedback`, `room` and `djf` modulate the orbit.
+  The full table is in docs/MODULATION_TARGETS.md.
+- **Tremolo is superdough's**: an LFO ramp at curve 1.5 by default (it was a
+  sine), with `tremolosync`, `tremoloskew`, `tremoloshape` and `tremolophase`
+  (all ignored before), and `tremolodepth` defaulting to 1.
+- Each `FX` stage runs its own gain stage (default 0.8), as upstream does.
 - **Filter LFOs** (`lprate`, `lpsync`, `lpdepth`, `lpdepthfrequency`,
   `lpshape`, `lpdc`, `lpskew`, and the `hp`/`bp` equivalents) sweep the
   cutoff, as `createFilter` does: depth times the cutoff, one cycle per sweep

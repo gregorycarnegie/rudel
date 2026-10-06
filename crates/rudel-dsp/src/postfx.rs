@@ -1,11 +1,10 @@
 use crate::{
     filter::Biquad,
-    modulator::{ModBank, ModSpec, ModTarget},
+    modulator::{Lfo, LfoConfig, ModBank, ModSpec, ModTarget},
     vocoder::StretchStage,
     voice::VoiceLike,
 };
 use rudel_core::{Value, ValueMap};
-use std::f32::consts::TAU;
 use wide::f32x8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,7 +29,7 @@ impl Vowel {
     }
 
     /// Five formants as `(frequency, gain, Q)` (webdirt/superdough table).
-    fn formants(self) -> [(f32, f32, f32); 5] {
+    pub(crate) fn formants(self) -> [(f32, f32, f32); 5] {
         match self {
             Vowel::A => [
                 (660.0, 1.0, 80.0),
@@ -376,8 +375,12 @@ pub struct PostFx {
     pub vowel: Option<Vowel>,
     /// Tremolo (amplitude LFO) rate in Hz (`tremolo`). `None` = off.
     pub tremolo: Option<f32>,
-    /// Tremolo depth 0..1 (`tremolodepth`).
+    /// Tremolo depth (`tremolodepth`, default 1), after the gain curve.
     pub tremolodepth: f32,
+    /// The tremolo's LFO (`tremolo`/`tremolosync` rate, `tremoloskew`,
+    /// `tremoloshape`, `tremolophase`), as superdough builds it. Needs the
+    /// pattern clock, so [`PostFx::set_clock`] fills it in.
+    pub tremolo_lfo: Option<LfoConfig>,
     /// Phaser (swept notch) LFO rate in Hz (`phaser`/`phaserrate`). `None` = off.
     pub phaser: Option<f32>,
     /// Phaser depth 0..1 (`phaserdepth`), controls notch Q.
@@ -417,7 +420,8 @@ impl Default for PostFx {
             postgain: 1.0,
             vowel: None,
             tremolo: None,
-            tremolodepth: 0.5,
+            tremolodepth: 1.0,
+            tremolo_lfo: None,
             phaser: None,
             phaserdepth: 0.75,
             phasercenter: 1000.0,
@@ -436,6 +440,14 @@ impl Default for PostFx {
 
 impl PostFx {
     pub fn from_controls(map: &ValueMap) -> PostFx {
+        let mut fx = PostFx::from_controls_unclocked(map);
+        // A provisional clock, so a `PostFx` built on its own still has its
+        // tremolo; the scheduler sets the real one ([`set_clock`]).
+        fx.set_clock(map, 0.5, 0.0);
+        fx
+    }
+
+    fn from_controls_unclocked(map: &ValueMap) -> PostFx {
         let get = |k: &str| map.get(k).and_then(|v| v.as_f64()).map(|x| x as f32);
         PostFx {
             crush: get("crush"),
@@ -455,8 +467,9 @@ impl PostFx {
                 .and_then(|v| v.as_str())
                 .and_then(Vowel::from_name),
             tremolo: get("tremolo"),
-            tremolodepth: rudel_core::apply_gain_curve(get("tremolodepth").unwrap_or(0.5) as f64)
+            tremolodepth: rudel_core::apply_gain_curve(get("tremolodepth").unwrap_or(1.0) as f64)
                 as f32,
+            tremolo_lfo: None,
             stretch: get("stretch"),
             // `phaser` and `phaserrate` are aliases for the LFO rate.
             phaser: get("phaser").or_else(|| get("phaserrate")),
@@ -474,6 +487,37 @@ impl PostFx {
             comp_attack: get("compressorAttack").unwrap_or(0.005),
             comp_release: get("compressorRelease").unwrap_or(0.05),
         }
+    }
+
+    /// Build what needs the pattern clock: the tremolo LFO (superdough.mjs).
+    /// `tremolosync` is in cycles and overrides `tremolo`; the LFO's skew
+    /// defaults to 1 (a rising ramp) unless a shape is named, when it is 0.5;
+    /// it runs 0..1 at curve 1.5, phased on cycle time plus `tremolophase`.
+    pub fn set_clock(&mut self, map: &ValueMap, cps: f64, cycle: f64) {
+        let get = |k: &str| map.get(k).and_then(|v| v.as_f64());
+        let rate = match get("tremolosync") {
+            Some(sync) => Some(cps * sync),
+            None => get("tremolo"),
+        };
+        self.tremolo = rate.map(|r| r as f32);
+        let shape = map.get("tremoloshape");
+        self.tremolo_lfo = rate.map(|frequency| LfoConfig {
+            shape: crate::modulator::shape_index(shape),
+            frequency,
+            skew: get("tremoloskew").unwrap_or(if shape.is_some() { 0.5 } else { 1.0 }),
+            depth: self.tremolodepth as f64,
+            dcoffset: 0.0,
+            phaseoffset: get("tremolophase").unwrap_or(0.0),
+            curve: 1.5,
+            time: cycle / cps.max(1e-9),
+            min: 0.0,
+            max: 1.0,
+        });
+    }
+
+    /// The tremolo LFO's config, when a tremolo is on.
+    pub fn tremolo_lfo(&self) -> Option<LfoConfig> {
+        self.tremolo_lfo
     }
 
     /// The current value of a post-fx control a modulator can target, used to
@@ -525,6 +569,8 @@ pub struct PostFxVoice {
     transient: Option<(TransientShaper, TransientShaper)>,
     /// Phase-vocoder pitch shifter when `stretch` is set.
     stretch: Option<StretchStage>,
+    /// The tremolo's LFO, driving its AM gain.
+    tremolo: Option<Lfo>,
     /// Modulators targeting the post-fx amounts. Empty for the common case, and
     /// then every offset reads as zero.
     mods: ModBank,
@@ -573,6 +619,7 @@ impl PostFxVoice {
             phaser,
             transient,
             stretch: fx.stretch.map(StretchStage::new),
+            tremolo: fx.tremolo_lfo.map(|c| Lfo::new(&c, sample_rate as f64)),
             mods: ModBank::new(mods, sample_rate as f64),
             comp_gain: 1.0,
         }
@@ -598,6 +645,7 @@ impl PostFxVoice {
             && self.fx.compressor.is_none()
             && self.fx.transient.is_none()
             && self.fx.stretch.is_none()
+            && self.tremolo.is_none()
             && (self.fx.distort.is_none() || self.fx.distort_alg == DistortAlgo::Scurve)
     }
 
@@ -614,10 +662,6 @@ impl PostFxVoice {
                 .fx
                 .distort
                 .map(|d| (d.exp_m1(), self.fx.distortvol.clamp(0.001, 1.0))),
-            tremolo: self
-                .fx
-                .tremolo
-                .map(|rate| (rate, self.fx.tremolodepth.clamp(0.0, 1.0))),
             postgain: self.fx.postgain,
         }
     }
@@ -648,15 +692,13 @@ struct MemorylessFx {
     shape: Option<(f32, f32)>,
     /// `(k, postgain)` drive for the s-curve distortion, when `distort` is active.
     distort: Option<(f32, f32)>,
-    /// `(rate, depth)` when `tremolo` is active.
-    tremolo: Option<(f32, f32)>,
     /// Overall post-gain (`1.0` = unity).
     postgain: f32,
 }
 
 impl MemorylessFx {
-    /// Apply the chain to eight frames whose elapsed times are `t` (seconds).
-    fn apply8(&self, mut v: f32x8, t: f32x8) -> f32x8 {
+    /// Apply the chain to eight frames.
+    fn apply8(&self, mut v: f32x8) -> f32x8 {
         if let Some(x) = self.crush {
             let xv = f32x8::splat(x);
             v = (v * xv).round() / xv;
@@ -671,11 +713,6 @@ impl MemorylessFx {
             v = (f32x8::splat(1.0) + kv) * v / (f32x8::splat(1.0) + kv * v.abs())
                 * f32x8::splat(pg);
         }
-        if let Some((rate, depth)) = self.tremolo {
-            let uni =
-                f32x8::splat(0.5) * (f32x8::splat(1.0) - (f32x8::splat(TAU * rate) * t).cos());
-            v *= f32x8::splat(1.0 - depth) + f32x8::splat(depth) * uni;
-        }
         if self.postgain != 1.0 {
             v *= f32x8::splat(self.postgain);
         }
@@ -683,7 +720,7 @@ impl MemorylessFx {
     }
 
     /// Scalar counterpart of [`apply8`](Self::apply8) for the block remainder.
-    fn apply1(&self, mut v: f32, t: f32) -> f32 {
+    fn apply1(&self, mut v: f32) -> f32 {
         if let Some(x) = self.crush {
             v = (v * x).round() / x;
         }
@@ -692,10 +729,6 @@ impl MemorylessFx {
         }
         if let Some((k, pg)) = self.distort {
             v = (1.0 + k) * v / (1.0 + k * v.abs()) * pg;
-        }
-        if let Some((rate, depth)) = self.tremolo {
-            let uni = 0.5 * (1.0 - (TAU * rate * t).cos());
-            v *= (1.0 - depth) + depth * uni;
         }
         if self.postgain != 1.0 {
             v *= self.postgain;
@@ -783,11 +816,10 @@ impl VoiceLike for PostFxVoice {
             l = pg * alg.shape(l, k);
             r = pg * alg.shape(r, k);
         }
-        // tremolo: amplitude LFO. gain = (1-depth) + depth * unipolar-sine.
-        if let Some(rate) = self.fx.tremolo {
-            let depth = self.fx.tremolodepth.clamp(0.0, 1.0);
-            let unipolar = 0.5 * (1.0 - (std::f32::consts::TAU * rate * self.time).cos());
-            let gain = (1.0 - depth) + depth * unipolar;
+        // tremolo: an LFO (0..1) summed onto an AM gain of `max(1 − depth, 0)`.
+        if let Some(lfo) = &mut self.tremolo {
+            let base = (1.0 - self.fx.tremolodepth).max(0.0);
+            let gain = base + self.mods.get(ModTarget::TremoloGain) + lfo.tick() as f32;
             l *= gain;
             r *= gain;
         }
@@ -850,25 +882,15 @@ impl VoiceLike for PostFxVoice {
 
         let mut i = 0;
         while i + 8 <= n {
-            let t = f32x8::from(std::array::from_fn::<f32, 8, _>(|l| {
-                t0 + (i + l) as f32 * inv_sr
-            }));
-            let l = fx.apply8(
-                f32x8::from(<[f32; 8]>::try_from(&out_l[i..i + 8]).unwrap()),
-                t,
-            );
-            let r = fx.apply8(
-                f32x8::from(<[f32; 8]>::try_from(&out_r[i..i + 8]).unwrap()),
-                t,
-            );
+            let l = fx.apply8(f32x8::from(<[f32; 8]>::try_from(&out_l[i..i + 8]).unwrap()));
+            let r = fx.apply8(f32x8::from(<[f32; 8]>::try_from(&out_r[i..i + 8]).unwrap()));
             out_l[i..i + 8].copy_from_slice(&l.to_array());
             out_r[i..i + 8].copy_from_slice(&r.to_array());
             i += 8;
         }
         while i < n {
-            let t = t0 + i as f32 * inv_sr;
-            out_l[i] = fx.apply1(out_l[i], t);
-            out_r[i] = fx.apply1(out_r[i], t);
+            out_l[i] = fx.apply1(out_l[i]);
+            out_r[i] = fx.apply1(out_r[i]);
             i += 1;
         }
         self.time = t0 + n as f32 * inv_sr;
