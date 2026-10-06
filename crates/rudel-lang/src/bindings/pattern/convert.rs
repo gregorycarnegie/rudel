@@ -217,6 +217,15 @@ pub(in crate::bindings) fn arg_to_value(value: &Arg) -> Value {
             None => Value::Pat(Box::new(pat.clone())),
         },
         Arg::Frac(f) => Value::Frac(*f),
+        // `pure({action: 'go'})`, `pure([1, 2])`: upstream holds the object or
+        // array itself.
+        Arg::List(items) => Value::List(items.iter().map(arg_to_value).collect()),
+        Arg::Map(entries) => Value::Map(
+            entries
+                .iter()
+                .map(|(k, v)| (k.clone(), arg_to_value(v)))
+                .collect(),
+        ),
         _ => Value::Null,
     }
 }

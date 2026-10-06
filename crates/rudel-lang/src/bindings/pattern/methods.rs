@@ -966,3 +966,20 @@ pub(super) fn kpattern_visual_widget(pat: &Pattern, a: &[Arg]) -> Res {
     crate::widgets::record_options(&id, crate::widgets::options_from_arg(arg(a, 1)));
     Ok(pat.tag(id).into())
 }
+
+/// `.serial(br = 115200, sendcrc = false, singlecharids = false, name =
+/// 'default')`: write each hap to a serial port instead of playing it.
+pub(super) fn kpattern_serial(pat: &Pattern, a: &[Arg]) -> Res {
+    let truthy = |i: usize| match arg(a, i) {
+        Arg::Bool(b) => *b,
+        Arg::Num(n) => *n != 0.0,
+        Arg::Null => false,
+        _ => true,
+    };
+    let baud = match arg(a, 0) {
+        Arg::Null => 115_200,
+        br => arg_to_f64(br) as u32,
+    };
+    let name = arg_to_raw_str(arg(a, 3)).unwrap_or_else(|| "default".to_string());
+    Ok(pat.serial(baud, truthy(1), truthy(2), &name).into())
+}

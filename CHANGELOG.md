@@ -20,6 +20,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
   (`a`, `B`, `lt`, `start`, …) with a `tgl` toggle, and `btnseq("uudd")`-style
   button sequences, as on strudel.cc. Controllers are read natively, from
   the first `gamepad()` call on.
+- **Serial output** (`@strudel/serial`): `.serial()` writes each hap to a
+  serial port, in upstream's format (CRC-16 option included). A `name` that is
+  a port (`'COM3'`) picks it; otherwise the first USB serial port is used,
+  since there is no browser picker.
 - **Drum machines answer to their model names**, as on strudel.cc:
   `bank("TR909")`, `bank("RZ1")`, `bank("LM1")` and the rest of the 66
   aliases Strudel registers at startup. `aliasBank` takes upstream's other
@@ -58,6 +62,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- `pure({...})`, `pure([...])` and `steady` hold an object or array, as
+  upstream does; they gave `null`.
 - **Modulators resolve as superdough's do.** A modulator now finds its target
   in the note's own graph: a control whose effect is not on is skipped, a
   param the node lacks drops every modulator after it (as upstream throws),

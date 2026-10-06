@@ -28,7 +28,11 @@
   [
     "const ab=createParam(['aa','bb']);const tagged=ab(pure({value:[5,6],color:'red'})).queryArc(0,1)[0].value;const mapped=pure(7).aa().queryArc(0,1)[0].value;const nested=bind(x=>pure(x+1))(pure(2)).queryArc(0,1)[0].value; JSON.stringify([tagged,mapped,nested,tokenizeNote('C#-2'),tokenizeNote('c-')])",
     [
-      {},
+      {
+        "aa": 5,
+        "bb": 6,
+        "color": "red"
+      },
       {
         "aa": 7
       },
@@ -122,7 +126,11 @@
   [
     "const ab=createParam(['aa','bb']); JSON.stringify(ab(pure({value:[5,6],color:'red'})).queryArc(0,1).map(h=>h.value))",
     [
-      {}
+      {
+        "aa": 5,
+        "bb": 6,
+        "color": "red"
+      }
     ]
   ],
   [

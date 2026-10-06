@@ -136,10 +136,15 @@ impl RudelApp {
         if self.playing && (self.output == Output::Osc || tag_osc) {
             self.ensure_osc();
         }
-        self.speaks = active
-            .query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one())
+        let first_cycle = active.query_arc(rudel_core::Frac::zero(), rudel_core::Frac::one());
+        self.speaks = first_cycle
             .iter()
             .any(|hap| rudel_core::speak::is_speech(&hap.value));
+        self.serial_haps = first_cycle
+            .iter()
+            .any(|hap| rudel_core::serial::is_serial(&hap.value));
+        // `.serial()`'s trigger is dominant too: its haps go to the port only.
+        let active = active.filter_values(|v| !rudel_core::serial::is_serial(v));
         if let Some(e) = &self.engine {
             // `.speak(...)` is a dominant `onTrigger` upstream: it replaces the
             // sound rather than adding to it, so those haps never reach a voice.

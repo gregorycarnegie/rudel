@@ -10,6 +10,7 @@ mod editor;
 mod gamepad;
 mod reference;
 mod scroll;
+mod serial;
 mod speech;
 mod theme;
 mod volume;

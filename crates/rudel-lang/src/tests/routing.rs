@@ -460,3 +460,23 @@ fn gamepad_reads_the_pad_bus() {
     assert!(eval("getGamepadStates(); clearGamepadStates(); s('bd')").is_ok());
     rudel_core::gamepad::remove_gamepad(7);
 }
+
+#[test]
+fn serial_tags_each_hap_with_its_write() {
+    use rudel_core::serial::request;
+    let first = |src: &str| {
+        let p = eval(src).expect(src);
+        request(&p.query_arc(Frac::zero(), Frac::one()).remove(0).value).expect("a serial hap")
+    };
+    let w = first(r#"s("bd").serial()"#);
+    assert_eq!(
+        (w.name.as_str(), w.baud, w.bytes.as_slice()),
+        ("default", 115_200, &b"s:bd"[..])
+    );
+    // `pure` holds an object as upstream's does.
+    let w = first(r#"pure({action: 'go', speed: 3}).serial(9600, false, true, 'COM3')"#);
+    assert_eq!(
+        (w.name.as_str(), w.baud, w.bytes.as_slice()),
+        ("COM3", 9600, &b"g(s:3)"[..])
+    );
+}

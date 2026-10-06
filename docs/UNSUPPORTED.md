@@ -2,7 +2,7 @@
 
 Rudel is a **native Rust** application. Strudel is a **browser** application. A
 number of Strudel packages exist only to bridge to browser/web-platform APIs
-(WebGL, DeviceMotion, Web Serial, MQTT-over-WebSockets, the
+(WebGL, DeviceMotion, MQTT-over-WebSockets, the
 Csound WASM build, web components / iframes) or to provide alternative language
 front-ends (Tidal). Rudel deliberately does not port these; this page is
 the authoritative list of what is intentionally unsupported, what is deferred,
@@ -723,21 +723,25 @@ connect. How a controller's buttons map to that layout is up to gilrs's
 mapping database rather than the browser's, so an unusual pad can map
 differently.
 
-### Serial and MQTT (`@strudel/serial`, `@strudel/mqtt`) — intentionally unsupported
+### Serial (`@strudel/serial`) — supported, without the port picker
 
-`@strudel/serial` (`Pattern.prototype.serial`, `getWriter`) writes hap values to
-a serial device through the browser
-[Web Serial API](https://developer.mozilla.org/docs/Web/API/Web_Serial_API),
-and `@strudel/mqtt` (`Pattern.prototype.mqtt`) publishes hap values to an MQTT
-broker over WebSockets. Both are browser-platform output bridges. Rudel does not
-implement either, so `.serial(...)` and `.mqtt(...)` are **intentionally
-unsupported** and have no effect.
+`.serial(br, sendcrc, singlecharids, name)` writes each hap to a serial port
+instead of playing it, formatted as upstream (`key:value` pairs, or
+`action(key:value,…)` with an optional CRC-16 suffix) and sent 0.1 s after the
+hap's time. Upstream asks the browser for a port with a picker; rudel has none,
+so a `name` that is a port (`'COM3'`, `'/dev/ttyACM0'`) opens that port and
+any other name (the default is `'default'`) opens the first USB serial port,
+or the first port if none is USB. The log says which port opened. Each name
+gets its own port, where upstream only ever opens the first one it was asked
+for. `getWriter`, upstream's helper that opens the picker, is not exposed.
 
-For getting events out of Rudel to other hardware/software, the supported,
-native output paths are **MIDI** (`crates/rudel-midi`) and **SuperDirt-compatible
-OSC over UDP** (`crates/rudel-osc`) — selectable in the app's output picker.
-These cover the common "drive external gear / another program" use cases without
-needing the Web Serial or MQTT-over-WebSocket bridges.
+### MQTT (`@strudel/mqtt`) — intentionally unsupported
+
+`@strudel/mqtt` (`Pattern.prototype.mqtt`) publishes hap values to an MQTT
+broker over WebSockets. Rudel does not implement it, so `.mqtt(...)` is
+**intentionally unsupported** and has no effect. The native output paths for
+driving other software are **MIDI** (`crates/rudel-midi`) and
+**SuperDirt-compatible OSC over UDP** (`crates/rudel-osc`).
 
 ### `setMaxPolyphony` — supported, with a different fade shape
 

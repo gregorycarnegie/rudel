@@ -22,6 +22,7 @@ pub mod modulate;
 pub mod pattern;
 pub mod query;
 pub mod samples;
+pub mod serial;
 pub mod signal;
 pub mod speak;
 pub mod state;

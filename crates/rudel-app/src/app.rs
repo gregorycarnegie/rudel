@@ -166,6 +166,10 @@ pub(crate) struct RudelApp {
     /// so the per-frame trigger sweep can be skipped when it has not.
     pub(super) speech: crate::speech::Speech,
     pub(super) speaks: bool,
+    /// Where `.serial()` haps are written, and whether the active pattern has
+    /// any, on the same terms as `speaks`.
+    pub(super) serial: crate::serial::SerialOut,
+    pub(super) serial_haps: bool,
 }
 
 impl RudelApp {
@@ -254,6 +258,8 @@ impl RudelApp {
             trigger_fired_upto: None,
             speech: crate::speech::Speech::default(),
             speaks: false,
+            serial: crate::serial::SerialOut::default(),
+            serial_haps: false,
         }
     }
 
