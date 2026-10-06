@@ -16,7 +16,7 @@ These are all possible natively. None of them depends on the browser.
 - [x] **Serial output** (`@strudel/serial`): send haps to a serial port, as the
       Web Serial version does.
 - [x] **MQTT** (`@strudel/mqtt`): publish haps to an MQTT broker.
-- [ ] **`registerVoicings`**: register a voicing dictionary by name, as
+- [x] **`registerVoicings`**: register a voicing dictionary by name, as
       `addVoicings` already can.
 - [ ] **`worklet("…")`**: the string form of a kabelsalat graph, evaluated at
       play time. `K(...)` works.

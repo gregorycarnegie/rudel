@@ -3,9 +3,9 @@
 Rudel is a **native Rust** application. Strudel is a **browser** application. A
 number of Strudel packages exist only to bridge to browser/web-platform APIs
 (WebGL, DeviceMotion, the Csound WASM build, web components / iframes) or to
-provide alternative language front-ends (Tidal). Rudel deliberately does not port these; this page is
-the authoritative list of what is intentionally unsupported, what is deferred,
-and how Rudel differs where it does provide an equivalent surface.
+provide alternative language front-ends (Tidal). Rudel deliberately does not
+port these; this page is the authoritative list of what is intentionally
+unsupported, what is deferred, and how Rudel differs where it does provide an equivalent surface.
 
 This document tracks the *user-visible* contract. The internal parity checklist
 lives in [`FULL_STRUDEL.md`](../FULL_STRUDEL.md).
@@ -788,20 +788,18 @@ On macOS and Linux the voice list comes from `say -v '?'` / `spd-say -L`, so
 language filtering and selection by index or name work the same way; a machine
 with no synthesiser installed reports that once rather than on every hap.
 
-### Voicing dictionaries — `addVoicings` yes, `registerVoicings` no
+### Voicing dictionaries — `addVoicings` and `registerVoicings`
 
-`addVoicings(name, dictionary, range)` registers a chord dictionary at run time
-and is supported: a name registered this way shadows a built-in one, as
-upstream's `Object.assign` onto `voicingRegistry` does. Its `range` argument is
-accepted and ignored, for the same reason `setVoicingRange` is a no-op — `range`
-reaches only the deprecated `.voicings(dict)` voice-leading path, which Rudel
-aliases to `voicing`.
-
-`registerVoicings(name, dictionary, options)` — the newer call signature — is
-not exposed. Its `options` carry `mode` and `anchor`, and both are dead for the
-`voicing` path in Strudel itself: `voicing` spreads the value's `undefined`
-`anchor`/`mode` controls *over* the registry entry, so they always fall back to
-`renderVoicing`'s `c5`/`below` defaults.
+`addVoicings(name, dictionary, range)` and `registerVoicings(name, dictionary,
+options)` register a chord dictionary at run time: a name registered this way
+shadows a built-in one, as upstream's `Object.assign` onto `voicingRegistry`
+does. `addVoicings`'s `range` is accepted and ignored, for the same reason
+`setVoicingRange` is a no-op: `range` reaches only the deprecated
+`.voicings(dict)` voice-leading path, which Rudel aliases to `voicing`.
+`registerVoicings`'s `options` (`mode`, `anchor`) are ignored too, and are dead
+for the `voicing` path in Strudel itself: `voicing` spreads the value's
+`undefined` `anchor`/`mode` controls *over* the registry entry, so they always
+fall back to `renderVoicing`'s `c5`/`below` defaults.
 
 ### Csound (`@strudel/csound`) — supported, with Csound installed separately
 

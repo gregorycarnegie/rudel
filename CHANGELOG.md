@@ -26,6 +26,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
   since there is no browser picker.
 - **MQTT** (`@strudel/mqtt`): `.mqtt()` publishes each hap to a broker over
   WebSockets, as JSON with its duration and tempo, as upstream does.
+- `registerVoicings(name, dictionary, options)`, the newer form of
+  `addVoicings`.
 - **Drum machines answer to their model names**, as on strudel.cc:
   `bank("TR909")`, `bank("RZ1")`, `bank("LM1")` and the rest of the 66
   aliases Strudel registers at startup. `aliasBank` takes upstream's other

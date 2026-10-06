@@ -644,6 +644,20 @@ addVoicings('my_cookie', {
         })
         .collect();
     assert_eq!(notes, vec![52.0, 57.0, 62.0, 67.0, 71.0]);
+    // The newer signature registers the same way; its options don't reach
+    // `voicing` upstream either.
+    let script = script
+        .replace("addVoicings", "registerVoicings")
+        .replace("['C3', 'C6']", "{mode: 'above', anchor: 'c3'}");
+    let pat = eval(&script).expect("registerVoicings");
+    let again: Vec<f64> = values(&pat, 0, 1)
+        .iter()
+        .filter_map(|v| match v {
+            Value::Map(m) => m.get("note").and_then(|n| n.as_f64()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(again, notes);
 }
 
 #[test]

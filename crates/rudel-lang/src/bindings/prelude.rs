@@ -379,28 +379,33 @@ pub(crate) fn register(prelude: &Scope) {
     // chord dictionary a later `.voicing(name)` can name. `range` is accepted
     // and ignored for the reason `setVoicingRange` above is a no-op: upstream
     // reads it only on the deprecated `.voicings(dict)` path.
-    prelude.func("addVoicings", |a| {
-        let (Some(name), Some(Arg::Map(dictionary))) = (arg_to_raw_str(arg0(a)), a.get(1)) else {
-            return Err(
-                "addVoicings(name, dictionary) needs a name and an object of chord symbols"
-                    .to_string(),
-            );
-        };
-        let entries: Vec<(String, Vec<String>)> = dictionary
-            .iter()
-            .filter_map(|(symbol, voicings)| {
-                // A single voicing may be written without its array, as one
-                // string.
-                let voicings = match voicings {
-                    Arg::List(l) => l.iter().filter_map(arg_to_raw_str).collect(),
-                    other => vec![arg_to_raw_str(other)?],
-                };
-                Some((symbol.clone(), voicings))
-            })
-            .collect();
-        rudel_core::voicing::add_voicings(&name, entries);
-        done()
-    });
+    // `registerVoicings(name, dictionary, options)` is the newer signature; its
+    // `options` (`mode`, `anchor`) never reach `voicing` upstream either.
+    for fname in ["addVoicings", "registerVoicings"] {
+        prelude.func(fname, |a| {
+            let (Some(name), Some(Arg::Map(dictionary))) = (arg_to_raw_str(arg0(a)), a.get(1))
+            else {
+                return Err(
+                    "addVoicings(name, dictionary) needs a name and an object of chord symbols"
+                        .to_string(),
+                );
+            };
+            let entries: Vec<(String, Vec<String>)> = dictionary
+                .iter()
+                .filter_map(|(symbol, voicings)| {
+                    // A single voicing may be written without its array, as one
+                    // string.
+                    let voicings = match voicings {
+                        Arg::List(l) => l.iter().filter_map(arg_to_raw_str).collect(),
+                        other => vec![arg_to_raw_str(other)?],
+                    };
+                    Some((symbol.clone(), voicings))
+                })
+                .collect();
+            rudel_core::voicing::add_voicings(&name, entries);
+            done()
+        });
+    }
     // `voicingRegistry` (tonal/voicings.mjs): `{name: {dictionary}}`, read by
     // a script extending a dictionary rather than starting one from nothing.
     let strings = |list: Vec<String>| Arg::List(list.into_iter().map(Arg::Str).collect());
