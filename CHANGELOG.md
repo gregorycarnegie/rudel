@@ -13,6 +13,12 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.23.0-beta.2] — 2026-10-06
+
+A beta: the changes below have not been through a mutation-testing run yet,
+and the gamepad, serial and MQTT outputs have not met real hardware or a
+real broker.
+
 ### Added
 
 - **Game controllers** (`@strudel/gamepad`): `gamepad(index)` gives the
