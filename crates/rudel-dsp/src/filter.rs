@@ -554,8 +554,9 @@ impl VoiceFilter {
     }
 
     /// Take this sample's modulator inputs to the cutoff LFO from `mods`.
+    #[inline]
     pub(crate) fn read_lfo_inputs(&mut self, mods: &ModBank) {
-        if self.lfo.is_some() {
+        if self.lfo.is_some() && !mods.is_empty() {
             let slot = match self.kind {
                 FilterKind::High => crate::modulator::FilterSlot::High,
                 FilterKind::Band => crate::modulator::FilterSlot::Band,

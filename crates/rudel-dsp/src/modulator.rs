@@ -526,6 +526,7 @@ impl ModTarget {
     pub const SLOTS: usize = 39 + 8 * ModParam::COUNT + 16;
 
     /// The offset slot of a parameter target.
+    #[inline]
     pub fn index(self) -> usize {
         use ModTarget::*;
         const LFO: usize = 39;
@@ -978,7 +979,12 @@ impl ModBank {
     }
 
     /// The current additive offset for `target` (0.0 when unmodulated).
+    #[inline]
     pub fn get(&self, target: ModTarget) -> f32 {
+        // Most voices have no modulators: skip the slot lookup altogether.
+        if self.mods.is_empty() {
+            return 0.0;
+        }
         self.offsets[target.index()]
     }
 

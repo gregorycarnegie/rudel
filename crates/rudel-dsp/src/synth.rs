@@ -229,6 +229,10 @@ impl Voice {
     /// Work out this sample's pitch multiplier once, with the vibrato's
     /// modulators, for every reader of [`pitch_mult`](Self::pitch_mult).
     fn update_pitch(&mut self) {
+        if self.mods.is_empty() && self.vib_phase.is_none() {
+            self.pitch_now = None;
+            return;
+        }
         let (rate, depth) = (
             self.mods.get(ModTarget::VibFreq),
             self.mods.get(ModTarget::VibGain),
