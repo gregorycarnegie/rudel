@@ -109,6 +109,8 @@ fn scope_expression(text: &str, mask: &[u8]) -> String {
             // `sFreq`/`sGate`: the two per-hap values, as node calls.
             "sFreq" => out.push_str("Kabel.sfreq()"),
             "sGate" => out.push_str("Kabel.sgate()"),
+            // kabelsalat's `mouseX`/`mouseY` are values, `cc("mouseX")`.
+            "mouseX" | "mouseY" => out.push_str(&format!("Kabel.cc('{name}')")),
             // `S(x)` drops to `(x)`: the parentheses are already there, so
             // erasing the name leaves a grouping expression behind.
             "S" if next_is_paren(mask, end) => {}

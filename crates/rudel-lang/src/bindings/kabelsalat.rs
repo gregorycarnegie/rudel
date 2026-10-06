@@ -317,7 +317,7 @@ fn build(name: &str, args: Vec<Inlet>, source: Option<String>) -> NodeId {
 }
 
 /// The node types whose last argument is source text rather than a signal.
-const CODED: &[&str] = &["bytebeat", "floatbeat", "raw", "cc"];
+const CODED: &[&str] = &["bytebeat", "floatbeat", "raw"];
 
 /// Split a coded node's trailing source string off its inlets.
 fn take_source(name: &str, values: &[Arg]) -> Option<String> {

@@ -300,7 +300,7 @@ times in two places gets the outer one twice. Everything that is an insert — `
 `distort`, `coarse`, `vowel`, `tremolo`, `phaser`, `transient`, `compressor`,
 `stretch`, `postgain`, and the filters — is per stage.
 
-### `K(...)` kabelsalat graphs — everything but the live-input nodes
+### `K(...)` kabelsalat graphs
 
 `K(saw(110).lpf(sine(1).range(.3,.8)).out())` works, written exactly as a
 kabelsalat patch is written. [Kabelsalat](https://kabel.salat.dev/) is a
@@ -323,12 +323,16 @@ kabelsalat and `crates/rudel-lang/tests/kabelsalat_parity.rs` checks both the
 node list and the samples against them, so the port is pinned rather than
 asserted.
 
-**Not ported: the MIDI nodes.** `midin`, `midifreq`, `midigate`, `midivel`,
-`midicc` and `cc` read a live input device. A `K(...)` graph here is built per
-hap inside a voice, which is not a place a MIDI stream reaches; a patch using
-one still plays, with those nodes passing their input through (upstream's own
-`fallbackType = "thru"`). `scope` and `split`, which post buffers back to a UI
-that does not exist here, do the same.
+**The live-input nodes hold still, as in Strudel.** In kabelsalat's own
+editor `midifreq`, `midigate`, `midivel`, `midicc`, `cc` and `mouseX`/`mouseY`
+read MIDI and the pointer. Strudel's `GenericProcessor`, which runs a `K(...)`
+graph, never sends them anything, so each keeps its initial value: the note
+nodes 0, `midicc` its `initValue` (-1 unless given), and `cc` its `value` (0
+unless given). Rudel does the same, and the kabelsalat oracle pins it. `midin`
+is not a registered node upstream, so it passes its input through, here too.
+`scope` and `split` post buffers to a UI; upstream they call a `send` that
+`GenericProcessor` never supplies, so the graph throws and falls silent after
+1/30 s. Here they pass their input through.
 
 **Deliberately different: the noise sources.** `noise`, `pink`, `brown` and
 `dust` call `Math.random()` upstream, so a patch sounds different every time it

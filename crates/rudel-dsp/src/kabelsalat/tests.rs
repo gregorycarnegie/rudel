@@ -90,13 +90,12 @@ fn a_sine_graph_oscillates_at_the_frequency_it_was_given() {
 
 #[test]
 fn an_unported_node_type_passes_its_input_through() {
-    // `midicc` has no interpreter here: the MIDI nodes read a live input
-    // device, which is not something a per-hap voice has. Upstream's
-    // compiler falls back to `thru` for a type it does not know, so a
-    // patch using one still plays; this pins that a gap degrades rather
-    // than silences.
+    // `scope` has no interpreter here: it posts buffers to a UI there is
+    // none of. Upstream's compiler falls back to `thru` for a type it does
+    // not know, so a patch using one still plays; this pins that a gap
+    // degrades rather than silences.
     let value = program(
-        &["n", "midicc"],
+        &["n", "scope"],
         &[Value::F64(0.25), Value::Null],
         &[&[], &[Value::Int(0)]],
         &[(1, 0), (1, 1)],

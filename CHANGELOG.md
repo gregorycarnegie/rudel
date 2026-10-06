@@ -68,6 +68,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- kabelsalat's `midifreq`, `midigate`, `midivel`, `midicc`, `cc` and
+  `mouseX`/`mouseY` in a `K(...)` graph output what they do in Strudel (their
+  initial values) rather than their first input.
 - `K(() => { ... })`, the block form in Strudel's own `K` example, built an
   empty graph; the function is now called, as Strudel's transpiler does.
 - `pure({...})`, `pure([...])` and `steady` hold an object or array, as

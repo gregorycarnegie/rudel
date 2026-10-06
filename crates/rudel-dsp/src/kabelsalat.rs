@@ -80,18 +80,39 @@ impl KabelProgram {
             return None;
         }
 
-        let ops = types
+        let mut ops: Vec<Op> = types
             .iter()
             .zip(&values)
             .map(|(ty, value)| Op::new(ty.as_str().unwrap_or("thru"), value))
             .collect();
-        let ins = raw_ins
+        let ins: Vec<Vec<In>> = raw_ins
             .iter()
             .map(|entry| match entry {
                 Value::List(items) => items.iter().map(In::new).collect(),
                 _ => Vec::new(),
             })
             .collect();
+        // `midicc` and `cc` (and `mouseX`, a `cc`) hold the value their
+        // constructor reads from the compiled inputs, `initValue` (-1) and
+        // `value` (0), since no MIDI or control change ever reaches them in
+        // Strudel. A non-constant input arrives upstream as register *text*,
+        // which reads as NaN; it holds 0 here rather than poison the mix.
+        for (i, ty) in types.iter().enumerate() {
+            let (slot, default) = match ty.as_str() {
+                Some("midicc") => (2, -1.0),
+                Some("cc") => (1, 0.0),
+                _ => continue,
+            };
+            let held = match ins[i].get(slot) {
+                None => default,
+                Some(In::Const(c)) => *c,
+                Some(In::Reg(r)) => match (types.get(*r).and_then(Value::as_str), values.get(*r)) {
+                    (Some("n"), Some(v)) => v.as_f64().unwrap_or(0.0) as f32,
+                    _ => 0.0,
+                },
+            };
+            ops[i] = Op::Const(held);
+        }
         let outs = list("outs")?
             .iter()
             .filter_map(|entry| match entry {
@@ -306,6 +327,9 @@ impl Op {
             // constructed on the page; per graph is the reproducible reading.
             "lcgnoise" => Op::Lcg(LcgNoise::new(0)),
             "qf" => Op::Qf(Biquad::default()),
+            // Strudel's `GenericProcessor` never sends a graph MIDI, so a
+            // note node stays at its initial state: off, frequency 0.
+            "midifreq" | "midigate" | "midivel" => Op::Const(0.0),
             "bytebeat" => Op::Coded(Coded::new(&text(), CodedKind::Byte)),
             "raw" => Op::Coded(Coded::new(&text(), CodedKind::Raw)),
             _ => Op::Thru,

@@ -20,7 +20,7 @@ These are all possible natively. None of them depends on the browser.
       `addVoicings` already can.
 - [x] **`worklet("…")`**: the string form of a kabelsalat graph, evaluated at
       play time. `K(...)` works.
-- [ ] **kabelsalat live-input nodes**: the parts of a `K(...)` graph that read
+- [x] **kabelsalat live-input nodes**: the parts of a `K(...)` graph that read
       live input.
 - [ ] **`FX` stage sends**: a stage's own `delay`/`room` sends. Today a stage
       uses the main controls' delay and reverb.

@@ -141,6 +141,16 @@ const PATCHES = {
   mixstereo: 'sine([600, 1200, 1800]).mix(2).out()',
   pan: 'sine(1200).pan(.5).out()',
 
+  // Live input. Strudel's `GenericProcessor` never sends these MIDI or a
+  // control change, so each holds what it was built with.
+  midifreq: 'midifreq().out()',
+  midigate: 'midigate().out()',
+  midivel: 'midivel().out()',
+  midicc: 'midicc(74).out()',
+  midiccinit: 'midicc(74, 1, .5).out()',
+  cc: "cc('x', .25).out()",
+  mousex: 'mouseX.add(.5).out()',
+
   // Feedback: the whole reason the graph may be cyclic.
   feedback: 'impulse(200).add(x => x.delay(.001).mul(.7)).out()',
   delay: 'impulse(200).delay(.0005).out()',
