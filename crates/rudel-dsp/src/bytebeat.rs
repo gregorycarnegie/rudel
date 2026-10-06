@@ -637,6 +637,8 @@ pub struct ByteBeatVoice {
     end: f32,
     left_gain: f32,
     right_gain: f32,
+    /// The pan (0..1), which a modulator offsets.
+    pan: f32,
 }
 
 impl ByteBeatVoice {
@@ -657,6 +659,7 @@ impl ByteBeatVoice {
             end,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
+            pan,
             params,
         }
     }
@@ -669,7 +672,11 @@ impl VoiceLike for ByteBeatVoice {
         }
         // local_t = 256/sampleRate * frequency * t + initialOffset
         let scale = 256.0 / self.sample_rate as f64;
-        let local_t = scale * self.params.freq as f64 * self.t + self.params.start_time;
+        // The worklet reads its a-rate `frequency` into `scale · freq · t`
+        // every sample, so a modulator adds to `freq` there. The bank ticks
+        // after the expression, so this reads the previous sample's offset.
+        let freq = self.params.freq + self.mods.get(crate::modulator::ModTarget::Frequency);
+        let local_t = scale * freq as f64 * self.t + self.params.start_time;
         let value = self.params.expr.eval(local_t);
         let signal = (to_int32(value) & 255) as f32 / 127.5 - 1.0;
         // The worklet clamps to ±0.4 to stop a runaway expression blowing up
@@ -688,6 +695,11 @@ impl VoiceLike for ByteBeatVoice {
         self.t += 1.0;
         self.elapsed += 1.0 / self.sample_rate;
         let s = out * env * self.params.gain;
+        let pan_mod = self.mods.get(crate::modulator::ModTarget::Pan);
+        if pan_mod != 0.0 {
+            let (l, r) = crate::synth::mono_pan(self.pan, pan_mod);
+            return (s * l, s * r);
+        }
         (s * self.left_gain, s * self.right_gain)
     }
 

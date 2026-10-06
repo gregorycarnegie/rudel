@@ -109,6 +109,17 @@ impl PhaseVocoder {
         }
     }
 
+    /// Set the pitch factor from a raw `stretch` value, as the worklet reads
+    /// its `pitchFactor` param afresh for every hop.
+    pub(crate) fn set_stretch(&mut self, stretch: f32) {
+        let p = if stretch < 0.0 {
+            stretch * 0.25
+        } else {
+            stretch
+        };
+        self.pitch_factor = (p + 1.0).max(0.0);
+    }
+
     /// The number of samples this processes at a time.
     pub const BLOCK: usize = HOP_SIZE;
 
@@ -281,6 +292,15 @@ impl StretchStage {
             out_r: [0.0; HOP_SIZE],
             pos: 0,
         }
+    }
+
+    /// [`process`](Self::process), with `stretch` the raw value (a modulator's
+    /// offset included) the next hop is shifted by.
+    pub(crate) fn process_at(&mut self, l: f32, r: f32, stretch: f32) -> (f32, f32) {
+        if self.pos == HOP_SIZE - 1 {
+            self.vocoder.set_stretch(stretch);
+        }
+        self.process(l, r)
     }
 
     /// Push one stereo sample in, get one (delayed) stereo sample out.

@@ -62,8 +62,12 @@ impl VoiceSpec {
             // These four render from a fixed recipe, so of the voice-side
             // targets only the filter chain is theirs to offset; the rest of
             // their bank ticks and goes unread.
-            VoiceSpec::Drum(p) => Box::new(DrumVoice::with_mods(p, sample_rate, mods)),
-            VoiceSpec::Zzfx(p) => Box::new(ZzfxVoice::with_mods(*p, sample_rate, mods)),
+            VoiceSpec::Drum(p) => {
+                detuned(Box::new(DrumVoice::with_mods(p, sample_rate, mods)), mods)
+            }
+            VoiceSpec::Zzfx(p) => {
+                detuned(Box::new(ZzfxVoice::with_mods(*p, sample_rate, mods)), mods)
+            }
             VoiceSpec::ByteBeat(p) => Box::new(ByteBeatVoice::with_mods(*p, sample_rate, mods)),
             VoiceSpec::Bus(p) => Box::new(BusVoice::with_mods(p, sample_rate, mods)),
         }
@@ -200,6 +204,16 @@ impl VoiceSpec {
             VoiceSpec::Bus(p) => f(&p.filters),
             VoiceSpec::Sampler(p) => f(&p.filters),
         }
+    }
+}
+
+/// A buffer-source stand-in with a modulator on its `detune`, played back at
+/// that rate ([`RateVoice`]); any other voice as it is.
+fn detuned(voice: Box<dyn VoiceLike>, mods: &[ModSpec]) -> Box<dyn VoiceLike> {
+    if mods.iter().any(|m| m.target() == ModTarget::Detune) {
+        Box::new(crate::voice::RateVoice::new(voice))
+    } else {
+        voice
     }
 }
 

@@ -163,6 +163,45 @@ impl PitchMod {
         semis
     }
 
+    /// [`multiplier`](Self::multiplier) with modulators on the vibrato: `rate`
+    /// Hz added to its oscillator and `depth` cents to its gain (`vibmod·100`).
+    /// A modulated rate needs a running phase, picked up from `rate·t` the
+    /// first time one moves it, so an unmodulated vibrato is untouched.
+    pub(crate) fn multiplier_mod(
+        &self,
+        t: f32,
+        hold_end: f32,
+        phase: &mut Option<f64>,
+        rate: f32,
+        depth: f32,
+        sample_rate: f32,
+    ) -> f32 {
+        if rate == 0.0 && depth == 0.0 && phase.is_none() {
+            return self.multiplier(t, hold_end);
+        }
+        let mut semis = 0.0;
+        if let Some(base) = self.vib
+            && base > 0.0
+        {
+            let amount = self.vibmod + depth / 100.0;
+            if rate == 0.0 && phase.is_none() {
+                semis += amount * (TAU * base * t).sin();
+            } else {
+                let p = phase.get_or_insert((base * t) as f64);
+                semis += amount * (TAU * *p as f32).sin();
+                *p = (*p + ((base + rate) / sample_rate) as f64).fract();
+            }
+        }
+        if let Some((adsr, min, max)) = self.env {
+            semis += pitch_env_value(&adsr, t, hold_end, min, max, self.exp);
+        }
+        if semis == 0.0 {
+            1.0
+        } else {
+            2f32.powf(semis / 12.0)
+        }
+    }
+
     /// The frequency (or playback-rate) multiplier at time `t`.
     pub fn multiplier(&self, t: f32, hold_end: f32) -> f32 {
         let semis = self.semitones(t, hold_end);

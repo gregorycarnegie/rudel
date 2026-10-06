@@ -246,7 +246,7 @@ OSC. Rudel does forward them (`crates/rudel-osc`), so they work exactly as well
 as they do in Strudel when you are driving SuperDirt, and they are silent in the
 native engine on both sides.
 
-### Modulators (`lfo`, `env`, `bmod`) — partial
+### Modulators (`lfo`, `env`, `bmod`) — supported
 
 `lfo(...)`, `env(...)` and `bmod(...)` work: the sources are ported from
 superdough's worklets and their output is added to the target control's own
@@ -258,26 +258,17 @@ envelope's `attack`/`decay`/`sustain`/`release` and its `acurve`/`dcurve`/
 with no explicit `control` targets whatever was applied just before it in the
 chain.
 
-**Only a subset of controls can be modulated.** Strudel's target table covers
-every parameter of its Web Audio graph; Rudel bakes most controls into a voice
-when it is constructed, so a modulator can only reach the parameters its DSP
-already varies per sample:
+Every control superdough's target table reaches is modulatable, and a
+modulator resolves exactly as upstream: against the note's own graph (an
+effect's params only exist while it is on), with `subControl`, with `fxi`
+reaching an `FX` stage, and with one modulator able to drive another by name
+(`lfo({ c: 'lfo_0', sc: 'rate' })`). Two modulators on one param add. Upstream's
+failure modes are kept too: a control whose node is absent is skipped, and one
+whose node lacks the param (`tremolophase`, `lprate`, `wtdc`, …) drops every
+modulator after it. [`MODULATION_TARGETS.md`](MODULATION_TARGETS.md) lists
+every control and what it reaches, and a test checks every row.
 
-| Target | Controls |
-| --- | --- |
-| Oscillator frequency | `s`, `freq`, `note` |
-| Level | `gain`, `postgain` |
-| Filters | `cutoff`, `resonance`, `hcutoff`, `hresonance`, `bandf`, `bandq` |
-| Post effects | `shape`, `shapevol`, `distort`, `distortvol`, `crush`, `coarse` |
-
-A modulator naming anything else is skipped and has no effect — the same outcome
-as Strudel's "may not be modulatable" path, which also carries on. For sampler
-voices only `gain`, `cutoff` and `resonance` apply. The drum, ZZFX, bytebeat and
-bus voices render from a fixed recipe, so of that table only the **filters** are
-theirs to modulate — `gain` and the oscillator frequency are baked in when the
-voice is built.
-
-`bmod` carries the same restriction, and one more of its own: `.bus(n)` mixes a
+`bmod`'s source is a bus: `.bus(n)` mixes a
 voice's post-effect output into signal bus `n` (scaled by `busgain`) on top of
 its normal orbit routing, so `dry(0)` turns a pattern into a pure modulation
 source, and `bmod({ b: n })` reads it back as `(signal + dc) * depth / 0.3`.
@@ -291,11 +282,6 @@ senders, and sees a partly-filled bus.
 (`[0.001, 0.05, 1, 0.01]`), so a second pattern can run it through effects —
 the per-voice filters and the post-effects alike.
 
-Not implemented: **`subControl`** (pointing a modulator at another modulator's
-parameters) is ignored, and so is **`fxi`** (which link of an `FX` chain a
-modulator targets) — see the `FX` section below for what a chain stage does and
-does not carry.
-
 ### `FX` chains — insert effects only
 
 `.FX(fx1, fx2, ...)` works. Upstream builds the chain by running its
@@ -307,11 +293,11 @@ chain rather than replacing it, and a stage carries filters as well as the
 post-effect rack, so upstream's own `.FX(lpf(500).lpe(4).lpa(1).lpd(2))` example
 does what it says.
 
-What a stage does **not** carry is anything resolved outside the voice: its own
-`delay`/`room` sends, its own `lfo`/`env` modulators (upstream indexes those per
-stage with `fxi`), and its own `gain`/`velocity`. Those stay with the pattern's
-main controls, so a chain that asks for two different delay times in two places
-gets the outer one twice. Everything that is an insert — `crush`, `shape`,
+A stage runs its own gain stage (`gain`, default 0.8, times `velocity`) and
+its own modulators (`fxi`), as upstream does. What it does **not** carry is its
+own `delay`/`room` sends, which are resolved outside the voice: those stay with
+the pattern's main controls, so a chain that asks for two different delay
+times in two places gets the outer one twice. Everything that is an insert — `crush`, `shape`,
 `distort`, `coarse`, `vowel`, `tremolo`, `phaser`, `transient`, `compressor`,
 `stretch`, `postgain`, and the filters — is per stage.
 

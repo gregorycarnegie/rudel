@@ -10,6 +10,10 @@ param, scaled by `depthabs`, or by `depth × the param's current value` (with 0
 read as 1). A `frequency` param whose current value is at least 30 has the sum
 clamped to 20 Hz..24 kHz.
 
+rudel matches every row of the table below; `every_modulation_target_does_what_superdough_does`
+(crates/rudel-audio/src/mixer/tests.rs) renders each one with and without its
+modulator.
+
 Upstream has three outcomes, and rudel reproduces each:
 
 - **works**: the param exists and is modulated.
@@ -23,7 +27,8 @@ Upstream has three outcomes, and rudel reproduces each:
 A node exists only while its effect is active: `lpf` once `cutoff` is set,
 `tremolo` once `tremolo`/`tremolosync` is, and so on. Modulators run in order:
 each `FX` stage's (`fxi`) and then the main controls, `lfo` before `env` before
-`bmod`, and within each in `__ids` order.
+`bmod`, and within each in `__ids` order. So an envelope can drive an LFO, but
+an LFO never finds an envelope: it has not been created yet.
 
 | Control | Node · param | Upstream | Notes |
 | --- | --- | --- | --- |

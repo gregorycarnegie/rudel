@@ -107,6 +107,8 @@ pub struct DrumVoice {
     gain: f32,
     left_gain: f32,
     right_gain: f32,
+    /// The pan (0..1), which a modulator offsets.
+    pan: f32,
     done_at: f32,
     done: bool,
 }
@@ -140,6 +142,7 @@ impl DrumVoice {
             gain: params.gain,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
+            pan,
             done_at: params.kind.lifetime(),
             done: false,
         }
@@ -256,6 +259,10 @@ impl DrumVoice {
 }
 
 impl VoiceLike for DrumVoice {
+    fn detune_cents(&self) -> f32 {
+        self.mods.get(crate::modulator::ModTarget::Detune)
+    }
+
     fn tick(&mut self) -> (f32, f32) {
         if self.done {
             return (0.0, 0.0);
@@ -270,6 +277,11 @@ impl VoiceLike for DrumVoice {
         self.t += self.dt;
         if self.t >= self.done_at {
             self.done = true;
+        }
+        let pan_mod = self.mods.get(crate::modulator::ModTarget::Pan);
+        if pan_mod != 0.0 {
+            let (l, r) = crate::synth::mono_pan(self.pan, pan_mod);
+            return (s * l, s * r);
         }
         (s * self.left_gain, s * self.right_gain)
     }

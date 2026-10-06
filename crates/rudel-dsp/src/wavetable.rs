@@ -384,6 +384,36 @@ pub struct WavetableOsc {
 }
 
 impl WavetableOsc {
+    /// Re-spread the unison (`freqspread` semitones, `panspread` width) — what
+    /// the worklet does every sample, here only when a modulator moves them.
+    pub fn set_spread(&mut self, freqspread: f32, panspread: f32) {
+        let voices = self.phase.len().max(1);
+        let scale = if voices > 1 {
+            freqspread / (voices as f32 - 1.0)
+        } else {
+            0.0
+        };
+        let center = freqspread * 0.5;
+        let panspread = if voices > 1 { clamp01(panspread) } else { 0.0 };
+        let gain1 = (0.5 - 0.5 * panspread).sqrt();
+        let gain2 = (0.5 + 0.5 * panspread).sqrt();
+        for n in 0..voices {
+            let detune = if voices > 1 {
+                n as f32 * scale - center
+            } else {
+                0.0
+            };
+            self.ratio[n] = 2f32.powf(detune / 12.0);
+            let (l, r) = if n % 2 == 0 {
+                (gain1, gain2)
+            } else {
+                (gain2, gain1)
+            };
+            self.gain_l[n] = l;
+            self.gain_r[n] = r;
+        }
+    }
+
     /// `voices` is `unison` (min 1), `freqspread` the `detune` semitone spread,
     /// `panspread` the stereo width, and `phaserand` how much of a random
     /// initial phase each voice gets.
@@ -616,17 +646,31 @@ impl ParamModRunner {
         }
     }
 
-    /// The parameter's value at elapsed time `t`, advancing the LFO one sample.
-    pub fn tick(&mut self, t: f32, hold_end: f32) -> f32 {
+    /// [`tick`](Self::tick) with modulators adding `offset` to the param and
+    /// `inputs` to its LFO's params.
+    pub(crate) fn tick_with(
+        &mut self,
+        t: f32,
+        hold_end: f32,
+        offset: f32,
+        inputs: &crate::modulator::ParamOffsets,
+    ) -> f32 {
         let base = if self.active_env {
             self.min + crate::envelope::adsr_value(&self.adsr, t, hold_end) * (self.max - self.min)
         } else {
             self.min
         };
-        match &mut self.lfo {
-            Some(lfo) => base + lfo.tick() as f32,
-            None => base,
-        }
+        base + offset
+            + match &mut self.lfo {
+                Some(lfo) => lfo.tick_with(inputs) as f32,
+                None => 0.0,
+            }
+    }
+
+    /// The parameter's value at elapsed time `t`, advancing the LFO one sample.
+    #[cfg(test)]
+    pub fn tick(&mut self, t: f32, hold_end: f32) -> f32 {
+        self.tick_with(t, hold_end, 0.0, &Default::default())
     }
 }
 

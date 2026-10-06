@@ -56,6 +56,13 @@ This file starts at 0.7.0. Earlier history is in the git log.
   (`lfo({ c: 'lfo_0', sc: 'rate' })`, the default for a second `.lfo()`).
   `delay`, `delaytime`, `delayfeedback`, `room` and `djf` modulate the orbit.
   The full table is in docs/MODULATION_TARGETS.md.
+- **Every control superdough can modulate, rudel can.** Supersaw and
+  wavetable spread, wavetable position and warp and their LFOs, pulse width
+  and its LFO, FM index and operator frequency (`fmi`…`fmi8`, `fmh`…`fmh8`),
+  vibrato rate and depth, pan, the filter LFOs, vowel, stretch, the tremolo's
+  LFO, every compressor param, the phaser, and `s`/`note` on samples, drums,
+  ZZFX and noise (their `detune`, in cents) — all of the table, each checked
+  against what Strudel does with it.
 - **Tremolo is superdough's**: an LFO ramp at curve 1.5 by default (it was a
   sine), with `tremolosync`, `tremoloskew`, `tremoloshape` and `tremolophase`
   (all ignored before), and `tremolodepth` defaulting to 1.

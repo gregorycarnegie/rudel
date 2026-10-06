@@ -357,6 +357,8 @@ pub struct ZzfxVoice {
     gain: f32,
     left_gain: f32,
     right_gain: f32,
+    /// The pan (0..1), which a modulator offsets.
+    pan: f32,
 }
 
 impl ZzfxVoice {
@@ -377,11 +379,16 @@ impl ZzfxVoice {
             gain: params.gain,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
+            pan,
         }
     }
 }
 
 impl VoiceLike for ZzfxVoice {
+    fn detune_cents(&self) -> f32 {
+        self.mods.get(crate::modulator::ModTarget::Detune)
+    }
+
     fn tick(&mut self) -> (f32, f32) {
         if self.pos >= self.buffer.len() {
             return (0.0, 0.0);
@@ -394,6 +401,11 @@ impl VoiceLike for ZzfxVoice {
             .process(raw, t, self.hold_end, self.sample_rate, &self.mods)
             * self.gain;
         self.pos += 1;
+        let pan_mod = self.mods.get(crate::modulator::ModTarget::Pan);
+        if pan_mod != 0.0 {
+            let (l, r) = crate::synth::mono_pan(self.pan, pan_mod);
+            return (s * l, s * r);
+        }
         (s * self.left_gain, s * self.right_gain)
     }
     fn is_done(&self) -> bool {

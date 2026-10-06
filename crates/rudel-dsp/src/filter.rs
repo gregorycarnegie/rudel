@@ -464,6 +464,7 @@ fn run(
 ) -> f32 {
     for f in bank.iter_mut() {
         let (ft, qt) = f.mod_targets();
+        f.read_lfo_inputs(mods);
         x = f.process(x, t, hold_end, sample_rate, mods.get(ft), mods.get(qt));
     }
     x
@@ -502,6 +503,8 @@ pub(crate) struct VoiceFilter {
     env: Option<(Adsr, f32, f32)>,
     /// The cutoff LFO, summed onto the frequency in Hz.
     lfo: Option<Lfo>,
+    /// What modulators add to that LFO's params this sample.
+    lfo_inputs: crate::modulator::ParamOffsets,
 }
 
 impl VoiceFilter {
@@ -546,6 +549,19 @@ impl VoiceFilter {
             core,
             env,
             lfo: fp.lfo.map(|c| Lfo::new(&c, sample_rate as f64)),
+            lfo_inputs: Default::default(),
+        }
+    }
+
+    /// Take this sample's modulator inputs to the cutoff LFO from `mods`.
+    pub(crate) fn read_lfo_inputs(&mut self, mods: &ModBank) {
+        if self.lfo.is_some() {
+            let slot = match self.kind {
+                FilterKind::High => crate::modulator::FilterSlot::High,
+                FilterKind::Band => crate::modulator::FilterSlot::Band,
+                _ => crate::modulator::FilterSlot::Low,
+            };
+            self.lfo_inputs = mods.lfo_inputs(|p| ModTarget::FilterLfo(slot, p));
         }
     }
 
@@ -571,7 +587,11 @@ impl VoiceFilter {
         freq_mod: f32,
         q_mod: f32,
     ) -> f32 {
-        let freq_mod = freq_mod + self.lfo.as_mut().map_or(0.0, |l| l.tick() as f32);
+        let freq_mod = freq_mod
+            + self
+                .lfo
+                .as_mut()
+                .map_or(0.0, |l| l.tick_with(&self.lfo_inputs) as f32);
         let modulated = freq_mod != 0.0 || q_mod != 0.0 || self.lfo.is_some();
         if self.env.is_some() || modulated {
             // The envelope sweep is the base when present, the static cutoff

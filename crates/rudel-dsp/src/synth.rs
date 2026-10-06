@@ -21,9 +21,16 @@ const SUPER_LANES: usize = 8;
 /// worklet's `Math.random()` initial phases. A tiny counter-hash avoids an rng
 /// dependency; quality only needs to be "voices start decorrelated".
 pub(crate) fn rand_phase() -> f32 {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static SEED: AtomicU32 = AtomicU32::new(0x9E37_79B9);
-    phase_hash(SEED.fetch_add(0x6D2B_79F5, Ordering::Relaxed))
+    phase_hash(PHASE_SEED.fetch_add(0x6D2B_79F5, std::sync::atomic::Ordering::Relaxed))
+}
+
+static PHASE_SEED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x9E37_79B9);
+
+/// Restart the random initial phases from the beginning, so two renders of
+/// the same pattern match sample for sample. For tests comparing renders.
+#[doc(hidden)]
+pub fn reset_phase_seed() {
+    PHASE_SEED.store(0x9E37_79B9, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// The hash behind [`rand_phase`], split out so it can be pinned by value:
@@ -60,6 +67,15 @@ pub struct Voice {
     fm_phases: [f32; FM_OPS + 1],
     /// The band-limited table choice of the source and of each FM operator.
     pitch_cache: Pitch,
+    /// The vibrato's running phase once a modulator moves its rate, and this
+    /// sample's pitch multiplier when modulators touch the vibrato.
+    vib_phase: Option<f64>,
+    pitch_now: Option<f32>,
+    /// A noise source's detuned playback: position between two noise samples.
+    noise_rate: Option<(f64, f32, f32)>,
+    /// The base unison spread (`detune`/`spread`) and what was last applied,
+    /// so a modulated spread is recomputed only when it moves.
+    spread_applied: (f32, f32),
     /// `s("pulse")`'s oscillator and its width LFO.
     pulse: PulseOsc,
     pw_lfo: Option<Lfo>,
@@ -113,42 +129,7 @@ impl Voice {
         // ratio 0 (never advance, and the polyBLEP masks never fire) and gain 0,
         // so they contribute nothing to the mix.
         let (super_phases, super_incr_ratio, super_gain_l, super_gain_r) = if params.supersaw {
-            let voices = params.unison.max(1);
-            let padded = voices.next_multiple_of(SUPER_LANES);
-            // superdough's `getDetuner` bails out to a flat 0 for a single
-            // voice, so the centering offset has to go with the scale — keeping
-            // `center` alive on its own detunes a one-voice super-saw by half
-            // the spread (9 cents flat at the default 0.18).
-            let (scale, center) = if voices > 1 {
-                (
-                    params.freqspread / (voices as f32 - 1.0),
-                    params.freqspread * 0.5,
-                )
-            } else {
-                (0.0, 0.0)
-            };
-            // superdough: panspread is forced to 0 for a single voice, then
-            // remapped to [0.5, 1] before the sqrt gain pair.
-            let panspread = if voices > 1 { params.panspread } else { 0.0 } * 0.5 + 0.5;
-            let (gain_l, gain_r) = ((1.0 - panspread).sqrt(), panspread.sqrt());
-            let mut phases = vec![0.5f32; padded];
-            let mut ratios = vec![0.0f32; padded];
-            let mut gains_l = vec![0.0f32; padded];
-            let mut gains_r = vec![0.0f32; padded];
-            for n in 0..voices {
-                phases[n] = rand_phase();
-                let d = n as f32 * scale - center; // semitone detune for this voice
-                ratios[n] = 2f32.powf(d / 12.0);
-                // invert the left and right gain each voice, like the worklet
-                let (l, r) = if n % 2 == 0 {
-                    (gain_l, gain_r)
-                } else {
-                    (gain_r, gain_l)
-                };
-                gains_l[n] = l;
-                gains_r[n] = r;
-            }
-            (phases, ratios, gains_l, gains_r)
+            supersaw_unison(params.unison, params.freqspread, params.panspread, true)
         } else {
             (Vec::new(), Vec::new(), Vec::new(), Vec::new())
         };
@@ -200,6 +181,7 @@ impl Voice {
                 ParamModRunner::new(&params.warp, sample_rate as f64),
             )
         });
+        let spread_applied = (params.freqspread, params.panspread);
         let pw_lfo = params
             .pw_lfo
             .as_ref()
@@ -216,6 +198,10 @@ impl Voice {
             noise: NoiseGen::new(),
             fm_phases: [0.0; FM_OPS + 1],
             pitch_cache: Pitch::default(),
+            vib_phase: None,
+            pitch_now: None,
+            noise_rate: None,
+            spread_applied,
             pulse: PulseOsc::default(),
             pw_lfo,
             fm_pitches: [Pitch::default(); FM_OPS + 1],
@@ -236,7 +222,27 @@ impl Voice {
 
     /// Pitch multiplier from vibrato + pitch envelope (applied to the carrier).
     fn pitch_mult(&self) -> f32 {
-        self.pitch.multiplier(self.t, self.hold_end)
+        self.pitch_now
+            .unwrap_or_else(|| self.pitch.multiplier(self.t, self.hold_end))
+    }
+
+    /// Work out this sample's pitch multiplier once, with the vibrato's
+    /// modulators, for every reader of [`pitch_mult`](Self::pitch_mult).
+    fn update_pitch(&mut self) {
+        let (rate, depth) = (
+            self.mods.get(ModTarget::VibFreq),
+            self.mods.get(ModTarget::VibGain),
+        );
+        self.pitch_now = (rate != 0.0 || depth != 0.0 || self.vib_phase.is_some()).then(|| {
+            self.pitch.multiplier_mod(
+                self.t,
+                self.hold_end,
+                &mut self.vib_phase,
+                rate,
+                depth,
+                self.sample_rate,
+            )
+        });
     }
 
     /// Advance the FM operators one sample and return the carrier's frequency
@@ -249,32 +255,47 @@ impl Voice {
         let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         let mut op_out = [0.0f32; FM_OPS + 1];
         let mut op_freq = [0.0f32; FM_OPS + 1];
+        // Modulators on an operator's frequency move its oscillator only: the
+        // deviation scale (`gFreq`) was fixed when the operator was built.
+        let mut osc_freq = [0.0f32; FM_OPS + 1];
         for k in 1..=n {
             let op = self.params.fm.ops[k];
             op_freq[k] = carrier * op.ratio;
+            osc_freq[k] = op_freq[k] + self.mods.get(ModTarget::FmFreq(k as u8));
             let osc = band_limited(
                 op.wave,
                 self.fm_phases[k],
-                op_freq[k] / sr,
+                osc_freq[k] / sr,
                 sr,
                 &mut self.fm_pitches[k],
             );
             let env = op.env.map_or(1.0, |e| adsr_value(&e, t, hold_end));
             op_out[k] = osc * env;
         }
+        // Modulators on `fm_N_gain` move the index of the one connection that
+        // name ends up on.
+        let mut amt = self.params.fm.amt;
+        if !self.mods.is_empty() {
+            for k in 1..=FM_OPS {
+                let off = self.mods.get(ModTarget::FmGain(k as u8));
+                if off != 0.0
+                    && let Some((i, j)) = self.params.fm.gain_connection(k)
+                {
+                    amt[i][j] += off;
+                }
+            }
+        }
         // Advance each operator's phase by its (modulated) instantaneous freq.
         for j in 1..=n {
             let mut dev = 0.0;
             for k in 1..=n {
-                dev += self.params.fm.amt[k][j] * op_freq[k] * op_out[k];
+                dev += amt[k][j] * op_freq[k] * op_out[k];
             }
-            let inst = op_freq[j] + dev;
+            let inst = osc_freq[j] + dev;
             self.fm_phases[j] = wrap01(self.fm_phases[j] + inst / sr);
         }
         // Carrier deviation (target 0).
-        (1..=n)
-            .map(|k| self.params.fm.amt[k][0] * op_freq[k] * op_out[k])
-            .sum()
+        (1..=n).map(|k| amt[k][0] * op_freq[k] * op_out[k]).sum()
     }
 
     /// Render one stereo super-saw sample and advance the voice phases.
@@ -283,6 +304,18 @@ impl Voice {
     /// by `1/sqrt(voices)`.
     pub(crate) fn next_supersaw(&mut self) -> (f32, f32) {
         let sr = self.sample_rate;
+        let spread = (
+            self.params.freqspread + self.mods.get(ModTarget::Freqspread),
+            self.params.panspread + self.mods.get(ModTarget::Panspread),
+        );
+        if spread != self.spread_applied {
+            let (_, ratios, gains_l, gains_r) =
+                supersaw_unison(self.params.unison, spread.0, spread.1, false);
+            self.super_incr_ratio = ratios;
+            self.super_gain_l = gains_l;
+            self.super_gain_r = gains_r;
+            self.spread_applied = spread;
+        }
         // Main detune arrives via the pitch envelope / vibrato (`pitch_mult`),
         // like the worklet's `detune` AudioParam; the per-voice spread ratios
         // are precomputed in `super_incr_ratio`.
@@ -350,8 +383,27 @@ impl Voice {
         let Some((osc, wt, warp)) = &mut self.wavetable else {
             return (0.0, 0.0);
         };
-        let position = wt.tick(t, hold_end);
-        let amount = warp.tick(t, hold_end);
+        let mods = &self.mods;
+        let position = wt.tick_with(
+            t,
+            hold_end,
+            mods.get(ModTarget::WtPosition),
+            &mods.lfo_inputs(ModTarget::WtLfo),
+        );
+        let amount = warp.tick_with(
+            t,
+            hold_end,
+            mods.get(ModTarget::WtWarp),
+            &mods.lfo_inputs(ModTarget::WarpLfo),
+        );
+        let spread = (
+            self.params.freqspread + mods.get(ModTarget::Freqspread),
+            self.params.panspread + mods.get(ModTarget::Panspread),
+        );
+        if spread != self.spread_applied {
+            osc.set_spread(spread.0, spread.1);
+            self.spread_applied = spread;
+        }
         osc.tick(freq, position, amount, warpmode)
     }
 
@@ -360,7 +412,25 @@ impl Voice {
         let sr = self.sample_rate;
         let pitch = self.pitch_mult();
         if let Some(kind) = self.params.noise {
-            return self.noise.next(kind);
+            // The noise synths play a buffer: a `detune` modulator changes
+            // its playback rate, which a running interpolation follows.
+            let detune = self.mods.get(ModTarget::Detune);
+            if detune == 0.0 && self.noise_rate.is_none() {
+                return self.noise.next(kind);
+            }
+            let noise = &mut self.noise;
+            let (frac, prev, next) = self.noise_rate.get_or_insert_with(|| {
+                let first = noise.next(kind);
+                (0.0, first, first)
+            });
+            let out = *prev + (*next - *prev) * *frac as f32;
+            *frac += 2f64.powf(detune as f64 / 1200.0);
+            while *frac >= 1.0 {
+                *frac -= 1.0;
+                *prev = *next;
+                *next = noise.next(kind);
+            }
+            return out;
         }
         // Oscillator, optionally frequency-modulated. A `freq`/`note` modulator
         // is an additive Hz offset on the source's frequency param.
@@ -374,8 +444,10 @@ impl Voice {
         };
         if self.params.additive.is_none() && self.params.waveform == Waveform::Pulse {
             // superdough's pulse worklet: its own oscillator, no noise mix.
-            let lfo = self.pw_lfo.as_mut().map_or(0.0, |l| l.tick());
-            let width = (self.params.pw as f64 + lfo).max(0.0);
+            let inputs = self.mods.lfo_inputs(ModTarget::PwLfo);
+            let lfo = self.pw_lfo.as_mut().map_or(0.0, |l| l.tick_with(&inputs));
+            let width = (self.params.pw as f64 + self.mods.get(ModTarget::Pulsewidth) as f64 + lfo)
+                .max(0.0);
             self.phase = wrap01(self.phase + inc);
             return self.pulse.next((inc * sr) as f64, width, sr as f64);
         }
@@ -414,8 +486,11 @@ impl Voice {
             return (0.0, 0.0);
         }
         self.mods.tick();
+        self.update_pitch();
         let env = self.envelope();
         let gain = self.params.gain + self.mods.get(ModTarget::Gain);
+        // The pan param is bipolar (`2·pan − 1`); a modulator adds to that.
+        let pan_mod = self.mods.get(ModTarget::Pan);
         let (t, hold_end, sr) = (self.t, self.hold_end, self.sample_rate);
         // 0.3 matches Strudel's synth turn-down (gainNode(0.3)).
         let out = if self.params.supersaw || self.wavetable.is_some() {
@@ -431,7 +506,7 @@ impl Voice {
             // The pair is already stereo-spread; apply the voice pan as a
             // balance (identity at center, like a StereoPannerNode driven with
             // a stereo input) instead of the mono equal-power gains.
-            let p = 2.0 * self.params.pan.clamp(0.0, 1.0) - 1.0;
+            let p = (2.0 * self.params.pan.clamp(0.0, 1.0) - 1.0 + pan_mod).clamp(-1.0, 1.0);
             let (bl, br) = if p >= 0.0 {
                 (1.0 - p, 1.0)
             } else {
@@ -445,7 +520,12 @@ impl Voice {
             // sets its own level (its output is `0.15 · (out0 − out1)`).
             let turn_down = if self.is_pulse() { 1.0 } else { 0.3 };
             let s = osc * env * gain * turn_down;
-            (s * self.left_gain, s * self.right_gain)
+            if pan_mod != 0.0 {
+                let (l, r) = mono_pan(self.params.pan, pan_mod);
+                (s * l, s * r)
+            } else {
+                (s * self.left_gain, s * self.right_gain)
+            }
         };
 
         self.t += 1.0 / self.sample_rate;
@@ -489,4 +569,60 @@ fn band_limited(
         }
         w => w.sample(phase),
     }
+}
+
+/// The super-saw's unison arrays for `voices`, a `freqspread` in semitones and
+/// a `panspread` (the worklet's per-sample arithmetic): each voice's frequency
+/// ratio from `getDetuner`, and alternating L/R gains. Padded to a multiple of
+/// the SIMD lane count; padding lanes hold phase 0.5 (saw value 0), ratio 0 and
+/// gain 0, so they contribute nothing. Phases are drawn only when `with_phases`.
+fn supersaw_unison(
+    unison: usize,
+    freqspread: f32,
+    panspread: f32,
+    with_phases: bool,
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    let voices = unison.max(1);
+    let padded = voices.next_multiple_of(SUPER_LANES);
+    // superdough's `getDetuner` bails out to a flat 0 for a single voice, so
+    // the centering offset has to go with the scale — keeping `center` alive
+    // on its own detunes a one-voice super-saw by half the spread (9 cents
+    // flat at the default 0.18).
+    let (scale, center) = if voices > 1 {
+        (freqspread / (voices as f32 - 1.0), freqspread * 0.5)
+    } else {
+        (0.0, 0.0)
+    };
+    // superdough: panspread is forced to 0 for a single voice, then remapped
+    // to [0.5, 1] before the sqrt gain pair.
+    let panspread = if voices > 1 { panspread } else { 0.0 } * 0.5 + 0.5;
+    let (gain_l, gain_r) = ((1.0 - panspread).max(0.0).sqrt(), panspread.max(0.0).sqrt());
+    let mut phases = vec![0.5f32; if with_phases { padded } else { 0 }];
+    let mut ratios = vec![0.0f32; padded];
+    let mut gains_l = vec![0.0f32; padded];
+    let mut gains_r = vec![0.0f32; padded];
+    for n in 0..voices {
+        if with_phases {
+            phases[n] = rand_phase();
+        }
+        let d = n as f32 * scale - center; // semitone detune for this voice
+        ratios[n] = 2f32.powf(d / 12.0);
+        // invert the left and right gain each voice, like the worklet
+        let (l, r) = if n % 2 == 0 {
+            (gain_l, gain_r)
+        } else {
+            (gain_r, gain_l)
+        };
+        gains_l[n] = l;
+        gains_r[n] = r;
+    }
+    (phases, ratios, gains_l, gains_r)
+}
+
+/// Equal-power gains for a mono source at `pan` (0..1) plus `offset` on the
+/// bipolar pan param, as a `StereoPannerNode` applies them.
+pub(crate) fn mono_pan(pan: f32, offset: f32) -> (f32, f32) {
+    let p = (2.0 * pan.clamp(0.0, 1.0) - 1.0 + offset).clamp(-1.0, 1.0);
+    let x = (p + 1.0) * 0.5;
+    ((x * FRAC_PI_2).cos(), (x * FRAC_PI_2).sin())
 }

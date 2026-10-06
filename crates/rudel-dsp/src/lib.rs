@@ -52,7 +52,7 @@ pub use postfx::{DistortAlgo, PostFx, PostFxVoice, TransientShaper, Vowel};
 pub use routing::{Fxi, Lookup, ModGraph};
 pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::{FxStage, VoiceSpec};
-pub use synth::Voice;
+pub use synth::{Voice, reset_phase_seed};
 pub use vocoder::{PhaseVocoder, StretchStage};
 pub use voice::VoiceLike;
 pub use wavetable::{WarpMode, WaveTable, WavetableOsc, warp_phase};

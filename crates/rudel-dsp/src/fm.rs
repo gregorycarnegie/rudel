@@ -55,6 +55,22 @@ impl Default for FmSpec {
 }
 
 impl FmSpec {
+    /// The connection `(source, target)` superdough's `fm_N_gain` node ends up
+    /// naming: `applyFM` walks the matrix (`i` 1..=8, `j` 0..=8) and, for each
+    /// connection in use, registers its gain under both ends, so the last one
+    /// touching operator `n` wins.
+    pub(crate) fn gain_connection(&self, n: usize) -> Option<(usize, usize)> {
+        let mut last = None;
+        for i in 1..=FM_OPS {
+            for j in 0..=FM_OPS {
+                if self.amt[i][j] != 0.0 && (i == n || j == n) {
+                    last = Some((i, j));
+                }
+            }
+        }
+        last
+    }
+
     /// True when any FM routing is active.
     pub fn active(&self) -> bool {
         self.max_op > 0

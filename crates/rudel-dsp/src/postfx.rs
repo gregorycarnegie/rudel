@@ -1,6 +1,6 @@
 use crate::{
     filter::Biquad,
-    modulator::{Lfo, LfoConfig, ModBank, ModSpec, ModTarget},
+    modulator::{CompParam, Lfo, LfoConfig, ModBank, ModSpec, ModTarget},
     vocoder::StretchStage,
     voice::VoiceLike,
 };
@@ -89,6 +89,12 @@ struct Formant {
 
 impl Formant {
     fn new(vowel: Vowel, sample_rate: f32) -> Formant {
+        Formant::tuned(vowel, sample_rate, 0.0)
+    }
+
+    /// The bank with `offset` Hz added to every formant's frequency, which is
+    /// what a modulator on `vowel` does to superdough's filters.
+    fn tuned(vowel: Vowel, sample_rate: f32, offset: f32) -> Formant {
         let f = vowel.formants();
         let (mut b0, mut b1, mut b2, mut a1, mut a2, mut gains) = (
             [0.0f32; 8],
@@ -99,7 +105,8 @@ impl Formant {
             [0.0; 8],
         );
         for i in 0..5 {
-            let (cb0, cb1, cb2, ca1, ca2) = Biquad::bandpass(sample_rate, f[i].0, f[i].2).coeffs();
+            let (cb0, cb1, cb2, ca1, ca2) =
+                Biquad::bandpass(sample_rate, f[i].0 + offset, f[i].2).coeffs();
             (b0[i], b1[i], b2[i], a1[i], a2[i], gains[i]) = (cb0, cb1, cb2, ca1, ca2, f[i].1);
         }
         Formant {
@@ -112,6 +119,12 @@ impl Formant {
             z2: f32x8::splat(0.0),
             gains: f32x8::from(gains),
         }
+    }
+
+    /// Re-tune to `offset` Hz, keeping the filter state.
+    fn retune(&mut self, vowel: Vowel, sample_rate: f32, offset: f32) {
+        let t = Formant::tuned(vowel, sample_rate, offset);
+        (self.b0, self.b1, self.b2, self.a1, self.a2) = (t.b0, t.b1, t.b2, t.a1, t.a2);
     }
 
     fn process(&mut self, x: f32) -> f32 {
@@ -571,6 +584,10 @@ pub struct PostFxVoice {
     stretch: Option<StretchStage>,
     /// The tremolo's LFO, driving its AM gain.
     tremolo: Option<Lfo>,
+    /// The phaser's LFO, sweeping the notch's detune in cents.
+    phaser_lfo: Option<Lfo>,
+    /// The offset the vowel bank is tuned to.
+    vowel_offset: f32,
     /// Modulators targeting the post-fx amounts. Empty for the common case, and
     /// then every offset reads as zero.
     mods: ModBank,
@@ -620,6 +637,22 @@ impl PostFxVoice {
             transient,
             stretch: fx.stretch.map(StretchStage::new),
             tremolo: fx.tremolo_lfo.map(|c| Lfo::new(&c, sample_rate as f64)),
+            // `getPhaser`'s `getLfo({ frequency, depth: sweep * 2 })`: the
+            // default triangle, dcoffset -0.5, so it swings ±sweep cents. Its
+            // phase starts at the voice's onset.
+            phaser_lfo: fx.phaser.map(|rate| {
+                let depth = fx.phasersweep as f64 * 2.0;
+                let d = LfoConfig::default();
+                let cfg = LfoConfig {
+                    frequency: rate as f64,
+                    depth,
+                    min: d.dcoffset * depth,
+                    max: d.dcoffset * depth + depth,
+                    ..d
+                };
+                Lfo::new(&cfg, sample_rate as f64)
+            }),
+            vowel_offset: 0.0,
             mods: ModBank::new(mods, sample_rate as f64),
             comp_gain: 1.0,
         }
@@ -745,7 +778,8 @@ impl VoiceLike for PostFxVoice {
         // stretch: the phase vocoder is the first insert in superdough's FX
         // chain, ahead of the transient shaper and the gain stage.
         if let Some(pv) = &mut self.stretch {
-            (l, r) = pv.process(l, r);
+            let stretch = self.fx.stretch.unwrap_or(0.0) + self.mods.get(ModTarget::Stretch);
+            (l, r) = pv.process_at(l, r, stretch);
         }
         // transient shaper. superdough inserts this before the gain stage and
         // the filters; Rudel's voices already contain their own gain/filters, so
@@ -757,6 +791,14 @@ impl VoiceLike for PostFxVoice {
         }
         // vowel: parallel formant band-pass bank.
         if let Some((fl, fr)) = &mut self.vowel {
+            let offset = self.mods.get(ModTarget::Vowel);
+            if offset != self.vowel_offset
+                && let Some(v) = self.fx.vowel
+            {
+                fl.retune(v, self.sample_rate, offset);
+                fr.retune(v, self.sample_rate, offset);
+                self.vowel_offset = offset;
+            }
             l = fl.process(l);
             r = fr.process(r);
         }
@@ -768,17 +810,12 @@ impl VoiceLike for PostFxVoice {
         // (The LFO is a triangle, not a sine, and its phase here starts at the
         // voice onset — superdough phase-locks it to the global clock via
         // `frac(begin·rate)`, which coincides for onsets at cycle 0.)
-        if let (Some(rate), Some((nl, nr))) = (self.fx.phaser, &mut self.phaser) {
-            let phase = crate::oscillator::wrap01(rate * self.time);
-            let tri = if phase < 0.5 {
-                2.0 * phase
-            } else {
-                2.0 - 2.0 * phase
-            };
-            let detune = 2.0 * self.fx.phasersweep * (tri - 0.5); // cents, ±sweep
-            let center = self.fx.phasercenter + 282.0;
+        if let (Some(lfo), Some((nl, nr))) = (&mut self.phaser_lfo, &mut self.phaser) {
+            let detune = lfo.tick_with(&self.mods.lfo_inputs(ModTarget::PhaserLfo)) as f32;
+            let center = self.fx.phasercenter + 282.0 + self.mods.get(ModTarget::PhaserCenter);
             let freq = center * 2f32.powf(detune / 1200.0);
-            let q = 2.0 - (self.fx.phaserdepth * 2.0).clamp(0.0, 1.9);
+            let q = 2.0 - (self.fx.phaserdepth * 2.0).clamp(0.0, 1.9)
+                + self.mods.get(ModTarget::PhaserQ);
             nl.set_notch(self.sample_rate, freq, q);
             nr.set_notch(self.sample_rate, freq, q);
             l = nl.process(l);
@@ -819,7 +856,8 @@ impl VoiceLike for PostFxVoice {
         // tremolo: an LFO (0..1) summed onto an AM gain of `max(1 − depth, 0)`.
         if let Some(lfo) = &mut self.tremolo {
             let base = (1.0 - self.fx.tremolodepth).max(0.0);
-            let gain = base + self.mods.get(ModTarget::TremoloGain) + lfo.tick() as f32;
+            let inputs = self.mods.lfo_inputs(ModTarget::Tremolo);
+            let gain = base + self.mods.get(ModTarget::TremoloGain) + lfo.tick_with(&inputs) as f32;
             l *= gain;
             r *= gain;
         }
@@ -830,8 +868,10 @@ impl VoiceLike for PostFxVoice {
         if let Some(threshold) = self.fx.compressor {
             let level = l.abs().max(r.abs()).max(1e-9);
             let level_db = 20.0 * level.log10();
-            let knee = self.fx.comp_knee.max(0.0);
-            let ratio = self.fx.comp_ratio.max(1.0);
+            let comp = |c: CompParam| self.mods.get(ModTarget::Compressor(c));
+            let threshold = threshold + comp(CompParam::Threshold);
+            let knee = (self.fx.comp_knee + comp(CompParam::Knee)).max(0.0);
+            let ratio = (self.fx.comp_ratio + comp(CompParam::Ratio)).max(1.0);
             let over = level_db - threshold;
             // static input→output level curve (dB), with a quadratic soft knee.
             let out_db = if knee > 0.0 && over > -knee / 2.0 && over < knee / 2.0 {
@@ -844,9 +884,9 @@ impl VoiceLike for PostFxVoice {
             let target_gain = 10f32.powf((out_db - level_db) / 20.0); // <= 1.0
             // attack when reduction deepens (target below current), else release.
             let time = if target_gain < self.comp_gain {
-                self.fx.comp_attack
+                self.fx.comp_attack + comp(CompParam::Attack)
             } else {
-                self.fx.comp_release
+                self.fx.comp_release + comp(CompParam::Release)
             };
             let coeff = (-1.0 / (time.max(1e-4) * self.sample_rate)).exp();
             self.comp_gain = coeff * self.comp_gain + (1.0 - coeff) * target_gain;

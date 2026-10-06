@@ -126,6 +126,10 @@ pub struct SamplerVoice {
     hold_end: f32,
     sample_rate: f32,
     filters: VoiceFilters,
+    /// The pan (0..1), which a modulator offsets.
+    pan: f32,
+    /// The vibrato's running phase once a modulator moves its rate.
+    vib_phase: Option<f64>,
     /// Modulators targeting this voice (gain and the filters).
     mods: ModBank,
     done: bool,
@@ -203,6 +207,8 @@ impl SamplerVoice {
             hold_end,
             sample_rate,
             filters,
+            pan,
+            vib_phase: None,
             mods: ModBank::new(mods, sample_rate as f64),
             done: false,
             loop_on,
@@ -265,13 +271,38 @@ impl VoiceLike for SamplerVoice {
         // Vibrato / pitch envelope detune the playback rate, which is what
         // superdough's `getVibratoOscillator`/`getPitchEnvelope` do to a
         // sampler's `detune`.
-        self.pos += match &self.pitch {
-            Some(p) => self.step * p.multiplier(self.t, self.hold_end) as f64,
-            None => self.step,
+        // A buffer source has no `frequency`, so `s`/`note`/`freq` modulators
+        // land on its `detune`, in cents.
+        let detune = self.mods.get(ModTarget::Detune);
+        let rate = if detune == 0.0 {
+            1.0
+        } else {
+            2f64.powf(detune as f64 / 1200.0)
         };
+        let (vib_rate, vib_depth) = (
+            self.mods.get(ModTarget::VibFreq),
+            self.mods.get(ModTarget::VibGain),
+        );
+        let pitch = match &self.pitch {
+            Some(p) => p.multiplier_mod(
+                self.t,
+                self.hold_end,
+                &mut self.vib_phase,
+                vib_rate,
+                vib_depth,
+                self.sample_rate,
+            ) as f64,
+            None => 1.0,
+        };
+        self.pos += self.step * pitch * rate;
         self.t += 1.0 / self.sample_rate;
         if self.t >= self.hold_end + self.release {
             self.done = true;
+        }
+        let pan_mod = self.mods.get(ModTarget::Pan);
+        if pan_mod != 0.0 {
+            let (l, r) = crate::synth::mono_pan(self.pan, pan_mod);
+            return (s * l, s * r);
         }
         (s * self.left_gain, s * self.right_gain)
     }

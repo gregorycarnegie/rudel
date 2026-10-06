@@ -146,7 +146,7 @@ impl Lfo {
     }
 
     /// The next value, with `inputs` added to its params by other modulators.
-    fn tick_with(&mut self, inputs: &ParamOffsets) -> f64 {
+    pub(crate) fn tick_with(&mut self, inputs: &ParamOffsets) -> f64 {
         if self.frame == 0 {
             let c = &self.cfg;
             self.dt = (c.frequency + inputs.get(ModParam::Frequency)) / self.sample_rate;
@@ -410,9 +410,10 @@ impl ModParam {
     }
 }
 
-/// Offsets other modulators are adding to a modulator's own params this sample.
+/// Offsets added to an LFO's or envelope's own params this sample, by other
+/// modulators.
 #[derive(Clone, Copy, Debug, Default)]
-struct ParamOffsets([f64; ModParam::COUNT]);
+pub(crate) struct ParamOffsets([f64; ModParam::COUNT]);
 
 impl ParamOffsets {
     fn get(&self, p: ModParam) -> f64 {
@@ -827,6 +828,13 @@ pub struct ModSpecs {
     pub stages: Vec<(Vec<ModSpec>, Vec<ModSpec>)>,
 }
 
+impl ModSpec {
+    /// The param this modulator lands on.
+    pub fn target(&self) -> ModTarget {
+        self.target
+    }
+}
+
 impl ModSpecs {
     pub fn is_empty(&self) -> bool {
         self.voice.is_empty()
@@ -972,6 +980,26 @@ impl ModBank {
     /// The current additive offset for `target` (0.0 when unmodulated).
     pub fn get(&self, target: ModTarget) -> f32 {
         self.offsets[target.index()]
+    }
+
+    /// The offsets on one of the voice's own LFOs (a filter's, the pulse
+    /// width's, a wavetable param's, the tremolo's), as that LFO's inputs.
+    pub(crate) fn lfo_inputs(&self, target: impl Fn(ModParam) -> ModTarget) -> ParamOffsets {
+        let mut inputs = ParamOffsets::default();
+        if self.mods.is_empty() {
+            return inputs;
+        }
+        for p in [
+            ModParam::Frequency,
+            ModParam::Depth,
+            ModParam::Skew,
+            ModParam::Curve,
+            ModParam::Dcoffset,
+            ModParam::Shape,
+        ] {
+            inputs.0[p.index()] = self.offsets[target(p).index()] as f64;
+        }
+        inputs
     }
 
     /// Instantiate the specs for one owner at `sample_rate`.

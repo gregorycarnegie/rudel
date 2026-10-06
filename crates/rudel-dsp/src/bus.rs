@@ -393,6 +393,8 @@ pub struct BusVoice {
     end: f32,
     left_gain: f32,
     right_gain: f32,
+    /// The pan (0..1), which a modulator offsets.
+    pan: f32,
 }
 
 impl BusVoice {
@@ -418,6 +420,7 @@ impl BusVoice {
             end,
             left_gain: (pan * FRAC_PI_2).cos(),
             right_gain: (pan * FRAC_PI_2).sin(),
+            pan,
             params,
         }
     }
@@ -443,6 +446,11 @@ impl VoiceLike for BusVoice {
         );
         self.pos += 1;
         self.t += self.dt;
+        let pan_mod = self.mods.get(crate::modulator::ModTarget::Pan);
+        if pan_mod != 0.0 {
+            let (gl, gr) = crate::synth::mono_pan(self.pan, pan_mod);
+            return (l * env * gl, r * env * gr);
+        }
         (l * env * self.left_gain, r * env * self.right_gain)
     }
 

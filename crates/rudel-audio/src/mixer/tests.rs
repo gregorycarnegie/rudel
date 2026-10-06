@@ -2958,3 +2958,484 @@ fn a_modulator_on_a_missing_node_is_skipped_but_a_missing_param_drops_the_rest()
     );
     assert_eq!(render_pattern(&gain_lfo(thrown), 1.0, 0.5), plain);
 }
+
+/// What upstream does with a modulator on a control (docs/MODULATION_TARGETS.md).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Expect {
+    /// The param exists and is modulated: the render changes.
+    Works,
+    /// No such node: skipped, nothing changes.
+    Skip,
+    /// The node lacks the param: setup throws, so a modulator after it is
+    /// dropped too.
+    Throw,
+}
+
+#[test]
+fn every_modulation_target_does_what_superdough_does() {
+    use Expect::*;
+    use rudel_core::Value;
+    let num = |v: f64| Value::F64(v);
+    let txt = |v: &str| Value::Str(v.into());
+    // (control, subControl, sound, setup controls, a modulator before it, expectation)
+    type Row<'a> = (
+        &'a str,
+        Option<&'a str>,
+        &'a str,
+        Vec<(&'a str, Value)>,
+        Option<(&'a str, &'a str)>,
+        Expect,
+    );
+    let lpf = || vec![("cutoff", num(800.0))];
+    let lpf_lfo = || vec![("cutoff", num(800.0)), ("lpdepth", num(0.5))];
+    let hpf_lfo = || vec![("hcutoff", num(300.0)), ("hpdepth", num(0.5))];
+    let bpf_lfo = || vec![("bandf", num(900.0)), ("bpdepth", num(0.5))];
+    let wt = || {
+        vec![
+            ("wt", num(0.4)),
+            ("wtrate", num(2.0)),
+            ("warp", num(0.3)),
+            ("warprate", num(2.0)),
+            ("warpmode", txt("spin")),
+            ("unison", num(3.0)),
+        ]
+    };
+    let rows: Vec<Row> = vec![
+        ("gain", None, "saw", vec![], None, Works),
+        ("postgain", None, "saw", vec![], None, Works),
+        ("pan", None, "saw", vec![("pan", num(0.3))], None, Works),
+        ("pan", None, "saw", vec![], None, Skip),
+        (
+            "stretch",
+            None,
+            "saw",
+            vec![("stretch", num(0.5))],
+            None,
+            Works,
+        ),
+        (
+            "transient",
+            None,
+            "saw",
+            vec![("transient", num(0.5))],
+            None,
+            Throw,
+        ),
+        (
+            "tremolo",
+            None,
+            "saw",
+            vec![("tremolo", num(4.0))],
+            None,
+            Works,
+        ),
+        (
+            "tremolosync",
+            None,
+            "saw",
+            vec![("tremolo", num(4.0))],
+            None,
+            Works,
+        ),
+        (
+            "tremolodepth",
+            None,
+            "saw",
+            vec![("tremolo", num(4.0))],
+            None,
+            Works,
+        ),
+        (
+            "tremoloskew",
+            None,
+            "saw",
+            vec![("tremolo", num(4.0))],
+            None,
+            Works,
+        ),
+        (
+            "tremoloshape",
+            None,
+            "saw",
+            vec![("tremolo", num(4.0))],
+            None,
+            Works,
+        ),
+        (
+            "tremolophase",
+            None,
+            "saw",
+            vec![("tremolo", num(4.0))],
+            None,
+            Throw,
+        ),
+        ("cutoff", None, "saw", lpf(), None, Works),
+        ("cutoff", None, "saw", vec![], None, Skip),
+        ("resonance", None, "saw", lpf(), None, Works),
+        (
+            "resonance",
+            None,
+            "saw",
+            vec![("cutoff", num(800.0)), ("ftype", txt("ladder"))],
+            None,
+            Throw,
+        ),
+        ("lpdepth", None, "saw", lpf_lfo(), None, Works),
+        ("lpdepthfrequency", None, "saw", lpf_lfo(), None, Works),
+        ("lpshape", None, "saw", lpf_lfo(), None, Works),
+        ("lpdc", None, "saw", lpf_lfo(), None, Works),
+        ("lpskew", None, "saw", lpf_lfo(), None, Works),
+        ("lprate", None, "saw", lpf_lfo(), None, Throw),
+        ("lpsync", None, "saw", lpf_lfo(), None, Throw),
+        ("lpdepth", None, "saw", lpf(), None, Throw),
+        ("hcutoff", None, "saw", hpf_lfo(), None, Works),
+        ("hresonance", None, "saw", hpf_lfo(), None, Works),
+        ("hpdepth", None, "saw", hpf_lfo(), None, Works),
+        ("hpskew", None, "saw", hpf_lfo(), None, Works),
+        ("hprate", None, "saw", hpf_lfo(), None, Throw),
+        ("bandf", None, "saw", bpf_lfo(), None, Works),
+        ("bandq", None, "saw", bpf_lfo(), None, Works),
+        ("bpdepth", None, "saw", bpf_lfo(), None, Works),
+        ("bpdc", None, "saw", bpf_lfo(), None, Works),
+        ("bprate", None, "saw", bpf_lfo(), None, Throw),
+        ("vowel", None, "saw", vec![("vowel", txt("a"))], None, Works),
+        (
+            "coarse",
+            None,
+            "saw",
+            vec![("coarse", num(4.0))],
+            None,
+            Works,
+        ),
+        ("crush", None, "saw", vec![("crush", num(4.0))], None, Works),
+        ("shape", None, "saw", vec![("shape", num(0.5))], None, Works),
+        (
+            "shapevol",
+            None,
+            "saw",
+            vec![("shape", num(0.5))],
+            None,
+            Works,
+        ),
+        (
+            "distort",
+            None,
+            "saw",
+            vec![("distort", num(1.0))],
+            None,
+            Works,
+        ),
+        (
+            "distortvol",
+            None,
+            "saw",
+            vec![("distort", num(1.0))],
+            None,
+            Works,
+        ),
+        (
+            "distorttype",
+            None,
+            "saw",
+            vec![("distort", num(1.0))],
+            None,
+            Works,
+        ),
+        (
+            "compressor",
+            None,
+            "saw",
+            vec![("compressor", num(-30.0))],
+            None,
+            Works,
+        ),
+        (
+            "compressorRatio",
+            None,
+            "saw",
+            vec![("compressor", num(-30.0))],
+            None,
+            Works,
+        ),
+        (
+            "compressorKnee",
+            None,
+            "saw",
+            vec![("compressor", num(-30.0))],
+            None,
+            Works,
+        ),
+        (
+            "compressorAttack",
+            None,
+            "saw",
+            vec![("compressor", num(-30.0))],
+            None,
+            Works,
+        ),
+        (
+            "compressorRelease",
+            None,
+            "saw",
+            vec![("compressor", num(-30.0))],
+            None,
+            Works,
+        ),
+        (
+            "phaserrate",
+            None,
+            "saw",
+            vec![("phaserrate", num(2.0))],
+            None,
+            Works,
+        ),
+        (
+            "phasersweep",
+            None,
+            "saw",
+            vec![("phaserrate", num(2.0))],
+            None,
+            Works,
+        ),
+        (
+            "phasercenter",
+            None,
+            "saw",
+            vec![("phaserrate", num(2.0))],
+            None,
+            Works,
+        ),
+        (
+            "phaserdepth",
+            None,
+            "saw",
+            vec![("phaserrate", num(2.0))],
+            None,
+            Works,
+        ),
+        (
+            "delay",
+            None,
+            "saw",
+            vec![("delay", num(0.5)), ("delaytime", num(0.05))],
+            None,
+            Works,
+        ),
+        (
+            "delaytime",
+            None,
+            "saw",
+            vec![("delay", num(0.5)), ("delaytime", num(0.05))],
+            None,
+            Works,
+        ),
+        (
+            "delaysync",
+            None,
+            "saw",
+            vec![("delay", num(0.5)), ("delaytime", num(0.05))],
+            None,
+            Works,
+        ),
+        (
+            "delayfeedback",
+            None,
+            "saw",
+            vec![("delay", num(0.5)), ("delaytime", num(0.05))],
+            None,
+            Works,
+        ),
+        ("room", None, "saw", vec![("room", num(0.5))], None, Works),
+        ("djf", None, "saw", vec![("djf", num(0.3))], None, Works),
+        ("dry", None, "saw", vec![("dry", num(0.5))], None, Skip),
+        ("busgain", None, "saw", vec![("bus", num(3.0))], None, Skip),
+        ("s", None, "saw", vec![], None, Works),
+        ("freq", None, "saw", vec![], None, Works),
+        ("note", None, "saw", vec![], None, Works),
+        ("s", None, "bd", vec![], None, Works),
+        ("s", None, "pink", vec![], None, Works),
+        ("s", None, "bytebeat", vec![], None, Works),
+        ("s", None, "bus", vec![], None, Throw),
+        ("byteBeatStartTime", None, "bytebeat", vec![], None, Throw),
+        ("detune", None, "supersaw", vec![], None, Works),
+        ("spread", None, "supersaw", vec![], None, Works),
+        ("detune", None, "saw", vec![], None, Throw),
+        ("wt", None, "wt_test", wt(), None, Works),
+        ("warp", None, "wt_test", wt(), None, Works),
+        ("detune", None, "wt_test", wt(), None, Works),
+        ("spread", None, "wt_test", wt(), None, Works),
+        ("wtrate", None, "wt_test", wt(), None, Works),
+        ("wtsync", None, "wt_test", wt(), None, Works),
+        ("wtdepth", None, "wt_test", wt(), None, Works),
+        ("wtskew", None, "wt_test", wt(), None, Works),
+        ("wtdc", None, "wt_test", wt(), None, Throw),
+        ("warprate", None, "wt_test", wt(), None, Works),
+        ("warpdepth", None, "wt_test", wt(), None, Works),
+        ("warpskew", None, "wt_test", wt(), None, Works),
+        ("warpdc", None, "wt_test", wt(), None, Throw),
+        ("pw", None, "pulse", vec![("pwrate", num(2.0))], None, Works),
+        (
+            "pwrate",
+            None,
+            "pulse",
+            vec![("pwrate", num(2.0))],
+            None,
+            Works,
+        ),
+        (
+            "pwsweep",
+            None,
+            "pulse",
+            vec![("pwrate", num(2.0))],
+            None,
+            Works,
+        ),
+        ("pwrate", None, "pulse", vec![], None, Throw),
+        ("pw", None, "saw", vec![], None, Throw),
+        ("fmi", None, "saw", vec![("fmi", num(2.0))], None, Works),
+        ("fmh", None, "saw", vec![("fmi", num(2.0))], None, Works),
+        (
+            "fmi2",
+            None,
+            "saw",
+            vec![("fmi", num(2.0)), ("fmi2", num(1.0))],
+            None,
+            Works,
+        ),
+        (
+            "fmh2",
+            None,
+            "saw",
+            vec![("fmi", num(2.0)), ("fmi2", num(1.0))],
+            None,
+            Works,
+        ),
+        ("fmh3", None, "saw", vec![("fmi", num(2.0))], None, Skip),
+        ("vib", None, "saw", vec![("vib", num(5.0))], None, Works),
+        ("vibmod", None, "saw", vec![("vib", num(5.0))], None, Works),
+        ("vib", None, "saw", vec![], None, Skip),
+        (
+            "lfo_0",
+            Some("rate"),
+            "saw",
+            lpf(),
+            Some(("lfo", "cutoff")),
+            Works,
+        ),
+        (
+            "lfo_0",
+            Some("depth"),
+            "saw",
+            lpf(),
+            Some(("lfo", "cutoff")),
+            Works,
+        ),
+        (
+            "lfo_0",
+            Some("skew"),
+            "saw",
+            lpf(),
+            Some(("lfo", "cutoff")),
+            Works,
+        ),
+        (
+            "lfo_0",
+            Some("dcoffset"),
+            "saw",
+            lpf(),
+            Some(("lfo", "cutoff")),
+            Works,
+        ),
+        ("lfo", None, "saw", lpf(), Some(("lfo", "cutoff")), Skip),
+        // Every LFO is set up before any envelope (`if (fx.lfo) … if (fx.env)`),
+        // so an LFO never finds `env_0`: it is skipped upstream too.
+        (
+            "env_0",
+            Some("attack"),
+            "saw",
+            lpf(),
+            Some(("env", "cutoff")),
+            Skip,
+        ),
+        (
+            "env_0",
+            Some("depth"),
+            "saw",
+            lpf(),
+            Some(("env", "cutoff")),
+            Skip,
+        ),
+        ("bmod", None, "saw", vec![], None, Skip),
+        ("velocity", None, "saw", vec![], None, Skip),
+    ];
+
+    let bank = || {
+        let mut bank = SampleBank::new();
+        let frames: Vec<f32> = (0..4 * 64)
+            .map(|i| {
+                let (frame, k) = (i / 64, (i % 64) as f32 / 64.0);
+                (std::f32::consts::TAU * k * (frame + 1) as f32).sin()
+            })
+            .collect();
+        bank.register_table("wt_test", rudel_dsp::WaveTable::from_samples(&frames, 64));
+        bank
+    };
+    // The supersaw and wavetable draw random initial phases; restart them so
+    // only the modulator can tell two renders apart.
+    let render = |p: &Pattern| {
+        rudel_dsp::reset_phase_seed();
+        render_pattern_with_bank(p, 1.0, 0.15, bank())
+    };
+    let modulate = |p: Pattern, kind: &str, config: Vec<(&str, Value)>| {
+        rudel_core::modulate(
+            &p,
+            kind,
+            config
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), rudel_core::pure(v)))
+                .collect(),
+            rudel_core::pure(Value::Null),
+        )
+    };
+    let mut wrong = Vec::new();
+    for (control, sub, sound, setup, pre, expect) in rows {
+        let mut base = rudel_core::s(rudel_core::pure(txt(sound))).note(Value::Int(48));
+        for (k, v) in setup {
+            base = base.ctrl(k, v);
+        }
+        if let Some((kind, target)) = pre {
+            base = modulate(
+                base,
+                kind,
+                vec![("control", txt(target)), ("rate", num(2.0))],
+            );
+        }
+        let mut config = vec![("control", txt(control)), ("rate", num(3.0))];
+        if let Some(sub) = sub {
+            config.push(("subControl", txt(sub)));
+        }
+        let with = modulate(base.clone(), "lfo", config);
+        let gain =
+            |p: Pattern| modulate(p, "lfo", vec![("control", txt("gain")), ("rate", num(7.0))]);
+        let (plain, modulated) = (render(&base), render(&with));
+        let got = if plain != modulated {
+            Works
+        } else if render(&gain(with)) == plain {
+            Throw
+        } else {
+            Skip
+        };
+        if got != expect {
+            wrong.push(format!(
+                "{control}{} on {sound}: {got:?}, want {expect:?}",
+                sub.map(|s| format!("/{s}")).unwrap_or_default()
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} of the table disagree:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}
