@@ -879,14 +879,37 @@ pub fn cat(pats: &[Pattern]) -> Pattern {
 
 /// Like `slowcat`, but skips cycles instead of preserving constituent cycle
 /// continuity (`slowcatPrime`). Used by `every`/`firstOf`/`lastOf`.
+///
+/// Upstream indexes with JavaScript's `%`, which keeps the sign, so a negative
+/// cycle whose index is not a multiple of the length finds no pattern and is
+/// empty — upstream knows (`pat?.query(state) || []`, with
+/// `pure(42).every(3, add(7)).late(.5)` as its example) and keeps it. Rust's
+/// `%` on integers is the same remainder.
 pub fn slowcat_prime(pats: &[Pattern]) -> Pattern {
     let pats: Vec<Pattern> = pats.to_vec();
-    let len = pats.len() as i64;
+    let len = pats.len() as i128;
     Pattern::new(move |state| {
         if len == 0 {
             return vec![];
         }
-        let pat_n = state.span.begin.sam().numer().rem_euclid(len as i128) as usize;
+        match usize::try_from(state.span.begin.sam().numer() % len) {
+            Ok(pat_n) => pats[pat_n].query(state),
+            Err(_) => vec![],
+        }
+    })
+    .split_queries()
+}
+
+/// [`slowcat_prime`] without the gap before cycle 0: what a cycle-by-cycle
+/// choice that is not upstream's `slowcatPrime` reads as.
+pub(crate) fn slowcat_prime_wrapping(pats: &[Pattern]) -> Pattern {
+    let pats: Vec<Pattern> = pats.to_vec();
+    let len = pats.len() as i128;
+    Pattern::new(move |state| {
+        if len == 0 {
+            return vec![];
+        }
+        let pat_n = state.span.begin.sam().numer().rem_euclid(len) as usize;
         pats[pat_n].query(state)
     })
     .split_queries()

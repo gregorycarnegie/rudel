@@ -71,6 +71,10 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Fixed
 
+- `every`/`firstOf`/`lastOf` (and `palindrome`) are empty on a negative
+  cycle that is not a multiple of `n`, as Strudel's `slowcatPrime` is, so a
+  `late`/`off` copy reaching back before cycle 0 brings nothing in. The last
+  of Strudel's vendored tunes, `juxUndTollerei`, now matches its haps.
 - A hap with `stretch` starts 0.04 s early, as superdough starts it to
   cover the phase vocoder's latency; it sounded late.
 - kabelsalat's `midifreq`, `midigate`, `midivel`, `midicc`, `cc` and

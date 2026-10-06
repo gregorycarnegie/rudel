@@ -7,28 +7,25 @@ scope (no accelerometer to read on a desktop; see
 [UNSUPPORTED.md](UNSUPPORTED.md)), and so are the names that exist only in
 Strudel's docs.
 
-## To do
+## Done
 
-These are all possible natively. None of them depends on the browser.
+Each was possible natively, and each is now in. Details are in
+[UNSUPPORTED.md](UNSUPPORTED.md) and the changelog.
 
-- [x] **Gamepad** (`@strudel/gamepad`): buttons, axes and the button-sequence
-      helpers, read from a native gamepad library on Windows, macOS and Linux.
-- [x] **Serial output** (`@strudel/serial`): send haps to a serial port, as the
-      Web Serial version does.
-- [x] **MQTT** (`@strudel/mqtt`): publish haps to an MQTT broker.
-- [x] **`registerVoicings`**: register a voicing dictionary by name, as
-      `addVoicings` already can.
-- [x] **`worklet("…")`**: the string form of a kabelsalat graph, evaluated at
-      play time. `K(...)` works.
-- [x] **kabelsalat live-input nodes**: the parts of a `K(...)` graph that read
-      live input.
-- [x] **`FX` stage sends**: a stage's own `delay`/`room` sends. Today a stage
-      uses the main controls' delay and reverb.
-- [x] **`stretch` pre-roll**: superdough starts a stretched voice 0.04 s early
-      to cover the phase vocoder's latency; rudel starts it on time, so it
-      sounds late.
-- [ ] **The last vendored tune**: one of the 27 tunes in Strudel's test
-      snapshot still doesn't match its haps exactly.
+- [x] **Gamepad** (`@strudel/gamepad`): `gamepad(index)`, `buttonMap`,
+      `getGamepadStates`/`clearGamepadStates`, read through gilrs.
+- [x] **Serial output** (`@strudel/serial`): `.serial()`, through the
+      serialport crate.
+- [x] **MQTT** (`@strudel/mqtt`): `.mqtt()`, MQTT 3.1.1 over WebSockets.
+- [x] **`registerVoicings`**: registers a dictionary as `addVoicings` does.
+- [x] **`worklet("…")`**: the text form of a `K(...)` graph. Along the way,
+      `K(() => { ... })` was fixed: it built an empty graph.
+- [x] **kabelsalat live-input nodes**: they hold their initial values, as in
+      Strudel, whose worklet never feeds them.
+- [x] **`FX` stage sends**: a stage has its own inline delay and reverb.
+- [x] **`stretch` pre-roll**: a stretched hap starts 0.04 s early.
+- [x] **The last vendored tune**: `juxUndTollerei` matches, now that
+      `every`/`firstOf`/`lastOf` are empty before cycle 0 where Strudel's are.
 
 ## Stays different
 
@@ -44,5 +41,16 @@ By design, or because of the platform. Each is described in
 - **Smaller differences**: `setMaxPolyphony` fades voices out with a
   different shape, `spiral` is drawn as a distance field rather than
   strokes, and `shader` takes raw WGSL with no chain.
+- **No browser prompts**: `.serial()` has no port picker (a `name` that is a
+  port picks it, else the first USB serial port), and `.mqtt()` has no
+  password prompt.
+- **A hop of stretch latency**: a stretched voice is 128 samples (under 3 ms)
+  later than upstream's, the buffering of rudel's per-sample chain.
+- **kabelsalat `scope`/`split`** pass their input through; upstream they throw
+  inside the worklet and the graph falls silent.
+- **Two tunes differ in representation only**: `csoundDemo` and
+  `loungeSponge` carry `csound` as a control where upstream hangs it off the
+  hap's context, and `loungeSponge` keeps `n` as a MIDI number where upstream
+  keeps the note name. Same sound.
 - **Not applicable**: the Tidal front-end (`@strudel/tidal`), and
   `@strudel/web`/`@strudel/embed`, which embed Strudel in web pages.

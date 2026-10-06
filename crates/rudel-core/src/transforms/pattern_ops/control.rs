@@ -35,7 +35,7 @@ impl Pattern {
     where
         F: Fn(&Pattern) -> Pattern,
     {
-        crate::pattern::slowcat_prime(&[self.jux_by(by, &f), self.jux_by(-by, &f)])
+        crate::pattern::slowcat_prime_wrapping(&[self.jux_by(by, &f), self.jux_by(-by, &f)])
     }
     /// `juxFlipBy(1, f)` (`juxFlip`/`flux`).
     pub fn jux_flip<F>(&self, f: F) -> Pattern
