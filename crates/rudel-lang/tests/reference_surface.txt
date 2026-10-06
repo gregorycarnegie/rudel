@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1135 methods=1180 controls=675
+# functions=1135 methods=1181 controls=675
 
 [functions]
 AggregateError
@@ -1893,6 +1893,7 @@ modulo_squeezeout
 moveXY
 move_xy
 mpe
+mqtt
 mtranspose
 mul
 mul_mix

@@ -143,8 +143,13 @@ impl RudelApp {
         self.serial_haps = first_cycle
             .iter()
             .any(|hap| rudel_core::serial::is_serial(&hap.value));
-        // `.serial()`'s trigger is dominant too: its haps go to the port only.
-        let active = active.filter_values(|v| !rudel_core::serial::is_serial(v));
+        self.mqtt_haps = first_cycle
+            .iter()
+            .any(|hap| rudel_core::mqtt::is_mqtt(&hap.value));
+        // `.serial()`'s and `.mqtt()`'s triggers are dominant too: their haps
+        // go to the port or the broker only.
+        let active = active
+            .filter_values(|v| !rudel_core::serial::is_serial(v) && !rudel_core::mqtt::is_mqtt(v));
         if let Some(e) = &self.engine {
             // `.speak(...)` is a dominant `onTrigger` upstream: it replaces the
             // sound rather than adding to it, so those haps never reach a voice.

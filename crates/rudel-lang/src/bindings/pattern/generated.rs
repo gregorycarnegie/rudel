@@ -422,6 +422,7 @@ pub(super) fn register_generated(p: &Scope) {
         (&["midi"], kpattern_midi),
         (&["osc"], kpattern_osc),
         (&["serial"], kpattern_serial),
+        (&["mqtt"], kpattern_mqtt),
         (&["chord"], kpattern_chord),
         // The public (non-underscore) visualizer names are Strudel's global
         // full-screen painters; Rudel has no global draw canvas, so they expose

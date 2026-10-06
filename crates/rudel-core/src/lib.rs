@@ -19,6 +19,7 @@ pub mod impure;
 pub mod input;
 pub mod midimap;
 pub mod modulate;
+pub mod mqtt;
 pub mod pattern;
 pub mod query;
 pub mod samples;

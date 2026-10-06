@@ -983,3 +983,33 @@ pub(super) fn kpattern_serial(pat: &Pattern, a: &[Arg]) -> Res {
     let name = arg_to_raw_str(arg(a, 3)).unwrap_or_else(|| "default".to_string());
     Ok(pat.serial(baud, truthy(1), truthy(2), &name).into())
 }
+
+/// `.mqtt(username, password, topic, host = 'wss://localhost:8883/', client,
+/// latency = 0, add_meta = true)`: publish each hap instead of playing it.
+pub(super) fn kpattern_mqtt(pat: &Pattern, a: &[Arg]) -> Res {
+    let text = |i: usize| match arg(a, i) {
+        Arg::Null => None,
+        Arg::Num(n) => Some(n.to_string()),
+        other => arg_to_raw_str(other),
+    };
+    let defaults = rudel_core::mqtt::MqttOptions::default();
+    Ok(pat
+        .mqtt(rudel_core::mqtt::MqttOptions {
+            username: text(0),
+            password: text(1),
+            topic: text(2),
+            host: text(3).unwrap_or(defaults.host),
+            client: text(4),
+            latency: match arg(a, 5) {
+                Arg::Null => defaults.latency,
+                x => arg_to_f64(x),
+            },
+            add_meta: match arg(a, 6) {
+                Arg::Null => defaults.add_meta,
+                Arg::Bool(b) => *b,
+                Arg::Num(n) => *n != 0.0,
+                _ => true,
+            },
+        })
+        .into())
+}

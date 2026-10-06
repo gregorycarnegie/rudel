@@ -2,9 +2,8 @@
 
 Rudel is a **native Rust** application. Strudel is a **browser** application. A
 number of Strudel packages exist only to bridge to browser/web-platform APIs
-(WebGL, DeviceMotion, MQTT-over-WebSockets, the
-Csound WASM build, web components / iframes) or to provide alternative language
-front-ends (Tidal). Rudel deliberately does not port these; this page is
+(WebGL, DeviceMotion, the Csound WASM build, web components / iframes) or to
+provide alternative language front-ends (Tidal). Rudel deliberately does not port these; this page is
 the authoritative list of what is intentionally unsupported, what is deferred,
 and how Rudel differs where it does provide an equivalent surface.
 
@@ -735,13 +734,17 @@ or the first port if none is USB. The log says which port opened. Each name
 gets its own port, where upstream only ever opens the first one it was asked
 for. `getWriter`, upstream's helper that opens the picker, is not exposed.
 
-### MQTT (`@strudel/mqtt`) — intentionally unsupported
+### MQTT (`@strudel/mqtt`) — supported, without the password prompt
 
-`@strudel/mqtt` (`Pattern.prototype.mqtt`) publishes hap values to an MQTT
-broker over WebSockets. Rudel does not implement it, so `.mqtt(...)` is
-**intentionally unsupported** and has no effect. The native output paths for
-driving other software are **MIDI** (`crates/rudel-midi`) and
-**SuperDirt-compatible OSC over UDP** (`crates/rudel-osc`).
+`.mqtt(username, password, topic, host, client, latency, add_meta)` publishes
+each hap to an MQTT broker over WebSockets (`ws://` or `wss://`, default
+`wss://localhost:8883/`) instead of playing it, as upstream's Paho client does:
+QoS 0, the hap as JSON with `duration` and `cps` added (unless `add_meta` is
+false), a string hap as it is, and the topic from the hap's own `topic` when
+none is given (`/a/b` for `['a', 'b']`). Upstream asks for a missing password
+in a browser prompt and keeps it in a cookie; rudel connects without one. A
+broker that fails is retried every 2 s, and messages that come due while it
+connects are dropped, as upstream drops them.
 
 ### `setMaxPolyphony` — supported, with a different fade shape
 

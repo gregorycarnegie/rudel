@@ -480,3 +480,23 @@ fn serial_tags_each_hap_with_its_write() {
         ("COM3", 9600, &b"g(s:3)"[..])
     );
 }
+
+#[test]
+fn mqtt_tags_each_hap_with_its_options() {
+    let p = eval(
+        r#"s("bd").mqtt(undefined, undefined, 'drums', 'ws://broker:9001/', 'me', 0.2, false)"#,
+    )
+    .expect("mqtt");
+    let hap = p.query_arc(Frac::zero(), Frac::one()).remove(0);
+    let msg = rudel_core::mqtt::publish(&hap.value, 1.0, 1.0).expect("an mqtt hap");
+    assert_eq!(
+        (
+            msg.host.as_str(),
+            msg.client.as_deref(),
+            msg.topic.as_str(),
+            msg.latency
+        ),
+        ("ws://broker:9001/", Some("me"), "drums", 0.2)
+    );
+    assert_eq!(msg.payload, br#"{"s":"bd"}"#);
+}

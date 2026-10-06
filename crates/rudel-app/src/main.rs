@@ -8,6 +8,7 @@ mod app;
 mod canvas;
 mod editor;
 mod gamepad;
+mod mqtt;
 mod reference;
 mod scroll;
 mod serial;

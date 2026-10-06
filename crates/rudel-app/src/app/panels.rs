@@ -402,7 +402,7 @@ impl RudelApp {
     /// the script engine's own thread, and speech is an OS call. Neither is
     /// something to make the audio callback wait on.
     fn fire_trigger_hooks(&mut self) {
-        if self.trigger_hooks.is_empty() && !self.speaks && !self.serial_haps {
+        if self.trigger_hooks.is_empty() && !self.speaks && !self.serial_haps && !self.mqtt_haps {
             return;
         }
         let Some(pos) = self.playback_position_cycles() else {
@@ -434,6 +434,11 @@ impl RudelApp {
             }
             if let Some(write) = rudel_core::serial::request(&hap.value) {
                 self.serial.send(write);
+            }
+            if let Some(msg) =
+                rudel_core::mqtt::publish(&hap.value, hap.duration().to_f64(), self.cps)
+            {
+                self.mqtt.send(msg);
             }
             if let Some(e) = self.trigger_hooks.fire(&hap) {
                 self.eval_error = Some(format!("onTriggerTime: {e}"));

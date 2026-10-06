@@ -170,6 +170,9 @@ pub(crate) struct RudelApp {
     /// any, on the same terms as `speaks`.
     pub(super) serial: crate::serial::SerialOut,
     pub(super) serial_haps: bool,
+    /// Where `.mqtt()` haps are published, on the same terms.
+    pub(super) mqtt: crate::mqtt::MqttOut,
+    pub(super) mqtt_haps: bool,
 }
 
 impl RudelApp {
@@ -260,6 +263,8 @@ impl RudelApp {
             speaks: false,
             serial: crate::serial::SerialOut::default(),
             serial_haps: false,
+            mqtt: crate::mqtt::MqttOut::default(),
+            mqtt_haps: false,
         }
     }
 
