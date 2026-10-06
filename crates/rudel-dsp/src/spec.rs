@@ -24,6 +24,9 @@ pub struct FxStage {
     /// The note's length, which drives this stage's filter envelope — the same
     /// value the voice under it was built with.
     pub duration: f32,
+    /// The stage's own delay and reverb, last in it. Needs the tempo, so the
+    /// audio layer fills it in.
+    pub sends: crate::stage_sends::StageSends,
 }
 
 impl FxStage {
@@ -37,6 +40,7 @@ impl FxStage {
             filters: FilterSet::from_controls(map),
             gain: get("gain", 0.8) * get("velocity", 1.0),
             duration,
+            sends: Default::default(),
         }
     }
 }
@@ -87,7 +91,7 @@ impl VoiceSpec {
         fx: PostFx,
         mods: &ModSpecs,
     ) -> Box<dyn VoiceLike> {
-        self.into_chained_voice(sample_rate, &[], fx, mods)
+        self.into_chained_voice(sample_rate, Vec::new(), fx, mods)
     }
 
     /// Build the voice under an `FX(…)` chain: each stage is another rack of
@@ -107,13 +111,13 @@ impl VoiceSpec {
     pub fn into_chained_voice(
         self,
         sample_rate: f32,
-        chain: &[FxStage],
+        chain: Vec<FxStage>,
         fx: PostFx,
         mods: &ModSpecs,
     ) -> Box<dyn VoiceLike> {
         let post = mods.for_owner(ModOwner::PostFx);
         let mut voice = self.into_voice_with_mods(sample_rate, mods.for_owner(ModOwner::Voice));
-        for (i, stage) in chain.iter().enumerate() {
+        for (i, stage) in chain.into_iter().enumerate() {
             // Gain and filters first, then the post-fx rack: the order they
             // sit in within a single voice, so a stage behaves like one.
             voice = Box::new(FilterStageVoice::new(
@@ -131,6 +135,14 @@ impl VoiceSpec {
                     stage.fx,
                     sample_rate,
                     stage_post,
+                ));
+            }
+            if stage.sends.is_active() {
+                voice = Box::new(crate::stage_sends::StageSendsVoice::new(
+                    voice,
+                    stage.sends,
+                    sample_rate,
+                    mods.for_owner(ModOwner::StageSends(i)),
                 ));
             }
         }

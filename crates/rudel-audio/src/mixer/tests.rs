@@ -1083,7 +1083,8 @@ fn a_pattern_cps_control_retunes_the_transport_from_the_window_end() {
     let mut clock = Clock::new(1.0);
     let (now, lookahead) = (10.0, 0.1);
     let target_cycle = clock.cycle_at(now + lookahead);
-    let (events, cps_change) = crate::collect_events_at(&pat, &clock, 10.0, target_cycle, &bank);
+    let (events, cps_change) =
+        crate::collect_events_at(&pat, &clock, 10.0, target_cycle, &bank, 48_000.0);
     assert_eq!(cps_change, Some(2.0));
     // The onset was timed against the old clock and is already on its way.
     let onset = events[0].onset_seconds;
@@ -2707,6 +2708,34 @@ fn an_fx_chain_applies_its_stages_in_order() {
 }
 
 #[test]
+fn an_fx_stage_has_its_own_delay_and_reverb() {
+    use rudel_core::Value;
+    let saw = || rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(57));
+    let stage = |pairs: &[(&'static str, f64)]| {
+        pairs.iter().fold(rudel_core::pure(Value::Null), |p, (k, v)| p.ctrl(*k, Value::F64(*v)))
+    };
+    let frames = |p: &Pattern| render_pattern(p, 1.0, 0.5);
+    let plain = frames(&saw());
+    // superdough builds a stage's delay inline in the voice's chain; the main
+    // chain's `delay` goes to the orbit instead, and sounds different (it is
+    // also through the gain curve, and outlives the note).
+    let echo = &[("delay", 0.5), ("delaytime", 0.05)];
+    let staged = frames(&saw().fx(&[stage(echo)]));
+    assert_ne!(staged, plain, "a stage's delay should be heard");
+    let main = echo.iter().fold(saw(), |p, (k, v)| p.ctrl(*k, Value::F64(*v)));
+    assert_ne!(staged, frames(&main), "a stage's delay is not the orbit's");
+    // Until the first echo comes round, the stage passes the note dry (through
+    // its own gain stage, as any stage does).
+    let dry_stage = frames(&saw().fx(&[stage(&[("delay", 0.0)])]));
+    let before = (0.05 * 44_100.0) as usize - 1;
+    assert_eq!(staged[..before], dry_stage[..before]);
+    assert_ne!(staged[before + 2..], dry_stage[before + 2..]);
+
+    let roomy = frames(&saw().fx(&[stage(&[("room", 0.8), ("size", 0.3)])]));
+    assert_ne!(roomy, plain, "a stage's reverb should be heard");
+}
+
+#[test]
 fn a_kabelsalat_graph_plays_as_the_voice_it_wraps() {
     use rudel_core::Value;
 
@@ -3439,6 +3468,49 @@ fn every_modulation_target_does_what_superdough_does() {
         wrong.len(),
         wrong.join("\n")
     );
+}
+
+#[test]
+fn a_modulator_reaches_a_stages_own_delay_and_reverb() {
+    use rudel_core::Value;
+    let num = |v: f64| Value::F64(v);
+    let saw = || rudel_core::s(rudel_core::pure(Value::Str("saw".into()))).note(Value::Int(48));
+    let stage = |pairs: &[(&'static str, f64)]| {
+        pairs.iter().fold(rudel_core::pure(Value::Null), |p, (k, v)| p.ctrl(*k, num(*v)))
+    };
+    // An LFO on `control`, sent to stage 0 with `fxi`.
+    let lfo = |p: &Pattern, control: &str| {
+        let config = [
+            ("control", Value::Str(control.into())),
+            ("rate", num(3.0)),
+            ("depth", num(1.0)),
+            ("fxi", num(0.0)),
+        ];
+        rudel_core::modulate(
+            p,
+            "lfo",
+            config
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), rudel_core::pure(v)))
+                .collect(),
+            rudel_core::pure(Value::Null),
+        )
+    };
+    let render = |p: &Pattern| render_pattern(p, 1.0, 0.3);
+    let delayed = saw().fx(&[stage(&[("delay", 0.5), ("delaytime", 0.05)])]);
+    let roomy = saw().fx(&[stage(&[("room", 0.5), ("size", 0.2)])]);
+    for (base, control) in [
+        (&delayed, "delay"),
+        (&delayed, "delaytime"),
+        (&delayed, "delayfeedback"),
+        (&roomy, "room"),
+    ] {
+        assert_ne!(render(&lfo(base, control)), render(base), "{control} on a stage");
+    }
+    // A stage without the effect has no such node: the modulator is skipped.
+    let crushed = saw().fx(&[stage(&[("crush", 4.0)])]);
+    assert_eq!(render(&lfo(&crushed, "delay")), render(&crushed));
+    assert_eq!(render(&lfo(&crushed, "room")), render(&crushed));
 }
 
 #[test]

@@ -348,9 +348,32 @@ impl HapGraph<'_> {
         if let Some(l) = insert_node(&stage.filters, &stage.fx, map, node, param) {
             return l;
         }
+        let sends = &stage.sends;
         match (node, param) {
             ("gain", "gain") => found(ModTarget::Gain, stage.gain as f64),
             ("gain", _) => Lookup::NoParam,
+            // The stage's own delay and reverb, there on the same terms.
+            ("delay" | "delay_mix", _) if sends.delay.is_none() => Lookup::Absent,
+            ("delay_mix", "gain") => found(
+                ModTarget::DelaySend,
+                sends.delay.map_or(0.0, |d| d.0) as f64,
+            ),
+            ("delay", "delayTime") => found(
+                ModTarget::DelayTime,
+                sends.delay.map_or(0.0, |d| d.1.time) as f64,
+            ),
+            ("delay", "feedback") => found(
+                ModTarget::DelayFeedback,
+                sends.delay.map_or(0.0, |d| d.1.feedback) as f64,
+            ),
+            ("delay" | "delay_mix", _) => Lookup::NoParam,
+            ("room" | "room_mix", _) => match &sends.room {
+                None => Lookup::Absent,
+                Some(room) if (node, param) == ("room_mix", "gain") => {
+                    found(ModTarget::RoomSend, room.wet as f64)
+                }
+                Some(_) => Lookup::NoParam,
+            },
             _ => Lookup::Absent,
         }
     }

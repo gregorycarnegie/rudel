@@ -24,6 +24,7 @@ mod pulse;
 mod routing;
 mod sampler;
 mod spec;
+mod stage_sends;
 mod synth;
 mod vocoder;
 mod voice;
@@ -31,7 +32,10 @@ mod wavetable;
 mod zzfx;
 
 pub use bandlimited::prepare_oscillators;
-pub use bus::{BusParams, BusVoice, DelayConfig, Djf, Duck, DuckEnv, OrbitSend, ReverbConfig};
+pub use bus::{
+    BusParams, BusVoice, DelayConfig, Djf, Duck, DuckEnv, MAX_DELAY_SECS, OrbitSend, ReverbConfig,
+    StereoDelay, build_reverb,
+};
 pub use bytebeat::{ByteBeatExpr, ByteBeatParams, ByteBeatVoice, DEFAULT_BEATS};
 pub use convolver::{Convolver, ImpulseResponse, adjust_length, generate_reverb_ir};
 pub use drum::{DrumKind, DrumParams, DrumVoice};
@@ -52,6 +56,7 @@ pub use postfx::{DistortAlgo, PostFx, PostFxVoice, TransientShaper, Vowel};
 pub use routing::{Fxi, Lookup, ModGraph};
 pub use sampler::{Sample, SamplerParams, SamplerVoice};
 pub use spec::{FxStage, VoiceSpec};
+pub use stage_sends::{StageSends, StageSendsVoice};
 pub use synth::{Voice, reset_phase_seed};
 pub use vocoder::{PhaseVocoder, StretchStage};
 pub use voice::VoiceLike;

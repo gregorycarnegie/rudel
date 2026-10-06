@@ -6,8 +6,8 @@ use crate::{Clock, samples::SampleBank, soundfont};
 use rudel_core::{Pattern, Value, ValueMap, query_controls};
 use rudel_dsp::{
     BusParams, ByteBeatParams, DrumKind, DrumParams, Duck, FxStage, HapGraph, KabelProgram,
-    ModContext, ModSpecs, OrbitSend, PostFx, Sample, SamplerParams, VoiceParams, VoiceSpec,
-    ZzfxParams,
+    ModContext, ModSpecs, OrbitSend, PostFx, Sample, SamplerParams, StageSends, VoiceParams,
+    VoiceSpec, ZzfxParams,
 };
 use std::sync::Arc;
 
@@ -323,7 +323,15 @@ pub fn collect_events(
     end_cycle: f64,
     bank: &SampleBank,
 ) -> Vec<NoteEvent> {
-    collect_events_at(pattern, &Clock::new(cps), begin_cycle, end_cycle, bank).0
+    collect_events_at(
+        pattern,
+        &Clock::new(cps),
+        begin_cycle,
+        end_cycle,
+        bank,
+        48_000.0,
+    )
+    .0
 }
 
 /// Like [`collect_events`], but maps each onset cycle to a trigger time through
@@ -342,6 +350,7 @@ pub fn collect_events_at(
     begin_cycle: f64,
     end_cycle: f64,
     bank: &SampleBank,
+    sample_rate: f32,
 ) -> (Vec<NoteEvent>, Option<f64>) {
     let control_events = query_controls(pattern, clock.cps(), begin_cycle, end_cycle);
     let cps_change = control_events
@@ -389,6 +398,13 @@ pub fn collect_events_at(
                     let mut stage = FxStage::from_controls(map, ev.duration_seconds as f32);
                     stage.filters.set_lfos(map, clock.cps(), ev.onset_cycle);
                     stage.fx.set_clock(map, clock.cps(), ev.onset_cycle);
+                    stage.sends = StageSends::from_controls(map, clock.cps());
+                    if let Some(room) = &mut stage.sends.room {
+                        room.cfg.ir = reverb_ir(map, bank);
+                    }
+                    // A stage's reverb is built here, on the scheduler
+                    // thread, rather than when its voice starts.
+                    stage.sends.prepare(sample_rate);
                     stage
                 })
                 .collect();
@@ -436,13 +452,7 @@ pub fn collect_events_at(
             // `ir`/`iresponse` names a loaded sample to use as the reverb's
             // impulse response. `OrbitSend` cannot resolve it (rudel-dsp has no
             // bank), so it is filled in here.
-            send.reverb.ir = ev
-                .controls
-                .get("ir")
-                .or_else(|| ev.controls.get("iresponse"))
-                .and_then(|v| v.as_str())
-                .and_then(|name| bank.resolve(name, 0, None))
-                .map(|(sample, _transpose)| sample);
+            send.reverb.ir = reverb_ir(&ev.controls, bank);
             NoteEvent {
                 onset_seconds: clock.seconds_at(ev.onset_cycle),
                 spec,
@@ -463,6 +473,15 @@ pub fn collect_events_at(
         })
         .collect();
     (events, cps_change)
+}
+
+/// The loaded sample `ir`/`iresponse` names, as a reverb's impulse response.
+fn reverb_ir(map: &rudel_core::ValueMap, bank: &SampleBank) -> Option<Arc<Sample>> {
+    map.get("ir")
+        .or_else(|| map.get("iresponse"))
+        .and_then(|v| v.as_str())
+        .and_then(|name| bank.resolve(name, 0, None))
+        .map(|(sample, _transpose)| sample)
 }
 
 #[cfg(test)]
@@ -548,7 +567,7 @@ mod tests {
     fn a_cps_control_is_reported_as_a_tempo_change() {
         let bank = SampleBank::new();
         let clock = Clock::new(1.0);
-        let collect = |pat: &Pattern, b, e| collect_events_at(pat, &clock, b, e, &bank).1;
+        let collect = |pat: &Pattern, b, e| collect_events_at(pat, &clock, b, e, &bank, 48_000.0).1;
 
         // No `cps` anywhere -> nothing for the scheduler to do.
         assert_eq!(collect(&seq3(), 0.0, 1.0), None);

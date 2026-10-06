@@ -552,8 +552,14 @@ fn schedule_once(
     {
         let pat = read_lock(pattern).clone();
         let bank = read_lock(bank);
-        let (events, cps_change) =
-            collect_events_at(&pat, &clock_now, begin_cycle, target_cycle, &bank);
+        let (events, cps_change) = collect_events_at(
+            &pat,
+            &clock_now,
+            begin_cycle,
+            target_cycle,
+            &bank,
+            sample_rate,
+        );
         for ev in events {
             let _ = tx.send(ev);
         }

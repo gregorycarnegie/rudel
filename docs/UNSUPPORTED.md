@@ -293,12 +293,13 @@ post-effect rack, so upstream's own `.FX(lpf(500).lpe(4).lpa(1).lpd(2))` example
 does what it says.
 
 A stage runs its own gain stage (`gain`, default 0.8, times `velocity`) and
-its own modulators (`fxi`), as upstream does. What it does **not** carry is its
-own `delay`/`room` sends, which are resolved outside the voice: those stay with
-the pattern's main controls, so a chain that asks for two different delay
-times in two places gets the outer one twice. Everything that is an insert — `crush`, `shape`,
+its own modulators (`fxi`), as upstream does. It also has its own `delay` and
+`room`, which upstream builds inline in the voice's chain rather than sending
+to the orbit as the main controls do: `dry·x + delay·delayed(x)` and then
+`dry·x + room·reverb(x)`, with `delay` not through the gain curve, and both
+cut off when the note's chain is released. Everything else — `crush`, `shape`,
 `distort`, `coarse`, `vowel`, `tremolo`, `phaser`, `transient`, `compressor`,
-`stretch`, `postgain`, and the filters — is per stage.
+`stretch`, `postgain`, and the filters — is per stage too.
 
 ### `K(...)` kabelsalat graphs
 

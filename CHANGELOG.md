@@ -30,6 +30,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
   `addVoicings`.
 - `worklet(src, ...inputs)`, the text form of a kabelsalat graph that
   Strudel's transpiler turns `K(...)` into.
+- **`FX` stages have their own `delay` and `room`**, built into the voice's
+  chain as superdough builds them, where they used to fall back to the
+  pattern's main delay and reverb. `fxi` modulators reach them.
 - **Drum machines answer to their model names**, as on strudel.cc:
   `bank("TR909")`, `bank("RZ1")`, `bank("LM1")` and the rest of the 66
   aliases Strudel registers at startup. `aliasBank` takes upstream's other

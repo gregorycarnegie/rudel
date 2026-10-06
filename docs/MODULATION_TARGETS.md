@@ -62,10 +62,10 @@ an LFO never finds an envelope: it has not been created yet.
 | `phasersweep` | `phaser_lfo` · depth | works | |
 | `phasercenter` | `phaser` · frequency | works | the notch's centre |
 | `phaserdepth` | `phaser` · Q | works | the notch's Q, `2 − clamp(2·depth, 0, 1.9)` |
-| `delay` | `delay_mix` · gain | works | the voice's send to the orbit delay |
-| `delaytime`, `delaysync` | `delay` · delayTime | works | the orbit's shared delay line |
-| `delayfeedback` | `delay` · feedback | works | the orbit's shared feedback |
-| `room` | `room_mix` · gain | works | the voice's send to the orbit reverb |
+| `delay` | `delay_mix` · gain | works | the voice's send to the orbit delay; in an `FX` stage (`fxi`), the stage's own delay's wet level |
+| `delaytime`, `delaysync` | `delay` · delayTime | works | the orbit's shared delay line, or a stage's own |
+| `delayfeedback` | `delay` · feedback | works | the orbit's shared feedback, or a stage's own |
+| `room` | `room_mix` · gain | works | the voice's send to the orbit reverb; in an `FX` stage, the stage's own reverb's wet level |
 | `djf` | `djf` · value | works | the orbit's DJ filter |
 | `dry` | `dry` · gain | skipped | the dry gain is never registered |
 | `busgain` | `bus` · gain | skipped | the bus send is never registered |

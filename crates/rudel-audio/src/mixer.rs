@@ -9,7 +9,7 @@ pub use engine::{CsoundSource, Engine, FakeOutput};
 use crate::{NoteEvent, csound::Csound, scope::ScopeTaps, sync::read_lock};
 use rudel_dsp::{
     Convolver, DelayConfig, Djf, Duck, DuckEnv, ModBank, ModTarget, OrbitSend, ReverbConfig,
-    VoiceLike,
+    StereoDelay, VoiceLike, build_reverb,
 };
 use std::{
     collections::HashMap,
@@ -29,81 +29,6 @@ use std::{
 /// compile can take milliseconds, and a block of Csound silence during a live
 /// re-evaluation is cheaper than missing the device deadline for every layer.
 pub(crate) type SharedCsound = Arc<Mutex<Option<Csound>>>;
-/// Longest `delaytime` the delay line can be retuned to, in seconds. Matches
-/// the `maxDelayTime` superdough gives its `createFeedbackDelay(1, …)` node.
-const MAX_DELAY_SECS: f32 = 1.0;
-
-/// A stereo feedback delay line for an orbit's `delay` send bus. The buffer is
-/// allocated once at [`MAX_DELAY_SECS`] and the delay time is a read offset
-/// into it, so `delaytime` can be retuned live without allocating on the audio
-/// thread.
-struct StereoDelay {
-    /// Circular buffer for the left channel delay line.
-    left: Vec<f32>,
-    /// Circular buffer for the right channel delay line.
-    right: Vec<f32>,
-    /// Current circular buffer write index.
-    write: usize,
-    /// Delay length in samples (at least 1, at most the buffer length).
-    delay_samples: usize,
-    /// Feedback amount, 0..0.98 (superdough's ear-saving clamp).
-    feedback: f32,
-    sample_rate: f32,
-}
-
-impl StereoDelay {
-    fn new(sample_rate: f32, cfg: DelayConfig) -> StereoDelay {
-        let len = (sample_rate * MAX_DELAY_SECS).max(1.0) as usize;
-        let mut d = StereoDelay {
-            left: vec![0.0; len],
-            right: vec![0.0; len],
-            write: 0,
-            delay_samples: 1,
-            feedback: 0.0,
-            sample_rate,
-        };
-        d.configure(cfg);
-        d
-    }
-
-    /// Retune time and feedback in place, keeping the buffer contents so a
-    /// changing `delaytime` glides rather than clicking to silence.
-    fn configure(&mut self, cfg: DelayConfig) {
-        let max = self.left.len();
-        // The nearest whole sample: Web Audio's `DelayNode` interpolates a
-        // fractional delay, which truncating would put up to a sample early.
-        self.delay_samples = ((self.sample_rate * cfg.time).round() as usize).clamp(1, max);
-        self.feedback = cfg.feedback.clamp(0.0, 0.98);
-    }
-
-    /// Process a single stereo input frame and return the delayed output frame.
-    fn process(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
-        self.process_with(in_l, in_r, 0.0, 0.0)
-    }
-
-    /// [`process`](Self::process) with modulators adding `time` seconds to the
-    /// delay time and `feedback` to the feedback this frame — both a-rate
-    /// AudioParams on superdough's shared `FeedbackDelayNode`.
-    fn process_with(&mut self, in_l: f32, in_r: f32, time: f32, feedback: f32) -> (f32, f32) {
-        let len = self.left.len();
-        let delay_samples = if time == 0.0 {
-            self.delay_samples
-        } else {
-            let base = self.delay_samples as f32 / self.sample_rate;
-            (((base + time) * self.sample_rate).round().max(1.0) as usize).min(len)
-        };
-        let read = (self.write + len - delay_samples) % len;
-        let (out_l, out_r) = (self.left[read], self.right[read]);
-        // The feedback gain is clamped where superdough sets it (0.995 at
-        // most); a modulator rides on that.
-        let fb = self.feedback + feedback;
-        self.left[self.write] = in_l + out_l * fb;
-        self.right[self.write] = in_r + out_r * fb;
-        self.write = (self.write + 1) % len;
-        (out_l, out_r)
-    }
-}
-
 /// One orbit's effect bus: its own reverb, feedback delay and DJ filter, plus
 /// the accumulation buffers the voices routed to it mix into.
 ///
@@ -561,7 +486,7 @@ impl Mixer {
                 }
                 let mut voice =
                     ev.spec
-                        .into_chained_voice(self.sample_rate, &ev.fx_chain, ev.fx, &ev.mods);
+                        .into_chained_voice(self.sample_rate, ev.fx_chain, ev.fx, &ev.mods);
                 // A `K(...)` graph wraps everything else, as upstream's
                 // `chain.connect(workletNode)` puts it at the end of the
                 // chain: `audioin()` inside the graph reads what the voice
@@ -866,36 +791,6 @@ impl OfflineMixer {
     pub fn taps(&self) -> &ScopeTaps {
         &self.mixer.taps
     }
-}
-
-/// Build an orbit's convolution reverb, matching superdough's `createReverb`.
-///
-/// With no `ir`, the impulse response is the generated noise tail
-/// (`reverbGen.generateReverb`) shaped by `size`/`roomfade`/`roomlp`/`roomdim`;
-/// with one, the loaded sample is fitted to `size` by `adjustLength` using
-/// `irspeed`/`irbegin`.
-///
-// ponytail: the IR is generated and partitioned on the audio thread, as the
-// fundsp reverb it replaces was allocated there. It only happens when a reverb
-// parameter actually changes (guarded by `!=`), i.e. on an edit rather than per
-// note, but a very long `size` could still cost a buffer. Build it on the
-// background job queue and hand the finished convolver over if that ever bites.
-fn build_reverb(sample_rate: f32, cfg: &ReverbConfig) -> Convolver {
-    let size = cfg.size.max(0.001);
-    let ir = match &cfg.ir {
-        // A loaded impulse response: rudel decodes samples to mono, so the same
-        // buffer feeds both channels.
-        Some(sample) => rudel_dsp::adjust_length(
-            &sample.data,
-            &sample.data,
-            sample_rate,
-            size,
-            cfg.irspeed,
-            cfg.irbegin,
-        ),
-        None => rudel_dsp::generate_reverb_ir(sample_rate, size, cfg.fade, cfg.lp, cfg.dim),
-    };
-    Convolver::new(&ir, sample_rate)
 }
 
 /// Writes rendered mixer output frames into a target slice buffer for cpal playback.

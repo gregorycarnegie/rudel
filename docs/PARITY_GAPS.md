@@ -22,7 +22,7 @@ These are all possible natively. None of them depends on the browser.
       play time. `K(...)` works.
 - [x] **kabelsalat live-input nodes**: the parts of a `K(...)` graph that read
       live input.
-- [ ] **`FX` stage sends**: a stage's own `delay`/`room` sends. Today a stage
+- [x] **`FX` stage sends**: a stage's own `delay`/`room` sends. Today a stage
       uses the main controls' delay and reverb.
 - [ ] **`stretch` pre-roll**: superdough starts a stretched voice 0.04 s early
       to cover the phase vocoder's latency; rudel starts it on time, so it

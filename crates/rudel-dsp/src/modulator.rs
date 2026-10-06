@@ -517,6 +517,9 @@ pub enum ModOwner {
     /// One `FX(...)` stage's gain and filters, and its post-effect rack.
     StageVoice(usize),
     StagePost(usize),
+    /// One `FX(...)` stage's own delay and reverb, which a stage runs inline
+    /// where the main chain sends to the orbit.
+    StageSends(usize),
 }
 
 impl ModTarget {
@@ -654,9 +657,15 @@ impl ModTarget {
             Vowel | Coarse | Crush | Shape | Shapevol | Distort | Distortvol | Postgain
             | Stretch | Tremolo(_) | TremoloGain | Compressor(_) | PhaserLfo(_) | PhaserCenter
             | PhaserQ => true,
-            DelaySend | DelayTime | DelayFeedback | RoomSend | Djf => {
-                return ModOwner::Orbit;
+            // A stage's delay and reverb are its own; the main chain's are the
+            // orbit's.
+            DelaySend | DelayTime | DelayFeedback | RoomSend => {
+                return match fxi {
+                    crate::routing::Fxi::Stage(i) => ModOwner::StageSends(i),
+                    _ => ModOwner::Orbit,
+                };
             }
+            Djf => return ModOwner::Orbit,
             _ => false,
         };
         match (fxi, post) {
@@ -825,8 +834,9 @@ pub struct ModSpecs {
     pub voice: Vec<ModSpec>,
     pub post: Vec<ModSpec>,
     pub orbit: Vec<ModSpec>,
-    /// Per `FX(...)` stage, by index: its voice side and its post-effects.
-    pub stages: Vec<(Vec<ModSpec>, Vec<ModSpec>)>,
+    /// Per `FX(...)` stage, by index: its voice side, its post-effects and
+    /// its delay and reverb.
+    pub stages: Vec<(Vec<ModSpec>, Vec<ModSpec>, Vec<ModSpec>)>,
 }
 
 impl ModSpec {
@@ -844,7 +854,7 @@ impl ModSpecs {
             && self
                 .stages
                 .iter()
-                .all(|(v, p)| v.is_empty() && p.is_empty())
+                .all(|(v, p, s)| v.is_empty() && p.is_empty() && s.is_empty())
     }
 
     /// The specs for one owner.
@@ -855,6 +865,7 @@ impl ModSpecs {
             ModOwner::Orbit => &self.orbit,
             ModOwner::StageVoice(i) => self.stages.get(i).map_or(&[], |s| s.0.as_slice()),
             ModOwner::StagePost(i) => self.stages.get(i).map_or(&[], |s| s.1.as_slice()),
+            ModOwner::StageSends(i) => self.stages.get(i).map_or(&[], |s| s.2.as_slice()),
         }
     }
 
@@ -863,13 +874,15 @@ impl ModSpecs {
             ModOwner::Voice => &mut self.voice,
             ModOwner::PostFx => &mut self.post,
             ModOwner::Orbit => &mut self.orbit,
-            ModOwner::StageVoice(i) | ModOwner::StagePost(i) => {
+            ModOwner::StageVoice(i) | ModOwner::StagePost(i) | ModOwner::StageSends(i) => {
                 if self.stages.len() <= i {
-                    self.stages.resize(i + 1, (Vec::new(), Vec::new()));
+                    self.stages
+                        .resize(i + 1, (Vec::new(), Vec::new(), Vec::new()));
                 }
                 match owner {
                     ModOwner::StageVoice(_) => &mut self.stages[i].0,
-                    _ => &mut self.stages[i].1,
+                    ModOwner::StagePost(_) => &mut self.stages[i].1,
+                    _ => &mut self.stages[i].2,
                 }
             }
         }
