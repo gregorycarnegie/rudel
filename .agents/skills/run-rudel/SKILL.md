@@ -1,0 +1,177 @@
+---
+name: run-rudel
+description: Build, launch, drive and screenshot the rudel live-coding app (native egui desktop window on Windows). Use when asked to run, start, or screenshot rudel, to see a pattern or an inline widget (pianoroll, spiral, pitchwheel, scope) actually rendering, or to check a UI/DSP change in the real app rather than in tests.
+---
+
+# Running rudel
+
+`rudel` is a native Rust live-coding editor — `winit` + `egui` + `cpal`, built
+by `crates/rudel-app`. There is no DOM, no accessibility tree, and no CLI flag
+that loads a script, so the only way in is the OS: put source on the clipboard,
+paste it into the editor, and click the toolbar with synthetic mouse input.
+
+`.agents/skills/run-rudel/driver.ps1` does all of that, DPI-correctly. **Use the
+driver when desktop automation is permitted — do not type source character by character.**
+
+Follow the current runtime's desktop-control restrictions. If native automation
+is unavailable, use the existing UI/GPU tests and report that live inspection
+was unavailable; the driver is not a way around that restriction.
+
+Paths below are relative to the repo root. Requires a real interactive desktop
+session: the driver moves the actual cursor, so don't use the machine while it
+runs.
+
+## Build
+
+```powershell
+cargo build --release -p rudel-app
+```
+
+Debug builds work but the app is visibly sluggish; release is worth the wait.
+
+## Run (agent path)
+
+Write the tune by the [strudel-scripts](../strudel-scripts/SKILL.md) skill
+first: patterned arguments in double quotes, everything inside JS code
+(colours, fonts, text, comparisons) in single quotes. Get that wrong and the
+app draws nothing, or black, and it looks like a bug.
+
+One invocation does a whole flow. Switches are applied in this order:
+`-Launch`, `-Play`/`-Stop`, `-Eval`, `-DoubleClick`, `-Wait`, `-Screen`, `-Shot`, `-Quit`.
+
+```powershell
+pwsh -File .agents/skills/run-rudel/driver.ps1 -Launch -Play -Eval 's("bd sd hh cp").pianoroll({smear: 1})' -Wait 4 -Shot $env:TEMP\rudel\roll.png
+```
+
+Prints one line per step, e.g.:
+
+```
+launched 1672x1016 at 342,342 scale 1.5
+play
+evaluated
+saved C:\Users\you\AppData\Local\Temp\rudel\roll.png (1672x1016)
+```
+
+The driver creates the output directory if needed. Write screenshots outside
+the repo (as above) so they don't dirty the working tree. Then **read the PNG**. A blank or unchanged widget means the evaluation did not
+land — see Gotchas.
+
+Re-evaluate against an already-running app (no `-Launch`):
+
+```powershell
+pwsh -File .agents/skills/run-rudel/driver.ps1 -Eval 's("bd*4").spiral({cap: ''round'', thickness: 20, padding: 0.1})' -Wait 3 -Shot $env:TEMP\rudel\spiral.png
+```
+
+Pop out an inline widget and see the whole desktop (the pop-out is its own
+OS window, so `-Shot`, which grabs only the main window, misses it).
+`-DoubleClick` takes egui logical points from the main window's top-left —
+read them off a `-Shot` first:
+
+```powershell
+pwsh -File .agents/skills/run-rudel/driver.ps1 -DoubleClick '254,364' -Wait 1 -Screen $env:TEMP\rudel\screen.png
+```
+
+Use `-Quit` only for an app started by this task; it force-stops Rudel processes:
+
+```powershell
+pwsh -File .agents/skills/run-rudel/driver.ps1 -Quit
+```
+
+`-Scale <n>` overrides the auto-detected DPI scale if clicks land in the wrong
+place; the driver otherwise reads it from `GetDpiForWindow`.
+
+## Run (human path)
+
+```powershell
+cargo run --release -p rudel-app
+```
+
+A window opens; type a pattern, `Ctrl+Enter` to evaluate. Useful for a human at
+the keyboard, useless to an agent — `Ctrl+Enter` cannot be driven (Gotchas).
+
+## Test
+
+```powershell
+cargo nextest run --workspace --profile ci
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The CI test runner is Nextest: each test runs in its own process because engine
+globals can contaminate shared-process `cargo test` runs.
+
+Adding or renaming script bindings can fail the reference drift guards. When
+the surface change is intended, bless the generated snapshots, review the diff,
+and run the guards including `reference_parity`:
+
+```powershell
+$previousBless = $env:RUDEL_BLESS
+try {
+    $env:RUDEL_BLESS = "1"
+    cargo test -p rudel-lang --test reference_snapshot --test api_inventory
+} finally {
+    $env:RUDEL_BLESS = $previousBless
+}
+cargo nextest run -p rudel-lang --test reference_snapshot --test api_inventory --test reference_parity
+```
+
+That rewrites `crates/rudel-lang/tests/reference_surface.txt` and
+`docs/API_INVENTORY.md`. Both are committed; a surprising diff there means the
+exposed surface changed more than intended.
+
+## Gotchas
+
+- **`Ctrl+Enter` never reaches the window.** It is the app's documented eval
+  shortcut and works for a human, but synthetic `WScript.Shell.SendKeys`
+  `^{ENTER}` is silently swallowed — while `^a` and `^v` in the same editor
+  work. The driver clicks the **Eval button** instead.
+
+  This failure is actively misleading: the paste succeeds, so the editor shows
+  your new source while the widget keeps rendering the **previous**
+  evaluation. That looks exactly like a stale-widget-cleanup bug in the app.
+  It isn't. If a widget seems not to update, confirm the evaluation happened
+  before believing anything you see.
+
+- **Call `SetProcessDPIAware()` before any screen coordinate.** On a scaled
+  display (150% here), a non-DPI-aware PowerShell gets virtualized coordinates
+  and `CopyFromScreen` grabs the top-left of the *desktop* instead of the
+  window. The driver does this; any ad-hoc capture script you write must too.
+
+- **`FindWindow(null, "rudel")` returns `IntPtr.Zero`.** Get the handle from
+  `Get-Process rudel | Where MainWindowHandle -ne 0` instead.
+
+- **`-Eval` destroys whatever was in the editor.** It selects all and pastes,
+  and eframe autosaves that buffer to `%APPDATA%\rudel\data\app.ron` — so a
+  pattern the user had open and had not saved to a file is gone, not just off
+  screen. The driver copies `app.ron` to `%TEMP%\rudel-app-<timestamp>.ron`
+  before pasting and prints where. That backup is persisted state and may not
+  contain the latest unsaved edits: save the current buffer before replacing
+  a user-owned session. Restore from the backup rather than
+  reconstructing from a screenshot. Prefer launching fresh over `-Eval` against
+  an app someone was using.
+
+- **Paste source, never type it.** The editor auto-pairs brackets and quotes,
+  so `SendKeys`-ing `s("bd*4")` produces mangled code. The driver uses
+  `Set-Clipboard` + `Ctrl+V`.
+
+- **`winit` publishes the window handle before laying the window out**, so for
+  the first moment `GetWindowRect` reports ~22x22 and any click computed from
+  it lands nowhere. The driver waits for width > 400.
+
+- **Widgets render on eval even with the transport stopped**, but nothing
+  moves. Anything time-dependent — `smear` accumulating, spiral trails, the
+  playhead — needs `-Play` and a `-Wait` of a few seconds.
+
+- **Inline widgets are keyed by source position.** Editing a line shifts the
+  widget id, so a widget can legitimately disappear and reappear across edits.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `missing …\target\release\rudel.exe` | `cargo build --release -p rudel-app` |
+| `rudel is not running (use -Launch)` | Previous run was `-Quit`ed or crashed; add `-Launch`. |
+| Screenshot shows the desktop or another window | DPI awareness (see Gotchas). Use the driver, or `-Scale` if your display scale is unusual. |
+| Clicks land on the wrong control | Window still sizing, or an unusual DPI. Add `-Wait 1` after `-Launch`, or pass `-Scale`. |
+| Editor text changed but the widget didn't | The evaluation didn't run — see the `Ctrl+Enter` gotcha. |
+| `evaluated` printed but the status pill reads an error | The script itself failed; the error text is in the app's status area — screenshot and read it. |
+| No sound | Expected under audio-less/remote sessions; the visuals still work. `out` must be `Audio` for the transport to drive them. |
