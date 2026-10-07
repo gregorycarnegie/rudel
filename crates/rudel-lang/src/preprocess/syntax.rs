@@ -61,6 +61,52 @@ pub(super) fn rewrite_tagged_templates(src: &str) -> String {
     out
 }
 
+/// Keep the backslashes of a Windows path pasted straight into a string:
+/// `initVideo("C:\Users\me\clip.mp4")`, as Explorer's "Copy as path" gives it.
+///
+/// JavaScript reads each `\U`, `\m` as an escape that drops its backslash,
+/// and `\u` or `\x` (`c:\users`) as a syntax error, so the path that arrives
+/// is not the one on the page. A literal whose text starts like a drive path
+/// (`C:\`) or a share (`\\server`) and has a lone backslash in it cannot have
+/// been meant as escapes, so every backslash in it is doubled. One already
+/// escaped the JavaScript way (`"C:\\Users"`) has only even runs, and is left
+/// alone.
+///
+/// Runs after the mini pass, so lengthening a literal cannot move a recorded
+/// source location.
+pub(super) fn escape_windows_paths(src: &str) -> String {
+    if !src.contains('\\') {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len() + 16);
+    for (kind, start, end) in chunks(src) {
+        let text = &src[start..end];
+        if kind == Chunk::Str && is_raw_windows_path(text) {
+            out.push_str(&text.replace('\\', "\\\\"));
+        } else {
+            out.push_str(text);
+        }
+    }
+    out
+}
+
+/// Whether the string literal `literal` (quotes included) holds an unescaped
+/// Windows path. An unterminated one — `"C:\clips\"`, whose last backslash
+/// escapes the quote — is left for the engine to report.
+fn is_raw_windows_path(literal: &str) -> bool {
+    let Some(quote) = literal.chars().next() else {
+        return false;
+    };
+    let Some(body) = literal.get(1..).and_then(|rest| rest.strip_suffix(quote)) else {
+        return false;
+    };
+    let b = body.as_bytes();
+    let drive = b.len() > 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\';
+    let share = body.starts_with("\\\\") && b.get(2).is_some_and(u8::is_ascii_alphanumeric);
+    // An odd run of backslashes is one JavaScript would eat half of.
+    (drive || share) && body.split(|c| c != '\\').any(|run| run.len() % 2 == 1)
+}
+
 /// Strip JavaScript `await`. Strudel's async helpers (`samples`, `midin`,
 /// `loadSoundfont`) return promises the browser REPL awaits; Rudel's equivalents
 /// are synchronous host effects, so the keyword is simply dropped — the same
@@ -138,6 +184,44 @@ mod tests {
 
         let line = format!("a // {snippet}\nb");
         assert_eq!(f(&line), line, "rewrote inside a line comment");
+    }
+
+    #[test]
+    fn a_pasted_windows_path_has_its_backslashes_doubled() {
+        let cases = [
+            (r#"v("C:\Users\me\a.mp4")"#, r#"v("C:\\Users\\me\\a.mp4")"#),
+            (r"v('d:\x')", r"v('d:\\x')"),
+            (r"v(`e:\clips\b.mov`)", r"v(`e:\\clips\\b.mov`)"),
+            (r#"v("\\nas\share\c.mp4")"#, r#"v("\\\\nas\\share\\c.mp4")"#),
+            // A raw path with a doubled separator in it is still raw.
+            (r#"v("C:\a\\b")"#, r#"v("C:\\a\\\\b")"#),
+        ];
+        for (src, want) in cases {
+            assert_eq!(escape_windows_paths(src), want, "{src}");
+        }
+    }
+
+    #[test]
+    fn escapes_that_are_not_a_raw_windows_path_are_left_alone() {
+        for src in [
+            // Already escaped the JavaScript way.
+            r#"v("C:\\Users\\me")"#,
+            r#"v("\\\\nas\\share")"#,
+            // Ordinary escapes, and a colon that is not a drive.
+            r#"s("bd\n")"#,
+            r#"s("bd:3 sd")"#,
+            r#"x = "\\n""#,
+            // Code and comments are never strings.
+            r"a = b // C:\Users",
+            r"/* C:\x */ s('bd')",
+            r"C:\x",
+            // Unterminated: the trailing backslash escapes the quote.
+            r#"v("C:\clips\")"#,
+            // Too short to be a path.
+            r#"v("C:\")"#,
+        ] {
+            assert_eq!(escape_windows_paths(src), src, "{src}");
+        }
     }
 
     #[test]

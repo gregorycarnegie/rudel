@@ -494,6 +494,33 @@ src(s1).out()",
     }
 
     #[test]
+    fn a_pasted_windows_path_reaches_the_source_with_its_backslashes() {
+        // `\U`, `\g`, `\V` would each lose their backslash as JS escapes, and
+        // `\u` (lowercase `c:\users`) is a syntax error outright.
+        for (quote, path) in [
+            ('"', r"C:\Users\grego\Videos\Jonny_Quest_Recreated.mp4"),
+            ('\'', r"c:\users\new\x.mp4"),
+            ('"', r"\\server\share\clip.mp4"),
+        ] {
+            let scene = scene_of(&format!(
+                "await initHydra()\ns0.initVideo({quote}{path}{quote})\nsrc(s0).out()"
+            ));
+            assert_eq!(
+                scene.options.get("s0"),
+                Some(&WidgetOption::String(format!("video:{path}"))),
+                "{path}"
+            );
+        }
+        // A path already escaped the JavaScript way means what it says.
+        let scene =
+            scene_of("await initHydra()\ns1.initImage('C:\\\\pics\\\\a.png')\nsrc(s1).out()");
+        assert_eq!(
+            scene.options.get("s1"),
+            Some(&WidgetOption::String(r"C:\pics\a.png".into()))
+        );
+    }
+
+    #[test]
     fn every_hydra_function_is_in_the_table() {
         // The methods are generated from the table, so its size is the one
         // thing to pin: `src`/`prev`/`sum` are the documented gaps.
