@@ -34,10 +34,10 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 # (Media Foundation on Windows). Frames are decoded here, not by nokhwa's
 # `decoding` feature, which would build a C JPEG library.
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-native"] }
-# hydra's `s0.initVideo(url)`: MP4 demuxing, and H.264 decoding by Cisco's
-# OpenH264, built from its bundled source (no system library).
-mp4 = "0.14.0"
-openh264 = "0.9.8"
+# hydra's `s0.initVideo(url)`: runs the `ffmpeg` that releases ship next to
+# the executable (or the PATH's) and reads its frames. No downloader feature:
+# the release workflow bundles it.
+ffmpeg-sidecar = { version = "2.6.0", default-features = false }
 # Strudel's draw canvas (`getDrawContext`, `.draw`, `animate`): a persistent
 # raster like a browser canvas, and its text in egui's own default font.
 tiny-skia = "0.12.0"

@@ -55,6 +55,37 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p rudel-app --target ${{ matrix.target }}
 
+      # hydra's `initVideo` runs ffmpeg; a static build ships next to `rudel`,
+      # where ffmpeg-sidecar looks first, so nobody has to install it. A
+      # separate program, not linked in: its licence and source go alongside.
+      - name: Fetch FFmpeg
+        shell: bash
+        run: |
+          mkdir -p ffmpeg && cd ffmpeg
+          btbn=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+          case "${{ runner.os }}" in
+            Windows)
+              curl -fsSL -o f.zip "$btbn/ffmpeg-master-latest-win64-lgpl.zip"
+              dir=ffmpeg-master-latest-win64-lgpl
+              7z e -y f.zip "$dir/bin/ffmpeg.exe" "$dir/LICENSE.txt" >/dev/null
+              src="https://github.com/BtbN/FFmpeg-Builds" ;;
+            Linux)
+              curl -fsSL "$btbn/ffmpeg-master-latest-linux64-lgpl.tar.xz" \
+                | tar xJ --strip-components=1 --wildcards '*/bin/ffmpeg' '*/LICENSE.txt'
+              mv bin/ffmpeg . && rmdir bin
+              src="https://github.com/BtbN/FFmpeg-Builds" ;;
+            macOS)
+              curl -fsSL -o f.zip "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"
+              unzip -o f.zip ffmpeg
+              curl -fsSL -o LICENSE.txt https://www.gnu.org/licenses/gpl-3.0.txt
+              src="https://ffmpeg.martin-riedl.de" ;;
+          esac
+          rm -f f.zip
+          chmod +x ffmpeg* || true
+          ./ffmpeg -hide_banner -version | head -1
+          mv LICENSE.txt FFMPEG-LICENSE.txt
+          printf 'ffmpeg here is FFmpeg (https://ffmpeg.org), unmodified, as built by\n%s.\nIts licence is in FFMPEG-LICENSE.txt; its source is at https://ffmpeg.org/download.html\nand the build scripts at the address above.\n' "$src" > FFMPEG-NOTICE.txt
+
       - name: Package
         shell: bash
         run: |
@@ -62,7 +93,7 @@ jobs:
           bin="target/${{ matrix.target }}/release/rudel"
           [ -f "$bin.exe" ] && bin="$bin.exe"
           mkdir -p "dist/$name"
-          cp "$bin" README.md LICENSE "dist/$name/"
+          cp "$bin" README.md LICENSE ffmpeg/* "dist/$name/"
           cd dist
           if [ "${{ matrix.archive }}" = "zip" ]; then
             7z a "$name.zip" "$name"

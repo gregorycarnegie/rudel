@@ -13,6 +13,19 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- hydra's `initVideo` plays every video through FFmpeg, which releases now
+  ship next to the `rudel` executable: no install needed, and any format
+  FFmpeg reads plays. The built-in MP4/H.264 reader (the `mp4` and
+  `openh264` crates) is gone, and with it the C build of OpenH264. A rotated
+  phone video now plays upright.
+
+### Fixed
+
+- `initVideo` with a local file failed whenever FFmpeg was installed:
+  ffmpeg refuses the web user-agent option for a file.
+
 ## [0.23.0-beta.2] — 2026-10-06
 
 A beta: the changes below have not been through a mutation-testing run yet,
