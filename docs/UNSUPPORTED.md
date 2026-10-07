@@ -549,12 +549,13 @@ upstream:
   options) is ignored.
 - `initVideo(url)` plays a video file, looping and muted like upstream's
   `<video>` element, from the same places `initImage` reads, in any format
-  FFmpeg reads (MP4, WebM, MOV, GIF, …). Releases ship a static `ffmpeg` next
-  to `rudel` (found there by `ffmpeg-sidecar`, else on the PATH), so nothing
-  needs installing. A web video is streamed by `ffmpeg` itself, so a long one
+  FFmpeg reads (MP4, WebM, MOV, GIF, …). FFmpeg 9 is statically linked into
+  `rudel` through our `rudel-ffmpeg` wrapper, so nothing needs installing.
+  A web video is streamed directly by libavformat, so a long one
   starts at once rather than after downloading (one shared pattern's is
-  678 MB). `ffmpeg` paces and loops it itself (`-re -stream_loop -1`) and
-  hands over raw RGBA frames on a pipe, no wider than 1280.
+  678 MB). Rudel paces frames by their presentation timestamps and rewinds
+  at EOF. libswscale converts them to RGBA, no wider than 1280; phone-video
+  rotation metadata is honoured. Network I/O stops when the source goes idle.
 - `initScreen()` captures the primary monitor (xcap) about 15 times a second,
   scaled to at most 1280 wide. Upstream lets the browser ask which screen or
   window; there is no picker here. Not on Linux, where xcap needs PipeWire,

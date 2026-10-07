@@ -1,0 +1,18 @@
+{
+  "builtin-baseline": "5ee006c0f6b08462a0b1fe6005939b4ec57100a5",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": ["avcodec", "avformat", "swscale", "dav1d", "zlib", "version3"]
+    },
+    {
+      "name": "ffmpeg",
+      "platform": "!windows",
+      "default-features": false,
+      "features": ["openssl"]
+    },
+    { "name": "pkgconf", "host": true }
+  ],
+  "overrides": [{ "name": "ffmpeg", "version": "9.0.2", "port-version": 1 }]
+}

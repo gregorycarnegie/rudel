@@ -1,0 +1,15 @@
+[package]
+name = "rudel-ffmpeg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Rudel's statically linked FFmpeg video decoder"
+
+[build-dependencies]
+bindgen = { version = "0.73.2", default-features = false, features = ["runtime"] }
+pkg-config = "0.3.34"
+
+[dev-dependencies]
+tempfile = "3.27.0"

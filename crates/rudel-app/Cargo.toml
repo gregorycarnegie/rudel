@@ -37,7 +37,7 @@ nokhwa = { version = "0.10.11", default-features = false, features = ["input-nat
 # hydra's `s0.initVideo(url)`: runs the `ffmpeg` that releases ship next to
 # the executable (or the PATH's) and reads its frames. No downloader feature:
 # the release workflow bundles it.
-ffmpeg-sidecar = { version = "2.6.0", default-features = false }
+rudel-ffmpeg.workspace = true
 # Strudel's draw canvas (`getDrawContext`, `.draw`, `animate`): a persistent
 # raster like a browser canvas, and its text in egui's own default font.
 tiny-skia = "0.12.0"

@@ -31,8 +31,26 @@ MIDI out, and SuperDirt-compatible OSC out.
 | [`rudel-midi`](crates/rudel-midi)   | MIDI output: control-map to note/CC/program messages, timed windows, port wrapper, and real-time scheduler.                                                                                     |
 | [`rudel-osc`](crates/rudel-osc)     | SuperDirt OSC output: hand-rolled OSC 1.0 encoding, `/dirt/play` messages, UDP sender, and real-time scheduler.                                                                                 |
 | [`rudel-app`](crates/rudel-app)     | Native `egui` editor with live JavaScript evaluation, audio/MIDI/OSC output selection, sample loading, and a one-cycle visualizer grouped by orbit.                                             |
+| [`rudel-ffmpeg`](crates/rudel-ffmpeg) | Small native video decoder; FFmpeg 9 is statically linked into Rudel. |
 
 ## Run the app
+
+Release binaries include FFmpeg; video playback needs no separate installation.
+For source builds, first build the pinned native libraries (cached under
+`target/ffmpeg`):
+
+```bash
+python tools/build-ffmpeg.py
+```
+
+This requires Python 3, Git, CMake, a C/C++ toolchain, and libclang for Rust
+bindings. On Windows use Visual Studio's C++ build tools and LLVM; on macOS
+use Xcode command-line tools (`brew install cmake llvm nasm`); on Linux install
+`build-essential cmake ninja-build nasm pkg-config libclang-dev` alongside the
+GUI/audio development libraries. Point `LIBCLANG_PATH` at LLVM's library
+directory if bindgen cannot find it. The initial build downloads and compiles
+FFmpeg 9.0.2, dav1d, zlib, and (outside Windows) OpenSSL; subsequent builds reuse
+them. Rerun the script after changing `vcpkg.json`.
 
 ```bash
 cargo run --release -p rudel-app

@@ -558,6 +558,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.73.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "787ef8ef523575546b106a58213d6e6b06198a05c2f757258c68a74273670cfa"
+dependencies = [
+ "bitflags 2.13.2",
+ "cexpr",
+ "clang-sys",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash 2.1.3",
+ "shlex 2.0.1",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1857,15 +1874,6 @@ name = "fearless_simd"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
-
-[[package]]
-name = "ffmpeg-sidecar"
-version = "2.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dda44234b3193d5c95339dac1ed87dc2b3f3d04495182aa68c7efcc1e7462d1"
-dependencies = [
- "anyhow",
-]
 
 [[package]]
 name = "find-msvc-tools"
@@ -4312,9 +4320,9 @@ dependencies = [
 
 [[package]]
 name = "pkg-config"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plain"
@@ -4775,7 +4783,6 @@ dependencies = [
  "eframe",
  "egui_kittest",
  "epaint_default_fonts",
- "ffmpeg-sidecar",
  "gilrs",
  "image",
  "naga",
@@ -4783,6 +4790,7 @@ dependencies = [
  "rfd",
  "rudel-audio",
  "rudel-core",
+ "rudel-ffmpeg",
  "rudel-lang",
  "rudel-midi",
  "rudel-osc",
@@ -4840,6 +4848,15 @@ dependencies = [
  "rudel-core",
  "serde_json",
  "wide",
+]
+
+[[package]]
+name = "rudel-ffmpeg"
+version = "0.23.0-beta.2"
+dependencies = [
+ "bindgen 0.73.2",
+ "pkg-config",
+ "tempfile",
 ]
 
 [[package]]

@@ -71,6 +71,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: ./.github/actions/ffmpeg
+
       - uses: taiki-e/install-action@nextest
 
       - name: Clippy (deny warnings)
@@ -117,6 +119,8 @@ jobs:
           toolchain: ${{ steps.msrv.outputs.version }}
 
       - uses: Swatinem/rust-cache@v2
+
+      - uses: ./.github/actions/ffmpeg
 
       - name: Check
         run: cargo check --workspace

@@ -1,91 +1,108 @@
-//! hydra's `s0.initVideo(url)`: a video file as a live source (`hydra_live`),
-//! looping and muted like upstream's `<video>` element.
-//!
-//! FFmpeg plays it: any format it reads (MP4, WebM, MOV, GIF, …), at the
-//! file's own pace, looping, its raw RGBA frames read from a pipe. Releases
-//! ship `ffmpeg` next to the `rudel` executable, where `ffmpeg-sidecar` looks
-//! first; a build without one falls back to the `ffmpeg` on the PATH.
+//! Hydra's looping, muted video source, decoded by the FFmpeg libraries built
+//! into Rudel. Web videos stream directly, without downloading the whole file.
 
 use super::{hydra_images::Picture, hydra_live};
 use eframe::egui;
-use ffmpeg_sidecar::{
-    command::FfmpegCommand,
-    event::{FfmpegEvent, LogLevel},
+use rudel_ffmpeg::Video;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
 };
-use std::{ffi::OsString, sync::Arc};
 
-/// What ffmpeg says it is when it fetches a web video, as rudel's own
-/// downloads do: some hosts refuse a generic one.
 const USER_AGENT: &str = concat!(
     "rudel/",
     env!("CARGO_PKG_VERSION"),
     " (live-coding music app)"
 );
-
-/// No wider than this: a background does not need a 4K texture.
 const MAX_WIDTH: u32 = 1280;
 
-/// The current frame of the video at `url` (already resolved to a path or
-/// http(s) URL), starting it on first use.
 pub(super) fn frame(ctx: &egui::Context, url: &str) -> Option<Arc<Picture>> {
     let owned = url.to_string();
     hydra_live::latest(ctx, &format!("initVideo({url})"), move |sink| {
-        play(sink, &owned)
+        let result = play(sink, &owned);
+        if sink.wanted() { result } else { Ok(()) }
     })
 }
 
 fn play(sink: &hydra_live::Sink, url: &str) -> Result<(), String> {
-    // ffmpeg streams a web video itself, starting at once, where downloading
-    // first would hold a long clip back for minutes (one shared pattern's is
-    // 678 MB). A local file is read where it is.
-    let mut command = FfmpegCommand::new();
     let input = if url.starts_with("http://") || url.starts_with("https://") {
-        // An http option: ffmpeg refuses to open a local file given it.
-        command.args(["-user_agent", USER_AGENT]);
-        OsString::from(url)
+        url.to_owned()
     } else {
-        rudel_audio::samples::fetch_cached_file(url)?.into_os_string()
+        rudel_audio::samples::fetch_cached_file(url)?
+            .to_str()
+            .ok_or("video path is not UTF-8")?
+            .to_owned()
     };
-    // `-re` paces it at the file's own rate and `-stream_loop -1` loops it.
-    let mut child = command
-        .hide_banner()
-        .args(["-re", "-stream_loop", "-1"])
-        .input(&input)
-        .no_audio()
-        .filter(format!("scale='min(iw,{MAX_WIDTH})':-1"))
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
-        .output("-")
-        .spawn()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                "initVideo needs ffmpeg, next to rudel or on the PATH".to_string()
+    let wanted = || sink.wanted();
+    let mut video = Video::open(&input, USER_AGENT, MAX_WIDTH, &wanted)?;
+    while wanted() {
+        let mut clock = PlaybackClock::default();
+        while let Some(frame) = video.next_frame()? {
+            let at = clock.advance(frame.timestamp, frame.duration);
+            if !wait_until(clock.started, at, &wanted) {
+                return Ok(());
             }
-            _ => format!("ffmpeg: {e}"),
-        })?;
-    let mut errors = Vec::new();
-    for event in child.iter().map_err(|e| e.to_string())? {
-        if !sink.wanted() {
-            break;
-        }
-        match event {
-            FfmpegEvent::OutputFrame(frame) => sink.publish(Picture {
+            sink.publish(Picture {
                 width: frame.width,
                 height: frame.height,
-                rgba: frame.data,
-            }),
-            FfmpegEvent::Error(e) | FfmpegEvent::Log(LogLevel::Error | LogLevel::Fatal, e) => {
-                errors.push(e)
-            }
-            _ => {}
+                rgba: frame.rgba,
+            });
+        }
+        if clock.origin.is_none() {
+            return Err("video contains no frames".into());
+        }
+        if !wait_until(clock.started, clock.next, &wanted) {
+            return Ok(());
+        }
+        if video.rewind().is_err() {
+            // Some HTTP sources cannot seek. Reopening starts the next loop.
+            video = Video::open(&input, USER_AGENT, MAX_WIDTH, &wanted)?;
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    if sink.wanted() {
-        Err(format!("ffmpeg stopped: {}", errors.join("; ")))
-    } else {
-        Ok(())
+    Ok(())
+}
+
+struct PlaybackClock {
+    started: Instant,
+    origin: Option<f64>,
+    next: Duration,
+}
+
+impl Default for PlaybackClock {
+    fn default() -> Self {
+        Self {
+            started: Instant::now(),
+            origin: None,
+            next: Duration::ZERO,
+        }
     }
+}
+
+impl PlaybackClock {
+    fn advance(&mut self, timestamp: Option<f64>, duration: Duration) -> Duration {
+        // Start at the first decoded frame, so probing/network startup does
+        // not turn into a burst of frames trying to catch up with wall time.
+        if self.origin.is_none() {
+            self.started = Instant::now();
+            self.origin = Some(timestamp.unwrap_or(0.0));
+        }
+        let at = timestamp
+            .and_then(|pts| Duration::try_from_secs_f64(pts - self.origin.unwrap()).ok())
+            .unwrap_or(self.next);
+        self.next = at.saturating_add(duration);
+        at
+    }
+}
+
+fn wait_until(start: Instant, at: Duration, wanted: &dyn Fn() -> bool) -> bool {
+    while wanted() {
+        let remaining = at.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            return true;
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(20)));
+    }
+    false
 }
 
 #[cfg(test)]
@@ -93,32 +110,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_wide_video_plays_scaled_to_a_background_s_width() {
-        if !ffmpeg_sidecar::command::ffmpeg_is_installed() {
-            eprintln!("skipped: no ffmpeg");
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wide.webm");
-        let made = FfmpegCommand::new()
-            .args(["-f", "lavfi", "-i", "testsrc=size=1600x200:duration=1"])
-            .output(path.to_str().unwrap())
-            .spawn()
-            .unwrap()
-            .wait()
-            .unwrap();
-        assert!(made.success());
-        let ctx = egui::Context::default();
-        let url = path.to_str().unwrap();
-        let started = std::time::Instant::now();
-        let picture = loop {
-            if let Some(picture) = frame(&ctx, url) {
-                break picture;
-            }
-            assert!(started.elapsed().as_secs() < 20, "no frame");
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        };
-        assert_eq!((picture.width, picture.height), (1280, 160));
-        assert_eq!(picture.rgba.len(), 1280 * 160 * 4);
+    fn video_timing_uses_pts_and_falls_back_to_frame_duration() {
+        let mut clock = PlaybackClock::default();
+        let step = Duration::from_millis(40);
+        assert_eq!(clock.advance(Some(10.0), step), Duration::ZERO);
+        assert_eq!(clock.advance(Some(10.5), step), Duration::from_millis(500));
+        assert_eq!(clock.advance(None, step), Duration::from_millis(540));
+        assert_eq!(clock.advance(Some(-1.0), step), Duration::from_millis(580));
+        assert!(!wait_until(
+            Instant::now(),
+            Duration::from_secs(100),
+            &|| false
+        ));
     }
 }

@@ -1,0 +1,15 @@
+name: Build bundled FFmpeg
+description: Pinned static FFmpeg libraries and their corresponding sources
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: |
+          target/ffmpeg
+          target/ffmpeg-sources.tar.gz
+        key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'tools/build-ffmpeg.py') }}
+      id: native
+    - if: steps.native.outputs.cache-hit != 'true'
+      shell: bash
+      run: python tools/build-ffmpeg.py
