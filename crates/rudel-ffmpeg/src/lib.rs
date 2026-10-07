@@ -12,7 +12,10 @@ use std::{
 mod ffi {
     include!(concat!(env!("OUT_DIR"), "/ffmpeg.rs"));
 }
+mod geometry;
+
 use ffi::*;
+use geometry::{MAX_PIXELS, Orientation, fit, frame_duration, orient, seconds};
 
 pub struct Frame {
     pub width: u32,
@@ -61,7 +64,26 @@ fn check(code: c_int) -> Result<c_int, String> {
     }
 }
 
+/// The options `avformat_open_input` is given, freed however `open` returns.
+struct Options(*mut AVDictionary);
+
+impl Options {
+    fn set(&mut self, key: &CStr, value: &CStr) -> Result<(), String> {
+        // FFmpeg copies both NUL-terminated strings.
+        check(unsafe { av_dict_set(&mut self.0, key.as_ptr(), value.as_ptr(), 0) }).map(drop)
+    }
+}
+
+impl Drop for Options {
+    fn drop(&mut self) {
+        unsafe { av_dict_free(&mut self.0) }
+    }
+}
+
 impl<'a> Video<'a> {
+    /// Open `input`: an `http(s)://` URL, or a path to a local file. Nothing
+    /// else FFmpeg can open is reachable from here — no other protocol, and no
+    /// protocol switch from inside a stream.
     pub fn open(
         input: &str,
         user_agent: &str,
@@ -71,7 +93,16 @@ impl<'a> Video<'a> {
         if max_width == 0 || max_width > 16384 {
             return Err("invalid video width limit".into());
         }
-        let input = CString::new(input).map_err(|_| "video path contains a NUL")?;
+        let network = input.starts_with("http://") || input.starts_with("https://");
+        // FFmpeg takes anything before a colon for a protocol name, so a file
+        // called `take:2.mp4`, or a script's `concat:`/`subfile:` "path", would
+        // open something other than the file named. `file:` says which.
+        let input = CString::new(if network {
+            input.to_owned()
+        } else {
+            format!("file:{input}")
+        })
+        .map_err(|_| "video path contains a NUL")?;
         let agent = CString::new(user_agent).map_err(|_| "user-agent contains a NUL")?;
         // All pointers are either null or owned, including on partial failure.
         let mut video = Self {
@@ -94,50 +125,53 @@ impl<'a> Video<'a> {
         {
             return Err("FFmpeg allocation failed".into());
         }
+        let mut options = Options(ptr::null_mut());
+        // Inherited by every nested open — an HLS segment, a redirect — so a
+        // web stream cannot point FFmpeg at a local file, nor a file at the
+        // network.
+        options.set(
+            c"protocol_whitelist",
+            if network {
+                c"http,https,httpproxy,tcp,tls,crypto"
+            } else {
+                c"file"
+            },
+        )?;
+        if network {
+            options.set(c"user_agent", &agent)?;
+            options.set(c"tls_verify", c"1")?;
+            // Static OpenSSL's compiled-in certificate directory belongs to
+            // the build machine; use the operating system's CA bundle.
+            #[cfg(not(windows))]
+            {
+                let bundle = [
+                    c"/etc/ssl/cert.pem",
+                    c"/etc/ssl/certs/ca-certificates.crt",
+                    c"/etc/pki/tls/certs/ca-bundle.crt",
+                ]
+                .into_iter()
+                .find(|ca| {
+                    ca.to_str()
+                        .is_ok_and(|ca| std::path::Path::new(ca).is_file())
+                });
+                if let Some(ca) = bundle {
+                    options.set(c"ca_file", ca)?;
+                }
+            }
+        }
         unsafe {
             (*video.scaler).flags = RUDEL_BILINEAR as _;
             (*video.format).interrupt_callback = AVIOInterruptCB {
                 callback: Some(interrupt),
                 opaque: (&mut *video.interrupt as *mut &(dyn Fn() -> bool + Sync)).cast(),
             };
-            let mut options = ptr::null_mut();
-            if input.as_bytes().starts_with(b"http://") || input.as_bytes().starts_with(b"https://")
-            {
-                let set = av_dict_set(&mut options, c"user_agent".as_ptr(), agent.as_ptr(), 0);
-                if set < 0 {
-                    av_dict_free(&mut options);
-                    check(set)?;
-                }
-                let set = av_dict_set(&mut options, c"tls_verify".as_ptr(), c"1".as_ptr(), 0);
-                if set < 0 {
-                    av_dict_free(&mut options);
-                    check(set)?;
-                }
-                // Static OpenSSL's compiled-in certificate directory belongs
-                // to the build machine; use the operating system's CA bundle.
-                #[cfg(not(windows))]
-                {
-                    for ca in [
-                        c"/etc/ssl/cert.pem",
-                        c"/etc/ssl/certs/ca-certificates.crt",
-                        c"/etc/pki/tls/certs/ca-bundle.crt",
-                    ] {
-                        if std::path::Path::new(ca.to_str().unwrap()).is_file() {
-                            let set =
-                                av_dict_set(&mut options, c"ca_file".as_ptr(), ca.as_ptr(), 0);
-                            if set < 0 {
-                                av_dict_free(&mut options);
-                                check(set)?;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-            let opened =
-                avformat_open_input(&mut video.format, input.as_ptr(), ptr::null(), &mut options);
-            av_dict_free(&mut options);
-            check(opened)?;
+            // On failure this frees the context and nulls the pointer.
+            check(avformat_open_input(
+                &mut video.format,
+                input.as_ptr(),
+                ptr::null(),
+                &mut options.0,
+            ))?;
             check(avformat_find_stream_info(video.format, ptr::null_mut()))?;
             let mut decoder = ptr::null();
             video.stream = check(av_find_best_stream(
@@ -160,7 +194,7 @@ impl<'a> Video<'a> {
             (*video.codec).pkt_timebase = (*stream).time_base;
             // Bound allocation on untrusted video dimensions, and avoid each
             // live source creating a decoder thread for every CPU on the host.
-            (*video.codec).max_pixels = 64 * 1024 * 1024;
+            (*video.codec).max_pixels = MAX_PIXELS;
             (*video.codec).thread_count = 2;
             check(avcodec_open2(video.codec, decoder, ptr::null_mut()))?;
         }
@@ -238,9 +272,11 @@ impl<'a> Video<'a> {
                 return Err("invalid video dimensions".into());
             }
             let stream = *(*self.format).streams.add(self.stream as usize);
+            // A phone's MOV/MP4 carries its display matrix as stream side
+            // data; a frame may carry its own.
             let side = av_frame_get_side_data(self.frame, AV_FRAME_DATA_DISPLAYMATRIX);
             let matrix = if !side.is_null() && (*side).size >= 36 {
-                (*side).data.cast::<i32>()
+                (*side).data
             } else {
                 let params = &*(*stream).codecpar;
                 let side = av_packet_side_data_get(
@@ -249,29 +285,27 @@ impl<'a> Video<'a> {
                     AV_PKT_DATA_DISPLAYMATRIX,
                 );
                 if !side.is_null() && (*side).size >= 36 {
-                    (*side).data.cast()
+                    (*side).data
                 } else {
                     ptr::null_mut()
                 }
             };
-            // ponytail: phone videos use quarter-turn display matrices;
-            // arbitrary affine transforms would need libavfilter.
-            let turns = if matrix.is_null() {
-                0
+            let orientation = if matrix.is_null() {
+                Orientation::default()
             } else {
-                ((-av_display_rotation_get(matrix) / 90.0).round() as i32).rem_euclid(4) as u32
+                Orientation::from_display_matrix(&ptr::read_unaligned(matrix.cast::<[i32; 9]>()))
             };
-            let display_width = if turns % 2 == 0 {
-                frame.width
-            } else {
-                frame.height
-            };
-            let scale = (self.max_width as f64 / display_width as f64).min(1.0);
-            let width = (frame.width as f64 * scale).round().max(1.0) as c_int;
-            let height = (frame.height as f64 * scale).round().max(1.0) as c_int;
-            if i64::from(width) * i64::from(height) > 64 * 1024 * 1024 {
+            let (width, height) = fit(
+                frame.width as u32,
+                frame.height as u32,
+                orientation.sideways(),
+                self.max_width,
+            );
+            if i64::from(width) * i64::from(height) > MAX_PIXELS {
                 return Err("video frame is too large".into());
             }
+            // No larger than the decoded frame, so these fit a c_int.
+            let (width, height) = (width as c_int, height as c_int);
             if (*self.scaled).width != width || (*self.scaled).height != height {
                 av_frame_unref(self.scaled);
                 (*self.scaled).format = AV_PIX_FMT_RGBA;
@@ -285,49 +319,33 @@ impl<'a> Video<'a> {
             (*self.scaled).color_trc = frame.color_trc;
             // FFmpeg's frame API handles changing formats and colour metadata.
             check(sws_scale_frame(self.scaler, self.scaled, self.frame))?;
-            let (out_width, out_height) = if turns % 2 == 0 {
-                (width, height)
-            } else {
-                (height, width)
-            };
-            let mut rgba = vec![0; out_width as usize * out_height as usize * 4];
-            for y in 0..height as usize {
-                let row = std::slice::from_raw_parts(
-                    (*self.scaled).data[0].offset(y as isize * (*self.scaled).linesize[0] as isize),
+            let scaled = &*self.scaled;
+            let rgba = orient(width as usize, height as usize, orientation, |y| {
+                std::slice::from_raw_parts(
+                    scaled.data[0].offset(y as isize * scaled.linesize[0] as isize),
                     width as usize * 4,
-                );
-                if turns == 0 {
-                    rgba[y * row.len()..(y + 1) * row.len()].copy_from_slice(row);
-                } else {
-                    for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
-                        let (ox, oy) = match turns {
-                            1 => (height as usize - 1 - y, x),
-                            2 => (width as usize - 1 - x, height as usize - 1 - y),
-                            _ => (y, width as usize - 1 - x),
-                        };
-                        let offset = (oy * out_width as usize + ox) * 4;
-                        rgba[offset..offset + 4].copy_from_slice(pixel);
-                    }
-                }
-            }
-            let base = (*stream).time_base;
-            let seconds = |ticks: i64| ticks as f64 * f64::from(base.num) / f64::from(base.den);
-            let rate = av_guess_frame_rate(self.format, stream, self.frame);
-            let duration = if frame.duration > 0 {
-                seconds(frame.duration)
-            } else if rate.num > 0 && rate.den > 0 {
-                f64::from(rate.den) / f64::from(rate.num)
+                )
+            });
+            let (out_width, out_height) = if orientation.sideways() {
+                (height, width)
             } else {
-                1.0 / 30.0
+                (width, height)
             };
+            let base = (*stream).time_base;
+            let rate = av_guess_frame_rate(self.format, stream, self.frame);
             Ok(Frame {
                 width: out_width as u32,
                 height: out_height as u32,
                 rgba,
-                timestamp: (frame.best_effort_timestamp != RUDEL_NOPTS)
-                    .then(|| seconds(frame.best_effort_timestamp)),
-                duration: Duration::try_from_secs_f64(duration)
-                    .unwrap_or(Duration::from_millis(33)),
+                timestamp: if frame.best_effort_timestamp == RUDEL_NOPTS {
+                    None
+                } else {
+                    seconds(frame.best_effort_timestamp, base.num, base.den)
+                },
+                duration: frame_duration(
+                    seconds(frame.duration, base.num, base.den),
+                    (rate.num, rate.den),
+                ),
             })
         }
     }
@@ -352,40 +370,47 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicBool, Ordering},
         time::Instant,
     };
 
-    fn clip(width: usize, height: usize) -> Vec<u8> {
+    /// A two-frame 25 fps 4:4:4 Y4M clip, `luma(frame, x)` bright per column.
+    fn clip(width: usize, height: usize, luma: impl Fn(usize, usize) -> u8) -> Vec<u8> {
         let mut data = format!("YUV4MPEG2 W{width} H{height} F25:1 Ip A1:1 C444\n").into_bytes();
-        for luma in [32, 200] {
+        for frame in 0..2 {
             data.extend_from_slice(b"FRAME\n");
-            data.extend(vec![luma; width * height]);
+            for _ in 0..height {
+                data.extend((0..width).map(|x| luma(frame, x)));
+            }
             data.extend(vec![128; width * height * 2]);
         }
         data
     }
 
-    #[test]
-    fn decodes_scales_drains_rewinds_and_rotates_without_an_executable() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wide-日本語.y4m");
-        std::fs::write(&path, clip(1600, 200)).unwrap();
-        let mut video = Video::open(path.to_str().unwrap(), "rudel-test", 1280, &|| true).unwrap();
-        let first = video.next_frame().unwrap().unwrap();
-        assert_eq!((first.width, first.height), (1280, 160));
-        assert_eq!(first.rgba.len(), 1280 * 160 * 4);
-        assert_eq!(first.rgba[3], 255);
-        assert_eq!(first.timestamp, Some(0.0));
-        assert_eq!(first.duration, Duration::from_millis(40));
-        let second = video.next_frame().unwrap().unwrap();
-        assert!(second.rgba[0] > first.rgba[0] + 100);
-        assert_eq!(second.timestamp, Some(0.04));
-        assert!(video.next_frame().unwrap().is_none());
-        video.rewind().unwrap();
-        assert_eq!(video.next_frame().unwrap().unwrap().rgba, first.rgba);
-        video.rewind().unwrap();
-        // A phone's MOV/MP4 display matrix is stream side data. Install the
-        // same metadata without making this check depend on an encoder CLI.
+    /// Dark then bright, each frame flat.
+    fn flat(width: usize, height: usize) -> Vec<u8> {
+        clip(width, height, |frame, _| [32, 200][frame])
+    }
+
+    fn write(dir: &tempfile::TempDir, name: &str, data: &[u8]) -> PathBuf {
+        let path = dir.path().join(name);
+        std::fs::write(&path, data).unwrap();
+        path
+    }
+
+    fn open(path: &Path, max_width: u32) -> Video<'static> {
+        Video::open(path.to_str().unwrap(), "rudel-test", max_width, &|| true).unwrap()
+    }
+
+    /// The red channel of output pixel (x, y).
+    fn red(frame: &Frame, x: u32, y: u32) -> u8 {
+        frame.rgba[((y * frame.width + x) * 4) as usize]
+    }
+
+    /// Install `matrix` as the stream's display matrix, as a phone's MOV/MP4
+    /// carries it, without making these tests depend on an encoder CLI.
+    fn set_display_matrix(video: &mut Video, matrix: [i32; 9]) {
         unsafe {
             let stream = *(*video.format).streams.add(video.stream as usize);
             let params = &mut *(*stream).codecpar;
@@ -397,18 +422,187 @@ mod tests {
                 0,
             );
             assert!(!side.is_null());
-            let matrix = [0i32, -65536, 0, 65536, 0, 0, 0, 0, 1 << 30];
             ptr::copy_nonoverlapping(matrix.as_ptr(), (*side).data.cast(), 9);
         }
-        let rotated = video.next_frame().unwrap().unwrap();
-        assert_eq!((rotated.width, rotated.height), (200, 1600));
-        assert_eq!(rotated.rgba.len(), 200 * 1600 * 4);
-        assert!(Video::open("bad\0path", "", 1280, &|| true).is_err());
-        assert!(Video::open(path.to_str().unwrap(), "", 0, &|| true).is_err());
     }
 
     #[test]
-    fn streams_http_and_interrupts_a_stalled_server() {
+    fn decodes_and_scales_to_the_width_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "wide-日本語.y4m", &flat(1600, 200));
+        let mut video = open(&path, 1280);
+        let first = video.next_frame().unwrap().unwrap();
+        assert_eq!((first.width, first.height), (1280, 160));
+        assert_eq!(first.rgba.len(), 1280 * 160 * 4);
+        assert!(first.rgba.chunks(4).all(|p| p[3] == 255), "opaque");
+        assert_eq!(first.timestamp, Some(0.0));
+        assert_eq!(first.duration, Duration::from_millis(40));
+        let second = video.next_frame().unwrap().unwrap();
+        assert!(second.rgba[0] > first.rgba[0] + 100);
+        assert_eq!(second.timestamp, Some(0.04));
+    }
+
+    #[test]
+    fn a_small_video_is_not_enlarged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "small.y4m", &flat(16, 8));
+        let frame = open(&path, 1280).next_frame().unwrap().unwrap();
+        assert_eq!((frame.width, frame.height), (16, 8));
+        assert_eq!(frame.rgba.len(), 16 * 8 * 4);
+    }
+
+    #[test]
+    fn drains_then_rewinds_to_the_same_first_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "loop.y4m", &flat(32, 16));
+        let mut video = open(&path, 1280);
+        let first = video.next_frame().unwrap().unwrap();
+        video.next_frame().unwrap().unwrap();
+        assert!(video.next_frame().unwrap().is_none());
+        // Drained stays drained until it is rewound.
+        assert!(video.next_frame().unwrap().is_none());
+        for _ in 0..2 {
+            video.rewind().unwrap();
+            let again = video.next_frame().unwrap().unwrap();
+            assert_eq!(again.rgba, first.rgba);
+            assert_eq!(again.timestamp, Some(0.0));
+        }
+        // Rewinding mid-stream also starts over.
+        video.rewind().unwrap();
+        assert_eq!(video.next_frame().unwrap().unwrap().timestamp, Some(0.0));
+    }
+
+    #[test]
+    fn a_display_matrix_turns_the_picture_upright() {
+        // Left half dark, right half bright.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            &dir,
+            "halves.y4m",
+            &clip(64, 16, |_, x| if x < 32 { 32 } else { 200 }),
+        );
+        let mut video = open(&path, 1280);
+        // 90° counter-clockwise: the left half ends up at the bottom.
+        set_display_matrix(&mut video, [0, -65536, 0, 65536, 0, 0, 0, 0, 1 << 30]);
+        let turned = video.next_frame().unwrap().unwrap();
+        assert_eq!((turned.width, turned.height), (16, 64));
+        assert_eq!(turned.rgba.len(), 16 * 64 * 4);
+        assert!(red(&turned, 8, 0) > 150, "top is the bright right half");
+        assert!(red(&turned, 8, 63) < 80, "bottom is the dark left half");
+    }
+
+    #[test]
+    fn a_turned_video_is_fitted_by_its_shown_width() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "tall.y4m", &flat(400, 1600));
+        let mut video = open(&path, 1280);
+        set_display_matrix(&mut video, [0, 65536, 0, -65536, 0, 0, 0, 0, 1 << 30]);
+        let frame = video.next_frame().unwrap().unwrap();
+        assert_eq!((frame.width, frame.height), (1280, 320));
+    }
+
+    #[test]
+    fn a_mirrored_display_matrix_mirrors_rather_than_turning() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            &dir,
+            "halves.y4m",
+            &clip(64, 16, |_, x| if x < 32 { 32 } else { 200 }),
+        );
+        let mut video = open(&path, 1280);
+        set_display_matrix(&mut video, [-65536, 0, 0, 0, 65536, 0, 0, 0, 1 << 30]);
+        let mirrored = video.next_frame().unwrap().unwrap();
+        assert_eq!((mirrored.width, mirrored.height), (64, 16));
+        assert!(red(&mirrored, 0, 8) > 150, "left is the bright right half");
+        assert!(red(&mirrored, 63, 8) < 80, "right is the dark left half");
+    }
+
+    #[test]
+    fn rejects_what_it_cannot_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "clip.y4m", &flat(16, 8));
+        let path = path.to_str().unwrap();
+        let open =
+            |input: &str, agent: &str, width| Video::open(input, agent, width, &|| true).map(drop);
+        assert_eq!(
+            open("bad\0path", "", 1280),
+            Err("video path contains a NUL".into())
+        );
+        assert_eq!(
+            open(path, "bad\0agent", 1280),
+            Err("user-agent contains a NUL".into())
+        );
+        for width in [0, 16385] {
+            assert_eq!(
+                open(path, "", width),
+                Err("invalid video width limit".into())
+            );
+        }
+        assert!(open(path, "", 16384).is_ok());
+        assert!(open(path, "", 1).is_ok());
+        let missing = dir.path().join("missing.mp4");
+        assert!(
+            open(missing.to_str().unwrap(), "", 1280)
+                .unwrap_err()
+                .starts_with("FFmpeg: ")
+        );
+        let text = write(&dir, "notes.mp4", b"not a video at all");
+        assert!(open(text.to_str().unwrap(), "", 1280).is_err());
+    }
+
+    #[test]
+    fn a_path_is_a_file_never_another_protocol() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "clip.y4m", &flat(16, 8));
+        let path = path.to_str().unwrap();
+        for input in [
+            format!("concat:{path}|{path}"),
+            format!("subfile,,start,0,end,0,:{path}"),
+            "pipe:0".to_owned(),
+        ] {
+            assert!(
+                Video::open(&input, "", 1280, &|| true).is_err(),
+                "{input} opened as a protocol"
+            );
+        }
+    }
+
+    // Windows refuses a colon in a file name.
+    #[cfg(unix)]
+    #[test]
+    fn a_colon_in_a_file_name_is_not_a_protocol() {
+        // Only a relative name is at risk: a `/` before the colon already
+        // stops FFmpeg reading a protocol out of it. Tests run in the package
+        // directory; the guard removes the clip however the test ends.
+        struct Remove(PathBuf);
+        impl Drop for Remove {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let name = Remove(PathBuf::from(format!("take:{}.y4m", std::process::id())));
+        std::fs::write(&name.0, flat(16, 8)).unwrap();
+        assert!(name.0.is_relative());
+        assert_eq!(open(&name.0, 1280).next_frame().unwrap().unwrap().width, 16);
+    }
+
+    #[test]
+    fn cancelling_stops_the_next_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "clip.y4m", &flat(16, 8));
+        let wanted = AtomicBool::new(true);
+        let still_wanted = || wanted.load(Ordering::Relaxed);
+        let mut video = Video::open(path.to_str().unwrap(), "", 1280, &still_wanted).unwrap();
+        video.next_frame().unwrap().unwrap();
+        wanted.store(false, Ordering::Relaxed);
+        assert_eq!(video.next_frame().map(drop), Err("video cancelled".into()));
+        // A panicking callback cancels rather than unwinding through C.
+        let panics = || -> bool { panic!("callback bug") };
+        assert!(Video::open(path.to_str().unwrap(), "", 1280, &panics).is_err());
+    }
+
+    #[test]
+    fn streams_http_with_the_user_agent() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/video.y4m", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
@@ -419,7 +613,7 @@ mod tests {
             let mut request = [0; 4096];
             let len = socket.read(&mut request).unwrap();
             assert!(String::from_utf8_lossy(&request[..len]).contains("User-Agent: rudel-test"));
-            let data = clip(16, 8);
+            let data = flat(16, 8);
             write!(
                 socket,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -432,7 +626,10 @@ mod tests {
         assert_eq!(video.next_frame().unwrap().unwrap().width, 16);
         drop(video);
         server.join().unwrap();
+    }
 
+    #[test]
+    fn interrupts_a_stalled_server() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/stalled", listener.local_addr().unwrap());
         let (release, wait) = std::sync::mpsc::channel();

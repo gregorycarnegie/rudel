@@ -44,7 +44,6 @@ fn main() {
             #include <errno.h>
             #include <libavcodec/avcodec.h>
             #include <libavformat/avformat.h>
-            #include <libavutil/display.h>
             #include <libswscale/swscale.h>
             #if LIBAVCODEC_VERSION_MAJOR != 63 || LIBAVFORMAT_VERSION_MAJOR != 63
             #error Rudel requires the pinned FFmpeg 9 libraries
@@ -55,7 +54,7 @@ fn main() {
         "#)
         .clang_arg(format!("-I{}", include.display()))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .allowlist_function("av(format_.*|codec_.*|_find_best_stream|_read_frame|_seek_frame|_packet_.*|_frame_.*|_dict_.*|_strerror|_guess_frame_rate|_display_rotation_get)")
+        .allowlist_function("av(format_.*|codec_.*|_find_best_stream|_read_frame|_seek_frame|_packet_.*|_frame_.*|_dict_.*|_strerror|_guess_frame_rate)")
         .allowlist_function("sws_(alloc_context|scale_frame|free_context)")
         .allowlist_var("AV(SEEK_FLAG_BACKWARD|_NOPTS_VALUE)|SWS_BILINEAR|RUDEL_.*")
         .prepend_enum_name(false)

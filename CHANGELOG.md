@@ -25,6 +25,17 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 - `initVideo` with a local file failed whenever FFmpeg was installed:
   ffmpeg refuses the web user-agent option for a file.
+- A Windows path pasted straight into a string — `initVideo("C:\Users\me\clip.mp4")`
+  — lost its backslashes to JavaScript's escapes (`c:\users` did not even
+  parse), so it had to be rewritten with `/`. It now reaches `initVideo` and
+  `initImage` as written; paths already escaped as `\\` are left alone.
+- Videos from front cameras that store a mirrored display matrix showed
+  upside down: a mirror was read as a half turn. All eight camera
+  orientations are now shown upright.
+- A local video whose relative name has a colon in it (`take:2.mp4`) was
+  opened as an FFmpeg protocol rather than a file. Local paths now only ever
+  open files, and web videos only web protocols, including from inside a
+  stream.
 
 ## [0.23.0-beta.2] — 2026-10-06
 
