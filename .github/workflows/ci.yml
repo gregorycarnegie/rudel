@@ -10,7 +10,13 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - '.claude/skills/**'
+      - '.agents/skills/**'
   pull_request:
+    paths-ignore:
+      - '.claude/skills/**'
+      - '.agents/skills/**'
 
 env:
   CARGO_TERM_COLOR: always
