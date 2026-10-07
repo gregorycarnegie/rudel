@@ -58,8 +58,15 @@ def main():
                              f'set(CMAKE_CXX_COMPILER "{Path(clang).as_posix()}")\n'
                              f'include("{VCPKG.as_posix()}/scripts/toolchains/windows.cmake")\n')
         settings += 'set(VCPKG_LOAD_VCVARS_ENV ON)\n'
-        settings += f'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "{toolchain.as_posix()}")\n'
-        settings += f'set(ENV{{PATH}} "{Path(clang).parent.as_posix()};$ENV{{PATH}}")\n'
+        # Only FFmpeg itself: meson drives clang-cl as a linker and hands it
+        # bare /LIBPATH: options, so dav1d stays on MSVC's own toolchain.
+        settings += 'if(PORT STREQUAL "ffmpeg")\n'
+        settings += f'  set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "{toolchain.as_posix()}")\n'
+        settings += f'  set(ENV{{PATH}} "{Path(clang).parent.as_posix()};$ENV{{PATH}}")\n'
+        settings += 'endif()\n'
+    elif not shutil.which("nasm"):
+        # vcpkg downloads its own only on Windows; dav1d's assembly needs it.
+        raise RuntimeError("Install nasm before building FFmpeg (apt install nasm / brew install nasm)")
     (overlay / source.name).write_text(settings)
     run(executable, "install", f"--triplet={triplet}", f"--host-triplet={triplet}",
         f"--overlay-triplets={overlay}", f"--x-install-root={ROOT / 'target/ffmpeg'}",

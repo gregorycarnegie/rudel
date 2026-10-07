@@ -10,6 +10,13 @@ runs:
           target/ffmpeg-sources.tar.gz
         key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'tools/build-ffmpeg.py') }}
       id: native
+    # dav1d's assembly needs nasm; vcpkg fetches its own only on Windows.
+    - if: steps.native.outputs.cache-hit != 'true' && runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get install -y --no-install-recommends nasm
+    - if: steps.native.outputs.cache-hit != 'true' && runner.os == 'macOS'
+      shell: bash
+      run: brew install nasm
     - if: steps.native.outputs.cache-hit != 'true'
       shell: bash
       run: python tools/build-ffmpeg.py
