@@ -367,6 +367,7 @@ impl Drop for Video<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::{fixture, rstest};
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -426,6 +427,25 @@ mod tests {
         }
     }
 
+    /// A 16×8 two-frame clip, kept on disk as long as this is.
+    struct Clip {
+        dir: tempfile::TempDir,
+        path: PathBuf,
+    }
+
+    impl Clip {
+        fn path(&self) -> &str {
+            self.path.to_str().unwrap()
+        }
+    }
+
+    #[fixture]
+    fn small_clip() -> Clip {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, "clip.y4m", &flat(16, 8));
+        Clip { dir, path }
+    }
+
     #[test]
     fn decodes_and_scales_to_the_width_limit() {
         let dir = tempfile::tempdir().unwrap();
@@ -442,11 +462,9 @@ mod tests {
         assert_eq!(second.timestamp, Some(0.04));
     }
 
-    #[test]
-    fn a_small_video_is_not_enlarged() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = write(&dir, "small.y4m", &flat(16, 8));
-        let frame = open(&path, 1280).next_frame().unwrap().unwrap();
+    #[rstest]
+    fn a_small_video_is_not_enlarged(small_clip: Clip) {
+        let frame = open(&small_clip.path, 1280).next_frame().unwrap().unwrap();
         assert_eq!((frame.width, frame.height), (16, 8));
         assert_eq!(frame.rgba.len(), 16 * 8 * 4);
     }
@@ -517,54 +535,57 @@ mod tests {
         assert!(red(&mirrored, 63, 8) < 80, "right is the dark left half");
     }
 
-    #[test]
-    fn rejects_what_it_cannot_open() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = write(&dir, "clip.y4m", &flat(16, 8));
-        let path = path.to_str().unwrap();
-        let open =
-            |input: &str, agent: &str, width| Video::open(input, agent, width, &|| true).map(drop);
+    #[rstest]
+    #[case::nul_in_the_path("bad\0path", "", 1280, "video path contains a NUL")]
+    #[case::nul_in_the_user_agent("{path}", "bad\0agent", 1280, "user-agent contains a NUL")]
+    #[case::zero_width("{path}", "", 0, "invalid video width limit")]
+    #[case::over_the_width_limit("{path}", "", 16385, "invalid video width limit")]
+    fn refuses_bad_arguments(
+        small_clip: Clip,
+        #[case] input: &str,
+        #[case] agent: &str,
+        #[case] width: u32,
+        #[case] error: &str,
+    ) {
+        let input = input.replace("{path}", small_clip.path());
         assert_eq!(
-            open("bad\0path", "", 1280),
-            Err("video path contains a NUL".into())
+            Video::open(&input, agent, width, &|| true).map(drop),
+            Err(error.to_owned())
         );
-        assert_eq!(
-            open(path, "bad\0agent", 1280),
-            Err("user-agent contains a NUL".into())
-        );
-        for width in [0, 16385] {
-            assert_eq!(
-                open(path, "", width),
-                Err("invalid video width limit".into())
-            );
-        }
-        assert!(open(path, "", 16384).is_ok());
-        assert!(open(path, "", 1).is_ok());
-        let missing = dir.path().join("missing.mp4");
-        assert!(
-            open(missing.to_str().unwrap(), "", 1280)
-                .unwrap_err()
-                .starts_with("FFmpeg: ")
-        );
-        let text = write(&dir, "notes.mp4", b"not a video at all");
-        assert!(open(text.to_str().unwrap(), "", 1280).is_err());
     }
 
-    #[test]
-    fn a_path_is_a_file_never_another_protocol() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = write(&dir, "clip.y4m", &flat(16, 8));
-        let path = path.to_str().unwrap();
-        for input in [
-            format!("concat:{path}|{path}"),
-            format!("subfile,,start,0,end,0,:{path}"),
-            "pipe:0".to_owned(),
-        ] {
-            assert!(
-                Video::open(&input, "", 1280, &|| true).is_err(),
-                "{input} opened as a protocol"
-            );
+    #[rstest]
+    fn opens_at_either_end_of_the_width_range(small_clip: Clip, #[values(1, 16384)] width: u32) {
+        assert!(Video::open(small_clip.path(), "", width, &|| true).is_ok());
+    }
+
+    #[rstest]
+    #[case::missing(None)]
+    #[case::not_a_video(Some(&b"not a video at all"[..]))]
+    fn reports_ffmpeg_errors_for_what_is_not_a_video(
+        small_clip: Clip,
+        #[case] contents: Option<&[u8]>,
+    ) {
+        let path = small_clip.dir.path().join("notes.mp4");
+        if let Some(contents) = contents {
+            std::fs::write(&path, contents).unwrap();
         }
+        let error = Video::open(path.to_str().unwrap(), "", 1280, &|| true)
+            .map(drop)
+            .unwrap_err();
+        assert!(error.starts_with("FFmpeg: "), "{error}");
+    }
+
+    #[rstest]
+    #[case::concat("concat:{path}|{path}")]
+    #[case::subfile("subfile,,start,0,end,0,:{path}")]
+    #[case::pipe("pipe:0")]
+    fn a_path_is_a_file_never_another_protocol(small_clip: Clip, #[case] input: &str) {
+        let input = input.replace("{path}", small_clip.path());
+        assert!(
+            Video::open(&input, "", 1280, &|| true).is_err(),
+            "{input} opened as a protocol"
+        );
     }
 
     // Windows refuses a colon in a file name.
@@ -586,19 +607,17 @@ mod tests {
         assert_eq!(open(&name.0, 1280).next_frame().unwrap().unwrap().width, 16);
     }
 
-    #[test]
-    fn cancelling_stops_the_next_frame() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = write(&dir, "clip.y4m", &flat(16, 8));
+    #[rstest]
+    fn cancelling_stops_the_next_frame(small_clip: Clip) {
         let wanted = AtomicBool::new(true);
         let still_wanted = || wanted.load(Ordering::Relaxed);
-        let mut video = Video::open(path.to_str().unwrap(), "", 1280, &still_wanted).unwrap();
+        let mut video = Video::open(small_clip.path(), "", 1280, &still_wanted).unwrap();
         video.next_frame().unwrap().unwrap();
         wanted.store(false, Ordering::Relaxed);
         assert_eq!(video.next_frame().map(drop), Err("video cancelled".into()));
         // A panicking callback cancels rather than unwinding through C.
         let panics = || -> bool { panic!("callback bug") };
-        assert!(Video::open(path.to_str().unwrap(), "", 1280, &panics).is_err());
+        assert!(Video::open(small_clip.path(), "", 1280, &panics).is_err());
     }
 
     #[test]

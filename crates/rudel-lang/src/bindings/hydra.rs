@@ -264,6 +264,7 @@ pub(crate) fn register(prelude: &Scope) {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use rstest::rstest;
 
     #[test]
     fn a_missing_argument_does_not_shift_the_ones_after_it() {
@@ -494,25 +495,29 @@ src(s1).out()",
         );
     }
 
+    // `\U`, `\g`, `\V` would each lose their backslash as JS escapes, and
+    // `\u` (lowercase `c:\users`) is a syntax error outright.
+    #[rstest]
+    fn a_pasted_windows_path_reaches_init_video_with_its_backslashes(
+        #[values(
+            r"C:\Users\grego\Videos\Jonny_Quest_Recreated.mp4",
+            r"c:\users\new\x.mp4",
+            r"\\server\share\clip.mp4"
+        )]
+        path: &str,
+        #[values('"', '\'')] quote: char,
+    ) {
+        let scene = scene_of(&format!(
+            "await initHydra()\ns0.initVideo({quote}{path}{quote})\nsrc(s0).out()"
+        ));
+        assert_eq!(
+            scene.options.get("s0"),
+            Some(&WidgetOption::String(format!("video:{path}")))
+        );
+    }
+
     #[test]
-    fn a_pasted_windows_path_reaches_the_source_with_its_backslashes() {
-        // `\U`, `\g`, `\V` would each lose their backslash as JS escapes, and
-        // `\u` (lowercase `c:\users`) is a syntax error outright.
-        for (quote, path) in [
-            ('"', r"C:\Users\grego\Videos\Jonny_Quest_Recreated.mp4"),
-            ('\'', r"c:\users\new\x.mp4"),
-            ('"', r"\\server\share\clip.mp4"),
-        ] {
-            let scene = scene_of(&format!(
-                "await initHydra()\ns0.initVideo({quote}{path}{quote})\nsrc(s0).out()"
-            ));
-            assert_eq!(
-                scene.options.get("s0"),
-                Some(&WidgetOption::String(format!("video:{path}"))),
-                "{path}"
-            );
-        }
-        // A path already escaped the JavaScript way means what it says.
+    fn a_path_escaped_the_javascript_way_means_what_it_says() {
         let scene =
             scene_of("await initHydra()\ns1.initImage('C:\\\\pics\\\\a.png')\nsrc(s1).out()");
         assert_eq!(

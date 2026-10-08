@@ -165,6 +165,7 @@ pub(super) fn strip_await(src: &str) -> String {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use rstest::rstest;
 
     // Every rewriter here shares the same guard: skip over strings and comments
     // so their contents are copied through untouched. Getting this wrong does
@@ -187,42 +188,32 @@ mod tests {
         assert_eq!(f(&line), line, "rewrote inside a line comment");
     }
 
-    #[test]
-    fn a_pasted_windows_path_has_its_backslashes_doubled() {
-        let cases = [
-            (r#"v("C:\Users\me\a.mp4")"#, r#"v("C:\\Users\\me\\a.mp4")"#),
-            (r"v('d:\x')", r"v('d:\\x')"),
-            (r"v(`e:\clips\b.mov`)", r"v(`e:\\clips\\b.mov`)"),
-            (r#"v("\\nas\share\c.mp4")"#, r#"v("\\\\nas\\share\\c.mp4")"#),
-            // A raw path with a doubled separator in it is still raw.
-            (r#"v("C:\a\\b")"#, r#"v("C:\\a\\\\b")"#),
-        ];
-        for (src, want) in cases {
-            assert_eq!(escape_windows_paths(src), want, "{src}");
-        }
+    #[rstest]
+    #[case::drive(r#"v("C:\Users\me\a.mp4")"#, r#"v("C:\\Users\\me\\a.mp4")"#)]
+    #[case::hex_escape_that_would_not_parse(r"v('d:\x')", r"v('d:\\x')")]
+    #[case::template(r"v(`e:\clips\b.mov`)", r"v(`e:\\clips\\b.mov`)")]
+    #[case::share(r#"v("\\nas\share\c.mp4")"#, r#"v("\\\\nas\\share\\c.mp4")"#)]
+    // A raw path with a doubled separator in it is still raw.
+    #[case::doubled_separator(r#"v("C:\a\\b")"#, r#"v("C:\\a\\\\b")"#)]
+    fn a_pasted_windows_path_has_its_backslashes_doubled(#[case] src: &str, #[case] want: &str) {
+        assert_eq!(escape_windows_paths(src), want);
     }
 
-    #[test]
-    fn escapes_that_are_not_a_raw_windows_path_are_left_alone() {
-        for src in [
-            // Already escaped the JavaScript way.
-            r#"v("C:\\Users\\me")"#,
-            r#"v("\\\\nas\\share")"#,
-            // Ordinary escapes, and a colon that is not a drive.
-            r#"s("bd\n")"#,
-            r#"s("bd:3 sd")"#,
-            r#"x = "\\n""#,
-            // Code and comments are never strings.
-            r"a = b // C:\Users",
-            r"/* C:\x */ s('bd')",
-            r"C:\x",
-            // Unterminated: the trailing backslash escapes the quote.
-            r#"v("C:\clips\")"#,
-            // Too short to be a path.
-            r#"v("C:\")"#,
-        ] {
-            assert_eq!(escape_windows_paths(src), src, "{src}");
-        }
+    #[rstest]
+    #[case::drive_already_escaped(r#"v("C:\\Users\\me")"#)]
+    #[case::share_already_escaped(r#"v("\\\\nas\\share")"#)]
+    #[case::newline_escape(r#"s("bd\n")"#)]
+    #[case::colon_that_is_not_a_drive(r#"s("bd:3 sd")"#)]
+    #[case::escaped_backslash(r#"x = "\\n""#)]
+    // Code and comments are never strings.
+    #[case::line_comment(r"a = b // C:\Users")]
+    #[case::block_comment(r"/* C:\x */ s('bd')")]
+    #[case::code(r"C:\x")]
+    // The trailing backslash escapes the quote.
+    #[case::unterminated(r#"v("C:\clips\")"#)]
+    #[case::too_short_to_be_a_path(r#"v("C:\")"#)]
+    fn escapes_that_are_not_a_raw_windows_path_are_left_alone(#[case] src: &str) {
+        assert_eq!(escape_windows_paths(src), src);
     }
 
     proptest! {

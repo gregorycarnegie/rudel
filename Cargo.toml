@@ -34,6 +34,9 @@ num-integer = "0.1.47"
 num-traits = "0.2.19"
 phf = { version = "0.14.0", features = ["macros"] }
 proptest = "1.11.0"
+# Named table cases (`#[case]`) and fixtures: each case is its own test, so
+# one failing row neither hides the rows after it nor goes unnamed.
+rstest = { version = "0.27.0", default-features = false }
 stacker = "0.1.25"
 # wgpu's own shader front-end, already in the tree through it. Two crates parse
 # WGSL with it — `rudel-app` validates a widget's shader before wgpu can abort

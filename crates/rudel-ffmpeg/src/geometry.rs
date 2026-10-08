@@ -128,6 +128,7 @@ pub(crate) fn frame_duration(own: Option<f64>, rate: (i32, i32)) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::{fixture, rstest};
 
     /// `av_display_rotation_set(degrees)` then `av_display_matrix_flip`, as
     /// libavutil builds them, in 16.16 fixed point.
@@ -157,100 +158,93 @@ mod tests {
         Orientation { turns, mirror }
     }
 
+    // libavutil's angles are counter-clockwise; showing the picture upright
+    // turns it back the other way.
+    #[rstest]
+    #[case::upright(0.0, 0)]
+    #[case::quarter_counter_clockwise(90.0, 3)]
+    #[case::quarter_clockwise(-90.0, 1)]
+    #[case::half(180.0, 2)]
+    #[case::half_other_way(-180.0, 2)]
+    #[case::three_quarters(270.0, 1)]
+    #[case::three_quarters_other_way(-270.0, 3)]
+    #[case::full(360.0, 0)]
+    #[case::nearly_quarter(-89.0, 1)]
+    #[case::rounds_down_below_45(44.0, 0)]
+    #[case::rounds_up_above_45(46.0, 3)]
+    fn a_rotation_matrix_is_undone_in_clockwise_quarter_turns(
+        #[case] degrees: f64,
+        #[case] turns: u32,
+    ) {
+        assert_eq!(
+            Orientation::from_display_matrix(&matrix(degrees, false, false)),
+            shown(turns, false)
+        );
+    }
+
     #[test]
-    fn a_rotation_matrix_is_undone_in_clockwise_quarter_turns() {
-        // libavutil's angles are counter-clockwise; showing the picture upright
-        // turns it back the other way.
-        for (degrees, turns) in [
-            (0.0, 0),
-            (90.0, 3),
-            (-90.0, 1),
-            (180.0, 2),
-            (-180.0, 2),
-            (270.0, 1),
-            (-270.0, 3),
-            (360.0, 0),
-            (-89.0, 1),
-            (44.0, 0),
-            (46.0, 3),
-        ] {
-            assert_eq!(
-                Orientation::from_display_matrix(&matrix(degrees, false, false)),
-                shown(turns, false),
-                "{degrees}°"
-            );
-        }
+    fn a_phone_held_upright_is_turned_a_quarter_clockwise() {
         // What a phone held upright writes into its MOV.
         let portrait = [0, 65536, 0, -65536, 0, 0, 0, 0, 1 << 30];
         assert_eq!(Orientation::from_display_matrix(&portrait), shown(1, false));
     }
 
-    #[test]
-    fn a_mirrored_matrix_is_a_mirror_not_a_half_turn() {
+    #[rstest]
+    #[case::hflip(0.0, true, false, shown(0, true))]
+    // Upside down and mirrored is the same picture flipped vertically.
+    #[case::vflip(0.0, false, true, shown(2, true))]
+    #[case::both_flips_are_a_half_turn(0.0, true, true, shown(2, false))]
+    #[case::quarter_counter_clockwise(90.0, true, false, shown(3, true))]
+    #[case::quarter_clockwise(-90.0, true, false, shown(1, true))]
+    #[case::half(180.0, true, false, shown(2, true))]
+    fn a_mirrored_matrix_is_a_mirror_not_a_half_turn(
+        #[case] degrees: f64,
+        #[case] hflip: bool,
+        #[case] vflip: bool,
+        #[case] expected: Orientation,
+    ) {
         assert_eq!(
-            Orientation::from_display_matrix(&matrix(0.0, true, false)),
-            shown(0, true)
-        );
-        // Upside down and mirrored is the same picture flipped vertically.
-        assert_eq!(
-            Orientation::from_display_matrix(&matrix(0.0, false, true)),
-            shown(2, true)
-        );
-        assert_eq!(
-            Orientation::from_display_matrix(&matrix(0.0, true, true)),
-            shown(2, false)
-        );
-        for (degrees, turns) in [(90.0, 3), (-90.0, 1), (180.0, 2)] {
-            assert_eq!(
-                Orientation::from_display_matrix(&matrix(degrees, true, false)),
-                shown(turns, true),
-                "{degrees}° mirrored"
-            );
-        }
-    }
-
-    #[test]
-    fn a_degenerate_matrix_shows_the_picture_as_stored() {
-        let zero = [0; 9];
-        assert_eq!(
-            Orientation::from_display_matrix(&zero),
-            Orientation::default()
-        );
-        let flat = [65536, 0, 0, 0, 0, 0, 0, 0, 1 << 30];
-        assert_eq!(
-            Orientation::from_display_matrix(&flat),
-            Orientation::default()
-        );
-        assert_eq!(
-            Orientation::from_display_matrix(&[i32::MIN; 9]),
-            Orientation::default()
+            Orientation::from_display_matrix(&matrix(degrees, hflip, vflip)),
+            expected
         );
     }
 
-    #[test]
-    fn fit_limits_the_displayed_width_and_keeps_the_aspect() {
-        assert_eq!(fit(1600, 200, false, 1280), (1280, 160));
-        // On its side, the stored height is what is shown across.
-        assert_eq!(fit(200, 1600, true, 1280), (160, 1280));
-        // A wide frame shown on its side is already narrow enough.
-        assert_eq!(fit(1600, 200, true, 1280), (1600, 200));
+    #[rstest]
+    #[case::zero([0; 9])]
+    #[case::flattened_to_a_line([65536, 0, 0, 0, 0, 0, 0, 0, 1 << 30])]
+    #[case::all_min([i32::MIN; 9])]
+    fn a_singular_matrix_shows_the_picture_as_stored(#[case] m: [i32; 9]) {
+        assert_eq!(Orientation::from_display_matrix(&m), Orientation::default());
     }
 
-    #[test]
-    fn fit_never_enlarges_and_never_scales_to_nothing() {
-        assert_eq!(fit(16, 8, false, 1280), (16, 8));
-        assert_eq!(fit(1280, 720, false, 1280), (1280, 720));
-        assert_eq!(fit(1281, 720, false, 1280), (1280, 719));
-        assert_eq!(fit(10_000, 1, false, 100), (100, 1));
-        assert_eq!(fit(1, 10_000, true, 100), (1, 100));
-        assert_eq!(fit(0, 0, false, 100), (1, 1));
-        // Rounds to nearest, not down.
-        assert_eq!(fit(3, 2, false, 2), (2, 1));
-        assert_eq!(fit(3, 5, false, 2), (2, 3));
+    #[rstest]
+    #[case::wide(1600, 200, false, 1280, (1280, 160))]
+    // On its side, the stored height is what is shown across.
+    #[case::tall_on_its_side(200, 1600, true, 1280, (160, 1280))]
+    // A wide frame shown on its side is already narrow enough.
+    #[case::wide_on_its_side(1600, 200, true, 1280, (1600, 200))]
+    #[case::small(16, 8, false, 1280, (16, 8))]
+    #[case::exactly_the_limit(1280, 720, false, 1280, (1280, 720))]
+    #[case::one_over_the_limit(1281, 720, false, 1280, (1280, 719))]
+    #[case::thin_line(10_000, 1, false, 100, (100, 1))]
+    #[case::thin_line_on_its_side(1, 10_000, true, 100, (1, 100))]
+    #[case::empty_is_one_pixel(0, 0, false, 100, (1, 1))]
+    // Rounds to nearest, not down.
+    #[case::rounds_half_up(3, 2, false, 2, (2, 1))]
+    #[case::rounds_to_nearest(3, 5, false, 2, (2, 3))]
+    fn fit_limits_the_shown_width_without_enlarging(
+        #[case] width: u32,
+        #[case] height: u32,
+        #[case] sideways: bool,
+        #[case] max_width: u32,
+        #[case] expected: (u32, u32),
+    ) {
+        assert_eq!(fit(width, height, sideways, max_width), expected);
     }
 
     /// A 3×2 picture whose pixel at (x, y) is `[x, y, 9, 255]`, stored with
     /// two bytes of row padding as FFmpeg's aligned frames have.
+    #[fixture]
     fn picture() -> (Vec<u8>, usize) {
         let stride = 3 * 4 + 2;
         let mut data = vec![0xEE; stride * 2];
@@ -267,60 +261,34 @@ mod tests {
         rgba.chunks(4).map(|p| (p[0], p[1])).collect()
     }
 
-    #[test]
-    fn orient_turns_each_pixel_clockwise_and_skips_row_padding() {
-        let (data, stride) = picture();
-        let turned = |turns| orient(3, 2, shown(turns, false), |y| &data[y * stride..]);
-        // Source, as (x, y) of where each output pixel came from:
-        //   (0,0) (1,0) (2,0)
-        //   (0,1) (1,1) (2,1)
-        assert_eq!(
-            pixels(&turned(0)),
-            [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]
-        );
-        // One clockwise turn: 2 wide, 3 tall, the bottom row now on the left.
-        assert_eq!(
-            pixels(&turned(1)),
-            [(0, 1), (0, 0), (1, 1), (1, 0), (2, 1), (2, 0)]
-        );
-        assert_eq!(
-            pixels(&turned(2)),
-            [(2, 1), (1, 1), (0, 1), (2, 0), (1, 0), (0, 0)]
-        );
-        assert_eq!(
-            pixels(&turned(3)),
-            [(2, 0), (2, 1), (1, 0), (1, 1), (0, 0), (0, 1)]
-        );
-        for turns in 0..4 {
-            let rgba = turned(turns);
-            assert_eq!(rgba.len(), 3 * 2 * 4);
-            assert!(rgba.chunks(4).all(|p| p[2..] == [9, 255]), "padding leaked");
-        }
+    // Where each output pixel came from, as its (x, y) in the source:
+    //   (0,0) (1,0) (2,0)
+    //   (0,1) (1,1) (2,1)
+    #[rstest]
+    #[case::stored(shown(0, false), [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)])]
+    // 2 wide, 3 tall, the bottom row now on the left.
+    #[case::quarter(shown(1, false), [(0, 1), (0, 0), (1, 1), (1, 0), (2, 1), (2, 0)])]
+    #[case::half(shown(2, false), [(2, 1), (1, 1), (0, 1), (2, 0), (1, 0), (0, 0)])]
+    #[case::three_quarters(shown(3, false), [(2, 0), (2, 1), (1, 0), (1, 1), (0, 0), (0, 1)])]
+    #[case::mirrored(shown(0, true), [(2, 0), (1, 0), (0, 0), (2, 1), (1, 1), (0, 1)])]
+    // Turned on its side, then each 2-wide row read right to left.
+    #[case::quarter_mirrored(shown(1, true), [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)])]
+    // A half turn mirrored is a vertical flip.
+    #[case::half_mirrored(shown(2, true), [(0, 1), (1, 1), (2, 1), (0, 0), (1, 0), (2, 0)])]
+    fn orient_places_each_pixel_and_skips_row_padding(
+        picture: (Vec<u8>, usize),
+        #[case] orientation: Orientation,
+        #[case] expected: [(u8, u8); 6],
+    ) {
+        let (data, stride) = picture;
+        let rgba = orient(3, 2, orientation, |y| &data[y * stride..]);
+        assert_eq!(pixels(&rgba), expected);
+        assert!(rgba.chunks(4).all(|p| p[2..] == [9, 255]), "padding leaked");
     }
 
-    #[test]
-    fn orient_mirrors_after_turning() {
-        let (data, stride) = picture();
-        let mirrored = |turns| orient(3, 2, shown(turns, true), |y| &data[y * stride..]);
-        assert_eq!(
-            pixels(&mirrored(0)),
-            [(2, 0), (1, 0), (0, 0), (2, 1), (1, 1), (0, 1)]
-        );
-        // Turned on its side, then each 2-wide row read right to left.
-        assert_eq!(
-            pixels(&mirrored(1)),
-            [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]
-        );
-        // A half turn mirrored is a vertical flip.
-        assert_eq!(
-            pixels(&mirrored(2)),
-            [(0, 1), (1, 1), (2, 1), (0, 0), (1, 0), (2, 0)]
-        );
-    }
-
-    #[test]
-    fn four_quarter_turns_are_the_identity_and_two_mirrors_cancel() {
-        let (data, stride) = picture();
+    #[rstest]
+    fn four_quarter_turns_are_the_identity_and_two_mirrors_cancel(picture: (Vec<u8>, usize)) {
+        let (data, stride) = picture;
         let stored = orient(3, 2, Orientation::default(), |y| &data[y * stride..]);
         let mut rgba = stored.clone();
         let (mut width, mut height) = (3, 2);
@@ -333,57 +301,56 @@ mod tests {
         assert_eq!(orient(3, 2, shown(0, true), |y| &once[y * 12..]), stored);
     }
 
-    #[test]
-    fn seconds_divides_by_the_time_base() {
-        assert_eq!(seconds(0, 1, 25), Some(0.0));
-        assert_eq!(seconds(1, 1, 25), Some(0.04));
-        assert_eq!(
-            seconds(3003, 1001, 30_000),
-            Some(3003.0 * 1001.0 / 30_000.0)
-        );
-        assert_eq!(seconds(-50, 1, 100), Some(-0.5));
-        for (num, den) in [(1, 0), (0, 1), (-1, 25), (1, -25)] {
-            assert_eq!(seconds(1, num, den), None, "{num}/{den}");
-        }
+    #[rstest]
+    #[case::start(0, 1, 25, 0.0)]
+    #[case::one_frame_at_25(1, 1, 25, 0.04)]
+    #[case::ntsc(3003, 1001, 30_000, 3003.0 * 1001.0 / 30_000.0)]
+    #[case::before_the_start(-50, 1, 100, -0.5)]
+    fn seconds_divides_by_the_time_base(
+        #[case] ticks: i64,
+        #[case] num: i32,
+        #[case] den: i32,
+        #[case] expected: f64,
+    ) {
+        assert_eq!(seconds(ticks, num, den), Some(expected));
     }
 
-    #[test]
-    fn frame_duration_prefers_the_frame_then_the_rate_then_30_fps() {
-        let ms = Duration::from_millis;
-        assert_eq!(frame_duration(Some(0.04), (25, 1)), ms(40));
-        assert_eq!(frame_duration(Some(0.04), (0, 0)), ms(40));
-        assert_eq!(frame_duration(None, (25, 1)), ms(40));
-        assert_eq!(frame_duration(Some(0.0), (50, 1)), ms(20));
-        assert_eq!(frame_duration(Some(-1.0), (50, 1)), ms(20));
-        assert_eq!(
-            frame_duration(None, (30_000, 1001)),
-            Duration::from_secs_f64(1001.0 / 30_000.0)
-        );
-        let fallback = Duration::from_nanos(33_333_333);
-        assert_eq!(frame_duration(None, (0, 1)), fallback);
-        assert_eq!(frame_duration(None, (25, 0)), fallback);
-        assert_eq!(frame_duration(None, (-25, 1)), fallback);
-        assert_eq!(frame_duration(Some(f64::NAN), (0, 0)), fallback);
+    #[rstest]
+    fn seconds_refuses_a_time_base_that_cannot_be_one(
+        #[values((1, 0), (0, 1), (-1, 25), (1, -25))] base: (i32, i32),
+    ) {
+        assert_eq!(seconds(1, base.0, base.1), None);
     }
 
-    #[test]
-    fn frame_duration_caps_a_corrupt_duration() {
-        // Found by `every_frame_shows_for_a_while_but_not_forever`: these
-        // rounded to a zero Duration.
-        let floor = Duration::from_millis(1);
-        assert_eq!(frame_duration(Some(5e-115), (0, 0)), floor);
-        assert_eq!(frame_duration(None, (i32::MAX, 1)), floor);
-        let cap = Duration::from_secs(10);
-        assert_eq!(frame_duration(Some(1e9), (25, 1)), cap);
-        assert_eq!(
-            frame_duration(Some(f64::INFINITY), (25, 1)),
-            Duration::from_millis(40)
-        );
-        assert_eq!(frame_duration(None, (1, 3600)), cap);
-        assert_eq!(
-            frame_duration(Some(9.5), (0, 0)),
-            Duration::from_secs_f64(9.5)
-        );
+    const MS_40: Duration = Duration::from_millis(40);
+    const MS_20: Duration = Duration::from_millis(20);
+    const FALLBACK: Duration = Duration::from_nanos(33_333_333);
+
+    #[rstest]
+    #[case::own_duration(Some(0.04), (25, 1), MS_40)]
+    #[case::own_duration_without_a_rate(Some(0.04), (0, 0), MS_40)]
+    #[case::rate(None, (25, 1), MS_40)]
+    #[case::zero_duration_uses_the_rate(Some(0.0), (50, 1), MS_20)]
+    #[case::negative_duration_uses_the_rate(Some(-1.0), (50, 1), MS_20)]
+    #[case::infinite_duration_uses_the_rate(Some(f64::INFINITY), (25, 1), MS_40)]
+    #[case::ntsc_rate(None, (30_000, 1001), Duration::from_secs_f64(1001.0 / 30_000.0))]
+    #[case::zero_rate(None, (0, 1), FALLBACK)]
+    #[case::zero_rate_denominator(None, (25, 0), FALLBACK)]
+    #[case::negative_rate(None, (-25, 1), FALLBACK)]
+    #[case::nan_duration(Some(f64::NAN), (0, 0), FALLBACK)]
+    #[case::just_under_the_cap(Some(9.5), (0, 0), Duration::from_secs_f64(9.5))]
+    #[case::capped_duration(Some(1e9), (25, 1), Duration::from_secs(10))]
+    #[case::capped_rate(None, (1, 3600), Duration::from_secs(10))]
+    // Found by `every_frame_shows_for_a_while_but_not_forever`: these rounded
+    // to a zero Duration.
+    #[case::tiny_duration(Some(5e-115), (0, 0), Duration::from_millis(1))]
+    #[case::absurd_rate(None, (i32::MAX, 1), Duration::from_millis(1))]
+    fn frame_duration_prefers_the_frame_then_the_rate_then_30_fps(
+        #[case] own: Option<f64>,
+        #[case] rate: (i32, i32),
+        #[case] expected: Duration,
+    ) {
+        assert_eq!(frame_duration(own, rate), expected);
     }
 
     // --- properties ----------------------------------------------------------
