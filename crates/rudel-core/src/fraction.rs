@@ -334,33 +334,43 @@ impl fmt::Debug for Frac {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use rstest::rstest;
 
     fn small_frac() -> impl Strategy<Value = Frac> {
         (-10_000i64..=10_000, 1i64..=10_000).prop_map(|(n, d)| Frac::new(n, d))
     }
 
+    // The fractions tunes are made of come back exactly, however they were spelled
+    // — `1/6` used to arrive as `166667/1000000`, and every span derived from it
+    // inherited that denominator.
+    #[rstest]
+    #[case(0.1875, 3, 16)]
+    #[case(1.0 / 6.0, 1, 6)]
+    #[case(2.0 / 3.0, 2, 3)]
+    #[case(1.0 / 3.0, 1, 3)]
+    #[case(0.1, 1, 10)]
+    #[case(0.125, 1, 8)]
+    #[case(-0.75, -3, 4)]
+    #[case(1.0 / 12.0, 1, 12)]
+    fn from_f64_recovers_the_fraction_the_user_wrote(
+        #[case] x: f64,
+        #[case] n: i64,
+        #[case] d: i64,
+    ) {
+        assert_eq!(Frac::from_f64(x), Frac::new(n, d));
+    }
+
     #[test]
-    fn from_f64_recovers_the_fraction_the_user_wrote() {
-        // The fractions tunes are made of come back exactly, however they were
-        // spelled — `1/6` used to arrive as `166667/1000000`, and every span
-        // derived from it inherited that denominator.
-        for (x, n, d) in [
-            (0.1875, 3, 16),
-            (1.0 / 6.0, 1, 6),
-            (2.0 / 3.0, 2, 3),
-            (1.0 / 3.0, 1, 3),
-            (0.1, 1, 10),
-            (0.125, 1, 8),
-            (-0.75, -3, 4),
-            (1.0 / 12.0, 1, 12),
-        ] {
-            assert_eq!(Frac::from_f64(x), Frac::new(n, d), "{x}");
-        }
+    fn from_f64_keeps_integers_exact_and_zeroes_non_finite_input() {
         // Integers stay exact, and non-finite input is zero rather than a panic.
         assert_eq!(Frac::from_f64(4.0), Frac::int(4));
         assert_eq!(Frac::from_f64(-0.0), Frac::zero());
         assert_eq!(Frac::from_f64(f64::NAN), Frac::zero());
         assert_eq!(Frac::from_f64(f64::INFINITY), Frac::zero());
+    }
+
+    #[test]
+    fn from_f64_bounds_the_denominator_of_an_irrational() {
         // A value with no small rational behind it is still bounded, and still
         // close: the denominator cap is what keeps pattern arithmetic from
         // overflowing on 2^52-denominator exact conversions.

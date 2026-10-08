@@ -198,6 +198,7 @@ pub(crate) type SharedRecorder = Arc<Recorder>;
 mod tests {
     use super::*;
     use encode::{to_i16, wav_header};
+    use rstest::rstest;
 
     /// A second of a 440 Hz tone, interleaved stereo, as the mixer would hand
     /// it over: real signal, so an encoder that drops it is visible in the
@@ -315,24 +316,24 @@ mod tests {
         (sample.sample_rate, seconds, rms)
     }
 
-    #[test]
-    fn every_format_decodes_back_to_the_second_of_audio_it_was_given() {
-        // symphonia reads WAV, FLAC, MP3 and Vorbis; it has no Opus decoder,
-        // which is checked by its container instead below.
-        for name in ["decode.wav", "decode.flac", "decode.mp3", "decode.ogg"] {
-            let (rate, seconds, rms) = decoded(&take(name, 48_000));
-            assert_eq!(rate, 48_000.0, "{name} decoded at the wrong rate");
-            assert!(
-                (seconds - 1.0).abs() < 0.1,
-                "{name} decoded to {seconds}s, not the second it was given"
-            );
-            // The tone is 0.5 amplitude; anything in this band is the signal
-            // rather than silence or noise.
-            assert!(
-                (0.1..0.5).contains(&rms),
-                "{name} decoded to rms {rms}: not the tone"
-            );
-        }
+    // symphonia reads WAV, FLAC, MP3 and Vorbis; it has no Opus decoder, which is
+    // checked by its container instead below.
+    #[rstest]
+    fn every_format_decodes_back_to_the_second_of_audio_it_was_given(
+        #[values("decode.wav", "decode.flac", "decode.mp3", "decode.ogg")] name: &str,
+    ) {
+        let (rate, seconds, rms) = decoded(&take(name, 48_000));
+        assert_eq!(rate, 48_000.0, "decoded at the wrong rate");
+        assert!(
+            (seconds - 1.0).abs() < 0.1,
+            "decoded to {seconds}s, not the second it was given"
+        );
+        // The tone is 0.5 amplitude; anything in this band is the signal rather
+        // than silence or noise.
+        assert!(
+            (0.1..0.5).contains(&rms),
+            "decoded to rms {rms}: not the tone"
+        );
     }
 
     #[test]
@@ -448,50 +449,47 @@ mod tests {
         (2.0 * re.hypot(im) / n, rms)
     }
 
-    #[test]
-    fn an_opus_take_decodes_back_to_the_tone_it_was_given() {
+    // Opus is lossy, so this is the closest thing to the exactness FLAC gets: the
+    // tone has to come back at roughly the amplitude it went in with, and nothing
+    // else with it. It is the check that caught `opus-rs` encoding noise at 24 kHz,
+    // which is why that rate is not offered.
+    //
+    // 12 kHz is missing because `opus-rs`'s *decoder* is wrong there, not its
+    // encoder: a 12 kHz take decodes correctly through libopus, and through this
+    // one as inflated noise. Encoding is all rudel does, so the rate stays — it
+    // just cannot check itself without a C decoder.
+    #[rstest]
+    fn an_opus_take_decodes_back_to_the_tone_it_was_given(
+        #[values(8_000, 16_000, 48_000)] rate: u32,
+    ) {
         let dir = tempfile::tempdir().unwrap();
-        // Opus is lossy, so this is the closest thing to the exactness FLAC
-        // gets: the tone has to come back at roughly the amplitude it went in
-        // with, and nothing else with it. It is the check that caught `opus-rs`
-        // encoding noise at 24 kHz, which is why that rate is not offered.
-        //
-        // 12 kHz is missing because `opus-rs`'s *decoder* is wrong there, not
-        // its encoder: a 12 kHz take decodes correctly through libopus, and
-        // through this one as inflated noise. Encoding is all rudel does, so
-        // the rate stays — it just cannot check itself without a C decoder.
-        for rate in [8_000u32, 16_000, 48_000] {
-            let path = dir.path().join(format!("tone-{rate}.opus"));
-            let rec = Recorder::default();
-            rec.start(&path, rate as f32).unwrap();
-            let tone: Vec<(f32, f32)> = (0..rate)
-                .map(|i| {
-                    let t = i as f32 / rate as f32;
-                    let s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.4;
-                    (s, s)
-                })
-                .collect();
-            for chunk in tone.chunks(1024) {
-                rec.push(chunk);
-            }
-            rec.stop().unwrap();
-            let bytes = std::fs::read(&path).unwrap();
-
-            let (tone_440, rms) = opus_tone(&bytes, rate, 440.0);
-            let (off, _) = opus_tone(&bytes, rate, 900.0);
-            assert!(
-                (0.25..0.55).contains(&tone_440),
-                "{rate} Hz: 440 Hz came back at {tone_440}, not the 0.4 it went in at"
-            );
-            assert!(
-                off < tone_440 / 4.0,
-                "{rate} Hz: {off} at 900 Hz is not a tone the take contained"
-            );
-            assert!(
-                (0.15..0.6).contains(&rms),
-                "{rate} Hz: rms {rms} is not a 0.4 sine"
-            );
+        let path = dir.path().join(format!("tone-{rate}.opus"));
+        let rec = Recorder::default();
+        rec.start(&path, rate as f32).unwrap();
+        let tone: Vec<(f32, f32)> = (0..rate)
+            .map(|i| {
+                let t = i as f32 / rate as f32;
+                let s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.4;
+                (s, s)
+            })
+            .collect();
+        for chunk in tone.chunks(1024) {
+            rec.push(chunk);
         }
+        rec.stop().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+
+        let (tone_440, rms) = opus_tone(&bytes, rate, 440.0);
+        let (off, _) = opus_tone(&bytes, rate, 900.0);
+        assert!(
+            (0.25..0.55).contains(&tone_440),
+            "440 Hz came back at {tone_440}, not the 0.4 it went in at"
+        );
+        assert!(
+            off < tone_440 / 4.0,
+            "{off} at 900 Hz is not a tone the take contained"
+        );
+        assert!((0.15..0.6).contains(&rms), "rms {rms} is not a 0.4 sine");
     }
 
     #[test]

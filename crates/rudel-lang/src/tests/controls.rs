@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn bank_control_sets_the_bank_key() {
@@ -106,71 +107,60 @@ fn ctrl_sets_an_arbitrary_control_key() {
     }
 }
 
-#[test]
-fn filter_and_transpose_aliases_resolve() {
-    // Previously-missing aliases should now evaluate without error.
-    for src in [
-        r#"note("c2").lpf(800).lpq(0.5)"#,
-        r#"note("c2").hpf(400).bpf("200 800")"#,
-        r#"note("c2").trans(7)"#,
-        r#"note("c2").s("sawtooth").attack(0.1).decay(0.1).sustain(0.2).release(0.1)"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
+// Previously-missing aliases should now evaluate without error.
+#[rstest]
+#[case(r#"note("c2").lpf(800).lpq(0.5)"#)]
+#[case(r#"note("c2").hpf(400).bpf("200 800")"#)]
+#[case(r#"note("c2").trans(7)"#)]
+#[case(r#"note("c2").s("sawtooth").attack(0.1).decay(0.1).sustain(0.2).release(0.1)"#)]
+fn filter_and_transpose_aliases_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
+}
+
+#[rstest]
+#[case(r#"note("c2").s("sawtooth").lpf(200).lpenv(4).lpa(0.1).lpd(0.2)"#)]
+#[case(r#"note("c2").hpf(2000).hpenv(-3)"#)]
+#[case(r#"s("white pink brown").lpf(1000)"#)]
+#[case(r#"note("c2").s("saw").vowel("<a e i o>")"#)]
+fn filter_envelopes_and_noise_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
+}
+
+#[rstest]
+#[case(r#"note("c2").s("supersaw").unison(7).detune(20).spread(0.4)"#)]
+#[case(r#"note("c3").s("sine").fm(4).fmh(2)"#)]
+#[case(r#"note("c3").s("sine").fm(8).fmh(3).fmwave("square").fmattack(0.2).fmdecay(0.1).fmsustain(0.3).fmrelease(0.2)"#)]
+// two-operator FM chain via named op-2 controls
+#[case(r#"note("c3").s("sine").fm(4).fmh(2).fmi2(5).fmh2(3).fmwave2("triangle")"#)]
+// arbitrary matrix edge / higher operator via the generic ctrl
+#[case(r#"note("c3").s("sine").fm(4).ctrl("fmi20", 3).ctrl("fmh3", 1.5)"#)]
+#[case(r#"note("c3").s("pulse").pw("<0.1 0.5 0.9>")"#)]
+#[case(r#"note("c3").s("saw").noise(0.3).penv(12).pattack(0.2).pcurve(1)"#)]
+#[case(r#"s("bd*4").adsr("0.01:0.1:0:0.1")"#)]
+#[case(r#"note("c3").s("saw").ad("0.01:0.2").hold(0.3)"#)]
+fn supersaw_fm_adsr_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
+}
+
+#[rstest]
+#[case(r#"note("c3").s("sine").vib(6).vibmod(0.5)"#)]
+#[case(r#"note("c3").s("saw").penv(12).patt(0.2)"#)]
+#[case(r#"note("c3").vibrato(5).vmod(1)"#)]
+fn vibrato_and_pitch_env_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
+}
+
+#[rstest]
+#[case(r#"note("c3").s("saw").tremolo(4).tremolodepth(0.6)"#)]
+#[case(r#"note("c3").s("saw").phaser(0.5).phaserdepth(0.8)"#)]
+#[case(r#"note("c3").s("saw").phaserrate(1).phasercenter(800).phasersweep(1500)"#)]
+fn tremolo_phaser_controls_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
 }
 
 #[test]
-fn filter_envelopes_and_noise_resolve() {
-    for src in [
-        r#"note("c2").s("sawtooth").lpf(200).lpenv(4).lpa(0.1).lpd(0.2)"#,
-        r#"note("c2").hpf(2000).hpenv(-3)"#,
-        r#"s("white pink brown").lpf(1000)"#,
-        r#"note("c2").s("saw").vowel("<a e i o>")"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
-}
-
-#[test]
-fn supersaw_fm_adsr_resolve() {
-    for src in [
-        r#"note("c2").s("supersaw").unison(7).detune(20).spread(0.4)"#,
-        r#"note("c3").s("sine").fm(4).fmh(2)"#,
-        r#"note("c3").s("sine").fm(8).fmh(3).fmwave("square").fmattack(0.2).fmdecay(0.1).fmsustain(0.3).fmrelease(0.2)"#,
-        // two-operator FM chain via named op-2 controls
-        r#"note("c3").s("sine").fm(4).fmh(2).fmi2(5).fmh2(3).fmwave2("triangle")"#,
-        // arbitrary matrix edge / higher operator via the generic ctrl
-        r#"note("c3").s("sine").fm(4).ctrl("fmi20", 3).ctrl("fmh3", 1.5)"#,
-        r#"note("c3").s("pulse").pw("<0.1 0.5 0.9>")"#,
-        r#"note("c3").s("saw").noise(0.3).penv(12).pattack(0.2).pcurve(1)"#,
-        r#"s("bd*4").adsr("0.01:0.1:0:0.1")"#,
-        r#"note("c3").s("saw").ad("0.01:0.2").hold(0.3)"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
-}
-
-#[test]
-fn vibrato_and_pitch_env_resolve() {
-    for src in [
-        r#"note("c3").s("sine").vib(6).vibmod(0.5)"#,
-        r#"note("c3").s("saw").penv(12).patt(0.2)"#,
-        r#"note("c3").vibrato(5).vmod(1)"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
-}
-
-#[test]
-fn tremolo_phaser_controls_resolve() {
-    for src in [
-        r#"note("c3").s("saw").tremolo(4).tremolodepth(0.6)"#,
-        r#"note("c3").s("saw").phaser(0.5).phaserdepth(0.8)"#,
-        r#"note("c3").s("saw").phaserrate(1).phasercenter(800).phasersweep(1500)"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
-    // the control lands on the hap map under its own key
+fn the_tremolo_control_lands_on_the_event_map() {
+    // The control lands on the hap map under its own key.
     let pat = eval(r#"note("c3").tremolo(4)"#).expect("eval");
     let has = pat
         .query_arc(Frac::zero(), Frac::one())
@@ -182,26 +172,27 @@ fn tremolo_phaser_controls_resolve() {
     assert!(has, "tremolo control should be set on the event map");
 }
 
+// A sampling of the wider Strudel control surface: wavetable/warp, ducking,
+// byte-beat, compressor, ZZFX, MIDI, and short aliases.
+#[rstest]
+#[case::wavetable(r#"note("c3").s("saw").wt(0.5).wtenv(1).warp(0.2).warpmode("sync")"#)]
+#[case::ducking(r#"s("bd").duck(1).duckdepth(0.5).duckattack(0.1)"#)]
+#[case::bytebeat(r#"s("bd").bb("t*128").bbst(2)"#)]
+#[case::compressor(r#"note("c3").compressor(-20).compressorRatio(4).compressorAttack(0.01)"#)]
+#[case::zzfx(r#"note("c3").zrand(0.1).zcrush(4).zzfx(1)"#)]
+#[case::midi(r#"note("c3").midichan(2).ccn(74).ccv(64).progNum(5)"#)]
+#[case::short_fx_aliases(r#"note("c3").s("saw").ph(2).trem(4).dt(0.25).dfb(0.5).djf(0.3)"#)]
+#[case::supercollider_aliases(r#"note("c3").amp(0.8).dur(0.5).gate(0.9).octave(5).oct(4)"#)]
+#[case::drive_aliases(r#"note("c3").distort(2).dist(1).squiz(2).chorus(0.5).drive(0.7)"#)]
+#[case::fade_aliases(r#"s("bd").fadeTime(1).fadeOutTime(2).FXrelease(0.3).fxr(0.3)"#)]
+fn extended_strudel_controls_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
+}
+
 #[test]
-fn extended_strudel_controls_resolve() {
-    // A sampling of the wider Strudel control surface: wavetable/warp,
-    // ducking, byte-beat, compressor, ZZFX, MIDI, and short aliases.
-    for src in [
-        r#"note("c3").s("saw").wt(0.5).wtenv(1).warp(0.2).warpmode("sync")"#,
-        r#"s("bd").duck(1).duckdepth(0.5).duckattack(0.1)"#,
-        r#"s("bd").bb("t*128").bbst(2)"#,
-        r#"note("c3").compressor(-20).compressorRatio(4).compressorAttack(0.01)"#,
-        r#"note("c3").zrand(0.1).zcrush(4).zzfx(1)"#,
-        r#"note("c3").midichan(2).ccn(74).ccv(64).progNum(5)"#,
-        r#"note("c3").s("saw").ph(2).trem(4).dt(0.25).dfb(0.5).djf(0.3)"#,
-        r#"note("c3").amp(0.8).dur(0.5).gate(0.9).octave(5).oct(4)"#,
-        r#"note("c3").distort(2).dist(1).squiz(2).chorus(0.5).drive(0.7)"#,
-        r#"s("bd").fadeTime(1).fadeOutTime(2).FXrelease(0.3).fxr(0.3)"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
-    // aliases canonicalize: `duck` writes Strudel's `duckorbit` key, and the
-    // camelCase method writes the camelCase key.
+fn control_aliases_canonicalize_onto_the_event_map() {
+    // `duck` writes Strudel's `duckorbit` key, and the camelCase method writes
+    // the camelCase key.
     let pat = eval(r#"s("bd").duck(1).compressorKnee(30)"#).expect("eval");
     let has = pat
         .query_arc(Frac::zero(), Frac::one())
@@ -278,16 +269,17 @@ fn as_and_scrub_via_script() {
     assert!(has, "scrub should set begin and clip");
 }
 
+#[rstest]
+#[case(r#"note("c3").s("sine").fm(4).fm2(2).fm3(1).fmh3(2.01).fmwave4("square")"#)]
+#[case(r#"note("c3").fmattack5(0.1).fmdec6(0.2).fmsus7(0.5).fmrel8(0.3)"#)]
+#[case(r#"note("c3").fmenv2("lin").fme3("exp")"#)]
+#[case(r#"note("c3").fmi13(0.5).fm20(3).fmi81(0.1)"#)]
+fn numbered_fm_controls_via_script(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
+}
+
 #[test]
-fn numbered_fm_controls_via_script() {
-    for src in [
-        r#"note("c3").s("sine").fm(4).fm2(2).fm3(1).fmh3(2.01).fmwave4("square")"#,
-        r#"note("c3").fmattack5(0.1).fmdec6(0.2).fmsus7(0.5).fmrel8(0.3)"#,
-        r#"note("c3").fmenv2("lin").fme3("exp")"#,
-        r#"note("c3").fmi13(0.5).fm20(3).fmi81(0.1)"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
+fn the_fm_matrix_alias_writes_the_canonical_key() {
     // matrix alias fm23 writes the canonical fmi23 key
     let pat = eval(r#"note("c3").fm23(0.5)"#).expect("eval");
     let has = pat
@@ -331,26 +323,23 @@ fn ftype_control_sets_its_key() {
     }
 }
 
-#[test]
-fn arithmetic_on_a_control_and_a_bare_scalar_is_a_no_op() {
-    // value.mjs `unionWithObj` issue #1026 guard: a control map combined with a
-    // bare scalar (wrapped to `{value: x}`) is refused — the control is returned
-    // unchanged. Verified against current Strudel: `n("0 2 4").add(7)` keeps
-    // `{n:0},{n:2},{n:4}` (Strudel also logs a warning we have no logger for).
-    for src in [
-        r#"n("0 2 4").add(7)"#,
-        r#"n("0 2 4").add("7")"#,
-        r#"n("0 2 4").mul(2)"#,
-    ] {
-        let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
-        for v in values(&pat, 0, 1) {
-            match v {
-                Value::Map(m) => {
-                    assert_eq!(m.len(), 1, "{src}: scalar leaked into control: {m:?}");
-                    assert!(m.contains_key("n"), "{src}: expected only `n`: {m:?}");
-                }
-                other => panic!("{src}: expected control map, got {other:?}"),
+// value.mjs `unionWithObj` issue #1026 guard: a control map combined with a bare
+// scalar (wrapped to `{value: x}`) is refused — the control is returned
+// unchanged. Verified against current Strudel: `n("0 2 4").add(7)` keeps
+// `{n:0},{n:2},{n:4}` (Strudel also logs a warning we have no logger for).
+#[rstest]
+#[case::add_number(r#"n("0 2 4").add(7)"#)]
+#[case::add_string(r#"n("0 2 4").add("7")"#)]
+#[case::mul(r#"n("0 2 4").mul(2)"#)]
+fn arithmetic_on_a_control_and_a_bare_scalar_is_a_no_op(#[case] src: &str) {
+    let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    for v in values(&pat, 0, 1) {
+        match v {
+            Value::Map(m) => {
+                assert_eq!(m.len(), 1, "scalar leaked into control: {m:?}");
+                assert!(m.contains_key("n"), "expected only `n`: {m:?}");
             }
+            other => panic!("expected control map, got {other:?}"),
         }
     }
 }
@@ -460,31 +449,32 @@ fn a_control_called_with_no_argument_promotes_the_pattern_it_is_on() {
     }
 }
 
-#[test]
-fn a_control_promotes_an_unnamed_value_however_it_is_called() {
-    // Strudel's `withVal` runs on all three of `createParam`'s paths, so a hap
-    // that already carries an unnamed `value` — which is what a `.color()` or
-    // `.label()` before the sound leaves behind — has it moved into the
-    // control's key rather than left inert beside an unset control.
-    //
-    // The controls that read a `:`-list (`s`, `mode`) and the multi-key spread
-    // controls write their own values rather than going through `with_val`, so
-    // each has to carry the rule too.
-    for (src, key, expected) in [
-        (r#""c3".color('red').note()"#, "note", "c3"), // bare method
-        (r#"note("c3".color('red'))"#, "note", "c3"),  // standalone function
-        (r#""cp".color('red').s()"#, "s", "cp"),
-        (r#"s("cp".color('red'))"#, "s", "cp"),
-        (r#"s(seq("bd", "cp".color('red')))"#, "s", "bd"),
-    ] {
-        let pat = eval(src).unwrap_or_else(|e| panic!("eval {src}: {e}"));
-        match &values(&pat, 0, 1)[0] {
-            Value::Map(m) => {
-                assert_eq!(m.get(key).and_then(|v| v.as_str()), Some(expected), "{src}");
-                assert!(m.get("value").is_none(), "value must not survive: {src}");
-            }
-            other => panic!("expected control map for {src}, got {other:?}"),
+// Strudel's `withVal` runs on all three of `createParam`'s paths, so a hap that
+// already carries an unnamed `value` — which is what a `.color()` or `.label()`
+// before the sound leaves behind — has it moved into the control's key rather
+// than left inert beside an unset control.
+//
+// The controls that read a `:`-list (`s`, `mode`) and the multi-key spread
+// controls write their own values rather than going through `with_val`, so each
+// has to carry the rule too.
+#[rstest]
+#[case::bare_method(r#""c3".color('red').note()"#, "note", "c3")]
+#[case::standalone_function(r#"note("c3".color('red'))"#, "note", "c3")]
+#[case::list_control_method(r#""cp".color('red').s()"#, "s", "cp")]
+#[case::list_control_function(r#"s("cp".color('red'))"#, "s", "cp")]
+#[case::inside_a_sequence(r#"s(seq("bd", "cp".color('red')))"#, "s", "bd")]
+fn a_control_promotes_an_unnamed_value_however_it_is_called(
+    #[case] src: &str,
+    #[case] key: &str,
+    #[case] expected: &str,
+) {
+    let pat = eval(src).unwrap_or_else(|e| panic!("eval {src}: {e}"));
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => {
+            assert_eq!(m.get(key).and_then(|v| v.as_str()), Some(expected));
+            assert!(m.get("value").is_none(), "value must not survive");
         }
+        other => panic!("expected control map, got {other:?}"),
     }
 }
 
@@ -544,15 +534,16 @@ fn animate_params_are_controls() {
     }
 }
 
+// No canvas here: `draw`/`onPaint` hand back the pattern, `animate` silence.
+#[rstest]
+fn canvas_painters_keep_upstream_return_values(
+    #[values(r#"s("bd sd").draw(() => 0, {})"#, r#"s("bd sd").onPaint(() => 0)"#)] src: &str,
+) {
+    assert_eq!(values(&eval(src).expect("eval"), 0, 1).len(), 2);
+}
+
 #[test]
-fn canvas_painters_keep_upstream_return_values() {
-    // No canvas here: `draw`/`onPaint` hand back the pattern, `animate` silence.
-    for src in [
-        r#"s("bd sd").draw(() => 0, {})"#,
-        r#"s("bd sd").onPaint(() => 0)"#,
-    ] {
-        assert_eq!(values(&eval(src).expect("eval"), 0, 1).len(), 2, "{src}");
-    }
+fn animate_without_a_canvas_is_silence() {
     let animated = eval(r#"x(sine).s("rect").animate()"#).expect("eval");
     assert!(values(&animated, 0, 1).is_empty());
 }

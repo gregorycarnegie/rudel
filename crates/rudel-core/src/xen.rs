@@ -433,6 +433,7 @@ impl Pattern {
 mod tests {
     use super::*;
     use crate::{Frac, i, pure, sequence};
+    use rstest::rstest;
 
     fn freqs(pat: &Pattern) -> Vec<f64> {
         let mut haps = pat.query_arc(Frac::zero(), Frac::one());
@@ -564,25 +565,27 @@ mod tests {
     }
 
     /// Concert pitch. These three conversions are used almost entirely from
-    /// rudel-audio and rudel-osc, so nothing in this crate called them and
-    /// nothing anywhere held a4 at 440 Hz — mutation testing walked off with
-    /// eighteen surviving mutants between `midi_to_freq` and `freq_to_midi`.
-    #[test]
-    fn midi_and_frequency_convert_at_concert_pitch() {
-        // a4, an octave up, an octave down, middle c.
-        for (midi, hz) in [
-            (69.0, 440.0),
-            (81.0, 880.0),
-            (57.0, 220.0),
-            (60.0, 261.625565300599),
-        ] {
-            approx_eq(midi_to_freq(midi), hz);
-            approx_eq(freq_to_midi(hz), midi);
-        }
-        // Fractional MIDI survives the round trip, so quarter tones hold.
-        approx_eq(freq_to_midi(midi_to_freq(69.5)), 69.5);
+    /// rudel-audio and rudel-osc, so nothing in this crate called them and nothing
+    /// anywhere held a4 at 440 Hz — mutation testing walked off with eighteen
+    /// surviving mutants between `midi_to_freq` and `freq_to_midi`.
+    #[rstest]
+    #[case::a4(69.0, 440.0)]
+    #[case::octave_up(81.0, 880.0)]
+    #[case::octave_down(57.0, 220.0)]
+    #[case::middle_c(60.0, 261.625565300599)]
+    fn midi_and_frequency_convert_at_concert_pitch(#[case] midi: f64, #[case] hz: f64) {
+        approx_eq(midi_to_freq(midi), hz);
+        approx_eq(freq_to_midi(hz), midi);
+    }
 
-        // get_freq takes a note name, a number, or a numeric string.
+    #[test]
+    fn fractional_midi_survives_the_round_trip() {
+        // So quarter tones hold.
+        approx_eq(freq_to_midi(midi_to_freq(69.5)), 69.5);
+    }
+
+    #[test]
+    fn get_freq_takes_a_note_name_a_number_or_a_numeric_string() {
         approx_eq(get_freq(&Value::Str("a4".into())).unwrap(), 440.0);
         approx_eq(get_freq(&Value::Int(69)).unwrap(), 440.0);
         approx_eq(get_freq(&Value::Str("69".into())).unwrap(), 440.0);

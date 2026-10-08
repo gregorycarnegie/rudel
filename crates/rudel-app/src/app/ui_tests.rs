@@ -9,6 +9,7 @@
 use super::RudelApp;
 use eframe::egui::{self, Key, Modifiers};
 use egui_kittest::{Harness, kittest::Queryable};
+use rstest::rstest;
 
 fn harness<'a>() -> Harness<'a, RudelApp> {
     let mut harness = Harness::builder()
@@ -848,25 +849,23 @@ fn a_hydra_widget_draws_at_its_size_in_physical_pixels() {
     assert!(shifted > still * 95 / 100, "{shifted} of {still}");
 }
 
-#[test]
-fn a_hydra_buffer_read_back_scaled_is_filtered_smoothly() {
-    // A hard-edged red circle in `o1`, read back zoomed in and then out: a
-    // linear sampler leaves partly-red pixels along the edge, a nearest one
-    // only full red and black.
+// A hard-edged red circle in `o1`, read back zoomed in and then out: a linear
+// sampler leaves partly-red pixels along the edge, a nearest one only full red
+// and black.
+#[rstest]
+fn a_hydra_buffer_read_back_scaled_is_filtered_smoothly(#[values("1.5", "0.5")] scale: &str) {
     let partly_red = |rgba: &[u8]| {
         rgba.chunks(4)
             .filter(|p| (50..205).contains(&p[0]) && p[1] < 20 && p[2] < 20)
             .count()
     };
-    for scale in ["1.5", "0.5"] {
-        let mut harness = gpu_app(&format!(
-            "s(\"bd\").hydra({{ chain: Hydra.src(Hydra.o1).scale({scale}), o1: Hydra.shape(60, 0.5, 0).color(1, 0, 0) }})"
-        ));
-        harness.render().expect("renders");
-        harness.run_steps(1);
-        let n = partly_red(harness.render().expect("renders").as_raw());
-        assert!(n > 40, "scale {scale}: {n}");
-    }
+    let mut harness = gpu_app(&format!(
+        "s(\"bd\").hydra({{ chain: Hydra.src(Hydra.o1).scale({scale}), o1: Hydra.shape(60, 0.5, 0).color(1, 0, 0) }})"
+    ));
+    harness.render().expect("renders");
+    harness.run_steps(1);
+    let n = partly_red(harness.render().expect("renders").as_raw());
+    assert!(n > 40, "{n}");
 }
 
 #[test]

@@ -360,6 +360,7 @@ pub(super) fn rewrite_editor_widgets_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     // The survivors here sat in the small helpers that decide *where* a widget
     // call is — `call_expression_start` walking back to the start of the
@@ -373,27 +374,26 @@ mod tests {
         (out, widgets)
     }
 
-    #[test]
-    fn public_and_underscored_widget_spellings_share_a_type() {
-        // `pianoroll` and `_pianoroll` are the same widget; the painter keys on
-        // the underscored form, so both have to land there.
-        for (public, inline) in [
-            ("pianoroll", "_pianoroll"),
-            ("punchcard", "_punchcard"),
-            ("spiral", "_spiral"),
-            ("fscope", "_fscope"),
-            ("pitchwheel", "_pitchwheel"),
-            ("spectrum", "_spectrum"),
-            ("wordfall", "_wordfall"),
-            ("claviature", "_claviature"),
-        ] {
-            assert_eq!(canonical_widget_type(public), inline, "{public}");
-            assert_eq!(canonical_widget_type(inline), inline, "{inline}");
-        }
-        // `scope` has a third spelling.
-        for spelling in ["scope", "tscope", "_scope"] {
-            assert_eq!(canonical_widget_type(spelling), "_scope", "{spelling}");
-        }
+    // `pianoroll` and `_pianoroll` are the same widget; the painter keys on the
+    // underscored form, so both have to land there.
+    #[rstest]
+    #[case("pianoroll", "_pianoroll")]
+    #[case("punchcard", "_punchcard")]
+    #[case("spiral", "_spiral")]
+    #[case("fscope", "_fscope")]
+    #[case("pitchwheel", "_pitchwheel")]
+    #[case("spectrum", "_spectrum")]
+    #[case("wordfall", "_wordfall")]
+    #[case("claviature", "_claviature")]
+    // `scope` has a third spelling.
+    #[case("scope", "_scope")]
+    #[case("tscope", "_scope")]
+    fn public_and_underscored_widget_spellings_share_a_type(
+        #[case] public: &str,
+        #[case] inline: &str,
+    ) {
+        assert_eq!(canonical_widget_type(public), inline);
+        assert_eq!(canonical_widget_type(inline), inline);
     }
 
     #[test]
@@ -582,20 +582,17 @@ note(\"d\")._pitchwheel()";
         assert_eq!(three.len(), 3);
     }
 
-    #[test]
-    fn an_unclosed_widget_call_is_left_alone_rather_than_hanging() {
-        // `parse_call` returns nothing for these, and the scan has to keep
-        // moving or the preprocessor never returns.
-        for src in [
-            r#"note("c")._spiral("#,
-            r#"note("c")._spiral(1, 2"#,
-            "slider(0.5",
-            "slider(",
-        ] {
-            let (out, widgets) = rewrite(src);
-            assert!(widgets.is_empty(), "no widget from {src:?}");
-            assert_eq!(out, src, "source unchanged for {src:?}");
-        }
+    // `parse_call` returns nothing for these, and the scan has to keep moving or
+    // the preprocessor never returns.
+    #[rstest]
+    #[case::method_no_arguments(r#"note("c")._spiral("#)]
+    #[case::method_with_arguments(r#"note("c")._spiral(1, 2"#)]
+    #[case::slider_with_value("slider(0.5")]
+    #[case::slider_bare("slider(")]
+    fn an_unclosed_widget_call_is_left_alone_rather_than_hanging(#[case] src: &str) {
+        let (out, widgets) = rewrite(src);
+        assert!(widgets.is_empty(), "no widget");
+        assert_eq!(out, src, "source unchanged");
     }
 
     #[test]
@@ -711,20 +708,14 @@ note(\"d\")._pitchwheel()";
         }
     }
 
-    #[test]
-    fn a_slider_inside_a_string_or_comment_is_not_rewritten() {
-        // The same guards the visual path has, on the slider branch.
-        for src in [
-            r#"s("slider(0.5)")"#,
-            "// slider(0.5)",
-            "/* slider(0.5) */",
-            r#"x = 'slider(0.5)'"#,
-        ] {
-            assert!(
-                sliders(src).is_empty(),
-                "a quoted or commented slider is not a widget: {src}"
-            );
-        }
+    // The same guards the visual path has, on the slider branch.
+    #[rstest]
+    #[case::double_quoted(r#"s("slider(0.5)")"#)]
+    #[case::line_comment("// slider(0.5)")]
+    #[case::block_comment("/* slider(0.5) */")]
+    #[case::single_quoted(r#"x = 'slider(0.5)'"#)]
+    fn a_slider_inside_a_string_or_comment_is_not_rewritten(#[case] src: &str) {
+        assert!(sliders(src).is_empty());
     }
 
     #[test]

@@ -315,6 +315,7 @@ fn tokenize_mini(body: &str, offset: usize, tokens: &mut Vec<(usize, usize, Toke
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     /// A small highlight-ident set standing in for the runtime-generated one.
     fn test_idents() -> HashSet<String> {
@@ -333,27 +334,25 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn the_token_stream_tiles_the_whole_source() {
-        // Spans are contiguous, non-empty and cover every byte exactly once.
-        // Any scanner that fails to advance, or advances twice, breaks this
-        // before it produces a visibly wrong colour.
-        for code in [
-            r#"s("bd*2 ~ hh")"#,
-            "// a comment\nx = 1",
-            r#"a("q\"z") / 2"#,
-            "note(\"c#4 -1.5\") 120",
-            r#"s("bd"#, // unterminated: must still reach the end, not loop
-            "",
-        ] {
-            let mut at = 0;
-            for (start, end, _) in tokenize(code, &test_idents()) {
-                assert_eq!(start, at, "gap or overlap at {at} in {code:?}");
-                assert!(end > start, "empty span at {start} in {code:?}");
-                at = end;
-            }
-            assert_eq!(at, code.len(), "did not reach the end of {code:?}");
+    // Spans are contiguous, non-empty and cover every byte exactly once. Any
+    // scanner that fails to advance, or advances twice, breaks this before it
+    // produces a visibly wrong colour.
+    #[rstest]
+    #[case::mini_notation(r#"s("bd*2 ~ hh")"#)]
+    #[case::comment("// a comment\nx = 1")]
+    #[case::escaped_quote(r#"a("q\"z") / 2"#)]
+    #[case::sharp_and_negative_numbers("note(\"c#4 -1.5\") 120")]
+    // Unterminated: must still reach the end, not loop.
+    #[case::unterminated(r#"s("bd"#)]
+    #[case::empty("")]
+    fn the_token_stream_tiles_the_whole_source(#[case] code: &str) {
+        let mut at = 0;
+        for (start, end, _) in tokenize(code, &test_idents()) {
+            assert_eq!(start, at, "gap or overlap at {at}");
+            assert!(end > start, "empty span at {start}");
+            at = end;
         }
+        assert_eq!(at, code.len(), "did not reach the end");
     }
 
     #[test]
@@ -490,19 +489,21 @@ mod tests {
         }
     }
 
+    // Flash spans carry their colour as a packed `0xRRGGBBAA` word so the span list
+    // stays `Copy`; the two halves have to agree.
+    #[rstest]
+    #[case::small_values(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4))]
+    #[case::extremes(egui::Color32::from_rgba_unmultiplied(255, 0, 128, 200))]
+    #[case::transparent(egui::Color32::TRANSPARENT)]
+    fn a_flash_colour_survives_the_round_trip_through_its_packed_form(
+        #[case] color: egui::Color32,
+    ) {
+        assert_eq!(unpack_color(pack_color(color)), color);
+    }
+
     #[test]
-    fn a_flash_colour_survives_the_round_trip_through_its_packed_form() {
-        // Flash spans carry their colour as a packed `0xRRGGBBAA` word so the
-        // span list stays `Copy`; the two halves have to agree.
-        for color in [
-            egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4),
-            egui::Color32::from_rgba_unmultiplied(255, 0, 128, 200),
-            egui::Color32::TRANSPARENT,
-        ] {
-            assert_eq!(unpack_color(pack_color(color)), color, "{color:?}");
-        }
-        // Distinct colours pack to distinct words, so neither direction is
-        // collapsing them.
+    fn distinct_flash_colours_pack_to_distinct_words() {
+        // So neither direction is collapsing them.
         assert_ne!(
             pack_color(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4)),
             pack_color(egui::Color32::from_rgba_unmultiplied(4, 3, 2, 1))

@@ -2,6 +2,7 @@ use super::engine::next_schedule_window;
 use super::*;
 use crate::scope::{SCOPE_TAP_LEN, ScopeTap};
 use crate::{Clock, SampleBank, collect_events};
+use rstest::rstest;
 use rudel_core::Pattern;
 
 fn test_volume(value: f64) -> Arc<AtomicU64> {
@@ -552,34 +553,36 @@ fn rms(frames: &[f32]) -> f32 {
     (frames.iter().map(|x| x * x).sum::<f32>() / frames.len().max(1) as f32).sqrt()
 }
 
-#[test]
-fn per_voice_filters_reach_the_fixed_recipe_voices() {
-    // The drum, ZZFX, bytebeat and bus voices render from a fixed recipe
-    // rather than from `VoiceParams`, so `lpf`/`hpf`/`bpf` used to pass
-    // straight through them — in Strudel every one of these is a sample or a
-    // node, and gets filtered like anything else. The filters themselves are
-    // the same code the oscillator voice runs and are golden-tested there;
-    // what this checks is that the chain is now *reached*.
-    //
-    // The probe has to suit the source: a bass drum is already almost
-    // entirely below 200Hz, so only a high-pass moves it, while a hi-hat is
-    // 7kHz noise a low-pass all but erases.
-    for (name, control, freq, max_ratio) in [
-        ("bd", "hcutoff", 2000.0, 0.1),
-        ("hh", "cutoff", 200.0, 0.01),
-        ("zzfx", "cutoff", 200.0, 0.5),
-        ("bytebeat", "cutoff", 200.0, 0.7),
-    ] {
-        let plain = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(name.into())));
-        let filtered = plain.clone().ctrl(control, rudel_core::Value::F64(freq));
-        let open = rms(&render_pattern(&plain, 1.0, 0.5));
-        let closed = rms(&render_pattern(&filtered, 1.0, 0.5));
-        assert!(open > 0.0, "{name} should make a sound");
-        assert!(
-            closed < open * max_ratio,
-            "{name}: {control}({freq}) should cut it below {max_ratio}x ({open} -> {closed})"
-        );
-    }
+// The drum, ZZFX, bytebeat and bus voices render from a fixed recipe rather
+// than from `VoiceParams`, so `lpf`/`hpf`/`bpf` used to pass straight through
+// them — in Strudel every one of these is a sample or a node, and gets
+// filtered like anything else. The filters themselves are the same code the
+// oscillator voice runs and are golden-tested there; what this checks is that
+// the chain is now *reached*.
+//
+// The probe has to suit the source: a bass drum is already almost entirely
+// below 200Hz, so only a high-pass moves it, while a hi-hat is 7kHz noise a
+// low-pass all but erases.
+#[rstest]
+#[case::bd("bd", "hcutoff", 2000.0, 0.1)]
+#[case::hh("hh", "cutoff", 200.0, 0.01)]
+#[case::zzfx("zzfx", "cutoff", 200.0, 0.5)]
+#[case::bytebeat("bytebeat", "cutoff", 200.0, 0.7)]
+fn per_voice_filters_reach_the_fixed_recipe_voices(
+    #[case] name: &str,
+    #[case] control: &str,
+    #[case] freq: f64,
+    #[case] max_ratio: f32,
+) {
+    let plain = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(name.into())));
+    let filtered = plain.clone().ctrl(control, rudel_core::Value::F64(freq));
+    let open = rms(&render_pattern(&plain, 1.0, 0.5));
+    let closed = rms(&render_pattern(&filtered, 1.0, 0.5));
+    assert!(open > 0.0, "{name} should make a sound");
+    assert!(
+        closed < open * max_ratio,
+        "{name}: {control}({freq}) should cut it below {max_ratio}x ({open} -> {closed})"
+    );
 }
 
 #[test]
@@ -1022,23 +1025,21 @@ fn scheduler_window_snaps_to_current_when_cursor_is_stale() {
 }
 
 #[test]
-fn scheduler_window_rejects_empty_and_non_finite_windows() {
+fn scheduler_window_rejects_an_empty_window() {
     // An exactly-empty window schedules nothing: `[begin, target)` with
     // begin == target would query a zero-width span every 20ms forever.
     assert!(next_schedule_window(5.05, 5.0, 5.05).is_none());
-    // A cps of 0 or a clock that has gone non-finite must not reach the
-    // pattern query — `collect_events_at` over a NaN span yields nothing
-    // useful and an infinite one would try to enumerate every cycle.
-    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        assert!(
-            next_schedule_window(5.0, bad, 5.05).is_none(),
-            "current {bad}"
-        );
-        assert!(
-            next_schedule_window(5.0, 5.0, bad).is_none(),
-            "target {bad}"
-        );
-    }
+}
+
+// A cps of 0 or a clock that has gone non-finite must not reach the pattern
+// query — `collect_events_at` over a NaN span yields nothing useful and an
+// infinite one would try to enumerate every cycle.
+#[rstest]
+fn scheduler_window_rejects_non_finite_windows(
+    #[values(f64::NAN, f64::INFINITY, f64::NEG_INFINITY)] bad: f64,
+) {
+    assert!(next_schedule_window(5.0, bad, 5.05).is_none(), "current");
+    assert!(next_schedule_window(5.0, 5.0, bad).is_none(), "target");
 }
 
 #[test]
@@ -1868,41 +1869,31 @@ fn assert_both_channels_audible(what: &str, out: &[(f32, f32)]) {
     assert!(l > floor && r > floor, "{what}: L {l:.6} R {r:.6}");
 }
 
-#[test]
-fn a_centred_voice_stays_centred_through_every_send_path() {
-    let long_note = 16384;
-    for (what, send) in [
-        (
-            "dry",
-            OrbitSend {
-                dry: 1.0,
-                ..Default::default()
-            },
-        ),
-        (
-            "delay",
-            OrbitSend {
-                dry: 0.0,
-                delay: 0.8,
-                delay_cfg: DelayConfig {
-                    time: 0.02,
-                    feedback: 0.6,
-                },
-                ..Default::default()
-            },
-        ),
-        (
-            "djf",
-            OrbitSend {
-                dry: 1.0,
-                djf: Some(0.2),
-                ..Default::default()
-            },
-        ),
-    ] {
-        assert_channels_agree(what, &render(send, long_note));
-    }
+#[rstest]
+#[case::dry(OrbitSend {
+    dry: 1.0,
+    ..Default::default()
+})]
+#[case::delay(OrbitSend {
+    dry: 0.0,
+    delay: 0.8,
+    delay_cfg: DelayConfig {
+        time: 0.02,
+        feedback: 0.6,
+    },
+    ..Default::default()
+})]
+#[case::djf(OrbitSend {
+    dry: 1.0,
+    djf: Some(0.2),
+    ..Default::default()
+})]
+fn a_centred_voice_stays_centred_through_every_send_path(#[case] send: OrbitSend) {
+    assert_channels_agree("send", &render(send, 16384));
+}
 
+#[test]
+fn a_centred_voice_stays_centred_through_the_choke_path() {
     // The per-sample choke branch accumulates separately from the ordinary one,
     // so it gets the same treatment — over a window long enough for the echo to
     // come back, which is the only way its delay accumulation is visible.
@@ -2937,10 +2928,12 @@ fn diff(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| (x - y).abs()).sum()
 }
 
-#[test]
-fn modulators_reach_the_orbits_shared_effects() {
-    // `delay`, `delaytime` and `djf` modulate the orbit: the voice's send, and
-    // the shared delay line and DJ filter, which every modulating voice adds to.
+// `delay`, `delaytime` and `djf` modulate the orbit: the voice's send, and the
+// shared delay line and DJ filter, which every modulating voice adds to.
+#[rstest]
+fn modulators_reach_the_orbits_shared_effects(
+    #[values("delay", "delaytime", "delayfeedback", "djf")] control: &str,
+) {
     let saw = || {
         rudel_core::s(rudel_core::pure(rudel_core::Value::Str("saw".into())))
             .note(rudel_core::Value::Int(57))
@@ -2948,17 +2941,15 @@ fn modulators_reach_the_orbits_shared_effects() {
             .ctrl("djf", rudel_core::Value::F64(0.3))
     };
     let plain = render_pattern(&saw(), 1.0, 1.0);
-    for control in ["delay", "delaytime", "delayfeedback", "djf"] {
-        let modulated = with_lfo(
-            saw(),
-            &[
-                ("control", rudel_core::Value::Str(control.into())),
-                ("rate", rudel_core::Value::F64(3.0)),
-            ],
-        );
-        let out = render_pattern(&modulated, 1.0, 1.0);
-        assert!(diff(&plain, &out) > 1.0, "{control} should move the orbit");
-    }
+    let modulated = with_lfo(
+        saw(),
+        &[
+            ("control", rudel_core::Value::Str(control.into())),
+            ("rate", rudel_core::Value::F64(3.0)),
+        ],
+    );
+    let out = render_pattern(&modulated, 1.0, 1.0);
+    assert!(diff(&plain, &out) > 1.0, "should move the orbit");
 }
 
 #[test]

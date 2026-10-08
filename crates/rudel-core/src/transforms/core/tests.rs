@@ -4,6 +4,7 @@ use crate::{
     signal::rand,
     value::{Value, ValueMap},
 };
+use rstest::rstest;
 
 fn vals(pat: &Pattern) -> Vec<Value> {
     let mut haps = pat.query_arc(Frac::zero(), Frac::one());
@@ -285,16 +286,16 @@ fn xfade_at_a_quarter_keeps_a_full_and_halves_b() {
     );
 }
 
-#[test]
-fn pick_map_reads_a_numeric_selector_as_its_key() {
+#[rstest]
+fn pick_map_reads_a_numeric_selector_as_its_key(
+    #[values(Value::Int(1), Value::F64(1.0))] selector: Value,
+) {
     let items = std::collections::HashMap::from([
         ("0".to_string(), pure(Value::Str("zero".into()))),
         ("1".to_string(), pure(Value::Str("one".into()))),
     ]);
-    for selector in [Value::Int(1), Value::F64(1.0)] {
-        let picked = crate::pick_map(&items, &pure(selector.clone()), crate::PickJoin::Inner);
-        assert_eq!(vals(&picked), [Value::Str("one".into())], "{selector:?}");
-    }
+    let picked = crate::pick_map(&items, &pure(selector), crate::PickJoin::Inner);
+    assert_eq!(vals(&picked), [Value::Str("one".into())]);
 }
 
 #[test]

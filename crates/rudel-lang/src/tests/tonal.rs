@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn scale_via_script() {
@@ -354,16 +355,13 @@ fn anchor_scale_stepping_via_script() {
     assert_eq!(got, vec![72.0, 84.0]);
 }
 
-#[test]
-fn tonal_controls_resolve() {
-    for src in [
-        r#"note("c3").mtranspose(2)"#,
-        r#"note("c3").ctranspose(-3)"#,
-        r#"chord("C").anchor("c5").offset(1).octaves(2).voicing()"#,
-        r#"chord("C").dictionary("lefthand").voicing()"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
+#[rstest]
+#[case(r#"note("c3").mtranspose(2)"#)]
+#[case(r#"note("c3").ctranspose(-3)"#)]
+#[case(r#"chord("C").anchor("c5").offset(1).octaves(2).voicing()"#)]
+#[case(r#"chord("C").dictionary("lefthand").voicing()"#)]
+fn tonal_controls_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
 }
 
 #[test]

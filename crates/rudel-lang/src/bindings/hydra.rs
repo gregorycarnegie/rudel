@@ -410,21 +410,18 @@ n(a.fft.length)";
         assert!(next > fft0, "{next}");
     }
 
-    #[test]
-    fn init_image_names_the_picture_a_source_shows() {
-        for quote in ['"', '\''] {
-            let src = format!(
-                "await initHydra()
-s1.initImage({quote}https://e.org/a.jpg{quote})
-src(s1).out()"
-            );
-            let scene = scene(&src).expect("a scene");
-            assert_eq!(
-                scene.options.get("s1"),
-                Some(&WidgetOption::String("https://e.org/a.jpg".into())),
-                "{quote}"
-            );
-        }
+    #[rstest]
+    fn init_image_names_the_picture_a_source_shows(#[values('"', '\'')] quote: char) {
+        let src = format!(
+            "await initHydra()
+    s1.initImage({quote}https://e.org/a.jpg{quote})
+    src(s1).out()"
+        );
+        let scene = scene(&src).expect("a scene");
+        assert_eq!(
+            scene.options.get("s1"),
+            Some(&WidgetOption::String("https://e.org/a.jpg".into()))
+        );
     }
 
     #[test]

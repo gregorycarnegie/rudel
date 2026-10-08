@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 const SAMPLE_RATE: f32 = 44100.0;
 
@@ -33,65 +34,58 @@ fn render_at(kind: DrumKind, n: usize, sample_rate: f32) -> Vec<f32> {
 /// exactly.
 const SNAPSHOT_RATES: [f32; 2] = [44100.0, 48000.0];
 
-#[test]
-fn drum_names_resolve() {
-    // Every alias is something a user can type in `s("…")`, so a dropped one is
-    // a drum that silently stops making a sound.
-    for (names, want) in [
-        (["bd", "bassdrum", "kick"].as_slice(), DrumKind::Bd),
-        (["sd", "snare", "sn"].as_slice(), DrumKind::Sd),
-        (["rim", "rs", "rimshot"].as_slice(), DrumKind::Rim),
-        (["cp", "clap", "hc"].as_slice(), DrumKind::Clap),
-        (["hh", "ch", "hat", "hihat"].as_slice(), DrumKind::Hh),
-        (["oh", "oht", "openhat"].as_slice(), DrumKind::Oh),
-        (["lt", "lowtom"].as_slice(), DrumKind::Lt),
-        (["mt", "midtom"].as_slice(), DrumKind::Mt),
-        (["ht", "hightom"].as_slice(), DrumKind::Ht),
-        (["rd", "ride"].as_slice(), DrumKind::Rd),
-        (["cr", "crash"].as_slice(), DrumKind::Cr),
-    ] {
-        for name in names {
-            assert_eq!(DrumKind::from_name(name), Some(want), "{name}");
-        }
-    }
-    for name in ["sawtooth", "supersaw", "", "BD"] {
-        assert_eq!(DrumKind::from_name(name), None, "{name} is not a drum");
+// Every alias is something a user can type in `s("…")`, so a dropped one is a
+// drum that silently stops making a sound.
+#[rstest]
+#[case::bd(&["bd", "bassdrum", "kick"], DrumKind::Bd)]
+#[case::sd(&["sd", "snare", "sn"], DrumKind::Sd)]
+#[case::rim(&["rim", "rs", "rimshot"], DrumKind::Rim)]
+#[case::clap(&["cp", "clap", "hc"], DrumKind::Clap)]
+#[case::hh(&["hh", "ch", "hat", "hihat"], DrumKind::Hh)]
+#[case::oh(&["oh", "oht", "openhat"], DrumKind::Oh)]
+#[case::lt(&["lt", "lowtom"], DrumKind::Lt)]
+#[case::mt(&["mt", "midtom"], DrumKind::Mt)]
+#[case::ht(&["ht", "hightom"], DrumKind::Ht)]
+#[case::rd(&["rd", "ride"], DrumKind::Rd)]
+#[case::cr(&["cr", "crash"], DrumKind::Cr)]
+fn drum_names_resolve(#[case] names: &[&str], #[case] want: DrumKind) {
+    for name in names {
+        assert_eq!(DrumKind::from_name(name), Some(want), "{name}");
     }
 }
 
-#[test]
-fn each_kind_rings_for_its_own_lifetime() {
-    // The voice reports `is_done` once it passes `DrumKind::lifetime`, and those
-    // differ per kind — a single shared value would leave hats ringing and
-    // cymbals cut off.
-    let ring = |kind| {
-        let mut v = DrumVoice::new(DrumParams::new(kind), SAMPLE_RATE);
-        let mut n = 0;
-        while !v.is_done() && n < (3.0 * SAMPLE_RATE) as usize {
-            v.tick();
-            n += 1;
-        }
-        n as f32 / SAMPLE_RATE
-    };
-    for (kind, want) in [
-        (DrumKind::Bd, 0.4),
-        (DrumKind::Sd, 0.3),
-        (DrumKind::Rim, 0.06),
-        (DrumKind::Clap, 0.4),
-        (DrumKind::Hh, 0.12),
-        (DrumKind::Oh, 0.4),
-        (DrumKind::Lt, 0.4),
-        (DrumKind::Mt, 0.4),
-        (DrumKind::Ht, 0.4),
-        (DrumKind::Rd, 0.7),
-        (DrumKind::Cr, 1.2),
-    ] {
-        let got = ring(kind);
-        assert!(
-            (got - want).abs() < 0.002,
-            "{kind:?} should ring for {want}s, got {got:.3}s"
-        );
+#[rstest]
+fn other_names_are_not_drums(#[values("sawtooth", "supersaw", "", "BD")] name: &str) {
+    assert_eq!(DrumKind::from_name(name), None);
+}
+
+// The voice reports `is_done` once it passes `DrumKind::lifetime`, and those
+// differ per kind — a single shared value would leave hats ringing and cymbals
+// cut off.
+#[rstest]
+#[case(DrumKind::Bd, 0.4)]
+#[case(DrumKind::Sd, 0.3)]
+#[case(DrumKind::Rim, 0.06)]
+#[case(DrumKind::Clap, 0.4)]
+#[case(DrumKind::Hh, 0.12)]
+#[case(DrumKind::Oh, 0.4)]
+#[case(DrumKind::Lt, 0.4)]
+#[case(DrumKind::Mt, 0.4)]
+#[case(DrumKind::Ht, 0.4)]
+#[case(DrumKind::Rd, 0.7)]
+#[case(DrumKind::Cr, 1.2)]
+fn each_kind_rings_for_its_own_lifetime(#[case] kind: DrumKind, #[case] want: f32) {
+    let mut v = DrumVoice::new(DrumParams::new(kind), SAMPLE_RATE);
+    let mut n = 0;
+    while !v.is_done() && n < (3.0 * SAMPLE_RATE) as usize {
+        v.tick();
+        n += 1;
     }
+    let got = n as f32 / SAMPLE_RATE;
+    assert!(
+        (got - want).abs() < 0.002,
+        "should ring for {want}s, got {got:.3}s"
+    );
 }
 
 #[test]
@@ -235,25 +229,26 @@ fn hats_and_cymbals_ring_out_in_the_expected_order() {
     );
 }
 
-#[test]
-fn hats_are_high_passed_and_the_kick_is_not() {
-    // hh/oh/rd/cr run through a highpass; bd has no built-in filter. Compare
-    // energy above and below ~5kHz by how much a one-pole difference
-    // (a crude highpass) keeps.
-    let brightness = |kind| {
-        let out = render(kind, (0.1 * SAMPLE_RATE) as usize);
-        let total: f32 = out.iter().map(|s| s * s).sum();
-        let high: f32 = out.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
-        high / total.max(1e-12)
-    };
+/// How much of `kind`'s energy a one-pole difference (a crude highpass) keeps.
+fn brightness(kind: DrumKind) -> f32 {
+    let out = render(kind, (0.1 * SAMPLE_RATE) as usize);
+    let total: f32 = out.iter().map(|s| s * s).sum();
+    let high: f32 = out.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
+    high / total.max(1e-12)
+}
+
+// hh/oh/rd/cr run through a highpass; bd has no built-in filter. Compare energy
+// above and below ~5kHz.
+#[rstest]
+fn hats_are_high_passed_and_the_kick_is_not(
+    #[values(DrumKind::Hh, DrumKind::Oh, DrumKind::Cr)] kind: DrumKind,
+) {
     let kick = brightness(DrumKind::Bd);
-    for kind in [DrumKind::Hh, DrumKind::Oh, DrumKind::Cr] {
-        assert!(
-            brightness(kind) > kick * 10.0,
-            "{kind:?} should be far brighter than bd ({:.4} vs {kick:.4})",
-            brightness(kind)
-        );
-    }
+    let bright = brightness(kind);
+    assert!(
+        bright > kick * 10.0,
+        "should be far brighter than bd ({bright:.4} vs {kick:.4})"
+    );
 }
 
 #[test]

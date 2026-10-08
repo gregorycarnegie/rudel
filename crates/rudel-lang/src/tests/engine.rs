@@ -8,6 +8,7 @@
 //! still evaluates, and the pattern just goes quiet.
 
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn a_pattern_can_be_built_from_a_query_function() {
@@ -126,26 +127,23 @@ Pattern.prototype.enumerate = function () {
     assert_eq!(got, expected, "each hap carries [value, index, count]");
 }
 
-#[test]
-fn the_span_forms_match_their_two_argument_versions() {
-    // `compressSpan`/`focusSpan`/`zoomArc` only differ from `compress`/`focus`/
-    // `zoom` in taking the span as one object, which a script can only build
-    // because `TimeSpan` is exposed.
-    for (name, two_arg) in [
-        ("compressSpan", "compress(0.25, 0.75)"),
-        ("focusSpan", "focus(0.25, 0.75)"),
-        ("zoomArc", "zoom(0.25, 0.75)"),
+// `compressSpan`/`focusSpan`/`zoomArc` only differ from `compress`/`focus`/
+// `zoom` in taking the span as one object, which a script can only build
+// because `TimeSpan` is exposed.
+#[rstest]
+#[case("compressSpan", "compress(0.25, 0.75)")]
+#[case("focusSpan", "focus(0.25, 0.75)")]
+#[case("zoomArc", "zoom(0.25, 0.75)")]
+fn the_span_forms_match_their_two_argument_versions(#[case] name: &str, #[case] two_arg: &str) {
+    let want = shape(&eval(&format!(r#""a b c d".{two_arg}"#)).expect("eval"), 2);
+    assert!(!want.is_empty(), "{two_arg} produced nothing");
+    // The method and the standalone form, which takes the pattern last.
+    for form in [
+        format!(r#""a b c d".{name}(TimeSpan(0.25, 0.75))"#),
+        format!(r#"{name}(TimeSpan(0.25, 0.75), "a b c d")"#),
     ] {
-        let want = shape(&eval(&format!(r#""a b c d".{two_arg}"#)).expect("eval"), 2);
-        assert!(!want.is_empty(), "{two_arg} produced nothing");
-        // The method and the standalone form, which takes the pattern last.
-        for form in [
-            format!(r#""a b c d".{name}(TimeSpan(0.25, 0.75))"#),
-            format!(r#"{name}(TimeSpan(0.25, 0.75), "a b c d")"#),
-        ] {
-            let got = shape(&eval(&form).expect("eval"), 2);
-            assert_eq!(got, want, "{form} vs {two_arg}");
-        }
+        let got = shape(&eval(&form).expect("eval"), 2);
+        assert_eq!(got, want, "{form} vs {two_arg}");
     }
 }
 
@@ -297,17 +295,18 @@ fn seq_p_loop_lays_sections_out_by_start_and_stop_as_strudel_does() {
     );
 }
 
+// Upstream's `register` makes the missing argument `sequence()`, which is
+// silence; a method with more arguments missing still fails.
+#[rstest]
+fn a_one_argument_method_called_with_none_is_silence(
+    #[values("rarely", "sometimes", "jux")] method: &str,
+) {
+    let pat = eval(&format!(r#"s("bd*4").{method}()"#)).expect(method);
+    assert!(pat.query_arc(Frac::zero(), Frac::one()).is_empty());
+}
+
 #[test]
-fn a_one_argument_method_called_with_none_is_silence() {
-    // Upstream's `register` makes the missing argument `sequence()`, which is
-    // silence; a method with more arguments missing still fails.
-    for method in ["rarely", "sometimes", "jux"] {
-        let pat = eval(&format!(r#"s("bd*4").{method}()"#)).expect(method);
-        assert!(
-            pat.query_arc(Frac::zero(), Frac::one()).is_empty(),
-            "{method}"
-        );
-    }
+fn a_method_missing_more_than_one_argument_still_fails() {
     assert!(eval(r#"s("bd*4").every(2)"#).is_err());
 }
 

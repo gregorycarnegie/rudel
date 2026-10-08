@@ -1,4 +1,5 @@
 use super::*;
+use rstest::rstest;
 use rudel_core::{Frac, Value};
 
 fn vals(src: &str) -> Vec<Value> {
@@ -357,12 +358,20 @@ fn js_number_semantics_decide_which_atoms_are_numbers() {
     assert_eq!(tag("9007199254740992"), "f64 9007199254740992");
 }
 
-/// Ops inside a euclid argument are discarded — `mini.mjs` enters the slice
-/// and throws the ops away — but the parser still walks them for their random
+/// Ops inside a euclid argument are discarded — `mini.mjs` enters the slice and
+/// throws the ops away — but the parser still walks them for their random
 /// seeds. Skip that bookkeeping and every later `?` in the pattern silently
 /// draws a different seed.
-#[test]
-fn discarded_ops_inside_euclid_args_still_consume_seeds() {
+// Each pair plays the same notes; only the seed the trailing `?` draws differs,
+// because the op inside the euclid argument consumed one first.
+#[rstest]
+#[case::degrade("bd(3?,8) sd?", "bd(3,8) sd?")]
+#[case::nested_degrade("bd(3*[2?],8) sd?", "bd(3*[2],8) sd?")]
+#[case::nested_euclid("bd(3(2?,4),8) sd?", "bd(3(2,4),8) sd?")]
+fn discarded_ops_inside_euclid_args_still_consume_seeds(
+    #[case] with_op: &str,
+    #[case] without: &str,
+) {
     fn rows(src: &str) -> Vec<String> {
         let pat = parse(src).expect("parse");
         let mut rows: Vec<String> = pat
@@ -373,42 +382,26 @@ fn discarded_ops_inside_euclid_args_still_consume_seeds() {
         rows.sort();
         rows
     }
-
-    // Each pair plays the same notes; only the seed the trailing `?` draws
-    // differs, because the op inside the euclid argument consumed one first.
-    for (with_op, without) in [
-        ("bd(3?,8) sd?", "bd(3,8) sd?"),
-        ("bd(3*[2?],8) sd?", "bd(3*[2],8) sd?"),
-        ("bd(3(2?,4),8) sd?", "bd(3(2,4),8) sd?"),
-    ] {
-        assert_ne!(
-            rows(with_op),
-            rows(without),
-            "{with_op} and {without} must not draw the same seeds"
-        );
-    }
+    assert_ne!(rows(with_op), rows(without), "must not draw the same seeds");
 }
 
-#[test]
-fn pathological_nesting_is_an_error_not_a_stack_overflow() {
-    // Both of these used to abort the process: bracket depth blows pest's
-    // generated parser, chained operators blow the pattern builder. A stack
-    // overflow is not catchable, so the live-coding app just died with the
-    // user's buffer. They have to come back as errors (silence, in practice).
-    for src in [
-        format!("{}a{}", "[".repeat(500), "]".repeat(500)),
-        format!("{}a{}", "<".repeat(500), ">".repeat(500)),
-        format!("{}a{}", "{".repeat(500), "}".repeat(500)),
-        format!("a{}", "*2".repeat(2000)),
-        "[".repeat(10_000),
-    ] {
-        assert!(parse(&src).is_err(), "should be rejected: {:.20}...", src);
-        assert!(leaf_locations(&src).is_err());
-        assert_eq!(
-            parse_or_silence(&src).query_arc(Frac::zero(), Frac::one()),
-            vec![]
-        );
-    }
+// Both of these used to abort the process: bracket depth blows pest's generated
+// parser, chained operators blow the pattern builder. A stack overflow is not
+// catchable, so the live-coding app just died with the user's buffer. They have
+// to come back as errors (silence, in practice).
+#[rstest]
+#[case::square_brackets(format!("{}a{}", "[".repeat(500), "]".repeat(500)))]
+#[case::angle_brackets(format!("{}a{}", "<".repeat(500), ">".repeat(500)))]
+#[case::braces(format!("{}a{}", "{".repeat(500), "}".repeat(500)))]
+#[case::chained_operators(format!("a{}", "*2".repeat(2000)))]
+#[case::unclosed("[".repeat(10_000))]
+fn pathological_nesting_is_an_error_not_a_stack_overflow(#[case] src: String) {
+    assert!(parse(&src).is_err());
+    assert!(leaf_locations(&src).is_err());
+    assert_eq!(
+        parse_or_silence(&src).query_arc(Frac::zero(), Frac::one()),
+        vec![]
+    );
 }
 
 #[test]

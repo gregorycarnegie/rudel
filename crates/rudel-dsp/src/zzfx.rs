@@ -416,6 +416,7 @@ impl VoiceLike for ZzfxVoice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     // --- the parts the golden cannot reach ---------------------------------
 
@@ -520,21 +521,22 @@ mod tests {
         assert_eq!(sign(-3.0), -1.0);
     }
 
-    #[test]
-    fn the_shape_names_index_the_fork_s_waveform_table() {
-        for (name, want) in [
-            ("sine", 0),
-            ("triangle", 1),
-            ("sawtooth", 2),
-            ("tan", 3),
-            ("noise", 4),
-        ] {
-            assert_eq!(shape_index(name), want, "shape {name}");
-        }
-        // Anything else is -1 rather than silently becoming a sine.
-        for name in ["", "saw", "square", "Sine", "noisey"] {
-            assert_eq!(shape_index(name), -1, "shape {name}");
-        }
+    #[rstest]
+    #[case("sine", 0)]
+    #[case("triangle", 1)]
+    #[case("sawtooth", 2)]
+    #[case("tan", 3)]
+    #[case("noise", 4)]
+    fn the_shape_names_index_the_fork_s_waveform_table(#[case] name: &str, #[case] want: i32) {
+        assert_eq!(shape_index(name), want);
+    }
+
+    // Anything else is -1 rather than silently becoming a sine.
+    #[rstest]
+    fn any_other_shape_name_is_minus_one(
+        #[values("", "saw", "square", "Sine", "noisey")] name: &str,
+    ) {
+        assert_eq!(shape_index(name), -1);
     }
 
     fn map(pairs: &[(&str, Value)]) -> ValueMap {

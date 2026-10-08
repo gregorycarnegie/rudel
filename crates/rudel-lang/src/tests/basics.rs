@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn standalone_transforms_match_their_methods() {
@@ -419,43 +420,38 @@ fn a_transform_called_with_no_argument_is_the_transform_itself() {
     );
 }
 
-#[test]
-fn a_list_argument_is_a_sequence() {
-    // Strudel reifies an array into a fastcat, so `seq([a, b])` lays both out
-    // across one cycle rather than evaluating to silence.
-    for (list, spread) in [
-        (r#"seq([s("bd"), s("hh")])"#, r#"seq(s("bd"), s("hh"))"#),
-        (r#"cat([s("bd"), s("hh")])"#, r#"seq(s("bd"), s("hh"))"#),
-    ] {
-        assert_eq!(
-            shape(&eval(list).expect(list), 1),
-            shape(&eval(spread).expect(spread), 1),
-            "{list}"
-        );
-    }
+// Strudel reifies an array into a fastcat, so `seq([a, b])` lays both out
+// across one cycle rather than evaluating to silence.
+#[rstest]
+fn a_list_argument_is_a_sequence(
+    #[values(r#"seq([s("bd"), s("hh")])"#, r#"cat([s("bd"), s("hh")])"#)] list: &str,
+) {
+    let spread = r#"seq(s("bd"), s("hh"))"#;
+    assert_eq!(
+        shape(&eval(list).expect(list), 1),
+        shape(&eval(spread).expect(spread), 1)
+    );
+}
+
+const SPREAD_LIST: &str = r#"let xs = [s("bd"), s("hh")]"#;
+
+// `stack(...xs)` layers the patterns; `stack(xs)` is one *sequenced* pattern.
+// Passing the list through unchanged would quietly turn the first into the
+// second, so the spread has to survive to the call itself.
+#[rstest]
+#[case::stack("stack(...xs)", r#"stack(s("bd"), s("hh"))"#)]
+#[case::seq("seq(...xs)", r#"seq(s("bd"), s("hh"))"#)]
+#[case::after_another_argument(r#"stack(s("cp"), ...xs)"#, r#"stack(s("cp"), s("bd"), s("hh"))"#)]
+fn a_spread_argument_expands_into_separate_arguments(#[case] spread: &str, #[case] expanded: &str) {
+    let a = eval(&format!("{SPREAD_LIST}\n{spread}")).unwrap_or_else(|e| panic!("{spread}: {e}"));
+    let b = eval(expanded).unwrap_or_else(|e| panic!("{expanded}: {e}"));
+    assert_eq!(shape(&a, 1), shape(&b, 1));
 }
 
 #[test]
-fn a_spread_argument_expands_into_separate_arguments() {
-    // `stack(...xs)` layers the patterns; `stack(xs)` is one *sequenced*
-    // pattern. Passing the list through unchanged would quietly turn the first
-    // into the second, so the spread has to survive to the call itself.
-    let xs = r#"let xs = [s("bd"), s("hh")]"#;
-    for (spread, expanded) in [
-        ("stack(...xs)", r#"stack(s("bd"), s("hh"))"#),
-        ("seq(...xs)", r#"seq(s("bd"), s("hh"))"#),
-        (
-            r#"stack(s("cp"), ...xs)"#,
-            r#"stack(s("cp"), s("bd"), s("hh"))"#,
-        ),
-    ] {
-        let a = eval(&format!("{xs}\n{spread}")).unwrap_or_else(|e| panic!("{spread}: {e}"));
-        let b = eval(expanded).unwrap_or_else(|e| panic!("{expanded}: {e}"));
-        assert_eq!(shape(&a, 1), shape(&b, 1), "{spread}");
-    }
-    // ...and a list that was *not* spread still means one sequenced pattern.
-    let listed = eval(&format!("{xs}\nstack(xs)")).expect("stack(xs)");
-    let stacked = eval(&format!("{xs}\nstack(...xs)")).expect("stack(...xs)");
+fn a_list_that_was_not_spread_is_one_sequenced_pattern() {
+    let listed = eval(&format!("{SPREAD_LIST}\nstack(xs)")).expect("stack(xs)");
+    let stacked = eval(&format!("{SPREAD_LIST}\nstack(...xs)")).expect("stack(...xs)");
     assert_ne!(
         shape(&listed, 1),
         shape(&stacked, 1),
@@ -463,47 +459,50 @@ fn a_spread_argument_expands_into_separate_arguments() {
     );
 }
 
+// Every value below was read out of a real JS engine, because several of these
+// disagree with the obvious Rust spelling: `Math.round` breaks ties towards
+// +infinity (Rust breaks them away from zero), `Math.sign` keeps a signed zero,
+// and `max`/`min` with no arguments are the infinities.
+#[rstest]
+#[case("Math.floor(-1.5)", -2.0)]
+#[case::round_breaks_ties_up("Math.round(-0.5)", 0.0)]
+#[case("Math.round(2.5)", 3.0)]
+#[case::sign_keeps_signed_zero("Math.sign(-0)", 0.0)]
+#[case("Math.trunc(-4.7)", -4.0)]
+#[case::max_of_nothing("Math.max()", f64::NEG_INFINITY)]
+#[case::min_of_nothing("Math.min()", f64::INFINITY)]
+#[case("Math.hypot(3, 4)", 5.0)]
+#[case("Math.clz32(1)", 31.0)]
+#[case("Math.imul(3, 4)", 12.0)]
+#[case("Math.fround(5.5)", 5.5)]
+#[case("Math.expm1(1)", 1.718_281_828_459_045)]
+#[case("Math.log1p(1)", std::f64::consts::LN_2)]
+#[case("Math.cbrt(27)", 3.0)]
+#[case("Math.PI", std::f64::consts::PI)]
+#[case("Math.SQRT2", std::f64::consts::SQRT_2)]
+#[case("Math.LOG10E", std::f64::consts::LOG10_E)]
+#[case("Math.abs(-2)", 2.0)]
+#[case("Math.pow(2, 10)", 1024.0)]
+#[case("Math.atan2(1, 1)", std::f64::consts::FRAC_PI_4)]
+fn math_matches_javascript(#[case] expr: &str, #[case] want: f64) {
+    let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+    let haps = pat.query_arc(Frac::zero(), Frac::one());
+    let got = haps[0].value.as_f64().unwrap_or(f64::NAN);
+    assert!(
+        (got - want).abs() < 1e-12 || (got == want),
+        "got {got}, want {want}"
+    );
+}
+
 #[test]
-fn math_matches_javascript() {
-    // Every value below was read out of a real JS engine, because several of
-    // these disagree with the obvious Rust spelling: `Math.round` breaks ties
-    // towards +infinity (Rust breaks them away from zero), `Math.sign` keeps a
-    // signed zero, and `max`/`min` with no arguments are the infinities.
-    for (expr, want) in [
-        ("Math.floor(-1.5)", -2.0),
-        ("Math.round(-0.5)", 0.0),
-        ("Math.round(2.5)", 3.0),
-        ("Math.sign(-0)", 0.0),
-        ("Math.trunc(-4.7)", -4.0),
-        ("Math.max()", f64::NEG_INFINITY),
-        ("Math.min()", f64::INFINITY),
-        ("Math.hypot(3, 4)", 5.0),
-        ("Math.clz32(1)", 31.0),
-        ("Math.imul(3, 4)", 12.0),
-        ("Math.fround(5.5)", 5.5),
-        ("Math.expm1(1)", 1.718_281_828_459_045),
-        ("Math.log1p(1)", std::f64::consts::LN_2),
-        ("Math.cbrt(27)", 3.0),
-        ("Math.PI", std::f64::consts::PI),
-        ("Math.SQRT2", std::f64::consts::SQRT_2),
-        ("Math.LOG10E", std::f64::consts::LOG10_E),
-        ("Math.abs(-2)", 2.0),
-        ("Math.pow(2, 10)", 1024.0),
-        ("Math.atan2(1, 1)", std::f64::consts::FRAC_PI_4),
-    ] {
-        let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
-        let haps = pat.query_arc(Frac::zero(), Frac::one());
-        let got = haps[0].value.as_f64().unwrap_or(f64::NAN);
-        assert!(
-            (got - want).abs() < 1e-12 || (got == want),
-            "{expr}: got {got}, want {want}"
-        );
-    }
-    // NaN propagates through max/min, as it does in JS.
+fn nan_propagates_through_max_and_min_as_in_javascript() {
     let nan = eval("pure(Math.max(1, 0/0))").expect("max with NaN");
     let v = nan.query_arc(Frac::zero(), Frac::one())[0].value.as_f64();
     assert!(v.is_none_or(f64::is_nan), "max(1, NaN) is NaN, got {v:?}");
-    // `Math.random` is in range and does move.
+}
+
+#[test]
+fn math_random_is_in_range_and_moves() {
     let draws: Vec<f64> = (0..8)
         .map(|_| {
             let p = eval("pure(Math.random())").expect("random");
@@ -579,33 +578,32 @@ note("c3").both("<60 62>")
     assert_eq!(notes(whole, 0), vec![Value::Int(60), Value::Int(62)]);
 }
 
-#[test]
-fn javascript_string_arithmetic_and_the_methods_that_go_with_it() {
-    // `register('mask' + n, …)` is how the binary-mask helper going round
-    // strudel.cc names its methods. The rest of that helper —
-    // `dec.toString(2).padStart(len, '0').split('').map(Number)` — is the same
-    // family of JS builtins.
-    for (expr, want) in [
-        ("'mask' + 4", "mask4"),
-        ("1 + 2 + 'a'", "3a"), // folded left to right, as JS does
-        ("'x' + 1 + 2", "x12"),
-        ("(9).toString(2)", "1001"),
-        ("(9).toString(2).padStart(6, '0')", "001001"),
-        // A literal followed by `.method` is mini-notation here, so the string
-        // methods are reached the way a script reaches them: through a name.
-        ("text.padEnd(4, '-')", "ab--"),
-        ("text.padStart(1, '-')", "ab"), // already long enough
-        ("text.split('').join('.')", "a.b"),
-        ("text.split('b').join('-')", "a-"),
-    ] {
-        let script = format!(
-            "let text = 'ab'
+// `register('mask' + n, …)` is how the binary-mask helper going round
+// strudel.cc names its methods. The rest of that helper —
+// `dec.toString(2).padStart(len, '0').split('').map(Number)` — is the same
+// family of JS builtins.
+#[rstest]
+#[case("'mask' + 4", "mask4")]
+#[case::folded_left_to_right("1 + 2 + 'a'", "3a")]
+#[case("'x' + 1 + 2", "x12")]
+#[case("(9).toString(2)", "1001")]
+#[case("(9).toString(2).padStart(6, '0')", "001001")]
+// A literal followed by `.method` is mini-notation here, so the string methods
+// are reached the way a script reaches them: through a name.
+#[case("text.padEnd(4, '-')", "ab--")]
+#[case::already_long_enough("text.padStart(1, '-')", "ab")]
+#[case("text.split('').join('.')", "a.b")]
+#[case("text.split('b').join('-')", "a-")]
+fn javascript_string_arithmetic_and_the_methods_that_go_with_it(
+    #[case] expr: &str,
+    #[case] want: &str,
+) {
+    let script = format!(
+        "let text = 'ab'
 pure({expr})"
-        );
-        let pat = eval(&script).unwrap_or_else(|e| panic!("{expr}: {e}"));
-        let got = values(&pat, 0, 1);
-        assert_eq!(got, vec![Value::Str(want.to_string())], "{expr}");
-    }
+    );
+    let pat = eval(&script).unwrap_or_else(|e| panic!("{expr}: {e}"));
+    assert_eq!(values(&pat, 0, 1), vec![Value::Str(want.to_string())]);
 }
 
 #[test]
@@ -715,23 +713,20 @@ fn set_max_polyphony_installs_the_cap_it_was_given() {
     }
 }
 
-#[test]
-fn javascript_shifts_and_powers() {
-    // A script reaches for `>> 0` to truncate and `1 << n` to build a mask.
-    for (expr, want) in [
-        ("(40 / 12) >> 0", 3.0),
-        ("1 << 4", 16.0),
-        ("-9 >> 1", -5.0),
-        ("1.5 ** 3", 3.375),
-        ("2 ** 10 >> 2", 256.0),
-        // JS truncates to a signed 32-bit integer first.
-        ("4294967297 >> 0", 1.0),
-        ("2147483648 >> 0", -2147483648.0),
-    ] {
-        let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
-        let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
-        assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
-    }
+// A script reaches for `>> 0` to truncate and `1 << n` to build a mask.
+#[rstest]
+#[case("(40 / 12) >> 0", 3.0)]
+#[case("1 << 4", 16.0)]
+#[case("-9 >> 1", -5.0)]
+#[case("1.5 ** 3", 3.375)]
+#[case("2 ** 10 >> 2", 256.0)]
+// JS truncates to a signed 32-bit integer first.
+#[case::wraps_past_u32("4294967297 >> 0", 1.0)]
+#[case::wraps_to_negative("2147483648 >> 0", -2147483648.0)]
+fn javascript_shifts_and_powers(#[case] expr: &str, #[case] want: f64) {
+    let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+    let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
+    assert!((got - want).abs() < 1e-9, "got {got}, want {want}");
 }
 
 #[test]
@@ -757,21 +752,18 @@ fn the_pattern_methods_a_script_reaches_for_by_upstream_name() {
     assert_eq!(values(&floored, 0, 1)[0].as_f64(), Some(1.0));
 }
 
-#[test]
-fn the_javascript_collection_builtins_helpers_call() {
-    // `Array.from({length: n})` is how a script repeats something n times;
-    // `flat`/`flatMap` and `Object.entries` are the rest of what they reach for.
-    for (expr, want) in [
-        ("Array.from({length: 3}).length", 3.0),
-        ("[[1, 2], [3]].flat().length", 3.0),
-        ("[1, 2].flatMap(v => [v, v]).length", 4.0),
-        ("Object.entries({a: 1, b: 2}).length", 2.0),
-        ("Object.entries({a: 7})[0][1]", 7.0),
-    ] {
-        let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
-        let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
-        assert!((got - want).abs() < 1e-9, "{expr}: got {got}, want {want}");
-    }
+// `Array.from({length: n})` is how a script repeats something n times;
+// `flat`/`flatMap` and `Object.entries` are the rest of what they reach for.
+#[rstest]
+#[case("Array.from({length: 3}).length", 3.0)]
+#[case("[[1, 2], [3]].flat().length", 3.0)]
+#[case("[1, 2].flatMap(v => [v, v]).length", 4.0)]
+#[case("Object.entries({a: 1, b: 2}).length", 2.0)]
+#[case("Object.entries({a: 7})[0][1]", 7.0)]
+fn the_javascript_collection_builtins_helpers_call(#[case] expr: &str, #[case] want: f64) {
+    let pat = eval(&format!("pure({expr})")).unwrap_or_else(|e| panic!("{expr}: {e}"));
+    let got = values(&pat, 0, 1)[0].as_f64().unwrap_or(f64::NAN);
+    assert!((got - want).abs() < 1e-9, "got {got}, want {want}");
 }
 
 #[test]

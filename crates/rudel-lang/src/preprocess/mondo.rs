@@ -884,6 +884,7 @@ fn tag_before(src: &str, at: usize) -> Option<(&'static str, usize, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     /// Upstream's `desguar` helper: parse, then print the desugared tree.
     fn sugar(code: &str) -> String {
@@ -1263,15 +1264,14 @@ mod tests {
         assert!(!looks_like_mondo(".."));
     }
 
-    #[test]
-    fn an_unclosed_bracket_is_reported_rather_than_guessed_at() {
-        for src in ["[c", "(c", "<c", "{c"] {
-            assert_eq!(
-                compile(src).unwrap_err(),
-                "unexpected end of file: missing closing bracket",
-                "{src}"
-            );
-        }
+    #[rstest]
+    fn an_unclosed_bracket_is_reported_rather_than_guessed_at(
+        #[values("[c", "(c", "<c", "{c")] src: &str,
+    ) {
+        assert_eq!(
+            compile(src).unwrap_err(),
+            "unexpected end of file: missing closing bracket"
+        );
     }
 
     #[test]
@@ -1333,6 +1333,7 @@ mod props {
 #[cfg(test)]
 mod survivor_tests {
     use super::compile;
+    use rstest::rstest;
 
     #[test]
     fn a_backslash_and_the_quote_are_escaped_too() {
@@ -1345,14 +1346,14 @@ mod survivor_tests {
         assert_eq!(compile("(fn (a_b) (s a_b))").unwrap(), "((a_b) => a_b.s())");
     }
 
-    #[test]
-    fn two_ops_in_a_row_are_named_in_the_order_written() {
-        // `&` is the only operator in the second precedence group, so it is
-        // the one that can sit unprocessed to the left of the operator found.
-        for (src, pair) in [("a + * b", "+*"), ("a & * b", "&*")] {
-            let err = compile(src).unwrap_err();
-            assert!(err.contains(&format!("\"{pair}\"")), "{src}: {err}");
-        }
+    // `&` is the only operator in the second precedence group, so it is the one
+    // that can sit unprocessed to the left of the operator found.
+    #[rstest]
+    #[case("a + * b", "+*")]
+    #[case("a & * b", "&*")]
+    fn two_ops_in_a_row_are_named_in_the_order_written(#[case] src: &str, #[case] pair: &str) {
+        let err = compile(src).unwrap_err();
+        assert!(err.contains(&format!("\"{pair}\"")), "{err}");
     }
 
     #[test]

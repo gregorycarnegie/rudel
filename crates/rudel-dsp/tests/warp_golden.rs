@@ -6,6 +6,7 @@
 // rudel's `warp_phase` and compared value-for-value.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use rstest::rstest;
 use rudel_dsp::{WarpMode, warp_phase};
 
 /// The oracle rounds to f32 before writing, so only float-op ordering can
@@ -98,12 +99,12 @@ fn every_warp_mode_name_resolves_to_upstreams_index() {
         }
     }
     assert_eq!(golden.len(), 22, "expected every mode in the corpus");
+}
 
-    // Anything else is not a mode, rather than silently becoming one.
-    for unknown in ["", "nonesuch", "asymm", "asy", "bend", "0", "flipp"] {
-        assert!(
-            WarpMode::from_name(unknown).is_none(),
-            "{unknown:?} should not resolve to a warp mode"
-        );
-    }
+// Anything else is not a mode, rather than silently becoming one.
+#[rstest]
+fn a_near_miss_is_not_a_warp_mode(
+    #[values("", "nonesuch", "asymm", "asy", "bend", "0", "flipp")] unknown: &str,
+) {
+    assert!(WarpMode::from_name(unknown).is_none());
 }

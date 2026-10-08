@@ -387,6 +387,7 @@ mod tests {
 mod step_alignment_tests {
     use super::*;
     use crate::pattern::{stack_centre, stack_left};
+    use rstest::rstest;
 
     fn onsets(pat: &Pattern) -> Vec<(Frac, Frac, Value)> {
         let mut haps: Vec<_> = pat
@@ -398,23 +399,21 @@ mod step_alignment_tests {
         haps
     }
 
-    /// `compress` needs `0 <= b <= e <= 1`; anything else would divide by a
-    /// zero or negative span, so it yields silence instead.
+    /// `compress` needs `0 <= b <= e <= 1`; anything else would divide by a zero
+    /// or negative span, so it yields silence instead.
+    #[rstest]
+    #[case::begins_past_the_cycle((3, 2), (2, 1))]
+    #[case::ends_past_the_cycle((1, 5), (3, 2))]
+    #[case::begins_before_it((-1, 5), (1, 2))]
+    #[case::reversed((3, 5), (2, 5))]
+    fn compress_rejects_spans_outside_the_cycle(#[case] b: (i64, i64), #[case] e: (i64, i64)) {
+        let (b, e) = (Frac::new(b.0, b.1), Frac::new(e.0, e.1));
+        assert!(onsets(&seq([1, 2])._compress(b, e)).is_empty());
+    }
+
     #[test]
-    fn compress_rejects_spans_outside_the_cycle() {
+    fn compress_squeezes_both_events_into_a_span_inside_the_cycle() {
         let f = Frac::new;
-        for (b, e) in [
-            (f(3, 2), f(2, 1)),  // b past the cycle
-            (f(1, 5), f(3, 2)),  // e past the cycle
-            (f(-1, 5), f(1, 2)), // b before it
-            (f(3, 5), f(2, 5)),  // reversed
-        ] {
-            assert!(
-                onsets(&seq([1, 2])._compress(b, e)).is_empty(),
-                "compress({b}, {e}) should be silence"
-            );
-        }
-        // A span inside the cycle still squeezes both events into it.
         assert_eq!(onsets(&seq([1, 2])._compress(f(1, 4), f(3, 4))).len(), 2);
     }
 

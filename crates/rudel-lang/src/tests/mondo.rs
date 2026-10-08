@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 /// Every mondo spelling must produce the same haps as the JavaScript spelling it
 /// stands for — the two front-ends share one pattern engine, so any difference
@@ -102,21 +103,22 @@ $ s oh*4 # press # bank tr909 # speed.8
 # dec (<.02 .05>*2 # add (saw/8 # range 0 1))
 "#;
 
+#[rstest]
+#[case::marker_line(format!("// mondo\n{DOC_EXAMPLE}"))]
+// The marker is a line of its own, however it is spaced.
+#[case::spaced_marker(format!("\n//mondo  \n{DOC_EXAMPLE}"))]
+fn a_marked_script_is_read_as_mondo(#[case] src: String) {
+    let pat = eval(&src).unwrap_or_else(|e| panic!("doc example: {e}"));
+    let haps = shape(&pat, 2);
+    assert!(
+        haps.len() > 20,
+        "expected a busy pattern, got {}",
+        haps.len()
+    );
+}
+
 #[test]
-fn a_marked_script_is_read_as_mondo() {
-    for src in [
-        format!("// mondo\n{DOC_EXAMPLE}"),
-        // The marker is a line of its own, however it is spaced.
-        format!("\n//mondo  \n{DOC_EXAMPLE}"),
-    ] {
-        let pat = eval(&src).unwrap_or_else(|e| panic!("doc example: {e}"));
-        let haps = shape(&pat, 2);
-        assert!(
-            haps.len() > 20,
-            "expected a busy pattern, got {}",
-            haps.len()
-        );
-    }
+fn the_mondo_tag_and_the_marker_read_the_same() {
     // Wrapping the same thing in the tag is the other way to say it.
     let tagged = eval(&format!("mondo`{DOC_EXAMPLE}`")).expect("tagged");
     let marked = eval(&format!("// mondo\n{DOC_EXAMPLE}")).expect("marked");

@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn range_scales_signal() {
@@ -17,15 +18,20 @@ fn signals_are_values_and_segment() {
         values(&pat, 0, 1),
         vec![Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3)]
     );
-    // rand / perlin / saw2 usable bare
-    for s in [
+}
+
+// rand / perlin / saw2 usable bare
+#[rstest]
+fn the_other_signals_are_usable_bare(
+    #[values(
         "rand.segment(8)",
         "perlin.segment(8)",
         "saw2.segment(4)",
-        "irand(8).segment(4)",
-    ] {
-        assert!(eval(s).is_ok(), "should eval: {s}");
-    }
+        "irand(8).segment(4)"
+    )]
+    src: &str,
+) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
 }
 
 #[test]

@@ -667,6 +667,7 @@ mod tests {
 #[cfg(test)]
 mod round_trips {
     use super::*;
+    use rstest::rstest;
     use std::path::Path;
 
     /// Decode a recorded file the way a sample is loaded: mono, averaged.
@@ -751,14 +752,14 @@ mod round_trips {
         assert_eq!(bytes[at + 2] >> 4, 0b1100, "block size code");
     }
 
-    #[test]
-    fn lossy_takes_decode_to_their_whole_length_once_finished() {
-        // The tail only reaches the file when the encoder is flushed.
-        for name in ["take.mp3", "take.ogg"] {
-            let (_dir, path) = record(name, 48_000, 4_800);
-            let got = decode(&path);
-            assert!(got.len() + 200 >= 48_000, "{name}: {} frames", got.len());
-        }
+    // The tail only reaches the file when the encoder is flushed.
+    #[rstest]
+    fn lossy_takes_decode_to_their_whole_length_once_finished(
+        #[values("take.mp3", "take.ogg")] name: &str,
+    ) {
+        let (_dir, path) = record(name, 48_000, 4_800);
+        let got = decode(&path);
+        assert!(got.len() + 200 >= 48_000, "{} frames", got.len());
     }
 
     #[test]

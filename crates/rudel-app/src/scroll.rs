@@ -93,6 +93,7 @@ fn notch_size(range: &std::ops::RangeInclusive<f64>, step: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     /// Runs a frame with the pointer over a slider-sized widget and `notches`
     /// separate wheel events, returning the value and whether it changed.
@@ -215,17 +216,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_slider_takes_the_same_scrolling_end_to_end() {
-        // The whole point: the increment tracks the range, so a wide slider is
-        // not a thousand notches and a narrow one is not four.
-        for (min, max) in [(0.1, 2.0), (0.0, 200.0), (300.0, 2000.0), (-1.0, 1.0)] {
-            let notch = notch_size(&(min..=max), 0.0);
-            assert!(
-                close(notch, (max - min) / NOTCHES_PER_RANGE),
-                "{min}..{max} gave {notch}"
-            );
-        }
+    // The whole point: the increment tracks the range, so a wide slider is not a
+    // thousand notches and a narrow one is not four.
+    #[rstest]
+    #[case::narrow(0.1, 2.0)]
+    #[case::wide(0.0, 200.0)]
+    #[case::offset(300.0, 2000.0)]
+    #[case::bipolar(-1.0, 1.0)]
+    fn every_slider_takes_the_same_scrolling_end_to_end(#[case] min: f64, #[case] max: f64) {
+        let notch = notch_size(&(min..=max), 0.0);
+        assert!(
+            close(notch, (max - min) / NOTCHES_PER_RANGE),
+            "gave {notch}"
+        );
     }
 
     #[test]

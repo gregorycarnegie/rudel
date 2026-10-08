@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn every_with_a_callback() {
@@ -543,20 +544,22 @@ fn a_registered_method_samples_a_patterned_argument_every_cycle() {
     assert_eq!(at(src, 20), at(r#"n(7)"#, 0));
 }
 
-#[test]
-fn echo_takes_patterns_for_every_argument() {
-    // `register` patternifies all three; "forgotten flower" passes
-    // `reify(n)` and `pure(cycles).div(n)` through its own `nest`.
+// `register` patternifies all three; "forgotten flower" passes `reify(n)` and
+// `pure(cycles).div(n)` through its own `nest`.
+#[rstest]
+#[case::reified_count("s(\"bd\").echo(reify(3), 0.25, 1)")]
+#[case::patterned_time("s(\"bd\").echo(3, pure(1).div(4), 1)")]
+#[case::every_argument_a_pattern("s(\"bd\").echo(reify(3), pure(0.25), pure(1))")]
+#[case::standalone("echo(reify(3), pure(0.25), 1, s(\"bd\"))")]
+#[case::stut("s(\"bd\").stut(reify(3), 1, pure(0.25))")]
+fn echo_takes_patterns_for_every_argument(#[case] src: &str) {
     let plain = values(&eval("s(\"bd\").echo(3, 0.25, 1)").unwrap(), 0, 1).len();
-    for src in [
-        "s(\"bd\").echo(reify(3), 0.25, 1)",
-        "s(\"bd\").echo(3, pure(1).div(4), 1)",
-        "s(\"bd\").echo(reify(3), pure(0.25), pure(1))",
-        "echo(reify(3), pure(0.25), 1, s(\"bd\"))",
-        "s(\"bd\").stut(reify(3), 1, pure(0.25))",
-    ] {
-        assert_eq!(values(&eval(src).unwrap(), 0, 1).len(), plain, "{src}");
-    }
+    assert_eq!(values(&eval(src).unwrap(), 0, 1).len(), plain);
+}
+
+#[test]
+fn echo_carries_copies_over_from_the_cycle_before() {
+    let plain = values(&eval("s(\"bd\").echo(3, 0.25, 1)").unwrap(), 0, 1).len();
     assert_eq!(
         plain, 5,
         "three copies, two carried over from the cycle before"

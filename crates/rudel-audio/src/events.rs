@@ -499,6 +499,7 @@ fn reverb_ir(map: &rudel_core::ValueMap, bank: &SampleBank) -> Option<Arc<Sample
 mod tests {
     use super::*;
     use crate::soundfont as rudel_audio_preset;
+    use rstest::rstest;
     use rudel_core::{Value, pure, s, sequence, silence};
     use rudel_dsp::{Sample, VoiceSpec};
     use std::sync::Arc;
@@ -827,18 +828,19 @@ mod tests {
         }
     }
 
-    #[test]
-    fn zzfx_names_resolve_to_zzfx_voice() {
-        // `zzfx` and the `z_<wave>` family route to the ZzFX synth.
+    // `zzfx` and the `z_<wave>` family route to the ZzFX synth.
+    #[rstest]
+    fn zzfx_names_resolve_to_zzfx_voice(
+        #[values("zzfx", "z_sine", "z_sawtooth", "z_square", "z_noise")] name: &str,
+    ) {
         let bank = SampleBank::new();
-        for name in ["zzfx", "z_sine", "z_sawtooth", "z_square", "z_noise"] {
-            let events = collect_events(&pure(Value::Str(name.into())), 1.0, 0.0, 1.0, &bank);
-            assert!(
-                matches!(events[0].spec, VoiceSpec::Zzfx(_)),
-                "{name} should resolve to a ZzFX voice"
-            );
-        }
-        // A non-z synth name still falls back to the oscillator synth.
+        let events = collect_events(&pure(Value::Str(name.into())), 1.0, 0.0, 1.0, &bank);
+        assert!(matches!(events[0].spec, VoiceSpec::Zzfx(_)));
+    }
+
+    #[test]
+    fn a_non_z_synth_name_still_falls_back_to_the_oscillator() {
+        let bank = SampleBank::new();
         let events = collect_events(&pure(Value::Str("zara".into())), 1.0, 0.0, 1.0, &bank);
         assert!(matches!(events[0].spec, VoiceSpec::Synth(_)));
     }

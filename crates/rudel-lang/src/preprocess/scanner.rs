@@ -307,6 +307,7 @@ mod tests {
     // the user gets a pattern they did not write.
 
     use super::*;
+    use rstest::rstest;
 
     /// The argument slices `parse_call` found, as strings.
     fn call_args(src: &str) -> Option<Vec<String>> {
@@ -320,14 +321,14 @@ mod tests {
         )
     }
 
-    #[test]
-    fn identifier_characters_are_js_identifiers() {
-        for c in ['a', 'Z', '0', '9', '_', '$'] {
-            assert!(is_ident_char(c), "{c:?} belongs in an identifier");
-        }
-        for c in ['-', '.', ' ', '(', '"', '\n', 'é'] {
-            assert!(!is_ident_char(c), "{c:?} does not");
-        }
+    #[rstest]
+    fn identifier_characters_are_js_identifiers(#[values('a', 'Z', '0', '9', '_', '$')] c: char) {
+        assert!(is_ident_char(c));
+    }
+
+    #[rstest]
+    fn other_characters_are_not(#[values('-', '.', ' ', '(', '"', '\n', 'é')] c: char) {
+        assert!(!is_ident_char(c));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use super::*;
 use crate::note::{aux_messages, bend_value, clamp7, pitch_bend_bytes};
 use crate::schedule::bend_range_key;
+use rstest::rstest;
 use rudel_core::{Frac, Pattern, Value, ValueMap, note, pure, sequence, silence};
 use std::{
     sync::{Arc, Mutex},
@@ -556,14 +557,12 @@ fn the_channel_is_masked_to_four_bits() {
     assert_eq!(over.note_on_bytes()[0], 0x90, "channel 16 wraps to 0");
     assert_eq!(note_at(17).note_on_bytes()[0], 0x91, "and 17 to 1");
     assert_eq!(note_at(255).note_on_bytes()[0], 0x9F, "and 255 to 15");
-    // The status nibble survives the mask in every case.
-    for ch in [0u8, 15, 16, 200, 255] {
-        assert_eq!(
-            note_at(ch).note_on_bytes()[0] & 0xF0,
-            0x90,
-            "channel {ch} must not disturb the status nibble"
-        );
-    }
+}
+
+// The status nibble survives the mask in every case.
+#[rstest]
+fn no_channel_disturbs_the_status_nibble(#[values(0, 15, 16, 200, 255)] ch: u8) {
+    assert_eq!(note_at(ch).note_on_bytes()[0] & 0xF0, 0x90);
 }
 
 #[test]
@@ -574,18 +573,16 @@ fn a_pitch_bend_splits_into_two_seven_bit_halves() {
     assert_eq!(bytes[0], 0xE0 | 3, "status and channel");
     assert_eq!(bytes[1], 0, "centre has a zero LSB");
     assert_eq!(bytes[2], 64, "and 64 as its MSB");
+}
 
-    // Both data bytes always stay inside 7 bits.
-    for bend in [0u16, 1, 127, 128, 8191, 8192, 16383] {
-        let b = pitch_bend_bytes(0, bend);
-        assert!(b[1] < 128 && b[2] < 128, "data bytes are 7-bit for {bend}");
-        // ...and reassemble to the original value.
-        let round = (b[1] as u16) | ((b[2] as u16) << 7);
-        assert_eq!(
-            round, bend,
-            "{bend} should round-trip through the two halves"
-        );
-    }
+// Both data bytes always stay inside 7 bits, and reassemble to the original.
+#[rstest]
+fn a_pitch_bend_round_trips_through_its_seven_bit_halves(
+    #[values(0, 1, 127, 128, 8191, 8192, 16383)] bend: u16,
+) {
+    let b = pitch_bend_bytes(0, bend);
+    assert!(b[1] < 128 && b[2] < 128, "data bytes are 7-bit");
+    assert_eq!((b[1] as u16) | ((b[2] as u16) << 7), bend);
 }
 
 #[test]

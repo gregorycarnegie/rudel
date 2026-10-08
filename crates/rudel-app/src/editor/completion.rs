@@ -755,6 +755,7 @@ fn in_string_or_comment(code: &str, pos: usize, idents: &HashSet<String>) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn a_word_runs_over_identifier_characters_on_both_sides() {
@@ -862,23 +863,23 @@ mod tests {
         assert!(items.iter().all(|i| i.kind != CompletionKind::Mode));
     }
 
-    #[test]
-    fn the_common_controls_document_themselves() {
-        // The popup's detail line. Each of these has wording of its own; the
-        // catch-all is only for controls with nothing better to say.
-        for name in ["s", "n", "note", "gain", "pan", "speed", "bank"] {
-            let detail = control_detail(name);
-            assert!(
-                !detail.contains(&format!("sets `{name}` control")),
-                "{name} should have its own description, got {detail:?}"
-            );
-            assert!(!detail.is_empty());
-        }
-        assert_eq!(
-            control_detail("crush"),
-            "sets `crush` control",
-            "and anything else falls back"
+    // The popup's detail line. Each of these has wording of its own; the catch-all
+    // is only for controls with nothing better to say.
+    #[rstest]
+    fn the_common_controls_document_themselves(
+        #[values("s", "n", "note", "gain", "pan", "speed", "bank")] name: &str,
+    ) {
+        let detail = control_detail(name);
+        assert!(
+            !detail.contains(&format!("sets `{name}` control")),
+            "should have its own description, got {detail:?}"
         );
+        assert!(!detail.is_empty());
+    }
+
+    #[test]
+    fn any_other_control_falls_back_to_the_catch_all() {
+        assert_eq!(control_detail("crush"), "sets `crush` control");
     }
 
     fn reference(names: &[&str]) -> rudel_lang::Reference {
@@ -1104,24 +1105,21 @@ mod tests {
         assert_eq!(item.label, "stack");
         assert_eq!(item.kind, CompletionKind::Function);
     }
-    #[test]
-    fn each_kind_names_itself_in_the_popup() {
-        // The label sits beside every entry; a blank or wrong one is what the
-        // user reads to tell a control from a function.
-        for (kind, want) in [
-            (CompletionKind::Function, "function"),
-            (CompletionKind::Method, "method"),
-            (CompletionKind::Control, "control"),
-            (CompletionKind::Keyword, "keyword"),
-            (CompletionKind::Sound, "sound"),
-            (CompletionKind::Bank, "bank"),
-            (CompletionKind::ChordSymbol, "chord"),
-            (CompletionKind::Scale, "scale"),
-            (CompletionKind::Mode, "mode"),
-            (CompletionKind::Pitch, "pitch"),
-        ] {
-            assert_eq!(kind.label(), want);
-        }
+    // The label sits beside every entry; a blank or wrong one is what the user
+    // reads to tell a control from a function.
+    #[rstest]
+    #[case(CompletionKind::Function, "function")]
+    #[case(CompletionKind::Method, "method")]
+    #[case(CompletionKind::Control, "control")]
+    #[case(CompletionKind::Keyword, "keyword")]
+    #[case(CompletionKind::Sound, "sound")]
+    #[case(CompletionKind::Bank, "bank")]
+    #[case(CompletionKind::ChordSymbol, "chord")]
+    #[case(CompletionKind::Scale, "scale")]
+    #[case(CompletionKind::Mode, "mode")]
+    #[case(CompletionKind::Pitch, "pitch")]
+    fn each_kind_names_itself_in_the_popup(#[case] kind: CompletionKind, #[case] want: &str) {
+        assert_eq!(kind.label(), want);
     }
 
     #[test]

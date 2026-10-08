@@ -1,15 +1,13 @@
 use super::common::*;
+use rstest::rstest;
 
-#[test]
-fn newly_bound_transforms_resolve() {
-    for s in [
-        r#"note(0).hurry(2)"#,
-        r#"seq(0, 1, 2, 3).focus(0, 0.5)"#,
-        r#"seq(0, 1).press_by(0.5)"#,
-        r#"s("x").euclid_rot(3, 8, 1)"#,
-    ] {
-        assert!(eval(s).is_ok(), "should eval: {s}");
-    }
+#[rstest]
+#[case(r#"note(0).hurry(2)"#)]
+#[case(r#"seq(0, 1, 2, 3).focus(0, 0.5)"#)]
+#[case(r#"seq(0, 1).press_by(0.5)"#)]
+#[case(r#"s("x").euclid_rot(3, 8, 1)"#)]
+fn newly_bound_transforms_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
 }
 
 #[test]
@@ -501,36 +499,33 @@ fn overlay_and_pace_via_script() {
     assert_eq!(pat.query_arc(Frac::zero(), Frac::one()).len(), 4);
 }
 
-#[test]
-fn camel_case_aliases_resolve() {
-    // Strudel-style camelCase aliases should evaluate without error.
-    for src in [
-        r#"seq(0, 1, 2).iterBack(2)"#,
-        r#"s("bd sd").fastGap(2)"#,
-        r#"seq(0, 1).repeatCycles(2)"#,
-        r#"seq(0, 1).pressBy(0.5)"#,
-        r#"seq(0, 1, 2, 3).swingBy(0.25, 2)"#,
-        r#"s("x").euclidRot(3, 8, 1)"#,
-        r#"note("c3").euclidLegato(3, 8)"#,
-        r#"note("c3").euclidLegatoRot(3, 5, 2)"#,
-        r#"n("0").scale("C:major").scaleTranspose(2)"#,
-        r#"n("0").scale("C:major").scaleTrans(2)"#,
-        r#"pure("Am7").rootNotes(3)"#,
-        r#"s("bd").loopAt(2)"#,
-        r#"sine.toBipolar()"#,
-        r#"sine.fromBipolar()"#,
-        r#"seq(0, 1).firstOf(2, x => x.add(10))"#,
-        r#"seq(0, 1).lastOf(2, x => x.add(10))"#,
-        r#"seq(0, 1, 2, 3).chunkBack(2, x => x.add(10))"#,
-        r#"note("0 1").juxBy(0.5, rev)"#,
-        r#"seq(0, 1).sometimesBy(0.5, x => x.add(7))"#,
-        r#"seq(0, 1).someCycles(x => x.add(7))"#,
-        r#"seq(0, 1).someCyclesBy(0.5, x => x.add(7))"#,
-        r#"seq(0, 1).almostAlways(x => x.add(7))"#,
-        r#"seq(0, 1).almostNever(x => x.add(7))"#,
-    ] {
-        assert!(eval(src).is_ok(), "should eval: {src}");
-    }
+// Strudel-style camelCase aliases should evaluate without error.
+#[rstest]
+#[case(r#"seq(0, 1, 2).iterBack(2)"#)]
+#[case(r#"s("bd sd").fastGap(2)"#)]
+#[case(r#"seq(0, 1).repeatCycles(2)"#)]
+#[case(r#"seq(0, 1).pressBy(0.5)"#)]
+#[case(r#"seq(0, 1, 2, 3).swingBy(0.25, 2)"#)]
+#[case(r#"s("x").euclidRot(3, 8, 1)"#)]
+#[case(r#"note("c3").euclidLegato(3, 8)"#)]
+#[case(r#"note("c3").euclidLegatoRot(3, 5, 2)"#)]
+#[case(r#"n("0").scale("C:major").scaleTranspose(2)"#)]
+#[case(r#"n("0").scale("C:major").scaleTrans(2)"#)]
+#[case(r#"pure("Am7").rootNotes(3)"#)]
+#[case(r#"s("bd").loopAt(2)"#)]
+#[case(r#"sine.toBipolar()"#)]
+#[case(r#"sine.fromBipolar()"#)]
+#[case(r#"seq(0, 1).firstOf(2, x => x.add(10))"#)]
+#[case(r#"seq(0, 1).lastOf(2, x => x.add(10))"#)]
+#[case(r#"seq(0, 1, 2, 3).chunkBack(2, x => x.add(10))"#)]
+#[case(r#"note("0 1").juxBy(0.5, rev)"#)]
+#[case(r#"seq(0, 1).sometimesBy(0.5, x => x.add(7))"#)]
+#[case(r#"seq(0, 1).someCycles(x => x.add(7))"#)]
+#[case(r#"seq(0, 1).someCyclesBy(0.5, x => x.add(7))"#)]
+#[case(r#"seq(0, 1).almostAlways(x => x.add(7))"#)]
+#[case(r#"seq(0, 1).almostNever(x => x.add(7))"#)]
+fn camel_case_aliases_resolve(#[case] src: &str) {
+    assert!(eval(src).is_ok(), "should eval: {src}");
 }
 
 #[test]
@@ -571,19 +566,16 @@ fn curried_callback_combinators() {
     assert_eq!(nested, lambda);
 }
 
-#[test]
-fn chained_recurrying() {
-    // Partial applications re-curry until the full arity is reached, like
-    // Strudel's `curry`: each call may supply any prefix of the missing args.
+// Partial applications re-curry until the full arity is reached, like Strudel's
+// `curry`: each call may supply any prefix of the missing args.
+#[rstest]
+#[case::function_form(r#"fast(2)(seq(0, 1))"#)]
+#[case::empty_call_first(r#"fast()(2)(seq(0, 1))"#)]
+#[case::curried_argument(r#"every(1)(fast(2))(seq(0, 1))"#)]
+#[case::both_arguments_at_once(r#"every(1, fast(2))(seq(0, 1))"#)]
+fn chained_recurrying(#[case] src: &str) {
     let method = shape(&eval(r#"seq(0, 1).fast(2)"#).expect("eval"), 1);
-    for src in [
-        r#"fast(2)(seq(0, 1))"#,
-        r#"fast()(2)(seq(0, 1))"#,
-        r#"every(1)(fast(2))(seq(0, 1))"#,
-        r#"every(1, fast(2))(seq(0, 1))"#,
-    ] {
-        assert_eq!(shape(&eval(src).expect(src), 1), method, "{src}");
-    }
+    assert_eq!(shape(&eval(src).expect(src), 1), method);
 }
 
 #[test]

@@ -1370,6 +1370,7 @@ fn id_key(id: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     // --- the name and descriptor tables ------------------------------------
     //
@@ -1402,44 +1403,35 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_modulatable_control_names_its_own_target() {
-        for (name, want) in [
-            ("gain", ModTarget::Gain),
-            ("cutoff", ModTarget::Cutoff),
-            ("resonance", ModTarget::Resonance),
-            ("hcutoff", ModTarget::Hcutoff),
-            ("hresonance", ModTarget::Hresonance),
-            ("bandf", ModTarget::Bandf),
-            ("bandq", ModTarget::Bandq),
-            ("postgain", ModTarget::Postgain),
-            ("shape", ModTarget::Shape),
-            ("shapevol", ModTarget::Shapevol),
-            ("distort", ModTarget::Distort),
-            ("distortvol", ModTarget::Distortvol),
-            ("crush", ModTarget::Crush),
-            ("coarse", ModTarget::Coarse),
-        ] {
-            assert_eq!(
-                ModTarget::from_control(name),
-                Some(want),
-                "control {name:?} should modulate {want:?}"
-            );
-        }
+    #[rstest]
+    #[case("gain", ModTarget::Gain)]
+    #[case("cutoff", ModTarget::Cutoff)]
+    #[case("resonance", ModTarget::Resonance)]
+    #[case("hcutoff", ModTarget::Hcutoff)]
+    #[case("hresonance", ModTarget::Hresonance)]
+    #[case("bandf", ModTarget::Bandf)]
+    #[case("bandq", ModTarget::Bandq)]
+    #[case("postgain", ModTarget::Postgain)]
+    #[case("shape", ModTarget::Shape)]
+    #[case("shapevol", ModTarget::Shapevol)]
+    #[case("distort", ModTarget::Distort)]
+    #[case("distortvol", ModTarget::Distortvol)]
+    #[case("crush", ModTarget::Crush)]
+    #[case("coarse", ModTarget::Coarse)]
+    // Pitch has three spellings, all the same target.
+    #[case("s", ModTarget::Frequency)]
+    #[case("freq", ModTarget::Frequency)]
+    #[case("note", ModTarget::Frequency)]
+    fn every_modulatable_control_names_its_own_target(#[case] name: &str, #[case] want: ModTarget) {
+        assert_eq!(ModTarget::from_control(name), Some(want));
+    }
 
-        // Pitch has three spellings, all the same target.
-        for name in ["s", "freq", "note"] {
-            assert_eq!(ModTarget::from_control(name), Some(ModTarget::Frequency));
-        }
-
-        // Names are exact: no case folding, no prefixes.
-        for name in ["", "Gain", "gains", "gai", "cut", "lpf", "nonesuch"] {
-            assert_eq!(
-                ModTarget::from_control(name),
-                None,
-                "{name:?} is not a modulation target"
-            );
-        }
+    // Names are exact: no case folding, no prefixes.
+    #[rstest]
+    fn a_near_miss_is_not_a_modulation_target(
+        #[values("", "Gain", "gains", "gai", "cut", "lpf", "nonesuch")] name: &str,
+    ) {
+        assert_eq!(ModTarget::from_control(name), None);
     }
 
     #[test]
@@ -1466,46 +1458,45 @@ mod tests {
         );
     }
 
-    #[test]
-    fn voice_and_post_fx_modulators_are_kept_apart() {
-        // A modulator has to run in the stage that owns its parameter; landing
-        // in the wrong bank means it is ticked at the wrong point in the chain.
-        for (name, voice_side) in [
-            ("freq", true),
-            ("gain", true),
-            ("cutoff", true),
-            ("resonance", true),
-            ("hcutoff", true),
-            ("hresonance", true),
-            ("bandf", true),
-            ("bandq", true),
-            ("postgain", false),
-            ("shape", false),
-            ("distort", false),
-            ("crush", false),
-            ("coarse", false),
-        ] {
-            let map = descriptor(
-                "lfo",
-                &[
-                    ("control", Value::from(name)),
-                    ("depthabs", Value::F64(0.5)),
-                    ("rate", Value::F64(2.0)),
-                ],
-            );
-            let specs = ModSpecs::from_controls(&map, &ctx(), |_| 25.0);
-            assert!(!specs.is_empty(), "{name} should resolve to a modulator");
-            if voice_side {
-                assert!(!specs.voice.is_empty(), "{name} belongs to the voice");
-                assert!(specs.post.is_empty(), "{name} is not a post-fx modulator");
-            } else {
-                assert!(!specs.post.is_empty(), "{name} belongs to post-fx");
-                assert!(specs.voice.is_empty(), "{name} is not a voice modulator");
-            }
+    // A modulator has to run in the stage that owns its parameter; landing in the
+    // wrong bank means it is ticked at the wrong point in the chain.
+    #[rstest]
+    #[case::freq("freq", true)]
+    #[case::gain("gain", true)]
+    #[case::cutoff("cutoff", true)]
+    #[case::resonance("resonance", true)]
+    #[case::hcutoff("hcutoff", true)]
+    #[case::hresonance("hresonance", true)]
+    #[case::bandf("bandf", true)]
+    #[case::bandq("bandq", true)]
+    #[case::postgain("postgain", false)]
+    #[case::shape("shape", false)]
+    #[case::distort("distort", false)]
+    #[case::crush("crush", false)]
+    #[case::coarse("coarse", false)]
+    fn voice_and_post_fx_modulators_are_kept_apart(#[case] name: &str, #[case] voice_side: bool) {
+        let map = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from(name)),
+                ("depthabs", Value::F64(0.5)),
+                ("rate", Value::F64(2.0)),
+            ],
+        );
+        let specs = ModSpecs::from_controls(&map, &ctx(), |_| 25.0);
+        assert!(!specs.is_empty(), "{name} should resolve to a modulator");
+        if voice_side {
+            assert!(!specs.voice.is_empty(), "{name} belongs to the voice");
+            assert!(specs.post.is_empty(), "{name} is not a post-fx modulator");
+        } else {
+            assert!(!specs.post.is_empty(), "{name} belongs to post-fx");
+            assert!(specs.voice.is_empty(), "{name} is not a voice modulator");
         }
+    }
 
-        // A control that cannot be modulated yields nothing rather than
-        // defaulting onto some other parameter.
+    #[test]
+    fn a_control_that_cannot_be_modulated_yields_no_modulator() {
+        // Rather than defaulting onto some other parameter.
         let map = descriptor(
             "lfo",
             &[

@@ -273,6 +273,7 @@ pub(super) fn spiral_point(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn cap_points(cap: SpiralCap, thickness: f32) -> Vec<egui::Pos2> {
         let segment = SpiralCap::test_segment(cap, thickness);
@@ -293,42 +294,44 @@ mod tests {
         assert!(cap_shape(egui::pos2(1.0, 1.0), egui::Vec2::ZERO, 8.0, round).is_none());
     }
 
-    #[test]
-    fn caps_stay_beyond_the_stroke_end() {
-        // The whole point of the shape: it must sit on the outward side of the
-        // line's butt end. Overlapping the stroke would composite twice and
-        // make the cap read brighter than the segment it caps.
+    // The whole point of the shape: it must sit on the outward side of the line's
+    // butt end. Overlapping the stroke would composite twice and make the cap read
+    // brighter than the segment it caps.
+    #[rstest]
+    fn caps_stay_beyond_the_stroke_end(
+        #[values(SpiralCap::Round, SpiralCap::Square)] cap: SpiralCap,
+    ) {
         let thickness = 8.0;
         let end = egui::pos2(10.0, 4.0);
-        for cap in [SpiralCap::Round, SpiralCap::Square] {
-            for point in cap_points(cap, thickness) {
-                let along = (point - end).x; // outward is +x here
-                assert!(
-                    along >= -1e-3,
-                    "{cap:?} point {point:?} falls behind the stroke end"
-                );
-                // and never reaches further out than a half stroke width
-                assert!(along <= thickness / 2.0 + 1e-3, "{cap:?} overshoots");
-            }
+        for point in cap_points(cap, thickness) {
+            let along = (point - end).x; // outward is +x here
+            assert!(
+                along >= -1e-3,
+                "point {point:?} falls behind the stroke end"
+            );
+            // and never reaches further out than a half stroke width
+            assert!(along <= thickness / 2.0 + 1e-3, "overshoots");
         }
     }
 
-    #[test]
-    fn caps_span_the_stroke_width() {
-        // Both caps must meet the stroke edge-to-edge, or a seam shows.
+    // Both caps must meet the stroke edge-to-edge, or a seam shows.
+    #[rstest]
+    fn caps_span_the_stroke_width(#[values(SpiralCap::Round, SpiralCap::Square)] cap: SpiralCap) {
         let thickness = 8.0;
-        for cap in [SpiralCap::Round, SpiralCap::Square] {
-            let points = cap_points(cap, thickness);
-            let (min, max) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
-                (lo.min(p.y), hi.max(p.y))
-            });
-            assert!(
-                (max - min - thickness).abs() < 1e-3,
-                "{cap:?} spans {} across a {thickness} stroke",
-                max - min
-            );
-        }
-        // The round cap bulges out to a half width at its apex; square is flat.
+        let points = cap_points(cap, thickness);
+        let (min, max) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+            (lo.min(p.y), hi.max(p.y))
+        });
+        assert!(
+            (max - min - thickness).abs() < 1e-3,
+            "spans {} across a {thickness} stroke",
+            max - min
+        );
+    }
+
+    #[test]
+    fn the_round_cap_bulges_out_to_a_half_width() {
+        // Square is flat.
         let apex = cap_points(SpiralCap::Round, 8.0)
             .iter()
             .fold(f32::MIN, |acc, p| acc.max(p.x - 10.0));

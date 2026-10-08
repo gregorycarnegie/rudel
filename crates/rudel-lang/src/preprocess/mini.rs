@@ -113,6 +113,7 @@ fn is_slider_id_literal(src: &str, quote_start: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     // This module had no tests of its own — only two end-to-end assertions in
     // `tests/preprocess.rs` — so its helpers were reached but never pinned. The
@@ -201,35 +202,29 @@ mod tests {
         assert_eq!(map_to_source(&[], 7), 7);
     }
 
-    #[test]
-    fn a_generated_slider_id_is_not_mini_notation() {
-        // The widget pass inserts these as runtime strings; annotating them
-        // would put a source location on text the user never wrote.
-        for src in [
-            r#"slider_with_id("0:3", 0.5)"#,
-            r#"sliderWithID("0:3", 0.5)"#,
-            r#"rudel_widget_spiral("w_0")"#,
-            r#"_spiral("w_0")"#,
-            r#"pianoroll("w_0")"#,
-        ] {
-            assert!(locations(src).is_empty(), "id literal annotated: {src}");
-        }
+    // The widget pass inserts these as runtime strings; annotating them would put a
+    // source location on text the user never wrote.
+    #[rstest]
+    #[case(r#"slider_with_id("0:3", 0.5)"#)]
+    #[case(r#"sliderWithID("0:3", 0.5)"#)]
+    #[case(r#"rudel_widget_spiral("w_0")"#)]
+    #[case(r#"_spiral("w_0")"#)]
+    #[case(r#"pianoroll("w_0")"#)]
+    fn a_generated_slider_id_is_not_mini_notation(#[case] src: &str) {
+        assert!(locations(src).is_empty(), "id literal annotated");
     }
 
-    #[test]
-    fn the_slider_id_walk_steps_over_whitespace_on_both_sides_of_the_paren() {
-        // The backwards walk skips blanks between the name and `(`, and between
-        // `(` and the literal. Without either, a formatted call is annotated as
-        // a pattern and the editor grows a highlight over a generated id.
-        for src in [
-            r#"slider_with_id( "0:3")"#,
-            r#"slider_with_id ("0:3")"#,
-            r#"slider_with_id ( "0:3")"#,
-            "slider_with_id(\n    \"0:3\")",
-            "_spiral\n(\n\"w_0\")",
-        ] {
-            assert!(locations(src).is_empty(), "id literal annotated: {src}");
-        }
+    // The backwards walk skips blanks between the name and `(`, and between `(` and
+    // the literal. Without either, a formatted call is annotated as a pattern and
+    // the editor grows a highlight over a generated id.
+    #[rstest]
+    #[case::after_the_paren(r#"slider_with_id( "0:3")"#)]
+    #[case::before_the_paren(r#"slider_with_id ("0:3")"#)]
+    #[case::both_sides(r#"slider_with_id ( "0:3")"#)]
+    #[case::newline_and_indent("slider_with_id(\n    \"0:3\")")]
+    #[case::newlines_everywhere("_spiral\n(\n\"w_0\")")]
+    fn the_slider_id_walk_steps_over_whitespace_on_both_sides_of_the_paren(#[case] src: &str) {
+        assert!(locations(src).is_empty(), "id literal annotated");
     }
 
     #[test]

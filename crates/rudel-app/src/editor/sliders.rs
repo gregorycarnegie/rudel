@@ -212,6 +212,7 @@ fn decimal_places(value: f64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn slider(range: SourceRange) -> SliderDecoration {
         SliderDecoration {
@@ -337,26 +338,25 @@ mod tests {
     }
 
     #[test]
-    fn an_unusable_step_falls_back_to_a_thousandth_of_the_range() {
+    fn a_usable_step_is_kept() {
+        assert_eq!(
+            slider_step(&slider(SourceRange::new(7, 10)), 0.0, 1.0),
+            0.01
+        );
+    }
+
+    // A step that cannot move the slider — absent, zero, negative or not a number —
+    // is replaced by a thousandth of the range, never by the range itself and never
+    // by something that would step backwards.
+    #[rstest]
+    fn an_unusable_step_falls_back_to_a_thousandth_of_the_range(
+        #[values(None, Some(0.0), Some(-0.5), Some(f64::NAN), Some(f64::INFINITY))] bad: Option<
+            f64,
+        >,
+    ) {
         let mut s = slider(SourceRange::new(7, 10));
-        assert_eq!(slider_step(&s, 0.0, 1.0), 0.01, "a usable step is kept");
-        // A step that cannot move the slider — absent, zero, negative or not a
-        // number — is replaced by a thousandth of the range, never by the range
-        // itself and never by something that would step backwards.
-        for bad in [
-            None,
-            Some(0.0),
-            Some(-0.5),
-            Some(f64::NAN),
-            Some(f64::INFINITY),
-        ] {
-            s.step = bad;
-            assert_eq!(
-                slider_step(&s, 1.0, 3.0),
-                0.002,
-                "step {bad:?} should fall back to (max - min) / 1000"
-            );
-        }
+        s.step = bad;
+        assert_eq!(slider_step(&s, 1.0, 3.0), 0.002);
     }
 
     #[test]

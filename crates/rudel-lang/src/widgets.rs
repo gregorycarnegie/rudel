@@ -95,6 +95,7 @@ pub(crate) fn recorded_options(id: &str) -> Option<OptionMap> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn evaluated_values_map_onto_the_literal_option_forms() {
@@ -119,19 +120,25 @@ mod tests {
         assert!(options_from_arg(&Arg::Null).is_empty());
     }
 
-    #[test]
-    fn a_hydra_chain_compiles_bound_to_the_buffer_its_key_names() {
-        // `prev()` reads the buffer the chain draws into, so it is where the
-        // binding shows in the shader.
+    // `prev()` reads the buffer the chain draws into, so it is where the binding
+    // shows in the shader.
+    #[rstest]
+    #[case("chain", 0)]
+    #[case("o0", 0)]
+    #[case("o1", 1)]
+    #[case("o2", 2)]
+    #[case("o3", 3)]
+    fn a_hydra_chain_compiles_bound_to_the_buffer_its_key_names(
+        #[case] key: &str,
+        #[case] index: u32,
+    ) {
         let prev = crate::hydra::lookup("prev").expect("prev is in the table");
-        for (key, index) in [("chain", 0), ("o0", 0), ("o1", 1), ("o2", 2), ("o3", 3)] {
-            let chain = crate::hydra::Chain::source(prev, Vec::new());
-            let options = options_from_arg(&Arg::Map(vec![(key.to_string(), Arg::Hydra(chain))]));
-            let Some(WidgetOption::String(wgsl)) = options.get(key) else {
-                panic!("{key}: {options:?}");
-            };
-            assert!(wgsl.contains(&format!("h_src(st, {index}.0)")), "{key}");
-        }
+        let chain = crate::hydra::Chain::source(prev, Vec::new());
+        let options = options_from_arg(&Arg::Map(vec![(key.to_string(), Arg::Hydra(chain))]));
+        let Some(WidgetOption::String(wgsl)) = options.get(key) else {
+            panic!("{options:?}");
+        };
+        assert!(wgsl.contains(&format!("h_src(st, {index}.0)")));
     }
 
     #[test]

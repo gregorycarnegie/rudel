@@ -684,6 +684,7 @@ fn scale_transpose_hap(hap: Hap, offset: i32) -> Hap {
 mod tests {
     use super::*;
     use crate::{Frac, fastcat, n, pure, sequence};
+    use rstest::rstest;
 
     #[test]
     fn a_bare_root_is_its_major_scale_and_sus_is_not_a_sharp() {
@@ -983,38 +984,38 @@ mod tests {
         }
     }
 
-    #[test]
-    fn interval_strings_to_semitones() {
-        for (s, want) in [
-            ("1P", 0),
-            ("3m", 3),
-            ("3M", 4),
-            ("5P", 7),
-            ("5d", 6),
-            ("5A", 8),
-            ("7m", 10),
-            ("8P", 12),
-            ("9M", 14),
-            ("11A", 18),
-            ("M3", 4),   // quality-first order
-            ("-2M", -2), // descending
-            ("-5P", -7),
-            ("4", 4), // bare number = semitones
-            // Diminished costs one more semitone away from a major/minor
-            // interval than from a perfect one, and both stack.
-            ("3d", 2),
-            ("3dd", 1),
-            ("5dd", 5),
-            ("5AA", 9),
-        ] {
-            assert_eq!(interval_to_semitones(s), Some(want), "interval {s}");
-        }
+    #[rstest]
+    #[case("1P", 0)]
+    #[case("3m", 3)]
+    #[case("3M", 4)]
+    #[case("5P", 7)]
+    #[case("5d", 6)]
+    #[case("5A", 8)]
+    #[case("7m", 10)]
+    #[case("8P", 12)]
+    #[case("9M", 14)]
+    #[case("11A", 18)]
+    #[case::quality_first("M3", 4)]
+    #[case::descending("-2M", -2)]
+    #[case::descending_perfect("-5P", -7)]
+    #[case::bare_number_is_semitones("4", 4)]
+    // Diminished costs one more semitone away from a major/minor interval than
+    // from a perfect one, and both stack.
+    #[case::diminished_third("3d", 2)]
+    #[case::doubly_diminished_third("3dd", 1)]
+    #[case::doubly_diminished_fifth("5dd", 5)]
+    #[case::doubly_augmented_fifth("5AA", 9)]
+    fn interval_strings_to_semitones(#[case] s: &str, #[case] want: i32) {
+        assert_eq!(interval_to_semitones(s), Some(want));
+    }
 
-        // A quality only applies to its own family: no perfect third, no major
-        // fifth. Anything else is not a quality at all.
-        for s in ["3P", "5M", "5m", "5Ad", "5x"] {
-            assert_eq!(interval_to_semitones(s), None, "interval {s}");
-        }
+    // A quality only applies to its own family: no perfect third, no major fifth.
+    // Anything else is not a quality at all.
+    #[rstest]
+    fn a_quality_outside_its_family_is_no_interval(
+        #[values("3P", "5M", "5m", "5Ad", "5x")] s: &str,
+    ) {
+        assert_eq!(interval_to_semitones(s), None);
     }
 
     #[test]

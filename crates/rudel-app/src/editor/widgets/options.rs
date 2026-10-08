@@ -254,6 +254,7 @@ fn option_midi(options: &BTreeMap<String, rudel_lang::WidgetOption>, key: &str) 
 mod tests {
     use super::*;
     use crate::editor::decorations::SourceRange;
+    use rstest::rstest;
 
     fn widget(widget_type: &str, options: &[(&str, rudel_lang::WidgetOption)]) -> WidgetDecoration {
         WidgetDecoration {
@@ -326,29 +327,29 @@ mod tests {
     }
 
     #[test]
-    fn wordfall_defaults_only_fill_in_what_the_script_left_out() {
+    fn wordfall_defaults_fill_in_what_the_script_left_out() {
         let plain = widget("_wordfall", &[]);
         let defaulted = VisualWidgetOptions::from_widget(&plain).with_wordfall_defaults(&plain);
         assert!(defaulted.vertical, "wordfall scrolls vertically");
         assert!(defaulted.labels, "and is all labels");
         assert_eq!(defaulted.stroke, Some(false));
         assert!(defaulted.fill_active);
+    }
 
-        // Each of those is only a default: naming it in the script wins, even
-        // when the value asked for is the opposite.
-        for (key, check) in [
-            (
-                "vertical",
-                (|o: &VisualWidgetOptions| !o.vertical) as fn(&VisualWidgetOptions) -> bool,
-            ),
-            ("labels", |o| !o.labels),
-            ("stroke", |o| o.stroke == Some(true)),
-            ("fillActive", |o| !o.fill_active),
-        ] {
-            let value = rudel_lang::WidgetOption::Bool(key == "stroke");
-            let named = widget("_wordfall", &[(key, value)]);
-            let options = VisualWidgetOptions::from_widget(&named).with_wordfall_defaults(&named);
-            assert!(check(&options), "{key} was overridden by the default");
-        }
+    // Each of those is only a default: naming it in the script wins, even when the
+    // value asked for is the opposite.
+    #[rstest]
+    #[case::vertical("vertical", |o: &VisualWidgetOptions| !o.vertical)]
+    #[case::labels("labels", |o: &VisualWidgetOptions| !o.labels)]
+    #[case::stroke("stroke", |o: &VisualWidgetOptions| o.stroke == Some(true))]
+    #[case::fill_active("fillActive", |o: &VisualWidgetOptions| !o.fill_active)]
+    fn wordfall_defaults_only_fill_in_what_the_script_left_out(
+        #[case] key: &str,
+        #[case] overridden: fn(&VisualWidgetOptions) -> bool,
+    ) {
+        let value = rudel_lang::WidgetOption::Bool(key == "stroke");
+        let named = widget("_wordfall", &[(key, value)]);
+        let options = VisualWidgetOptions::from_widget(&named).with_wordfall_defaults(&named);
+        assert!(overridden(&options), "{key} was overridden by the default");
     }
 }

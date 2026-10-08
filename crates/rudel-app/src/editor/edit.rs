@@ -435,6 +435,7 @@ fn jump_to_marker(text: &str, cursor_char: CharIndex, forward: bool) -> Option<C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn cursor(index: usize) -> egui::text::CCursorRange {
         egui::text::CCursorRange::one(egui::text::CCursor::new(index))
@@ -506,20 +507,23 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_opening_bracket_and_quote_gets_its_partner() {
-        // The closer is inserted after the caret, which stays between the two.
-        for (open, close) in [('(', ')'), ('[', ']'), ('{', '}')] {
-            let mut text = open.to_string();
-            let moved = apply_auto_pair(&mut text, cursor(1), &open.to_string());
-            assert_eq!(text, format!("{open}{close}"), "typing {open}");
-            assert_eq!(moved.unwrap().primary.index, CharIndex(1));
-        }
-        for quote in ['"', '\'', '`'] {
-            let mut text = quote.to_string();
-            apply_auto_pair(&mut text, cursor(1), &quote.to_string());
-            assert_eq!(text, format!("{quote}{quote}"), "typing {quote}");
-        }
+    // The closer is inserted after the caret, which stays between the two.
+    #[rstest]
+    #[case('(', ')')]
+    #[case('[', ']')]
+    #[case('{', '}')]
+    fn every_opening_bracket_gets_its_partner(#[case] open: char, #[case] close: char) {
+        let mut text = open.to_string();
+        let moved = apply_auto_pair(&mut text, cursor(1), &open.to_string());
+        assert_eq!(text, format!("{open}{close}"));
+        assert_eq!(moved.unwrap().primary.index, CharIndex(1));
+    }
+
+    #[rstest]
+    fn every_opening_quote_gets_its_partner(#[values('"', '\'', '`')] quote: char) {
+        let mut text = quote.to_string();
+        apply_auto_pair(&mut text, cursor(1), &quote.to_string());
+        assert_eq!(text, format!("{quote}{quote}"));
     }
 
     #[test]
@@ -946,21 +950,21 @@ two";
             Some("b".into())
         );
     }
-    #[test]
-    fn typing_the_closing_quote_steps_over_the_one_already_there() {
-        // Auto-pairing inserted the closer; typing it yourself should move
-        // past it rather than leave `""""`. Quotes need this as much as
-        // brackets do, since the same character opens and closes them.
-        for quote in ['"', '\'', '`'] {
-            let mut text = format!("{quote}{quote}");
-            let moved = apply_auto_pair(&mut text, cursor(1), &quote.to_string());
-            assert_eq!(
-                text,
-                quote.to_string(),
-                "the typed {quote} replaced nothing and one remains"
-            );
-            assert_eq!(moved.map(|r| r.primary.index), Some(CharIndex(1)));
-        }
+    // Auto-pairing inserted the closer; typing it yourself should move past it
+    // rather than leave `""""`. Quotes need this as much as brackets do, since the
+    // same character opens and closes them.
+    #[rstest]
+    fn typing_the_closing_quote_steps_over_the_one_already_there(
+        #[values('"', '\'', '`')] quote: char,
+    ) {
+        let mut text = format!("{quote}{quote}");
+        let moved = apply_auto_pair(&mut text, cursor(1), &quote.to_string());
+        assert_eq!(
+            text,
+            quote.to_string(),
+            "the typed quote replaced nothing and one remains"
+        );
+        assert_eq!(moved.map(|r| r.primary.index), Some(CharIndex(1)));
     }
 
     #[test]

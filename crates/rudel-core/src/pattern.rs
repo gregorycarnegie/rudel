@@ -1068,6 +1068,7 @@ pub fn parse_string(s: &str) -> Pattern {
 #[cfg(test)]
 mod survivor_tests {
     use super::*;
+    use rstest::rstest;
 
     fn count(pat: &Pattern) -> usize {
         pat.query_arc(Frac::zero(), Frac::one()).len()
@@ -1088,13 +1089,18 @@ mod survivor_tests {
     }
 
     #[test]
-    fn compress_outside_the_unit_cycle_or_backwards_is_silence() {
+    fn compress_inside_the_unit_cycle_keeps_the_event() {
         let pat = pure(Value::Int(1));
         assert_eq!(count(&pat._compress(Frac::new(1, 4), Frac::new(3, 4))), 1);
-        for (b, e) in [(3, 1), (-1, 2), (1, 6)] {
-            let squeezed = pat._compress(Frac::new(b, 4), Frac::new(e, 4));
-            assert_eq!(count(&squeezed), 0, "{b}/4..{e}/4");
-        }
+    }
+
+    #[rstest]
+    #[case::backwards(3, 1)]
+    #[case::before_the_cycle(-1, 2)]
+    #[case::past_the_cycle(1, 6)]
+    fn compress_outside_the_unit_cycle_or_backwards_is_silence(#[case] b: i64, #[case] e: i64) {
+        let squeezed = pure(Value::Int(1))._compress(Frac::new(b, 4), Frac::new(e, 4));
+        assert_eq!(count(&squeezed), 0);
     }
 
     #[test]

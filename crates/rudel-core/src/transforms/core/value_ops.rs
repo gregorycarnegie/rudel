@@ -185,29 +185,30 @@ pub(super) fn logic_or(a: &Value, b: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn s(x: &str) -> Value {
         Value::Str(x.to_string())
     }
 
-    /// Int op Int stays an `Int` — Strudel snapshots `n("0 1 2")` as integers,
-    /// so falling through to the f64 arm would print `0.0` everywhere.
-    #[test]
-    fn integer_arithmetic_keeps_its_type_and_sign() {
-        // `Value`'s equality coerces across Int/F64, so the *variant* is what
-        // has to be asserted here — `Int(5) == F64(5.0)` is true.
-        for (op, want) in [
-            (num_add(&Value::Int(2), &Value::Int(3)), 5),
-            (num_sub(&Value::Int(2), &Value::Int(3)), -1),
-            (num_mul(&Value::Int(2), &Value::Int(3)), 6),
-            (num_mod(&Value::Int(-1), &Value::Int(3)), 2),
-        ] {
-            assert!(
-                matches!(op, Value::Int(x) if x == want),
-                "{op:?} != Int({want})"
-            );
-        }
+    /// Int op Int stays an `Int` — Strudel snapshots `n("0 1 2")` as integers, so
+    /// falling through to the f64 arm would print `0.0` everywhere.
+    // `Value`'s equality coerces across Int/F64, so the *variant* is what has to be
+    // asserted here — `Int(5) == F64(5.0)` is true.
+    #[rstest]
+    #[case::add(num_add(&Value::Int(2), &Value::Int(3)), 5)]
+    #[case::sub(num_sub(&Value::Int(2), &Value::Int(3)), -1)]
+    #[case::mul(num_mul(&Value::Int(2), &Value::Int(3)), 6)]
+    #[case::modulo_is_positive(num_mod(&Value::Int(-1), &Value::Int(3)), 2)]
+    fn integer_arithmetic_keeps_its_type_and_sign(#[case] op: Value, #[case] want: i64) {
+        assert!(
+            matches!(op, Value::Int(x) if x == want),
+            "{op:?} != Int({want})"
+        );
+    }
 
+    #[test]
+    fn mixed_arithmetic_coerces_through_f64() {
         // Anything else coerces through f64, including numeric strings.
         assert_eq!(num_add(&Value::F64(0.5), &Value::Int(1)), Value::F64(1.5));
         assert_eq!(num_sub(&Value::F64(0.5), &Value::Int(2)), Value::F64(-1.5));

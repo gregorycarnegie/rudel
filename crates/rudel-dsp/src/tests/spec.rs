@@ -2,6 +2,7 @@
 //! its base value from, and whether a voice needs the post-fx wrapper at all.
 
 use super::common::*;
+use rstest::rstest;
 
 fn synth() -> VoiceSpec {
     let mut p = VoiceParams {
@@ -32,38 +33,41 @@ fn sampler() -> VoiceSpec {
     VoiceSpec::Sampler(p)
 }
 
-#[test]
-fn every_modulation_target_reads_its_own_control() {
-    let fx = PostFx {
+fn modulated_fx() -> PostFx {
+    PostFx {
         postgain: 0.8,
         shape: Some(0.3),
         distort: Some(1.5),
         crush: Some(6.0),
         coarse: Some(2.0),
         ..Default::default()
-    };
-    let synth = synth();
-    for (target, want) in [
-        (ModTarget::Frequency, 440.0),
-        (ModTarget::Gain, 0.7),
-        (ModTarget::Cutoff, 1000.0),
-        (ModTarget::Resonance, 2.0),
-        (ModTarget::Hcutoff, 200.0),
-        (ModTarget::Hresonance, 3.0),
-        (ModTarget::Bandf, 3000.0),
-        (ModTarget::Bandq, 4.0),
-        // Anything the voice does not own comes from the post-fx chain.
-        (ModTarget::Postgain, 0.8),
-        (ModTarget::Shape, 0.3),
-        (ModTarget::Distort, 1.5),
-        (ModTarget::Crush, 6.0),
-        (ModTarget::Coarse, 2.0),
-    ] {
-        assert_eq!(synth.mod_base(target, &fx), want, "{target:?} on a synth");
     }
+}
 
-    // The sampler keeps its filter controls outside `FilterSet`, so it has
-    // its own arms for the two it owns and zero for the rest.
+#[rstest]
+#[case(ModTarget::Frequency, 440.0)]
+#[case(ModTarget::Gain, 0.7)]
+#[case(ModTarget::Cutoff, 1000.0)]
+#[case(ModTarget::Resonance, 2.0)]
+#[case(ModTarget::Hcutoff, 200.0)]
+#[case(ModTarget::Hresonance, 3.0)]
+#[case(ModTarget::Bandf, 3000.0)]
+#[case(ModTarget::Bandq, 4.0)]
+// Anything the voice does not own comes from the post-fx chain.
+#[case(ModTarget::Postgain, 0.8)]
+#[case(ModTarget::Shape, 0.3)]
+#[case(ModTarget::Distort, 1.5)]
+#[case(ModTarget::Crush, 6.0)]
+#[case(ModTarget::Coarse, 2.0)]
+fn every_modulation_target_reads_its_own_control(#[case] target: ModTarget, #[case] want: f32) {
+    assert_eq!(synth().mod_base(target, &modulated_fx()), want);
+}
+
+#[test]
+fn the_sampler_reads_only_the_modulation_targets_it_owns() {
+    // The sampler keeps its filter controls outside `FilterSet`, so it has its
+    // own arms for the two it owns and zero for the rest.
+    let fx = modulated_fx();
     let sampler = sampler();
     assert_eq!(sampler.mod_base(ModTarget::Gain, &fx), 0.5);
     assert_eq!(sampler.mod_base(ModTarget::Cutoff, &fx), 800.0);

@@ -181,6 +181,7 @@ pub(crate) fn load_user(dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn every_built_in_theme_reads_and_strudel_s_own_is_there() {
@@ -190,15 +191,20 @@ mod tests {
         assert!(themes.iter().any(|t| t.name == "strudelTheme"));
     }
 
-    #[test]
-    fn colours_read_in_every_css_hex_form() {
-        assert_eq!(colour("#abc"), Some([0xaa, 0xbb, 0xcc, 255]));
-        assert_eq!(colour("#abcd"), Some([0xaa, 0xbb, 0xcc, 0xdd]));
-        assert_eq!(colour("#102030"), Some([0x10, 0x20, 0x30, 255]));
-        assert_eq!(colour("#10203040"), Some([0x10, 0x20, 0x30, 0x40]));
-        for bad in ["102030", "#12345", "#gggggg", "#ééé", "red"] {
-            assert_eq!(colour(bad), None, "{bad}");
-        }
+    #[rstest]
+    #[case::short("#abc", [0xaa, 0xbb, 0xcc, 255])]
+    #[case::short_with_alpha("#abcd", [0xaa, 0xbb, 0xcc, 0xdd])]
+    #[case::long("#102030", [0x10, 0x20, 0x30, 255])]
+    #[case::long_with_alpha("#10203040", [0x10, 0x20, 0x30, 0x40])]
+    fn colours_read_in_every_css_hex_form(#[case] css: &str, #[case] want: [u8; 4]) {
+        assert_eq!(colour(css), Some(want));
+    }
+
+    #[rstest]
+    fn anything_else_is_not_a_colour(
+        #[values("102030", "#12345", "#gggggg", "#ééé", "red")] bad: &str,
+    ) {
+        assert_eq!(colour(bad), None);
     }
 
     #[test]

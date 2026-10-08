@@ -18,6 +18,7 @@ use super::{
     sliders::slider_reservations,
     widgets::WidgetHostState,
 };
+use rstest::rstest;
 use rudel_core::Frac;
 use std::collections::HashSet;
 
@@ -223,25 +224,23 @@ fn active_haps_flash_the_source_ranges_that_produced_them() {
     }
 }
 
-#[test]
-fn highlighting_covers_the_buffer_and_survives_a_live_update() {
-    // The tokenizer is what paints the editor every frame; it must tile the
-    // input exactly (no dropped or duplicated bytes) for any buffer, including
-    // one mid-edit.
-    for src in [
-        r#"s("bd sd").gain(0.5) // a comment"#,
-        "note(\"c a f e\")\n  .lpf(sine.range(200, 2000))",
-        r#"s("bd*<2 3>").room(.4)"#,
-        "s(\"bd", // unterminated, as it is while you type
-        "",
-    ] {
-        let tokens = tokenize(src, &HashSet::new());
-        let mut cursor = 0usize;
-        for (from, to, _) in &tokens {
-            assert_eq!(*from, cursor, "gap or overlap in {src:?}");
-            assert!(*to <= src.len(), "out of bounds in {src:?}");
-            cursor = *to;
-        }
-        assert_eq!(cursor, src.len(), "tokens must cover all of {src:?}");
+// The tokenizer is what paints the editor every frame; it must tile the input
+// exactly (no dropped or duplicated bytes) for any buffer, including one
+// mid-edit.
+#[rstest]
+#[case::chain_and_comment(r#"s("bd sd").gain(0.5) // a comment"#)]
+#[case::multi_line("note(\"c a f e\")\n  .lpf(sine.range(200, 2000))")]
+#[case::alternation(r#"s("bd*<2 3>").room(.4)"#)]
+// Unterminated, as it is while you type.
+#[case::mid_edit("s(\"bd")]
+#[case::empty("")]
+fn highlighting_covers_the_buffer_and_survives_a_live_update(#[case] src: &str) {
+    let tokens = tokenize(src, &HashSet::new());
+    let mut cursor = 0usize;
+    for (from, to, _) in &tokens {
+        assert_eq!(*from, cursor, "gap or overlap");
+        assert!(*to <= src.len(), "out of bounds");
+        cursor = *to;
     }
+    assert_eq!(cursor, src.len(), "tokens must cover all of the buffer");
 }

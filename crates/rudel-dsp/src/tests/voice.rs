@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 #[test]
 fn voice_produces_sound_then_finishes() {
@@ -27,22 +28,27 @@ fn dry_control_parses_and_defaults_full() {
     assert_eq!(crate::OrbitSend::from_controls(&map, 1.0).dry, 0.25);
 }
 
-#[test]
-fn noise_names_and_sound() {
-    assert_eq!(NoiseKind::from_name("white"), Some(NoiseKind::White));
-    assert_eq!(NoiseKind::from_name("pink"), Some(NoiseKind::Pink));
-    assert_eq!(NoiseKind::from_name("brown"), Some(NoiseKind::Brown));
-    assert_eq!(NoiseKind::from_name("sine"), None);
-    for kind in [NoiseKind::White, NoiseKind::Pink, NoiseKind::Brown] {
-        let p = VoiceParams {
-            noise: Some(kind),
-            duration: 0.1,
-            ..Default::default()
-        };
-        let mut v = Voice::new(p, 44100.0);
-        let out: Vec<f32> = (0..2000).map(|_| v.tick().0).collect();
-        assert_is_signal(&out, &format!("{kind:?} noise"));
-    }
+#[rstest]
+#[case("white", Some(NoiseKind::White))]
+#[case("pink", Some(NoiseKind::Pink))]
+#[case("brown", Some(NoiseKind::Brown))]
+#[case("sine", None)]
+fn noise_names(#[case] name: &str, #[case] want: Option<NoiseKind>) {
+    assert_eq!(NoiseKind::from_name(name), want);
+}
+
+#[rstest]
+fn every_noise_kind_sounds(
+    #[values(NoiseKind::White, NoiseKind::Pink, NoiseKind::Brown)] kind: NoiseKind,
+) {
+    let p = VoiceParams {
+        noise: Some(kind),
+        duration: 0.1,
+        ..Default::default()
+    };
+    let mut v = Voice::new(p, 44100.0);
+    let out: Vec<f32> = (0..2000).map(|_| v.tick().0).collect();
+    assert_is_signal(&out, &format!("{kind:?} noise"));
 }
 
 #[test]

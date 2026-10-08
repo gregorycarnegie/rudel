@@ -162,6 +162,7 @@ fn op_env(a: Option<f32>, d: Option<f32>, su: Option<f32>, r: Option<f32>) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn fm_is_active_only_with_an_operator_routed() {
@@ -174,17 +175,26 @@ mod tests {
     }
 
     #[test]
-    fn any_one_envelope_value_arms_an_operator_envelope() {
+    fn no_envelope_value_leaves_an_operator_unenveloped() {
         assert!(op_env(None, None, None, None).is_none());
-        for (a, d, s, r) in [
-            (Some(0.1), None, None, None),
-            (None, Some(0.1), None, None),
-            (None, None, Some(0.5), None),
-            (None, None, None, Some(0.2)),
-        ] {
-            assert!(op_env(a, d, s, r).is_some(), "{a:?} {d:?} {s:?} {r:?}");
-        }
-        // Attack alone holds at full; a decay without a sustain falls away.
+    }
+
+    #[rstest]
+    #[case::attack(Some(0.1), None, None, None)]
+    #[case::decay(None, Some(0.1), None, None)]
+    #[case::sustain(None, None, Some(0.5), None)]
+    #[case::release(None, None, None, Some(0.2))]
+    fn any_one_envelope_value_arms_an_operator_envelope(
+        #[case] a: Option<f32>,
+        #[case] d: Option<f32>,
+        #[case] s: Option<f32>,
+        #[case] r: Option<f32>,
+    ) {
+        assert!(op_env(a, d, s, r).is_some());
+    }
+
+    #[test]
+    fn attack_alone_holds_and_decay_alone_falls_away() {
         assert_eq!(op_env(Some(0.1), None, None, None).unwrap().sustain, 1.0);
         assert_eq!(op_env(None, Some(0.1), None, None).unwrap().sustain, 0.001);
     }

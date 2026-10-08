@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 // REPL pattern slots (`p`/`d1`/`p1`/`q`) and `hush`. `eval` resets the slot
 // registry on entry, so these tests are independent of each other.
@@ -192,13 +193,13 @@ fn each_anonymous_label_gets_its_own_id() {
     assert_eq!(ids.len(), 2, "{ids:?}");
 }
 
-#[test]
-fn only_a_longer_name_starting_with_s_solos() {
-    // `S` alone and `bc` are ordinary names; neither silences the others.
-    for src in ["S: s(\"x\")\nd: s(\"y\")", "bc: s(\"x\")\nd: s(\"y\")"] {
-        let pat = eval(src).expect("eval");
-        assert_eq!(values(&pat, 0, 1).len(), 2, "{src}");
-    }
+// `S` alone and `bc` are ordinary names; neither silences the others.
+#[rstest]
+fn only_a_longer_name_starting_with_s_solos(
+    #[values("S: s(\"x\")\nd: s(\"y\")", "bc: s(\"x\")\nd: s(\"y\")")] src: &str,
+) {
+    let pat = eval(src).expect("eval");
+    assert_eq!(values(&pat, 0, 1).len(), 2);
 }
 
 #[test]

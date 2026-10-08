@@ -1,4 +1,5 @@
 use super::common::*;
+use rstest::rstest;
 
 // --- Transpilation / preprocessing parity -------------------------------------
 
@@ -117,30 +118,31 @@ slider(0.4)
     assert!(result.source.contains(r#"slider_with_id(""#));
 }
 
-#[test]
-fn public_visualizer_names_rewrite_to_inline_widget() {
-    // The public `pianoroll` / `pitchwheel` / `wordfall` spellings create the
-    // same widget (canonical `_`-prefixed type, rewritten to the same host
-    // call) as their `_`-prefixed inline variants.
-    for (call, widget_type, host) in [
-        ("pianoroll", "_pianoroll", "rudel_widget_pianoroll"),
-        ("punchcard", "_punchcard", "rudel_widget_punchcard"),
-        ("spiral", "_spiral", "rudel_widget_spiral"),
-        ("pitchwheel", "_pitchwheel", "rudel_widget_pitchwheel"),
-        ("wordfall", "_wordfall", "rudel_widget_wordfall"),
-        ("scope", "_scope", "rudel_widget_scope"),
-        ("tscope", "_scope", "rudel_widget_scope"),
-        ("fscope", "_fscope", "rudel_widget_fscope"),
-        ("spectrum", "_spectrum", "rudel_widget_spectrum"),
-        ("claviature", "_claviature", "rudel_widget_claviature"),
-        ("shader", "_shader", "rudel_widget_shader"),
-        ("hydra", "_hydra", "rudel_widget_hydra"),
-    ] {
-        let result = preprocess_strudel_with_meta(&format!(r#"s("bd sd").{call}()"#));
-        assert_eq!(result.widgets.len(), 1, "{call}");
-        assert_eq!(result.widgets[0].widget_type, widget_type, "{call}");
-        assert!(result.source.contains(host), "{call}: {}", result.source);
-    }
+// The public `pianoroll` / `pitchwheel` / `wordfall` spellings create the same
+// widget (canonical `_`-prefixed type, rewritten to the same host call) as
+// their `_`-prefixed inline variants.
+#[rstest]
+#[case("pianoroll", "_pianoroll", "rudel_widget_pianoroll")]
+#[case("punchcard", "_punchcard", "rudel_widget_punchcard")]
+#[case("spiral", "_spiral", "rudel_widget_spiral")]
+#[case("pitchwheel", "_pitchwheel", "rudel_widget_pitchwheel")]
+#[case("wordfall", "_wordfall", "rudel_widget_wordfall")]
+#[case("scope", "_scope", "rudel_widget_scope")]
+#[case("tscope", "_scope", "rudel_widget_scope")]
+#[case("fscope", "_fscope", "rudel_widget_fscope")]
+#[case("spectrum", "_spectrum", "rudel_widget_spectrum")]
+#[case("claviature", "_claviature", "rudel_widget_claviature")]
+#[case("shader", "_shader", "rudel_widget_shader")]
+#[case("hydra", "_hydra", "rudel_widget_hydra")]
+fn public_visualizer_names_rewrite_to_inline_widget(
+    #[case] call: &str,
+    #[case] widget_type: &str,
+    #[case] host: &str,
+) {
+    let result = preprocess_strudel_with_meta(&format!(r#"s("bd sd").{call}()"#));
+    assert_eq!(result.widgets.len(), 1);
+    assert_eq!(result.widgets[0].widget_type, widget_type);
+    assert!(result.source.contains(host), "{}", result.source);
 }
 
 #[test]
@@ -603,34 +605,28 @@ fn js_value(script: &str) -> Value {
     vals.into_iter().next().unwrap()
 }
 
-#[test]
-fn javascript_expressions_mean_what_javascript_says() {
-    for (script, want) in [
-        ("pure(1 ? 2 : 3)", Value::Int(2)),
-        ("pure(0 ? 2 : 1 ? 3 : 4)", Value::Int(3)),
-        ("pure(true && false || !false)", Value::Bool(true)),
-        ("pure(1 === 1 && 1 !== 2)", Value::Bool(true)),
-        ("pure(2 ** 3 ** 2)", Value::Int(512)),
-        ("pure(1 << 4 | 1 >> 1)", Value::Int(16)),
-        (
-            "pure(typeof 'x' + typeof 1)",
-            Value::Str("stringnumber".into()),
-        ),
-        ("pure([1, 2, 3].length)", Value::Int(3)),
-        ("pure('abc'.length)", Value::Int(3)),
-        ("pure({0: 'a', 1: 'b'}[1])", Value::Str("b".into())),
-        ("pure({...{a: 1}, b: 2}.b)", Value::Int(2)),
-        ("pure(Math.max(...[1, 5, 3]))", Value::Int(5)),
-        ("pure(.5 + .25)", Value::F64(0.75)),
-        ("pure('a' + 1 + 2)", Value::Str("a12".into())),
-        ("pure(1 + 2 + 'a')", Value::Str("3a".into())),
-        ("pure(JSON.parse('[1, 2]')[1])", Value::Int(2)),
-        ("pure(Object.entries({a: 1})[0][0])", Value::Str("a".into())),
-        ("pure([1, 2].flatMap(v => [v, v]).length)", Value::Int(4)),
-        ("pure((5).toString(2))", Value::Str("101".into())),
-    ] {
-        assert_eq!(js_value(script), want, "{script}");
-    }
+#[rstest]
+#[case::ternary("pure(1 ? 2 : 3)", Value::Int(2))]
+#[case::nested_ternary("pure(0 ? 2 : 1 ? 3 : 4)", Value::Int(3))]
+#[case::logic("pure(true && false || !false)", Value::Bool(true))]
+#[case::strict_equality("pure(1 === 1 && 1 !== 2)", Value::Bool(true))]
+#[case::power_is_right_associative("pure(2 ** 3 ** 2)", Value::Int(512))]
+#[case::shifts("pure(1 << 4 | 1 >> 1)", Value::Int(16))]
+#[case::typeof_("pure(typeof 'x' + typeof 1)", Value::Str("stringnumber".into()))]
+#[case::array_length("pure([1, 2, 3].length)", Value::Int(3))]
+#[case::string_length("pure('abc'.length)", Value::Int(3))]
+#[case::numeric_key("pure({0: 'a', 1: 'b'}[1])", Value::Str("b".into()))]
+#[case::object_spread("pure({...{a: 1}, b: 2}.b)", Value::Int(2))]
+#[case::argument_spread("pure(Math.max(...[1, 5, 3]))", Value::Int(5))]
+#[case::leading_dot_decimals("pure(.5 + .25)", Value::F64(0.75))]
+#[case::string_then_numbers("pure('a' + 1 + 2)", Value::Str("a12".into()))]
+#[case::numbers_then_string("pure(1 + 2 + 'a')", Value::Str("3a".into()))]
+#[case::json_parse("pure(JSON.parse('[1, 2]')[1])", Value::Int(2))]
+#[case::object_entries("pure(Object.entries({a: 1})[0][0])", Value::Str("a".into()))]
+#[case::flat_map("pure([1, 2].flatMap(v => [v, v]).length)", Value::Int(4))]
+#[case::radix_to_string("pure((5).toString(2))", Value::Str("101".into()))]
+fn javascript_expressions_mean_what_javascript_says(#[case] script: &str, #[case] want: Value) {
+    assert_eq!(js_value(script), want);
 }
 
 #[test]

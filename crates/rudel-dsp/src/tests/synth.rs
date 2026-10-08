@@ -9,6 +9,7 @@
 
 use super::common::*;
 use crate::synth::{rand_phase, wetfade};
+use rstest::rstest;
 
 const SR: f32 = 44100.0;
 
@@ -242,27 +243,28 @@ fn one_op_fm(index: f32, ratio: f32) -> FmSpec {
     }
 }
 
-#[test]
-fn fm_deviation_peaks_at_index_times_operator_frequency() {
-    // Classic FM: peak deviation is the modulation index times the modulator's
-    // frequency, and the modulator's frequency is `carrier * ratio`.
+// Classic FM: peak deviation is the modulation index times the modulator's
+// frequency, and the modulator's frequency is `carrier * ratio`.
+#[rstest]
+#[case::unit(1.0, 1.0)]
+#[case::double_index(2.0, 1.0)]
+#[case::third_harmonic(1.0, 3.0)]
+fn fm_deviation_peaks_at_index_times_operator_frequency(#[case] index: f32, #[case] ratio: f32) {
     let carrier = 200.0;
-    for (index, ratio) in [(1.0f32, 1.0f32), (2.0, 1.0), (1.0, 3.0)] {
-        let mut v = voice(VoiceParams {
-            fm: one_op_fm(index, ratio),
-            freq: carrier,
-            duration: 1.0,
-            ..Default::default()
-        });
-        let peak = (0..2048)
-            .map(|_| v.fm_deviation(carrier).abs())
-            .fold(0.0f32, f32::max);
-        let want = index * carrier * ratio;
-        assert!(
-            (peak - want).abs() < want * 0.02,
-            "index {index} ratio {ratio}: peak deviation should be ~{want}, got {peak}"
-        );
-    }
+    let mut v = voice(VoiceParams {
+        fm: one_op_fm(index, ratio),
+        freq: carrier,
+        duration: 1.0,
+        ..Default::default()
+    });
+    let peak = (0..2048)
+        .map(|_| v.fm_deviation(carrier).abs())
+        .fold(0.0f32, f32::max);
+    let want = index * carrier * ratio;
+    assert!(
+        (peak - want).abs() < want * 0.02,
+        "peak deviation should be ~{want}, got {peak}"
+    );
 }
 
 #[test]
@@ -820,29 +822,23 @@ fn the_noise_mix_gains_follow_the_wetfade_pair() {
 /// `rand_phase` draws from a process-wide counter, so its *sequence* is
 /// whatever ran before it — only the hash itself can be pinned. Without this,
 /// any rearrangement of the shifts still looks uniform to the statistics above.
-#[test]
-fn phase_hash_matches_its_golden_values() {
-    for (x, want) in [
-        (0u32, 0.0f32),
-        (1, 0.526_656_75),
-        (0x9E37_79B9, 0.392_125_13),
-        (0xFFFF_FFFF, 0.600_431_8),
-    ] {
-        assert_eq!(crate::synth::phase_hash(x), want, "phase_hash({x:#x})");
-    }
+#[rstest]
+#[case(0, 0.0)]
+#[case(1, 0.526_656_75)]
+#[case(0x9E37_79B9, 0.392_125_13)]
+#[case(0xFFFF_FFFF, 0.600_431_8)]
+fn phase_hash_matches_its_golden_values(#[case] x: u32, #[case] want: f32) {
+    assert_eq!(crate::synth::phase_hash(x), want);
 }
 
 /// Same for ZzFX's `randomness` draw: an exact xorshift32 over the counter.
-#[test]
-fn the_zzfx_rng_step_matches_its_golden_values() {
-    for (x, want) in [
-        (0u32, 1_359_758_873u32),
-        (1, 1_358_964_346),
-        (0x2545_F491, 3_090_627_344),
-        (0xFFFF_FFFF, 1_359_504_952),
-    ] {
-        assert_eq!(crate::zzfx::step(x), want, "step({x:#x})");
-    }
+#[rstest]
+#[case(0, 1_359_758_873)]
+#[case(1, 1_358_964_346)]
+#[case(0x2545_F491, 3_090_627_344)]
+#[case(0xFFFF_FFFF, 1_359_504_952)]
+fn the_zzfx_rng_step_matches_its_golden_values(#[case] x: u32, #[case] want: u32) {
+    assert_eq!(crate::zzfx::step(x), want);
 }
 
 #[test]
@@ -855,18 +851,18 @@ fn a_pattern_that_names_no_sound_plays_a_triangle() {
     map.insert("note".to_string(), Value::F64(48.0));
     let params = VoiceParams::from_controls_at(&map, 1.0, 0.5, 0.0);
     assert_eq!(params.waveform, Waveform::Triangle);
+}
 
-    // An explicit `s` still wins, sine included.
-    for (name, want) in [
-        ("sine", Waveform::Sine),
-        ("sawtooth", Waveform::Saw),
-        ("square", Waveform::Square),
-    ] {
-        let mut map = ValueMap::new();
-        map.insert("s".to_string(), Value::Str(name.into()));
-        let params = VoiceParams::from_controls_at(&map, 1.0, 0.5, 0.0);
-        assert_eq!(params.waveform, want, "s({name:?})");
-    }
+// An explicit `s` still wins, sine included.
+#[rstest]
+#[case("sine", Waveform::Sine)]
+#[case("sawtooth", Waveform::Saw)]
+#[case("square", Waveform::Square)]
+fn an_explicit_sound_wins_over_the_default(#[case] name: &str, #[case] want: Waveform) {
+    let mut map = ValueMap::new();
+    map.insert("s".to_string(), Value::Str(name.into()));
+    let params = VoiceParams::from_controls_at(&map, 1.0, 0.5, 0.0);
+    assert_eq!(params.waveform, want);
 }
 
 #[test]

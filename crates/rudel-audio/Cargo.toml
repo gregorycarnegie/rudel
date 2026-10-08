@@ -32,6 +32,7 @@ rudel-mini.workspace = true
 rudel-lang.workspace = true
 tempfile = "3.27.0"
 proptest.workspace = true
+rstest.workspace = true
 
 [[bench]]
 name = "render"

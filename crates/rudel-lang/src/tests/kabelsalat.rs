@@ -1,6 +1,7 @@
 //! `K(...)`: kabelsalat graphs, built and compiled.
 
 use super::common::*;
+use rstest::rstest;
 
 /// The compiled program a `K(...)` pattern carries, as the four parallel lists
 /// the audio side reads.
@@ -259,50 +260,40 @@ fn constants(types: &[String], values: &[Value]) -> Vec<f64> {
         .collect()
 }
 
-#[test]
-fn every_module_expands_into_its_primitives() {
-    // A module whose arm went missing would build as an unknown type, which
-    // the compiler resolves to `thru` — so each is pinned by a primitive only
-    // its own expansion produces.
-    for (src, wants) in [
-        ("K(Kabel.impulse(2).ar(0.1, 0.2).out())", &["adsr"][..]),
-        ("K(Kabel.lfnoise(4).out())", &["noise", "impulse", "hold"]),
-        ("K(Kabel.sine(1).bipolar().out())", &["mul", "sub"]),
-        ("K(Kabel.sine(1).unipolar().out())", &["range"]),
-        ("K(Kabel.sine(1).rangex(100, 1000).out())", &["log", "exp"]),
-        ("K(Kabel.midin().out())", &["MidiIn"]),
-        ("K(Kabel.rng().out())", &["lcgnoise"]),
-        ("K(Kabel.sine(1).gt(0.5).out())", &["greater"]),
-        ("K(Kabel.sine(1).lt(0.5).out())", &["lower"]),
-    ] {
-        let (types, ..) = program(src);
-        for want in wants {
-            assert!(types.iter().any(|t| t == want), "{src}: {types:?}");
-        }
-        assert!(!types.iter().any(|t| t == "thru"), "{src}: {types:?}");
+// A module whose arm went missing would build as an unknown type, which the
+// compiler resolves to `thru` — so each is pinned by a primitive only its own
+// expansion produces.
+#[rstest]
+#[case::ar("K(Kabel.impulse(2).ar(0.1, 0.2).out())", &["adsr"])]
+#[case::lfnoise("K(Kabel.lfnoise(4).out())", &["noise", "impulse", "hold"])]
+#[case::bipolar("K(Kabel.sine(1).bipolar().out())", &["mul", "sub"])]
+#[case::unipolar("K(Kabel.sine(1).unipolar().out())", &["range"])]
+#[case::rangex("K(Kabel.sine(1).rangex(100, 1000).out())", &["log", "exp"])]
+#[case::midin("K(Kabel.midin().out())", &["MidiIn"])]
+#[case::rng("K(Kabel.rng().out())", &["lcgnoise"])]
+#[case::gt("K(Kabel.sine(1).gt(0.5).out())", &["greater"])]
+#[case::lt("K(Kabel.sine(1).lt(0.5).out())", &["lower"])]
+fn every_module_expands_into_its_primitives(#[case] src: &str, #[case] wants: &[&str]) {
+    let (types, ..) = program(src);
+    for want in wants {
+        assert!(types.iter().any(|t| t == want), "{types:?}");
     }
+    assert!(!types.iter().any(|t| t == "thru"), "{types:?}");
 }
 
-#[test]
-fn each_biquad_preset_nails_down_its_own_filter_type() {
-    // `qf`'s second inlet is the filter type, 0..=4 in preset order. The q is
-    // chosen to collide with none of them.
-    for (name, kind) in [
-        ("qlpf", 0.0),
-        ("qhpf", 1.0),
-        ("qbpf", 2.0),
-        ("qnf", 3.0),
-        ("qapf", 4.0),
-    ] {
-        let src = format!("K(Kabel.saw(110).{name}(800, 7).out())");
-        let (types, values, ..) = program(&src);
-        assert!(types.iter().any(|t| t == "qf"), "{src}: {types:?}");
-        assert_eq!(
-            constants(&types, &values),
-            [110.0, kind, 800.0, 7.0],
-            "{src}"
-        );
-    }
+// `qf`'s second inlet is the filter type, 0..=4 in preset order. The q is
+// chosen to collide with none of them.
+#[rstest]
+#[case("qlpf", 0.0)]
+#[case("qhpf", 1.0)]
+#[case("qbpf", 2.0)]
+#[case("qnf", 3.0)]
+#[case("qapf", 4.0)]
+fn each_biquad_preset_nails_down_its_own_filter_type(#[case] name: &str, #[case] kind: f64) {
+    let src = format!("K(Kabel.saw(110).{name}(800, 7).out())");
+    let (types, values, ..) = program(&src);
+    assert!(types.iter().any(|t| t == "qf"), "{types:?}");
+    assert_eq!(constants(&types, &values), [110.0, kind, 800.0, 7.0]);
 }
 
 #[test]
@@ -396,36 +387,33 @@ fn a_name_ending_the_k_argument_is_still_scoped() {
     assert_eq!(preprocess_strudel("K(1 + sGate)"), "K(1 + Kabel.sgate())");
 }
 
-#[test]
-fn an_inlet_left_off_takes_kabelsalat_s_default_including_the_negative_ones() {
-    // The defaults land in the compiled `ins` as literals; the first inlet,
-    // where given, is a register and is skipped.
-    for (src, node, skip, want) in [
-        ("K(Kabel.midifreq().out())", "midifreq", 0, &[-1.0][..]),
-        ("K(Kabel.midigate().out())", "midigate", 0, &[-1.0]),
-        ("K(Kabel.midivel().out())", "midivel", 0, &[-1.0]),
-        ("K(Kabel.midicc().out())", "midicc", 0, &[-1.0, -1.0]),
-        ("K(Kabel.sine(1).clamp().out())", "clamp", 1, &[-1.0, 1.0]),
-        (
-            "K(Kabel.sine(1).remap().out())",
-            "remap",
-            1,
-            &[-1.0, 1.0, -1.0, 1.0],
-        ),
-        ("K(Kabel.sine(1).clip().out())", "clip", 1, &[-1.0, 1.0]),
-        ("K(Kabel.sine(1).trig().out())", "trig", 1, &[-1.0, 1.0]),
-    ] {
-        let (types, _, ins, _) = program(src);
-        let at = types
-            .iter()
-            .position(|t| t == node)
-            .unwrap_or_else(|| panic!("{src}: {types:?}"));
-        let Value::List(inlets) = &ins[at] else {
-            panic!("{src}: {ins:?}");
-        };
-        let got: Vec<f64> = inlets[skip..].iter().filter_map(Value::as_f64).collect();
-        assert_eq!(got, want, "{src}: {inlets:?}");
-    }
+// The defaults land in the compiled `ins` as literals; the first inlet, where
+// given, is a register and is skipped.
+#[rstest]
+#[case::midifreq("K(Kabel.midifreq().out())", "midifreq", 0, &[-1.0])]
+#[case::midigate("K(Kabel.midigate().out())", "midigate", 0, &[-1.0])]
+#[case::midivel("K(Kabel.midivel().out())", "midivel", 0, &[-1.0])]
+#[case::midicc("K(Kabel.midicc().out())", "midicc", 0, &[-1.0, -1.0])]
+#[case::clamp("K(Kabel.sine(1).clamp().out())", "clamp", 1, &[-1.0, 1.0])]
+#[case::remap("K(Kabel.sine(1).remap().out())", "remap", 1, &[-1.0, 1.0, -1.0, 1.0])]
+#[case::clip("K(Kabel.sine(1).clip().out())", "clip", 1, &[-1.0, 1.0])]
+#[case::trig("K(Kabel.sine(1).trig().out())", "trig", 1, &[-1.0, 1.0])]
+fn an_inlet_left_off_takes_kabelsalat_s_default_including_the_negative_ones(
+    #[case] src: &str,
+    #[case] node: &str,
+    #[case] skip: usize,
+    #[case] want: &[f64],
+) {
+    let (types, _, ins, _) = program(src);
+    let at = types
+        .iter()
+        .position(|t| t == node)
+        .unwrap_or_else(|| panic!("{types:?}"));
+    let Value::List(inlets) = &ins[at] else {
+        panic!("{ins:?}");
+    };
+    let got: Vec<f64> = inlets[skip..].iter().filter_map(Value::as_f64).collect();
+    assert_eq!(got, want, "{inlets:?}");
 }
 
 #[test]

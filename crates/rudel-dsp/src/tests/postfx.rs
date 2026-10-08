@@ -1,5 +1,6 @@
 use super::common::*;
 use proptest::prelude::*;
+use rstest::rstest;
 
 /// A test voice emitting a fixed stereo value, never done.
 struct ConstVoice(f32);
@@ -345,8 +346,11 @@ fn distort_algorithms_match_reference_formulas() {
         let y = DistortAlgo::Fold.shape(xi, 3.0);
         assert!((-1.0..=1.0).contains(&y), "fold out of range: {y}");
     }
-    // Every algorithm maps silence to silence and stays finite.
-    for alg in [
+}
+
+#[rstest]
+fn every_distort_algorithm_maps_silence_to_silence_and_stays_finite(
+    #[values(
         DistortAlgo::Scurve,
         DistortAlgo::Soft,
         DistortAlgo::Hard,
@@ -355,17 +359,15 @@ fn distort_algorithms_match_reference_formulas() {
         DistortAlgo::Asym,
         DistortAlgo::Fold,
         DistortAlgo::Sinefold,
-        DistortAlgo::Chebyshev,
-    ] {
-        assert!(
-            alg.shape(0.0, 2.0).abs() < 1e-6,
-            "{alg:?} should map 0 -> 0"
-        );
-        assert!(
-            alg.shape(0.6, 5.0).is_finite(),
-            "{alg:?} produced a non-finite sample"
-        );
-    }
+        DistortAlgo::Chebyshev
+    )]
+    alg: DistortAlgo,
+) {
+    assert!(alg.shape(0.0, 2.0).abs() < 1e-6, "should map 0 -> 0");
+    assert!(
+        alg.shape(0.6, 5.0).is_finite(),
+        "produced a non-finite sample"
+    );
 }
 
 #[test]
@@ -1564,31 +1566,21 @@ fn only_the_memoryless_chain_takes_the_block_path() {
     );
 }
 
-#[test]
-fn distort_algo_names_all_resolve() {
-    // Every name a user can type in `distorttype`.
-    for (name, want) in [
-        ("scurve", DistortAlgo::Scurve),
-        ("soft", DistortAlgo::Soft),
-        ("hard", DistortAlgo::Hard),
-        ("cubic", DistortAlgo::Cubic),
-        ("diode", DistortAlgo::Diode),
-        ("asym", DistortAlgo::Asym),
-        ("fold", DistortAlgo::Fold),
-        ("sinefold", DistortAlgo::Sinefold),
-        ("chebyshev", DistortAlgo::Chebyshev),
-    ] {
-        assert_eq!(
-            DistortAlgo::from_value(&Value::Str(name.into())),
-            want,
-            "{name}"
-        );
-    }
-    // An unknown name falls back to the default rather than erroring.
-    assert_eq!(
-        DistortAlgo::from_value(&Value::Str("nope".into())),
-        DistortAlgo::Scurve
-    );
+// Every name a user can type in `distorttype`.
+#[rstest]
+#[case("scurve", DistortAlgo::Scurve)]
+#[case("soft", DistortAlgo::Soft)]
+#[case("hard", DistortAlgo::Hard)]
+#[case("cubic", DistortAlgo::Cubic)]
+#[case("diode", DistortAlgo::Diode)]
+#[case("asym", DistortAlgo::Asym)]
+#[case("fold", DistortAlgo::Fold)]
+#[case("sinefold", DistortAlgo::Sinefold)]
+#[case("chebyshev", DistortAlgo::Chebyshev)]
+// An unknown name falls back to the default rather than erroring.
+#[case::unknown_falls_back("nope", DistortAlgo::Scurve)]
+fn distort_algo_names_all_resolve(#[case] name: &str, #[case] want: DistortAlgo) {
+    assert_eq!(DistortAlgo::from_value(&Value::Str(name.into())), want);
 }
 
 #[test]
@@ -1639,84 +1631,78 @@ fn the_soft_knee_bends_the_curve_either_side_of_the_threshold() {
     );
 }
 
-#[test]
-fn a_block_render_matches_ticking_the_same_voice() {
-    // `process_block` is a vectorized fast path for the memoryless chain, and
-    // its contract is that it is indistinguishable from calling `tick`. A
-    // length that is not a multiple of the 8-wide block is what exercises the
-    // scalar tail.
-    for (label, fx) in [
-        ("bare", PostFx::default()),
-        (
-            "memoryless",
-            PostFx {
-                crush: Some(4.0),
-                postgain: 0.5,
-                shape: Some(0.4),
-                ..Default::default()
-            },
-        ),
-        (
-            "stateful",
-            PostFx {
-                coarse: Some(3.0),
-                compressor: Some(-20.0),
-                ..Default::default()
-            },
-        ),
-    ] {
-        let make = || {
-            let params = VoiceParams {
-                freq: 220.0,
-                duration: 1.0,
-                ..Default::default()
-            };
-            PostFxVoice::with_mods(Box::new(Voice::new(params, 44100.0)), fx, 44100.0, &[])
+// `process_block` is a vectorized fast path for the memoryless chain, and its
+// contract is that it is indistinguishable from calling `tick`. A length that
+// is not a multiple of the 8-wide block is what exercises the scalar tail.
+#[rstest]
+#[case::bare(PostFx::default())]
+#[case::memoryless(PostFx {
+    crush: Some(4.0),
+    postgain: 0.5,
+    shape: Some(0.4),
+    ..Default::default()
+})]
+#[case::stateful(PostFx {
+    coarse: Some(3.0),
+    compressor: Some(-20.0),
+    ..Default::default()
+})]
+fn a_block_render_matches_ticking_the_same_voice(#[case] fx: PostFx) {
+    let make = || {
+        let params = VoiceParams {
+            freq: 220.0,
+            duration: 1.0,
+            ..Default::default()
         };
-        const N: usize = 101;
-        let mut ticked = make();
-        let want: Vec<(f32, f32)> = (0..N).map(|_| ticked.tick()).collect();
+        PostFxVoice::with_mods(Box::new(Voice::new(params, 44100.0)), fx, 44100.0, &[])
+    };
+    const N: usize = 101;
+    let mut ticked = make();
+    let want: Vec<(f32, f32)> = (0..N).map(|_| ticked.tick()).collect();
 
-        let mut blocked = make();
-        let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
-        blocked.process_block(&mut l, &mut r);
-        for (i, (wl, wr)) in want.iter().enumerate() {
-            assert!(
-                (l[i] - wl).abs() < 1e-6 && (r[i] - wr).abs() < 1e-6,
-                "{label}: block[{i}] = ({}, {}) but tick gave ({wl}, {wr})",
-                l[i],
-                r[i]
-            );
-        }
+    let mut blocked = make();
+    let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
+    blocked.process_block(&mut l, &mut r);
+    for (i, (wl, wr)) in want.iter().enumerate() {
+        assert!(
+            (l[i] - wl).abs() < 1e-6 && (r[i] - wr).abs() < 1e-6,
+            "block[{i}] = ({}, {}) but tick gave ({wl}, {wr})",
+            l[i],
+            r[i]
+        );
     }
 }
 
+fn distort_alg_named(name: &str) -> DistortAlgo {
+    PostFx::from_controls(&ValueMap::from([(
+        "distorttype".to_string(),
+        Value::from(name),
+    )]))
+    .distort_alg
+}
+
+// `distortalg` picks the curve, and an unrecognised name is the default — so a
+// dropped arm quietly reshapes the sound rather than erroring.
+#[rstest]
+#[case("scurve", DistortAlgo::Scurve)]
+#[case("soft", DistortAlgo::Soft)]
+#[case("hard", DistortAlgo::Hard)]
+#[case("cubic", DistortAlgo::Cubic)]
+#[case("diode", DistortAlgo::Diode)]
+#[case("asym", DistortAlgo::Asym)]
+#[case("fold", DistortAlgo::Fold)]
+#[case("sinefold", DistortAlgo::Sinefold)]
+#[case("chebyshev", DistortAlgo::Chebyshev)]
+#[case::unknown_is_the_default("wat", DistortAlgo::Scurve)]
+fn every_distortion_algorithm_answers_to_its_own_name(
+    #[case] name: &str,
+    #[case] want: DistortAlgo,
+) {
+    assert_eq!(distort_alg_named(name), want);
+}
+
 #[test]
-fn every_distortion_algorithm_answers_to_its_own_name() {
-    // `distortalg` picks the curve, and an unrecognised name is the default —
-    // so a dropped arm quietly reshapes the sound rather than erroring.
-    let alg = |name: &str| {
-        PostFx::from_controls(&ValueMap::from([(
-            "distorttype".to_string(),
-            Value::from(name),
-        )]))
-        .distort_alg
-    };
-    for (name, want) in [
-        ("scurve", DistortAlgo::Scurve),
-        ("soft", DistortAlgo::Soft),
-        ("hard", DistortAlgo::Hard),
-        ("cubic", DistortAlgo::Cubic),
-        ("diode", DistortAlgo::Diode),
-        ("asym", DistortAlgo::Asym),
-        ("fold", DistortAlgo::Fold),
-        ("sinefold", DistortAlgo::Sinefold),
-        ("chebyshev", DistortAlgo::Chebyshev),
-    ] {
-        assert_eq!(alg(name), want, "distortalg {name}");
-    }
-    // Unnamed and unknown both fall back to the default curve.
-    assert_eq!(alg("wat"), DistortAlgo::Scurve);
+fn an_unnamed_distortion_algorithm_is_the_default() {
     assert_eq!(
         PostFx::from_controls(&ValueMap::new()).distort_alg,
         DistortAlgo::Scurve

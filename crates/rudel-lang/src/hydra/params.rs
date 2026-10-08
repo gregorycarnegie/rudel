@@ -140,6 +140,7 @@ impl std::fmt::Debug for HydraParam {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn seq(values: &[f64], speed: f64, smooth: f64, offset: f64) -> Seq {
         Seq {
@@ -176,17 +177,11 @@ mod tests {
         assert!((0.0..=1.0).contains(&early), "{early}");
     }
 
-    #[test]
-    fn the_easings_run_from_zero_to_one() {
-        for name in [
-            "linear",
-            "easeInOutQuad",
-            "easeOutCubic",
-            "easeInOutQuint",
-            "sin",
-        ] {
-            assert!(ease(name, 0.0).abs() < 1e-9, "{name}");
-            assert!((ease(name, 1.0) - 1.0).abs() < 1e-9, "{name}");
-        }
+    #[rstest]
+    fn the_easings_run_from_zero_to_one(
+        #[values("linear", "easeInOutQuad", "easeOutCubic", "easeInOutQuint", "sin")] name: &str,
+    ) {
+        assert!(ease(name, 0.0).abs() < 1e-9);
+        assert!((ease(name, 1.0) - 1.0).abs() < 1e-9);
     }
 }

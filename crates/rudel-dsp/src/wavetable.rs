@@ -677,6 +677,7 @@ impl ParamModRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     // --- the render loop and its helpers -----------------------------------
     //
@@ -790,20 +791,19 @@ mod tests {
         );
     }
 
+    // `getParamLfo` runs at its default depth as soon as *any* of its controls is
+    // set — each on its own has to be enough.
+    #[rstest]
+    fn any_one_lfo_control_starts_the_lfo(#[values("rate", "skew", "shape")] control: &str) {
+        let spec = ParamMod::from_controls(&wt(&[(control, 1.0)]), "wt", 1.0, 0.0);
+        let lfo = spec.lfo.as_ref().expect("the lfo should start");
+        assert_eq!(lfo.depth, 0.5, "at the default depth");
+        assert!(!spec.is_static(), "not a static parameter");
+    }
+
     #[test]
-    fn any_one_lfo_control_starts_the_lfo() {
-        // `getParamLfo` runs at its default depth as soon as *any* of its
-        // controls is set — each on its own has to be enough.
-        for control in ["rate", "skew", "shape"] {
-            let spec = ParamMod::from_controls(&wt(&[(control, 1.0)]), "wt", 1.0, 0.0);
-            let lfo = spec
-                .lfo
-                .as_ref()
-                .unwrap_or_else(|| panic!("{control} should start the lfo"));
-            assert_eq!(lfo.depth, 0.5, "{control}: at the default depth");
-            assert!(!spec.is_static(), "{control}: not a static parameter");
-        }
-        // ...and with none of them set there is no LFO at all.
+    fn without_an_lfo_control_or_with_zero_depth_there_is_no_lfo() {
+        // With none of them set there is no LFO at all.
         let bare = ParamMod::from_controls(&wt(&[]), "wt", 1.0, 0.0);
         assert!(bare.lfo.is_none(), "nothing set: no lfo");
         assert!(bare.is_static(), "and nothing to run per sample");

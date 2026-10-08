@@ -742,6 +742,7 @@ mod tests {
 mod stage_tests {
     use super::*;
     use crate::voice::VoiceLike;
+    use rstest::rstest;
     use std::sync::{Arc, Mutex};
 
     /// The last bus a probe was fed: its number and both channels.
@@ -838,27 +839,22 @@ mod stage_tests {
     }
 
     #[test]
-    fn a_filter_set_is_active_when_any_one_slot_is() {
+    fn a_filter_set_with_no_slot_is_inactive() {
         assert!(!FilterSet::default().is_active());
+    }
+
+    #[rstest]
+    fn a_filter_set_is_active_when_any_one_slot_is(#[values("lp", "hp", "bp")] slot: &str) {
         let on = FilterParams {
             freq: Some(500.0),
             ..FilterParams::default()
         };
-        for set in [
-            FilterSet {
-                lp: on,
-                ..FilterSet::default()
-            },
-            FilterSet {
-                hp: on,
-                ..FilterSet::default()
-            },
-            FilterSet {
-                bp: on,
-                ..FilterSet::default()
-            },
-        ] {
-            assert!(set.is_active());
-        }
+        let mut set = FilterSet::default();
+        *match slot {
+            "lp" => &mut set.lp,
+            "hp" => &mut set.hp,
+            _ => &mut set.bp,
+        } = on;
+        assert!(set.is_active());
     }
 }
