@@ -164,6 +164,7 @@ pub(super) fn strip_await(src: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     // Every rewriter here shares the same guard: skip over strings and comments
     // so their contents are copied through untouched. Getting this wrong does
@@ -221,6 +222,18 @@ mod tests {
             r#"v("C:\")"#,
         ] {
             assert_eq!(escape_windows_paths(src), src, "{src}");
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        /// Doubling makes every run even, so a second pass finds no raw path
+        /// left: running the preprocessor on its own output changes nothing.
+        #[test]
+        fn escaping_windows_paths_is_idempotent(src in r#"[ -~]{0,24}(["'`][A-Za-z]:\\[ -~]{0,16})?[ -~]{0,8}"#) {
+            let once = escape_windows_paths(&src);
+            prop_assert_eq!(escape_windows_paths(&once), once);
         }
     }
 

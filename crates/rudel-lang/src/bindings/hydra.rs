@@ -263,6 +263,7 @@ pub(crate) fn register(prelude: &Scope) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn a_missing_argument_does_not_shift_the_ones_after_it() {
@@ -518,6 +519,43 @@ src(s1).out()",
             scene.options.get("s1"),
             Some(&WidgetOption::String(r"C:\pics\a.png".into()))
         );
+    }
+
+    /// A Windows path as Explorer's "Copy as path" gives it: a drive or a
+    /// share, then folders. Segments may start with `u`, `x` or a digit — the
+    /// escapes that were a syntax error or swallowed a character.
+    fn windows_path() -> impl Strategy<Value = String> {
+        let root = prop_oneof![
+            "[A-Za-z]:".prop_map(|drive| drive + "\\"),
+            "[a-z][a-z0-9-]{0,8}".prop_map(|host| format!(r"\\{host}\")),
+        ];
+        let segment = "[A-Za-z0-9_][A-Za-z0-9_ .-]{0,10}";
+        (root, prop::collection::vec(segment, 1..5))
+            .prop_map(|(root, segments)| root + &segments.join("\\"))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(48))]
+
+        #[test]
+        fn any_pasted_windows_path_reaches_init_video_as_written(
+            path in windows_path(),
+            double in any::<bool>(),
+            js_escaped in any::<bool>(),
+        ) {
+            let quote = if double { '"' } else { '\'' };
+            // Written raw, or escaped the JavaScript way: both mean `path`.
+            let written = if js_escaped { path.replace('\\', r"\\") } else { path.clone() };
+            let scene = scene(&format!(
+                "await initHydra()\ns0.initVideo({quote}{written}{quote})\nsrc(s0).out()"
+            ));
+            let scene = scene.ok_or_else(|| TestCaseError::fail(format!("no scene for {written}")))?;
+            prop_assert_eq!(
+                scene.options.get("s0"),
+                Some(&WidgetOption::String(format!("video:{path}"))),
+                "written {}", written
+            );
+        }
     }
 
     #[test]

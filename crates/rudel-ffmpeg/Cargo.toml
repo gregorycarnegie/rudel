@@ -12,4 +12,5 @@ bindgen = { version = "0.73.2", default-features = false, features = ["runtime"]
 pkg-config = "0.3.34"
 
 [dev-dependencies]
+proptest.workspace = true
 tempfile = "3.27.0"

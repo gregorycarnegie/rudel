@@ -36,6 +36,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
   opened as an FFmpeg protocol rather than a file. Local paths now only ever
   open files, and web videos only web protocols, including from inside a
   stream.
+- A video whose stream claimed a sub-microsecond frame duration, or an absurd
+  frame rate, played with no wait between frames, spinning the decoder as
+  fast as it could go. Each frame now shows for at least a millisecond.
 
 ## [0.23.0-beta.2] — 2026-10-06
 
