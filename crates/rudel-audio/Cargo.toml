@@ -25,12 +25,12 @@ mp3lame-encoder = "0.2.5"
 vorbis_rs = "0.5.6"
 ogg = "0.9.2"
 flacenc = { version = "0.5.1", default-features = false }
-opus-rs = "0.1.34"
+opus-rs = "0.1.37"
 
 [dev-dependencies]
 rudel-mini.workspace = true
 rudel-lang.workspace = true
-tempfile = "3.27.0"
+tempfile.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 

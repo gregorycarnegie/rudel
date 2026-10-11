@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 rudel-core.workspace = true
-midir = "0.11.0"
+midir = "0.11.1"
 
 [dev-dependencies]
 rstest.workspace = true

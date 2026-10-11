@@ -45,7 +45,7 @@ ab_glyph = "0.2.32"
 epaint_default_fonts = "0.36.2"
 # Editor themes are TOML files (themes/, and the user's own themes folder).
 # Already in the tree through the Windows resource build step.
-toml = "1.1.6"
+toml = "1.1.8"
 # `@strudel/gamepad`: controllers through each platform's own API (Windows.Gaming.Input,
 # IOKit, evdev via libudev).
 gilrs = "0.11.2"
@@ -68,7 +68,7 @@ winresource = "0.1.31"
 
 [dev-dependencies]
 egui_kittest = { version = "0.36.2", features = ["eframe", "wgpu"] }
-tempfile = "3.27.0"
+tempfile.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
 
