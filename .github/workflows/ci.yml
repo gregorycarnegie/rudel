@@ -30,9 +30,10 @@ jobs:
       fail-fast: false
       matrix:
         # Windows is where Rudel is developed and has code of its own (SAPI
-        # speech, the WASAPI/MIDI device paths); the release workflow only
-        # builds it. macOS is one more line here when it is wanted.
-        os: [ubuntu-latest, windows-latest]
+        # speech, the WASAPI/MIDI device paths). macOS is the release
+        # workflow's third target, with code of its own too (`say` speech,
+        # CoreMIDI, CoreAudio), so it is tested rather than only built.
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
