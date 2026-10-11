@@ -5,7 +5,9 @@
 
 use super::{
     args::*,
-    callback::{with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64},
+    callback::{
+        failing_at_query, with_callback, with_cb_f64, with_cb_frac, with_cb_frac2, with_cb_i64,
+    },
     methods::*,
 };
 use crate::js::{Arg, Res, Scope};
@@ -97,6 +99,26 @@ pub(super) fn register_generated(p: &Scope) {
         ($($m:ident),* $(,)?) => {$(
             method(p, stringify!($m), |pat, a| {
                 with_cb_f64(pat, arg(a, 0), arg(a, 1), |p, n, cb| p.$m(n, |p| cb.apply(p)))
+            });
+        )*};
+    }
+    macro_rules! lazy_fn_arg {
+        ($($m:ident => $js:literal),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                failing_at_query(
+                    $js,
+                    with_callback(pat, a, 0, |pat, cb| pat.$m(|p| cb.apply(p))),
+                )
+            });
+        )*};
+    }
+    macro_rules! lazy_f64_fn_arg {
+        ($($m:ident => $js:literal),* $(,)?) => {$(
+            method(p, stringify!($m), |pat, a| {
+                failing_at_query(
+                    $js,
+                    with_cb_f64(pat, arg(a, 0), arg(a, 1), |p, n, cb| p.$m(n, |p| cb.apply(p))),
+                )
             });
         )*};
     }
@@ -332,21 +354,21 @@ pub(super) fn register_generated(p: &Scope) {
             .stut_patterned(pattern_arg(a, 0), pattern_arg(a, 1), pattern_arg(a, 2))
             .into())
     });
-    fn_arg![
-        jux,
-        jux_flip,
-        sometimes,
-        often,
-        rarely,
-        almost_always,
-        almost_never,
-        some_cycles,
-        always,
-        never,
+    fn_arg![jux, jux_flip, always, never];
+    // The `sometimesBy` family calls its function at query time upstream, so
+    // one that fails silences the pattern, logged, rather than the evaluation.
+    lazy_fn_arg![
+        sometimes => "sometimes",
+        often => "often",
+        rarely => "rarely",
+        almost_always => "almostAlways",
+        almost_never => "almostNever",
+        some_cycles => "someCycles",
     ];
     i64_fn_arg![chunk, chunk_back, fast_chunk];
     frac_fn_arg![inside, outside];
-    f64_fn_arg![jux_by, jux_flip_by, sometimes_by, some_cycles_by];
+    f64_fn_arg![jux_by, jux_flip_by];
+    lazy_f64_fn_arg![sometimes_by => "sometimesBy", some_cycles_by => "someCyclesBy"];
     pattern_fn_arg![off, when];
     method(p, "within", |pat, a| {
         with_cb_frac2(pat, arg(a, 0), arg(a, 1), arg(a, 2), |p, x, y, cb| {

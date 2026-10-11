@@ -141,10 +141,10 @@ where
         cb.finish()?;
         return Ok(result.into());
     }
-    // Something that cannot be called leaves the pattern as it was, as on the
-    // scalar path.
+    // A patterned count makes upstream's `register` call the function inside
+    // an `fmap`, so something that cannot be called fails at query time.
     let Some(callback) = Deferred::keep("callback", func) else {
-        return Ok(pat.clone().into());
+        return Ok(not_callable(func));
     };
     let pat = pat.clone();
     Ok(
@@ -190,7 +190,7 @@ where
         return Ok(result.into());
     }
     let Some(callback) = Deferred::keep("within", func) else {
-        return Ok(pat.clone().into());
+        return Ok(not_callable(func));
     };
     let paired = arg_to_pattern(a)
         .fmap(|av| Value::func(move |bv| Value::List(vec![av.clone(), bv])))
@@ -239,6 +239,27 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
                 let out = pat.$m(|p| cb.apply(p));
                 cb.finish()?;
                 Ok(out.into())
+            });
+        )*};
+    }
+    macro_rules! lazy_cb_only {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.curried($name, 2, |a| {
+                let (func, pat) = func_and_pat(a);
+                let cb = Callback::new(func.clone());
+                let out = pat.$m(|p| cb.apply(p));
+                failing_at_query($name, cb.finish().map(|()| out.into()))
+            });
+        )*};
+    }
+    macro_rules! lazy_cb_f64 {
+        ($($name:literal => $m:ident),* $(,)?) => {$(
+            prelude.curried($name, 3, |a| {
+                let (func, pat) = func_and_pat(a);
+                failing_at_query(
+                    $name,
+                    with_cb_f64(&pat, lead(a, 0), func, |p, n, cb| p.$m(n, |p| cb.apply(p))),
+                )
             });
         )*};
     }
@@ -298,11 +319,14 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
     cb_only! {
         "superimpose" => superimpose, "jux" => jux,
         "juxFlip" => jux_flip, "juxflip" => jux_flip, "flux" => jux_flip,
+        "apply" => apply, "always" => always, "never" => never,
+    }
+    // The `sometimesBy` family calls its function at query time upstream.
+    lazy_cb_only! {
         "sometimes" => sometimes, "often" => often, "rarely" => rarely,
         "almostAlways" => almost_always, "almost_always" => almost_always,
         "almostNever" => almost_never, "almost_never" => almost_never,
         "someCycles" => some_cycles, "some_cycles" => some_cycles,
-        "apply" => apply, "always" => always, "never" => never,
     }
     cb_i64! {
         "chunk" => chunk, "slowChunk" => chunk, "slowchunk" => chunk,
@@ -318,6 +342,8 @@ pub(crate) fn register_standalone_callbacks(prelude: &Scope) {
         "juxBy" => jux_by, "jux_by" => jux_by, "juxby" => jux_by,
         "juxFlipBy" => jux_flip_by, "juxflipby" => jux_flip_by,
         "fluxBy" => jux_flip_by, "fluxby" => jux_flip_by,
+    }
+    lazy_cb_f64! {
         "sometimesBy" => sometimes_by, "sometimes_by" => sometimes_by,
         "someCyclesBy" => some_cycles_by, "some_cycles_by" => some_cycles_by,
     }
@@ -542,6 +568,34 @@ fn truthy(value: &Arg) -> bool {
 
 /// `pat.method(..., f)`: run `body` with a [`Callback`] over argument
 /// `callback_arg`, then surface whatever the callback raised.
+/// Silence that logs `message` the first time it is queried: a callback that
+/// Strudel only calls at query time, and that fails there. Upstream's `stack`
+/// logs such an error and silences that layer, so the other layers play on.
+// ponytail: silences only this pattern, where Strudel's throw unwinds up to the
+// nearest `stack`; the two differ only under a combinator that queries it
+// alongside something else (`add`, a multi-cycle `cat` query).
+pub(super) fn fails_when_queried(message: String) -> Pattern {
+    let logged = std::sync::atomic::AtomicBool::new(false);
+    Pattern::new(move |_| {
+        if !logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            rudel_core::log_line(message.clone());
+        }
+        Vec::new()
+    })
+}
+
+/// What a patterned argument's query meets in place of a function.
+fn not_callable(func: &Arg) -> Arg {
+    fails_when_queried(format!("expected a function, got {}", func.kind())).into()
+}
+
+/// [`with_callback`]'s error deferred to query time, for the `sometimesBy`
+/// family: upstream calls their function inside an `fmap`, so a bad one fails
+/// the query, not the evaluation.
+pub(super) fn failing_at_query(name: &str, result: Res) -> Res {
+    result.or_else(|e| Ok(fails_when_queried(format!("{name}: {e}")).into()))
+}
+
 pub(super) fn with_callback(
     pat: &Pattern,
     args: &[Arg],

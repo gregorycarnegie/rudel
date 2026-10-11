@@ -458,6 +458,50 @@ fn a_value_fmap_throws_on_is_kept_and_the_error_logged() {
     );
 }
 
+// Upstream's `sometimesBy` calls its function inside an `fmap`, so a bad one
+// fails the query; its `stack` logs that and plays the other layers.
+#[rstest]
+#[case::a_number(
+    r#"s("bd*4").sometimes(0.7)"#,
+    "sometimes: expected a function, got a number"
+)]
+#[case::by_a_number(
+    r#"s("bd*4").sometimesBy(0.5, 3)"#,
+    "sometimesBy: expected a function, got a number"
+)]
+#[case::a_throw(r#"s("bd*4").often(x => { throw new Error('nope') })"#, "often: nope")]
+#[case::standalone_form(
+    r#"rarely(0.7, s("bd*4"))"#,
+    "rarely: expected a function, got a number"
+)]
+fn a_bad_sometimes_function_silences_only_its_layer(#[case] layer: &str, #[case] logged: &str) {
+    let src = format!(r#"stack(s("hh*4"), {layer})"#);
+    let pat = eval(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    rudel_core::drain_log();
+    let hh = values(&eval(r#"s("hh*4")"#).unwrap(), 0, 1);
+    assert_eq!(values(&pat, 0, 1), hh);
+    assert_eq!(values(&pat, 1, 2), hh);
+    let log = rudel_core::drain_log();
+    assert_eq!(
+        log.iter().filter(|l| *l == logged).count(),
+        1,
+        "logged once: {log:?}"
+    );
+}
+
+#[test]
+fn a_patterned_count_with_no_function_is_silence() {
+    // `register` calls the function inside an `fmap` when an argument is a
+    // pattern, so here too a bad one fails at query time.
+    assert_eq!(at(r#"s("bd*4").chunk("<2 4>", 0.7)"#, 0), []);
+}
+
+#[test]
+fn a_plain_count_with_no_function_still_fails_to_evaluate() {
+    // With every argument plain, `register` calls the body there and then.
+    assert!(eval(r#"s("bd*4").every(2, 0.7)"#).is_err());
+}
+
 /// The values `src` gives over cycle `cycle`.
 fn at(src: &str, cycle: i64) -> Vec<Value> {
     let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));

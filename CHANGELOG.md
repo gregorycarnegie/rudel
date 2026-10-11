@@ -15,6 +15,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ### Changed
 
+- **One broken layer of a `stack` no longer stops the rest**, as on
+  strudel.cc since its `stack` started catching each layer's error. A
+  `sometimes`-family function that is not one, or that throws
+  (`.sometimes(0.7)`, `.often(x => x.nope())`), and a function given a
+  patterned count (`chunk("<2 4>", 0.7)`), now leave that layer silent and log
+  the error, where the whole pattern used to fail to evaluate. Strudel calls
+  those functions only when the pattern plays; the ones it calls up front
+  (`.every(2, 0.7)`) still fail to evaluate, as there.
+
 - hydra's `initVideo` uses our small `rudel-ffmpeg` wrapper, with FFmpeg 9.0.2
   statically linked into Rudel. No CLI, runtime download, or separate FFmpeg
   installation is needed. Playback streams web videos, loops at their own
