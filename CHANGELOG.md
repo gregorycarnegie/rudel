@@ -39,6 +39,29 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - A video whose stream claimed a sub-microsecond frame duration, or an absurd
   frame rate, played with no wait between frames, spinning the decoder as
   fast as it could go. Each frame now shows for at least a millisecond.
+- A choked voice (`cut`) carrying orbit modulators kept mixing after its fade
+  reached zero, at a growing negative gain, until the end of the audio block.
+  It now stops when the fade ends, as an unmodulated voice does.
+
+### Internal
+
+- **The 0.23 betas have been through a mutation-testing run.** rudel-app is
+  measured for the first time (95.0%), and the run's survivors are tested
+  down to the equivalent ones: dsp 681 → 83, lang 291 → about 25, app
+  132 → 5. Gamepad, serial and MQTT are tested against fakes: a loopback
+  WebSocket broker, the serial writer's missing-port path, and a muted SAPI
+  voice. hydra's `a` is golden-tested against Meyda's `loudness`
+  (`tools/oracle/gen_loudness_oracle.mjs`). They still have not met real
+  controllers, serial devices or a real broker.
+- **Every golden case is its own test**, so a failure names its case and one
+  case can be run alone (`cargo test -p rudel-dsp --test lfo_golden -- clamp`).
+  Each test parses only its own case from the golden JSON, which keeps
+  per-test startup near nextest's floor.
+- Table tests are `rstest` cases throughout the workspace, and video frame
+  geometry and the Windows path fix are property-tested.
+- The mutation scripts point the bundled FFmpeg build at the real tree
+  (`RUDEL_FFMPEG_DIR`), without which rudel-app could not be measured.
+- CI skips commits that only touch Claude and Codex skills.
 
 ## [0.23.0-beta.2] — 2026-10-06
 
