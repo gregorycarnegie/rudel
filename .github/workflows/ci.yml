@@ -87,6 +87,21 @@ jobs:
       - name: Test
         run: cargo nextest run --workspace --profile ci
 
+  # Formatting is the same on every OS and needs no system libraries or
+  # FFmpeg, so it is one quick job rather than a step in each matrix leg.
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
   # The workspace publishes `rust-version = "1.99"`; without this nothing
   # checks it, and a dependency bump or a newly stabilised API can raise the
   # real floor without anyone noticing. `check` rather than `test`: the promise
