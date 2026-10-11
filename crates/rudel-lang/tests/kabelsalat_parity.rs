@@ -14,8 +14,10 @@
 // dependency only ever points that way.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use libtest_mimic::{Arguments, Failed, Trial};
 use rudel_core::{Frac, Value};
 use rudel_dsp::{KabelProgram, KabelVoice, VoiceLike};
+use std::sync::Arc;
 
 /// Both sides do the arithmetic in f64 and land in f32, and the ugen bodies are
 /// transcribed operation for operation, so the only spread is the last bit or
@@ -48,125 +50,104 @@ fn program_value(source: &str) -> Value {
         .unwrap_or_else(|| panic!("{script} should carry a `worklet` control"))
 }
 
-#[test]
-fn a_graph_renders_the_samples_kabelsalat_renders() {
+fn main() {
     let golden: serde_json::Value =
         serde_json::from_str(include_str!("../../../tools/oracle/kabelsalat_golden.json"))
             .expect("parse golden");
-
-    // The version is pinned in the golden so a bump to the vendored kabelsalat
-    // is a reviewable change rather than a silent one.
-    assert_eq!(
-        golden["version"].as_str(),
-        Some("0.4.1"),
-        "regenerate the golden after changing the vendored @kabelsalat/lib"
-    );
-    let sample_rate = golden["sampleRate"].as_f64().expect("sampleRate") as f32;
-    let frames = golden["frames"].as_u64().expect("frames") as usize;
-    let cases = golden["cases"].as_array().expect("cases");
-    assert!(
-        cases.len() > 30,
-        "expected the full case set, got {}",
-        cases.len()
-    );
-
-    let mut failures = Vec::new();
-    for case in cases {
-        let name = case["name"].as_str().expect("name");
-        let source = case["source"].as_str().expect("source");
-        let expected = |side: &str| -> Vec<f32> {
-            case[side]
-                .as_array()
-                .expect("channel")
-                .iter()
-                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
-                .collect()
-        };
-        let (want_l, want_r) = (expected("left"), expected("right"));
-
-        let value = program_value(source);
-        let Some(program) = KabelProgram::from_value(&value) else {
-            failures.push(format!("{name}: `{source}` did not compile to a program"));
-            continue;
-        };
-        // The graph is the whole voice here, so the gate never falls and
-        // nothing ends inside the window.
-        let mut voice = KabelVoice::new(
-            program,
-            Box::new(Silence),
-            sample_rate,
-            440.0,
-            Vec::new(),
-            f32::MAX,
-            f32::MAX,
-        );
-
-        for i in 0..frames {
-            let (got_l, got_r) = voice.tick();
-            for (side, got, want) in [("L", got_l, want_l[i]), ("R", got_r, want_r[i])] {
-                if (got - want).abs() > EPS {
-                    failures.push(format!(
-                        "{name} `{source}` frame {i}{side}: got {got}, want {want}"
-                    ));
-                    break;
-                }
-            }
-            if failures.len() > 20 {
-                break;
-            }
+    let golden = Arc::new(golden);
+    let cases = golden["cases"].as_array().expect("cases").clone();
+    let mut trials = vec![Trial::test("the_golden_is_the_pinned_full_set", {
+        let golden = golden.clone();
+        move || {
+            // The version is pinned in the golden so a bump to the vendored
+            // kabelsalat is a reviewable change rather than a silent one.
+            assert_eq!(
+                golden["version"].as_str(),
+                Some("0.4.1"),
+                "regenerate the golden after changing the vendored @kabelsalat/lib"
+            );
+            let count = golden["cases"].as_array().expect("cases").len();
+            assert!(count > 30, "expected the full case set, got {count}");
+            Ok(())
         }
+    })];
+    for case in cases {
+        let name = case["name"].as_str().expect("name").to_string();
+        let (samples, golden) = (case.clone(), golden.clone());
+        trials.push(Trial::test(format!("samples/{name}"), move || {
+            a_graph_renders_the_samples_kabelsalat_renders(&golden, &samples)
+        }));
+        trials.push(Trial::test(format!("graph/{name}"), move || {
+            a_graph_has_the_nodes_kabelsalat_builds(&case)
+        }));
     }
-
-    assert!(
-        failures.is_empty(),
-        "{} kabelsalat parity failures:\n{}",
-        failures.len(),
-        failures.join("\n")
-    );
+    libtest_mimic::run(&Arguments::from_args(), trials).exit();
 }
 
-#[test]
-fn a_graph_has_the_nodes_kabelsalat_builds() {
-    // The sample test would catch a wrong graph too, but not say so; this one
-    // names the node list, which is where a compiler bug actually lives.
-    let golden: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tools/oracle/kabelsalat_golden.json"))
-            .expect("parse golden");
-
-    let mut failures = Vec::new();
-    for case in golden["cases"].as_array().expect("cases") {
-        let name = case["name"].as_str().expect("name");
-        let source = case["source"].as_str().expect("source");
-
-        // The generator has already dropped upstream's output plumbing, which
-        // rudel keeps in a side table rather than as nodes.
-        let want: Vec<&str> = case["graph"]
+fn a_graph_renders_the_samples_kabelsalat_renders(
+    golden: &serde_json::Value,
+    case: &serde_json::Value,
+) -> Result<(), Failed> {
+    let sample_rate = golden["sampleRate"].as_f64().expect("sampleRate") as f32;
+    let frames = golden["frames"].as_u64().expect("frames") as usize;
+    let source = case["source"].as_str().expect("source");
+    let expected = |side: &str| -> Vec<f32> {
+        case[side]
             .as_array()
-            .expect("graph")
+            .expect("channel")
             .iter()
-            .filter_map(|n| n["type"].as_str())
-            .collect();
+            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+            .collect()
+    };
+    let (want_l, want_r) = (expected("left"), expected("right"));
 
-        let Value::Map(map) = program_value(source) else {
-            failures.push(format!("{name}: no program"));
-            continue;
-        };
-        let Some(Value::List(types)) = map.get("types") else {
-            failures.push(format!("{name}: no types"));
-            continue;
-        };
-        let got: Vec<&str> = types.iter().filter_map(|t| t.as_str()).collect();
-        if got != want {
-            failures.push(format!(
-                "{name} `{source}`:\n  got  {got:?}\n  want {want:?}"
-            ));
+    let value = program_value(source);
+    let program = KabelProgram::from_value(&value)
+        .ok_or_else(|| format!("`{source}` did not compile to a program"))?;
+    // The graph is the whole voice here, so the gate never falls and nothing
+    // ends inside the window.
+    let mut voice = KabelVoice::new(
+        program,
+        Box::new(Silence),
+        sample_rate,
+        440.0,
+        Vec::new(),
+        f32::MAX,
+        f32::MAX,
+    );
+    for i in 0..frames {
+        let (got_l, got_r) = voice.tick();
+        for (side, got, want) in [("L", got_l, want_l[i]), ("R", got_r, want_r[i])] {
+            let off = (got - want).abs();
+            if off.is_nan() || off > EPS {
+                return Err(format!("`{source}` frame {i}{side}: got {got}, want {want}").into());
+            }
         }
     }
+    Ok(())
+}
 
-    assert!(
-        failures.is_empty(),
-        "{} graph mismatches:\n{}",
-        failures.len(),
-        failures.join("\n")
-    );
+/// The sample test would catch a wrong graph too, but not say so; this one
+/// names the node list, which is where a compiler bug actually lives.
+fn a_graph_has_the_nodes_kabelsalat_builds(case: &serde_json::Value) -> Result<(), Failed> {
+    let source = case["source"].as_str().expect("source");
+    // The generator has already dropped upstream's output plumbing, which
+    // rudel keeps in a side table rather than as nodes.
+    let want: Vec<&str> = case["graph"]
+        .as_array()
+        .expect("graph")
+        .iter()
+        .filter_map(|n| n["type"].as_str())
+        .collect();
+    let Value::Map(map) = program_value(source) else {
+        return Err("no program".into());
+    };
+    let Some(Value::List(types)) = map.get("types") else {
+        return Err("no types".into());
+    };
+    let got: Vec<&str> = types.iter().filter_map(|t| t.as_str()).collect();
+    if got != want {
+        return Err(format!("`{source}`:\n  got  {got:?}\n  want {want:?}").into());
+    }
+    Ok(())
 }

@@ -13,6 +13,23 @@ pest = "2.9.2"
 pest_derive = "2.9.2"
 
 [dev-dependencies]
+libtest-mimic.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
+
+[[test]]
+name = "mini_parity"
+harness = false
+
+[[test]]
+name = "tonal_parity"
+harness = false
+
+[[test]]
+name = "transform_parity"
+harness = false
+
+[[test]]
+name = "tune_table_parity"
+harness = false

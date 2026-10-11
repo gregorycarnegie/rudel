@@ -12,6 +12,7 @@ rudel-core.workspace = true
 wide.workspace = true
 
 [dev-dependencies]
+libtest-mimic.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
@@ -38,4 +39,40 @@ harness = false
 
 [[bench]]
 name = "convolver"
+harness = false
+
+[[test]]
+name = "adsr_golden"
+harness = false
+
+[[test]]
+name = "bytebeat_golden"
+harness = false
+
+[[test]]
+name = "distortion_golden"
+harness = false
+
+[[test]]
+name = "lfo_golden"
+harness = false
+
+[[test]]
+name = "modenv_golden"
+harness = false
+
+[[test]]
+name = "vocoder_golden"
+harness = false
+
+[[test]]
+name = "warp_golden"
+harness = false
+
+[[test]]
+name = "worklet_golden"
+harness = false
+
+[[test]]
+name = "zzfx_golden"
 harness = false

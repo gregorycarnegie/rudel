@@ -7,6 +7,15 @@ tests. `tools/gen_parity_oracle.mjs` (one level up)
 generates the RNG/signal goldens for `crates/rudel-core/tests/parity_oracle.rs`
 and needs no setup.
 
+Most golden tests make **one test per golden case**, read from the JSON when the
+test binary starts (`libtest-mimic`, `harness = false` in the crate's
+`Cargo.toml`), so a failure names its case and one case can be run alone:
+
+```sh
+cargo test -p rudel-dsp --test lfo_golden -- clamp
+cargo nextest run -p rudel-mini -E 'test(/scale_/)'
+```
+
 ## Setup (one-time)
 
 Strudel uses a pnpm workspace; we only need `@strudel/core` + `@strudel/mini`
@@ -123,6 +132,7 @@ node gen_adsr_oracle.mjs        # -> adsr_golden.json  (linear ADSR gain-envelop
 node gen_distortion_oracle.mjs  # -> distortion_golden.json  (waveshaping distortion golden)
 node gen_warp_oracle.mjs        # -> warp_golden.json  (wavetable phase-warp golden)
 node gen_bytebeat_oracle.mjs    # -> bytebeat_golden.json  (bytebeat expressions vs V8)
+node gen_loudness_oracle.mjs    # -> loudness_golden.json  (Meyda's loudness, hydra's `a`; needs `npm install`)
 ```
 
 `gen_bytebeat_oracle.mjs` is the odd one out: it does not sample audio, it pins

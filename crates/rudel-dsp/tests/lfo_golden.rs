@@ -3,15 +3,17 @@
 // `lfo_golden.json` (from tools/oracle/gen_lfo_oracle.mjs) holds, per case, the
 // LFO config and the exact buffer the real superdough `lfo-processor` worklet
 // produces at 44.1kHz. Here each is rebuilt with rudel's `Lfo` and compared
-// sample-for-sample.
+// sample-for-sample, one test per case.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use libtest_mimic::{Arguments, Failed, Trial};
 use rudel_dsp::{Lfo, LfoConfig};
+use serde_json::Value;
 
 const SAMPLE_RATE: f64 = 44100.0;
 const EPS: f64 = 1e-9;
 
-fn config_from_json(c: &serde_json::Value) -> LfoConfig {
+fn config_from_json(c: &Value) -> LfoConfig {
     let g = |k: &str| c[k].as_f64().unwrap();
     LfoConfig {
         shape: g("shape") as usize,
@@ -27,45 +29,45 @@ fn config_from_json(c: &serde_json::Value) -> LfoConfig {
     }
 }
 
-#[test]
-fn lfo_matches_superdough() {
-    let golden: serde_json::Map<String, serde_json::Value> =
+fn main() {
+    let golden: serde_json::Map<String, Value> =
         serde_json::from_str(include_str!("../../../tools/oracle/lfo_golden.json"))
             .expect("parse golden");
+    let trials = golden
+        .into_iter()
+        .map(|(label, entry)| Trial::test(label, move || lfo_matches_superdough(&entry)))
+        .collect();
+    libtest_mimic::run(&Arguments::from_args(), trials).exit();
+}
 
-    let mut failures = Vec::new();
-    for (label, entry) in &golden {
-        let cfg = config_from_json(&entry["cfg"]);
-        let want: Vec<f64> = entry["samples"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_f64().unwrap())
-            .collect();
+fn lfo_matches_superdough(entry: &Value) -> Result<(), Failed> {
+    let cfg = config_from_json(&entry["cfg"]);
+    let want: Vec<f64> = entry["samples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
 
-        let mut lfo = Lfo::new(&cfg, SAMPLE_RATE);
-        let got: Vec<f64> = (0..want.len()).map(|_| lfo.tick()).collect();
+    let mut lfo = Lfo::new(&cfg, SAMPLE_RATE);
+    let got: Vec<f64> = (0..want.len()).map(|_| lfo.tick()).collect();
 
-        let mut worst = 0.0_f64;
-        let mut at = 0usize;
-        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
-            let d = (g - w).abs();
-            if d > worst {
-                worst = d;
-                at = k;
-            }
-        }
-        if worst > EPS {
-            failures.push(format!(
-                "{label}: max diff {worst:.3e} at sample {at} (rudel {} vs strudel {})",
-                got[at], want[at]
-            ));
-        }
+    let (at, worst) = got
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| (g - w).abs())
+        .enumerate()
+        .fold(
+            (0, 0.0),
+            |m, d| if d.1.is_nan() || d.1 > m.1 { d } else { m },
+        );
+    // NaN compares false against any bound: it is a failure, not a pass.
+    if worst.is_nan() || worst > EPS {
+        return Err(format!(
+            "max diff {worst:.3e} at sample {at} (rudel {} vs strudel {})",
+            got[at], want[at]
+        )
+        .into());
     }
-
-    assert!(
-        failures.is_empty(),
-        "lfo source mismatches:\n{}",
-        failures.join("\n")
-    );
+    Ok(())
 }

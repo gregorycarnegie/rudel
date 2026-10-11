@@ -37,6 +37,10 @@ proptest = "1.11.0"
 # Named table cases (`#[case]`) and fixtures: each case is its own test, so
 # one failing row neither hides the rows after it nor goes unnamed.
 rstest = { version = "0.27.0", default-features = false }
+# The oracle golden tests: one named trial per golden case, read from the JSON
+# at run time (`harness = false`), so a case fails, filters and reports on its
+# own the way an `#[rstest]` case does.
+libtest-mimic = "0.8.2"
 stacker = "0.1.25"
 # wgpu's own shader front-end, already in the tree through it. Two crates parse
 # WGSL with it — `rudel-app` validates a widget's shader before wgpu can abort
@@ -46,7 +50,7 @@ naga = { version = "30.0.1", features = ["wgsl-in"] }
 # `float_roundtrip`: serde_json's default float parser can land one ulp off the
 # correctly-rounded value, which is enough to flip a golden comparison against
 # JS-produced numbers (it did, on the bytebeat oracle).
-serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "raw_value"] }
 
 # Release codegen plus line tables, so a sampling profiler resolves frames to
 # source. Separate from `release` so normal builds stay small.

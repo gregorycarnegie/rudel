@@ -11,11 +11,13 @@
 //! evaluates and queries, or is named in
 //! `tools/oracle/examples_allowlist.json` with the reason it cannot. The test
 //! fails both ways — an example that regresses, and an allowlist entry that has
-//! since started working — so the corpus cannot silently drift.
+//! since started working — so the corpus cannot silently drift. Each example is
+//! its own test, named by its id.
 //!
 //! Regenerate the corpus after bumping the vendored Strudel:
 //!   cd tools/oracle && node gen_examples_oracle.mjs
 
+use libtest_mimic::{Arguments, Failed, Trial};
 use rudel_core::Frac;
 use rudel_lang::eval;
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,8 +31,7 @@ fn run(code: &str) -> Result<usize, String> {
     Ok(haps.len())
 }
 
-#[test]
-fn every_documented_example_runs_or_is_allowlisted() {
+fn main() {
     let corpus: serde_json::Value =
         serde_json::from_str(include_str!("../../../tools/oracle/examples_golden.json"))
             .expect("parse examples_golden.json");
@@ -38,58 +39,58 @@ fn every_documented_example_runs_or_is_allowlisted() {
         "../../../tools/oracle/examples_allowlist.json"
     ))
     .expect("parse examples_allowlist.json");
+    let cases = corpus["cases"].as_array().expect("cases array").clone();
 
-    let cases = corpus["cases"].as_array().expect("cases array");
-    assert!(
-        cases.len() > 400,
-        "expected the full corpus, got {} cases — regenerate it",
-        cases.len()
-    );
-
-    let mut failed: BTreeMap<String, String> = BTreeMap::new();
-    let mut ran = 0usize;
-    for case in cases {
+    let ids: BTreeSet<String> = cases
+        .iter()
+        .map(|c| c["id"].as_str().unwrap().to_string())
+        .collect();
+    let listed = allow.keys().filter(|id| ids.contains(*id)).count();
+    let mut trials = vec![Trial::test(
+        "the_corpus_is_complete_and_mostly_runs",
+        move || {
+            assert!(
+                ids.len() > 400,
+                "expected the full corpus, got {} cases — regenerate it",
+                ids.len()
+            );
+            // Each example's test holds it to its allowlist entry either way, so
+            // how many run follows from the allowlist's size. A floor, so a change
+            // that quietly stops running most of the corpus while dutifully growing
+            // the allowlist still fails.
+            let ran = ids.len() - listed;
+            let coverage = ran as f64 / ids.len() as f64;
+            assert!(
+                coverage > 0.80,
+                "only {ran}/{} documented examples run ({:.0}%)",
+                ids.len(),
+                coverage * 100.0
+            );
+            Ok(())
+        },
+    )];
+    trials.extend(cases.into_iter().map(|case| {
         let id = case["id"].as_str().unwrap().to_string();
-        let code = case["code"].as_str().unwrap();
-        match run(code) {
-            Ok(_) => ran += 1,
-            Err(why) => {
-                failed.insert(id, why);
-            }
+        let code = case["code"].as_str().unwrap().to_string();
+        let allowed = allow.get(&id).cloned();
+        Trial::test(id, move || {
+            the_example_runs_or_is_allowlisted(&code, allowed.as_deref())
+        })
+    }));
+    libtest_mimic::run(&Arguments::from_args(), trials).exit();
+}
+
+/// Whether an example runs has to agree with its allowlist entry, either way.
+fn the_example_runs_or_is_allowlisted(code: &str, allowed: Option<&str>) -> Result<(), Failed> {
+    match (run(code), allowed) {
+        (Ok(_), None) | (Err(_), Some(_)) => Ok(()),
+        (Err(why), None) => Err(format!(
+            "no longer runs and is not allowlisted: {why}\n\
+             Fix it, or add it to tools/oracle/examples_allowlist.json with a reason."
+        )
+        .into()),
+        (Ok(_), Some(_)) => {
+            Err("now runs — remove it from tools/oracle/examples_allowlist.json".into())
         }
     }
-
-    let failed_ids: BTreeSet<&String> = failed.keys().collect();
-    let allowed_ids: BTreeSet<&String> = allow.keys().collect();
-
-    let unexpected: Vec<String> = failed_ids
-        .difference(&allowed_ids)
-        .map(|id| format!("  {id}: {}", failed[*id]))
-        .collect();
-    let stale: Vec<&&String> = allowed_ids.difference(&failed_ids).collect();
-
-    assert!(
-        unexpected.is_empty(),
-        "{} documented example(s) no longer run and are not allowlisted:\n{}\n\
-         Fix them, or add them to tools/oracle/examples_allowlist.json with a reason.",
-        unexpected.len(),
-        unexpected.join("\n")
-    );
-    assert!(
-        stale.is_empty(),
-        "{} allowlisted example(s) now run — remove them from \
-         tools/oracle/examples_allowlist.json:\n{:?}",
-        stale.len(),
-        stale
-    );
-
-    // A floor, so a change that quietly stops running most of the corpus while
-    // dutifully growing the allowlist still fails.
-    let coverage = ran as f64 / cases.len() as f64;
-    assert!(
-        coverage > 0.80,
-        "only {ran}/{} documented examples run ({:.0}%)",
-        cases.len(),
-        coverage * 100.0
-    );
 }

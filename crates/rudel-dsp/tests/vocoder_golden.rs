@@ -23,18 +23,22 @@
 // — a negative `stretch`. Those values belong to fft.js's internal layout and no
 // other FFT can reproduce them, so rudel stops at the last real bin instead.
 // `cases` is upstream with that read neutralised (rudel matches it exactly);
-// `upstreamRaw` is upstream untouched, and the second test below pins that the
+// `upstreamRaw` is upstream untouched, and a test below pins that the
 // two differ *only* below unity — so the deviation is bounded by a check rather
 // than by a claim.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use libtest_mimic::{Arguments, Failed, Trial};
 use rudel_dsp::PhaseVocoder;
+use serde_json::value::RawValue;
+use std::collections::BTreeMap;
 
 const HOP: usize = 128;
 
+const GOLDEN: &str = include_str!("../../../tools/oracle/vocoder_golden.json");
+
 fn golden() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../../tools/oracle/vocoder_golden.json"))
-        .expect("parse vocoder_golden.json")
+    serde_json::from_str(GOLDEN).expect("parse vocoder_golden.json")
 }
 
 fn floats(v: &serde_json::Value) -> Vec<f32> {
@@ -81,49 +85,80 @@ fn worst_diff(got: &[f32], want: &[f32]) -> (f32, usize) {
     (worst, at)
 }
 
-#[test]
-fn the_phase_vocoder_matches_the_superdough_worklet() {
-    let g = golden();
-    let left = floats(&g["input"]["left"]);
-    let right = floats(&g["input"]["right"]);
-    assert_eq!(g["hopSize"].as_u64().unwrap() as usize, HOP);
-    assert!(!left.is_empty(), "the corpus should not be empty");
-
-    let mut checked = 0;
-    for case in g["cases"].as_array().expect("cases") {
-        let stretch = case["stretch"].as_f64().expect("stretch") as f32;
-        let want_l = floats(&case["left"]);
-        let want_r = floats(&case["right"]);
-        let (got_l, got_r) = render(stretch, &left, &right);
-
-        for (side, got, want) in [("left", &got_l, &want_l), ("right", &got_r, &want_r)] {
-            let (worst, at) = worst_diff(got, want);
-            let peak = want.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-            assert!(peak > 1e-3, "stretch {stretch} {side} is silent");
-            // Upstream runs the FFT in doubles and rudel in `f32`; two 2048-point
-            // transforms per frame is the only thing this tolerance covers.
-            assert!(
-                worst < peak * 0.02,
-                "stretch {stretch} {side}: worst diff {worst} at {at} \
-                 (got {}, want {}), peak {peak}",
-                got[at],
-                want[at]
+// nextest starts this binary once per test, and every start runs `main`, so
+// it reads only what names the tests; each test parses the case it runs.
+fn main() {
+    let top: BTreeMap<String, &'static RawValue> = serde_json::from_str(GOLDEN).expect("parse");
+    let cases: Vec<BTreeMap<String, &'static RawValue>> =
+        serde_json::from_str(top["cases"].get()).expect("cases");
+    let mut trials = vec![
+        Trial::test("the_golden_holds_every_stretch_case", || {
+            let g = golden();
+            assert_eq!(g["hopSize"].as_u64().unwrap() as usize, HOP);
+            assert_eq!(
+                g["cases"].as_array().expect("cases").len(),
+                5,
+                "expected every stretch case"
             );
-        }
-        checked += 1;
+            Ok(())
+        }),
+        Trial::test(
+            "the_scratch_read_is_the_only_place_upstream_differs",
+            || the_scratch_read_is_the_only_place_upstream_differs(&golden()),
+        ),
+        Trial::test("the_output_is_not_merely_a_copy_of_the_input", || {
+            the_output_is_not_merely_a_copy_of_the_input(&golden())
+        }),
+    ];
+    for (i, case) in cases.iter().enumerate() {
+        let stretch: f64 = serde_json::from_str(case["stretch"].get()).expect("stretch");
+        trials.push(Trial::test(format!("stretch_{stretch}"), move || {
+            let g = golden();
+            the_phase_vocoder_matches_the_superdough_worklet(&g, &g["cases"][i])
+        }));
     }
-    assert_eq!(checked, 5, "expected every stretch case");
+    libtest_mimic::run(&Arguments::from_args(), trials).exit();
 }
 
-#[test]
-fn the_scratch_read_is_the_only_place_upstream_differs() {
+/// One `stretch` value, rendered through rudel's vocoder over the shared input.
+fn the_phase_vocoder_matches_the_superdough_worklet(
+    g: &serde_json::Value,
+    case: &serde_json::Value,
+) -> Result<(), Failed> {
+    let left = floats(&g["input"]["left"]);
+    let right = floats(&g["input"]["right"]);
+    assert!(!left.is_empty(), "the corpus should not be empty");
+    let stretch = case["stretch"].as_f64().expect("stretch") as f32;
+    let want_l = floats(&case["left"]);
+    let want_r = floats(&case["right"]);
+    let (got_l, got_r) = render(stretch, &left, &right);
+
+    for (side, got, want) in [("left", &got_l, &want_l), ("right", &got_r, &want_r)] {
+        let (worst, at) = worst_diff(got, want);
+        let peak = want.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(peak > 1e-3, "stretch {stretch} {side} is silent");
+        // Upstream runs the FFT in doubles and rudel in `f32`; two 2048-point
+        // transforms per frame is the only thing this tolerance covers.
+        assert!(
+            worst < peak * 0.02,
+            "stretch {stretch} {side}: worst diff {worst} at {at} \
+             (got {}, want {}), peak {peak}",
+            got[at],
+            want[at]
+        );
+    }
+    Ok(())
+}
+
+fn the_scratch_read_is_the_only_place_upstream_differs(
+    g: &serde_json::Value,
+) -> Result<(), Failed> {
     // Bounds the deviation described at the top of this file. Above unity the
     // regions of influence never run off the top of the spectrum, so upstream's
     // uninitialised bins are never reached and the two references have to agree
     // exactly. Below unity they are reached, and the references have to differ —
     // otherwise the neutralised reference is not testing anything and rudel
     // could be matching upstream's raw output by accident.
-    let g = golden();
     let raw = g["upstreamRaw"].as_array().expect("upstreamRaw");
     let neutralised = g["cases"].as_array().expect("cases");
     assert_eq!(raw.len(), neutralised.len());
@@ -161,14 +196,13 @@ fn the_scratch_read_is_the_only_place_upstream_differs() {
         at_or_above >= 4 && below >= 1,
         "expected both halves covered"
     );
+    Ok(())
 }
 
-#[test]
-fn the_output_is_not_merely_a_copy_of_the_input() {
+fn the_output_is_not_merely_a_copy_of_the_input(g: &serde_json::Value) -> Result<(), Failed> {
     // The tolerance above is relative to the signal, so a port that passed audio
     // straight through would have to be caught here instead: each stretch has to
     // differ from the input, and from the other stretches.
-    let g = golden();
     let left = floats(&g["input"]["left"]);
     let cases = g["cases"].as_array().expect("cases");
 
@@ -199,4 +233,5 @@ fn the_output_is_not_merely_a_copy_of_the_input() {
         let (worst, _) = worst_diff(a, b);
         assert!(worst > 1e-3, "stretch {s0} and {s1} gave the same output");
     }
+    Ok(())
 }

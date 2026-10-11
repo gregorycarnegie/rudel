@@ -3,10 +3,13 @@
 // `zzfx_golden.json` (from tools/oracle/gen_zzfx_oracle.mjs) holds, per case, the
 // 20 buildSamples params and the exact sample buffer the real
 // superdough/zzfx_fork.mjs produces at 44.1kHz with randomness 0. Here each
-// buffer is rebuilt with rudel's `build_samples` and compared sample-for-sample.
+// buffer is rebuilt with rudel's `build_samples` and compared sample-for-sample,
+// one test per case.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use libtest_mimic::{Arguments, Failed, Trial};
 use rudel_dsp::{ZzfxSynth, build_samples};
+use serde_json::Value;
 
 const SAMPLE_RATE: f64 = 44100.0;
 const EPS: f64 = 1e-9;
@@ -42,58 +45,49 @@ fn synth_from_params(p: &[f64]) -> ZzfxSynth {
     }
 }
 
-#[test]
-fn build_samples_matches_superdough() {
-    let golden: serde_json::Map<String, serde_json::Value> =
+fn main() {
+    let golden: serde_json::Map<String, Value> =
         serde_json::from_str(include_str!("../../../tools/oracle/zzfx_golden.json"))
             .expect("parse golden");
+    let trials = golden
+        .into_iter()
+        .map(|(label, entry)| Trial::test(label, move || build_samples_matches_superdough(&entry)))
+        .collect();
+    libtest_mimic::run(&Arguments::from_args(), trials).exit();
+}
 
-    let mut failures = Vec::new();
-    for (label, entry) in &golden {
-        let params: Vec<f64> = entry["params"]
+fn build_samples_matches_superdough(entry: &Value) -> Result<(), Failed> {
+    let floats = |k: &str| -> Vec<f64> {
+        entry[k]
             .as_array()
-            .expect("params array")
+            .unwrap_or_else(|| panic!("{k} array"))
             .iter()
             .map(|v| v.as_f64().unwrap())
-            .collect();
-        let want: Vec<f64> = entry["samples"]
-            .as_array()
-            .expect("samples array")
-            .iter()
-            .map(|v| v.as_f64().unwrap())
-            .collect();
-        // randomness is 0 in every golden case, so the rand draw is a no-op.
-        let got = build_samples(&synth_from_params(&params), SAMPLE_RATE, 0.5);
-
-        if got.len() != want.len() {
-            failures.push(format!(
-                "{label}: length {} != {} (strudel)",
-                got.len(),
-                want.len()
-            ));
-            continue;
-        }
-        let mut worst = 0.0_f64;
-        let mut at = 0usize;
-        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
-            let d = (g - w).abs();
-            if d > worst {
-                worst = d;
-                at = k;
-            }
-        }
-        let eps = if params[13] == 0.0 { EPS } else { NOISE_EPS };
-        if worst > eps {
-            failures.push(format!(
-                "{label}: max diff {worst:.3e} at sample {at} (rudel {} vs strudel {})",
-                got[at], want[at]
-            ));
-        }
+            .collect()
+    };
+    let (params, want) = (floats("params"), floats("samples"));
+    // randomness is 0 in every golden case, so the rand draw is a no-op.
+    let got = build_samples(&synth_from_params(&params), SAMPLE_RATE, 0.5);
+    if got.len() != want.len() {
+        return Err(format!("length {} != {} (strudel)", got.len(), want.len()).into());
     }
-
-    assert!(
-        failures.is_empty(),
-        "zzfx build_samples mismatches:\n{}",
-        failures.join("\n")
-    );
+    let (at, worst) = got
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| (g - w).abs())
+        .enumerate()
+        .fold(
+            (0, 0.0),
+            |m, d| if d.1.is_nan() || d.1 > m.1 { d } else { m },
+        );
+    let eps = if params[13] == 0.0 { EPS } else { NOISE_EPS };
+    // NaN compares false against any bound: it is a failure, not a pass.
+    if worst.is_nan() || worst > eps {
+        return Err(format!(
+            "max diff {worst:.3e} at sample {at} (rudel {} vs strudel {})",
+            got[at], want[at]
+        )
+        .into());
+    }
+    Ok(())
 }
