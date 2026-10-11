@@ -207,10 +207,17 @@ mod backend {
                 .expect("voice status")
         }
 
-        /// Speak at volume 0, so a test can say real words without a sound.
+        /// Speak into memory, so a test can say real words with no sound and
+        /// on a machine with no audio device (CI's Windows runner).
         #[cfg(test)]
-        pub(super) fn mute(&self) {
-            unsafe { self.voice.SetVolume(0) }.expect("set volume");
+        pub(super) fn speak_into_memory(&self) {
+            use windows::Win32::Media::Speech::{ISpeechMemoryStream, SpMemoryStream};
+            unsafe {
+                let stream: ISpeechMemoryStream =
+                    CoCreateInstance(&SpMemoryStream, None, CLSCTX_ALL).expect("memory stream");
+                self.voice.putref_AudioOutputStream(&stream)
+            }
+            .expect("speak into memory");
         }
 
         pub(super) fn say(
@@ -399,9 +406,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn saying_hands_the_words_to_sapi() {
-        // SAPI does not queue empty words, so say one, muted.
+        // SAPI does not queue empty words, so say one, into memory.
         let engine = backend::Engine::open().expect("open SAPI");
-        engine.mute();
+        engine.speak_into_memory();
         assert_eq!(engine.queued(), 0);
         engine.say("hi", Some("en"), None).unwrap();
         assert_eq!(engine.queued(), 1);

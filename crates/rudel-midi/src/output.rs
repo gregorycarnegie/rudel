@@ -370,6 +370,9 @@ mod tests {
 
     #[test]
     fn a_port_name_nothing_matches_is_reported_by_that_name() {
+        if MidiOutput::new("rudel-test").is_err() {
+            return; // no MIDI system to look in (CI's Linux has no ALSA sequencer)
+        }
         let err = MidiOut::open(Some(&Port::Name("No Such Port XYZ".into())))
             .err()
             .expect("no port is called that");
