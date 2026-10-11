@@ -13,6 +13,14 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-10-11
+
+0.23 out of beta: the two betas below, and the changes in this section on top.
+The betas' mutation-testing run has happened, and the gamepad, serial and MQTT
+outputs are tested against fakes (a loopback broker, the serial writer's
+missing-port path), though still not against real hardware or a real broker.
+CI now tests macOS as well as Linux and Windows.
+
 ### Changed
 
 - **One broken layer of a `stack` no longer stops the rest**, as on
@@ -71,6 +79,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - The mutation scripts point the bundled FFmpeg build at the real tree
   (`RUDEL_FFMPEG_DIR`), without which rudel-app could not be measured.
 - CI skips commits that only touch Claude and Codex skills.
+- Dependency patch updates: proptest 1.12, serde_json 1.0.152, toml 1.1.8,
+  opus-rs 0.1.37, midir 0.11.1 and pest 2.9.3.
 
 ## [0.23.0-beta.2] — 2026-10-06
 

@@ -4909,7 +4909,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-app"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "ab_glyph",
  "eframe",
@@ -4940,7 +4940,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-audio"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "base64",
  "cpal",
@@ -4964,7 +4964,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-core"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "indexmap",
  "num-integer",
@@ -4978,7 +4978,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-dsp"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "libtest-mimic",
  "proptest",
@@ -4990,7 +4990,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-ffmpeg"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "bindgen 0.73.2",
  "pkg-config",
@@ -5001,7 +5001,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-lang"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "boa_engine",
  "boa_gc",
@@ -5017,7 +5017,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-midi"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "midir",
  "rstest",
@@ -5026,7 +5026,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-mini"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "libtest-mimic",
  "pest",
@@ -5039,7 +5039,7 @@ dependencies = [
 
 [[package]]
 name = "rudel-osc"
-version = "0.23.0-beta.2"
+version = "0.23.0"
 dependencies = [
  "proptest",
  "rudel-core",
