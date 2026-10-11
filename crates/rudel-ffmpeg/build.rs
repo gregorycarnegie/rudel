@@ -13,8 +13,13 @@ fn main() {
         "x86_64-apple-darwin" => "x64-osx",
         _ => panic!("unsupported FFmpeg target: {target}"),
     };
-    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
-        .join("../../target/ffmpeg")
+    // RUDEL_FFMPEG_DIR: a copied tree (cargo-mutants' scratch copy) has no target/.
+    println!("cargo:rerun-if-env-changed=RUDEL_FFMPEG_DIR");
+    let root = env::var_os("RUDEL_FFMPEG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../target/ffmpeg")
+        })
         .join(triplet);
     let include = root.join("include");
     assert!(

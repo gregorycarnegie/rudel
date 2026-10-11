@@ -19,6 +19,8 @@ Remove-Item -Recurse -Force "mutants-check/$name" -EA SilentlyContinue
 # Csound's tests skip where the library is missing, so a mutant that breaks
 # starting it would read as caught-by-nothing. Where it is installed, a skip
 # has to be a failure.
+# The scratch copy has no target/, so point rudel-ffmpeg's build at the real one.
+$env:RUDEL_FFMPEG_DIR = (Resolve-Path target/ffmpeg).Path
 if ($env:RUDEL_CSOUND_LIB -or (Test-Path 'C:/Program Files/Csound6_x64/bin/csound64.dll')) {
     $env:RUDEL_CSOUND_REQUIRED = '1'
 }
