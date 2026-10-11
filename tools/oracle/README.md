@@ -135,6 +135,9 @@ node gen_bytebeat_oracle.mjs    # -> bytebeat_golden.json  (bytebeat expressions
 node gen_loudness_oracle.mjs    # -> loudness_golden.json  (Meyda's loudness, hydra's `a`; needs `npm install`)
 ```
 
+`npm install` prunes every package installed with `--no-save`, including the
+differential run's (below). Re-run that `--no-save` line after it.
+
 `gen_bytebeat_oracle.mjs` is the odd one out: it does not sample audio, it pins
 an *evaluator*. Upstream compiles a bytebeat with `new Function`, so the
 reference is JavaScript itself — the golden records what V8 returns for every
