@@ -272,4 +272,11 @@ mod tests {
         assert_eq!(json(&Value::F64(f64::NAN)), "null");
         assert_eq!(json(&Value::Str("a\"\n\u{1}".into())), r#""a\"\n\u0001""#);
     }
+
+    #[test]
+    fn json_writes_negative_zero_and_control_characters_as_javascript_does() {
+        assert_eq!(json(&Value::F64(-0.0)), "0");
+        assert_eq!(json(&Value::Str(" a\u{1}".into())), "\" a\\u0001\"");
+        assert!(!is_mqtt(&Value::Map(ValueMap::new())));
+    }
 }

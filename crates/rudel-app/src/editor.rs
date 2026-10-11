@@ -859,7 +859,8 @@ mod tests {
         // so a three-digit file needs one more digit of room.
         let settings = EditorSettings::default();
         let short = line_number_gutter_width("a\nb", &settings);
-        let long = line_number_gutter_width(&"x\n".repeat(120), &settings);
+        // 99 newlines are 100 lines: the first count that needs a third digit.
+        let long = line_number_gutter_width(&"\n".repeat(99), &settings);
         assert!(
             (long - short - settings.font_size * 0.62).abs() < 0.01,
             "one more digit of room, got {short} then {long}"

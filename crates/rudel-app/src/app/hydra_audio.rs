@@ -68,6 +68,67 @@ fn loudness(samples: &[f32; BUFFER_SIZE], sample_rate: f32) -> [f32; BARK_BANDS]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
+
+    /// Meyda's own `loudness.specific`, from `tools/oracle/gen_loudness_oracle.mjs`.
+    #[rstest]
+    fn loudness_matches_meyda(
+        #[values("tone_200", "tone_1000", "tone_4000", "tone_12000", "noise", "ramp")] signal: &str,
+        #[values(44100, 48000)] rate: u32,
+    ) {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tools/oracle/loudness_golden.json"
+        ))
+        .expect("parse loudness_golden.json");
+        let case = &golden["cases"][format!("{signal}_{rate}")];
+        let floats = |v: &serde_json::Value| -> Vec<f32> {
+            v.as_array()
+                .expect("an array")
+                .iter()
+                .map(|x| x.as_f64().expect("a number") as f32)
+                .collect()
+        };
+        let input: [f32; BUFFER_SIZE] = floats(&case["input"]).try_into().expect("512 samples");
+        let want = floats(&case["specific"]);
+        let got = loudness(&input, rate as f32);
+        // Compared as the summed amplitudes the bands are `^0.23` of: rudel's
+        // FFT is f32 and Meyda's f64, which in a near-silent band is a tiny
+        // error in the sum that `^0.23` blows up to a few percent.
+        let sum = |b: f32| b.powf(1.0 / 0.23);
+        let loudest = want.iter().copied().map(sum).fold(0.0, f32::max);
+        for (band, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert!(
+                (sum(*g) - sum(*w)).abs() <= 1e-5 * loudest,
+                "band {band}: rudel {g}, meyda {w}\nrudel {got:?}\nmeyda {want:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_tap_is_measured_as_it_sounds() {
+        let mut app = crate::app::RudelApp::headless();
+        let (engine, output) = rudel_audio::Engine::with_fake_output(48_000.0);
+        app.engine = Some(engine);
+        app.current = Some(rudel_lang::eval(r#"note("c4").s("sine")"#).unwrap());
+        app.playing = true;
+        app.route();
+        let engine = app.engine.as_ref().unwrap();
+        let tap = engine.scope_taps().master();
+        let mut samples = [0.0f32; BUFFER_SIZE];
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while samples.iter().all(|&s| s.abs() < 1e-3) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the sine never sounded"
+            );
+            output.pull(BUFFER_SIZE);
+            tap.latest(&mut samples);
+        }
+        // The device moves only when pulled, so the tap holds still from here.
+        let heard = tap_loudness(tap, engine.sample_rate());
+        assert_eq!(heard, loudness(&samples, engine.sample_rate()));
+        assert!(heard.iter().any(|&b| b > 1.0), "{heard:?}");
+    }
 
     #[test]
     fn silence_is_quiet_and_a_tone_is_loud_in_its_own_band() {

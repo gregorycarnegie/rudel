@@ -198,3 +198,15 @@ fn every_operator_slot_is_addressable() {
     let ratios: f32 = (1..=FM_OPS).map(|k| k as f32).sum();
     assert_eq!(v.fm_deviation(100.0), 100.0 * ratios);
 }
+
+#[test]
+fn an_operator_s_gain_names_the_last_connection_it_is_on() {
+    // Operator 1 drives operator 2, which drives the carrier: each name lands
+    // on the last connection, in reading order, it takes part in.
+    let mut spec = FmSpec::default();
+    spec.amt[1][2] = 1.0;
+    spec.amt[2][0] = 3.0;
+    assert_eq!(spec.gain_connection(1), Some((1, 2)));
+    assert_eq!(spec.gain_connection(2), Some((2, 0)));
+    assert_eq!(spec.gain_connection(3), None);
+}

@@ -232,4 +232,12 @@ mod tests {
             "the engine outlived its last holder"
         );
     }
+
+    #[test]
+    fn a_numeric_setting_is_reported_as_its_text() {
+        let _queue = SETTINGS_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = super::take_settings();
+        crate::eval_result("__setting('fontSize', 18); s(\"bd\")").expect("eval");
+        assert!(super::take_settings().contains(&("fontSize".into(), "18".into())));
+    }
 }

@@ -217,6 +217,55 @@ impl PitchMod {
 mod tests {
     use super::*;
 
+    /// A 5Hz vibrato over a 3-semitone pitch envelope.
+    fn vib_env(vibmod: f32) -> PitchMod {
+        let (a, d, s, r) = (Some(0.1), Some(0.1), Some(0.5), Some(0.1));
+        PitchMod::new(Some(5.0), vibmod, Some(3.0), a, d, s, r, None, false)
+    }
+
+    #[test]
+    fn a_vibrato_depth_offset_is_cents_on_vibmod() {
+        // 50 cents is half a semitone more `vibmod`, envelope and all, and a
+        // depth alone leaves the vibrato on the note's clock.
+        let (modded, plain) = (vib_env(0.5), vib_env(1.0));
+        for t in [0.01, 0.03, 0.07, 0.15, 0.4] {
+            let mut phase = None;
+            let got = modded.multiplier_mod(t, 0.3, &mut phase, 0.0, 50.0, 1000.0);
+            assert_eq!(got, plain.multiplier(t, 0.3), "t = {t}");
+            assert_eq!(phase, None);
+        }
+    }
+
+    #[test]
+    fn a_vibrato_rate_offset_runs_it_on_its_own_phase() {
+        // The phase picks up at `vib·t` and then advances at the moved rate.
+        let p = PitchMod::new(Some(5.0), 1.0, None, None, None, None, None, None, false);
+        let mut phase = None;
+        let got = p.multiplier_mod(0.03, 1.0, &mut phase, 3.0, 0.0, 1000.0);
+        let start = (5.0f32 * 0.03) as f64;
+        let want = 2f32.powf((TAU * start as f32).sin() / 12.0);
+        assert!((got - want).abs() < 1e-6, "{got} vs {want}");
+        let next = phase.expect("a running phase");
+        assert!((next - (start + 0.008)).abs() < 1e-9, "{next}");
+        // Once running it stays on that phase, even with the offset gone.
+        let mut phase = Some(0.2);
+        let got = p.multiplier_mod(0.03, 1.0, &mut phase, 0.0, 0.0, 1000.0);
+        let want = 2f32.powf((TAU * 0.2f32).sin() / 12.0);
+        assert!((got - want).abs() < 1e-6, "{got} vs {want}");
+        assert!((phase.unwrap() - 0.205).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_vibrato_at_rate_zero_stays_off_under_a_rate_offset() {
+        let p = PitchMod::new(Some(0.0), 1.0, None, None, None, None, None, None, false);
+        let mut phase = None;
+        assert_eq!(
+            p.multiplier_mod(0.03, 1.0, &mut phase, 3.0, 0.0, 1000.0),
+            1.0
+        );
+        assert_eq!(phase, None);
+    }
+
     #[test]
     fn an_idle_pitch_mod_is_a_no_op() {
         let p = PitchMod::from_controls(&ValueMap::default());

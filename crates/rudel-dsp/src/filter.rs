@@ -289,7 +289,6 @@ impl FilterParams {
             depth,
             dcoffset: get("dc").unwrap_or(d.dcoffset),
             time: cycle / cps.max(1e-9),
-            curve: 1.0,
             min: -frequency + 30.0,
             max: 20000.0 - frequency,
             ..d

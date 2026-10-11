@@ -340,3 +340,50 @@ fn the_pulse_matches_superdoughs_worklet() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn each_sample_rate_reads_tables_of_its_own_size() {
+    // Built once per shape and size: a cache slot shared between sizes would
+    // hand a 44.1kHz oscillator the tables of whichever rate came first.
+    use crate::bandlimited::WaveTables;
+    let at = |sr| WaveTables::get(Waveform::Saw, sr).sample(0.1, 0.001);
+    let (low, mid, high) = (at(22050.0), at(44100.0), at(96000.0));
+    assert!(
+        low != mid && mid != high && low != high,
+        "{low} {mid} {high}"
+    );
+}
+
+#[test]
+fn the_sine_table_is_its_fundamental_alone() {
+    use crate::bandlimited::WaveTables;
+    let sine = WaveTables::get(Waveform::Sine, 44100.0);
+    for p in [0.1f32, 0.25, 0.6, 0.75] {
+        assert!(
+            (sine.sample(p, 0.001) - (p * TAU).sin()).abs() < 1e-4,
+            "{p}"
+        );
+    }
+}
+
+#[test]
+fn a_pitch_past_the_last_range_reads_the_last_table() {
+    // FM can push an operator far past Nyquist.
+    use crate::bandlimited::WaveTables;
+    let x = WaveTables::get(Waveform::Square, 44100.0).sample(0.3, 10.0);
+    assert!(x.is_finite());
+}
+
+#[test]
+fn the_cached_pitch_follows_the_frequency() {
+    use crate::bandlimited::{Pitch, WaveTables};
+    let saw = WaveTables::get(Waveform::Saw, 44100.0);
+    let mut cache = Pitch::default();
+    for cycles in [0.001f32, 0.2, 0.05] {
+        assert_eq!(
+            saw.sample_cached(0.1, cycles, &mut cache),
+            saw.sample(0.1, cycles),
+            "{cycles}"
+        );
+    }
+}

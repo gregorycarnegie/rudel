@@ -400,4 +400,98 @@ mod tests {
         assert_eq!(c, b);
         assert_eq!(x, (100, 100 + text.len()));
     }
+
+    fn ranged(ranges: &[(usize, usize)]) -> Blocks {
+        Blocks {
+            slots: ranges
+                .iter()
+                .map(|&range| Slot {
+                    key: String::new(),
+                    range,
+                    pattern: rudel_core::silence(),
+                })
+                .collect(),
+            scope: Vec::new(),
+        }
+    }
+
+    fn shifted(
+        ranges: &[(usize, usize)],
+        from: usize,
+        to: usize,
+        inserted: usize,
+    ) -> Vec<(usize, usize)> {
+        let mut blocks = ranged(ranges);
+        blocks.shift(from, to, inserted);
+        blocks.slots.iter().map(|s| s.range).collect()
+    }
+
+    #[test]
+    fn an_edit_moves_the_ranges_after_it_and_clamps_the_ones_it_cut() {
+        // 25..35 becomes 3 bytes: before it stays, after it moves back 7, and
+        // a range it cut keeps its start before the edit and its end after.
+        assert_eq!(
+            shifted(
+                &[(10, 20), (30, 40), (28, 33), (20, 25), (50, 60)],
+                25,
+                35,
+                3
+            ),
+            [(10, 20), (25, 33), (25, 28), (20, 25), (43, 53)]
+        );
+        // Typing at a range's start leaves it starting there.
+        assert_eq!(shifted(&[(50, 60)], 50, 50, 5), [(50, 65)]);
+    }
+
+    #[test]
+    fn rudel_values_are_carried_as_they_are() {
+        let arg = Arg::List(vec![
+            Arg::Null,
+            Arg::Bool(true),
+            Arg::Num(2.5),
+            Arg::Str("s".into()),
+            Arg::Frac(Frac::new(1, 3)),
+            Arg::Hydra(Chain::default()),
+            Arg::Map(vec![("k".into(), Arg::Num(1.0))]),
+        ]);
+        let Arg::List(items) = Carried::from_arg(&arg).expect("all of it carried").to_arg() else {
+            panic!("not a list");
+        };
+        assert!(matches!(items[0], Arg::Null));
+        assert!(matches!(items[1], Arg::Bool(true)));
+        assert!(matches!(items[2], Arg::Num(n) if n == 2.5));
+        assert!(matches!(&items[3], Arg::Str(s) if s == "s"));
+        assert!(matches!(items[4], Arg::Frac(f) if f == Frac::new(1, 3)));
+        assert!(matches!(&items[5], Arg::Hydra(c) if c.is_empty()));
+        assert!(
+            matches!(&items[6], Arg::Map(m) if matches!(m[0], (ref k, Arg::Num(n)) if k == "k" && n == 1.0))
+        );
+    }
+
+    #[test]
+    fn a_native_function_is_not_carried() {
+        let mut blocks = Blocks::default();
+        crate::eval_document(
+            "const f = Math.max\nconst g = (x) => x\n\na: s(\"bd\")",
+            &mut blocks,
+        )
+        .expect("document");
+        let names: Vec<&str> = blocks.scope.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["g"]);
+    }
+
+    #[test]
+    fn a_failed_clear_scope_is_forgotten_by_the_next_evaluation() {
+        // An evaluation that calls `clearScope()` and then fails records
+        // nothing, so the declarations carry on past it.
+        let mut blocks = Blocks::default();
+        let doc = "const drums = s(\"bd\")\n\na: drums";
+        crate::eval_document(doc, &mut blocks).expect("document");
+        let run = |src: &str, blocks: &mut Blocks| {
+            crate::eval_result_with_source_range(src, (100, 100 + src.len()), blocks)
+        };
+        assert!(run("clearScope(); nope()", &mut blocks).is_err());
+        run("b: drums", &mut blocks).expect("drums is still there");
+        run("c: drums", &mut blocks).expect("and still there");
+    }
 }

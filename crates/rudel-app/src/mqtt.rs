@@ -233,15 +233,22 @@ mod tests {
         assert_eq!(long.len(), 3 + 203);
     }
 
-    /// A broker on loopback that checks the CONNECT and records a PUBLISH: the
-    /// path the app takes, over a plain `ws://` socket.
-    #[test]
+    /// What a loopback broker saw: the subprotocol asked for, the CONNECT, the
+    /// PUBLISH and when it came, and whatever arrived in the half second after.
+    struct Seen {
+        protocol: Option<HeaderValue>,
+        connect: Vec<u8>,
+        publish: Option<(Vec<u8>, Instant)>,
+        after: Option<Vec<u8>>,
+    }
+
+    /// A broker on `ws://` loopback that answers a CONNECT with `ack`.
     // tungstenite's handshake callback signature returns the large error.
     #[allow(clippy::result_large_err)]
-    fn publishes_to_a_websocket_broker() {
+    fn broker(ack: Vec<u8>) -> (String, std::thread::JoinHandle<Seen>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let broker = std::thread::spawn(move || {
+        let seen = std::thread::spawn(move || {
             let (tcp, _) = listener.accept().unwrap();
             let mut protocol = None;
             let callback = |req: &Request, mut res: Response| {
@@ -251,29 +258,63 @@ mod tests {
                 Ok(res)
             };
             let mut ws = tungstenite::accept_hdr(tcp, callback).unwrap();
-            let connect = ws.read().unwrap().into_data();
-            ws.send(Message::Binary(vec![0x20, 2, 0, 0].into()))
+            let connect = ws.read().unwrap().into_data().to_vec();
+            ws.send(Message::Binary(ack.into())).unwrap();
+            let next =
+                |ws: &mut WebSocket<TcpStream>| ws.read().ok().map(|m| m.into_data().to_vec());
+            let publish = next(&mut ws).map(|p| (p, Instant::now()));
+            ws.get_mut()
+                .set_read_timeout(Some(Duration::from_millis(500)))
                 .unwrap();
-            let publish = ws.read().unwrap().into_data();
-            (protocol, connect[0], publish.to_vec())
+            let after = next(&mut ws);
+            Seen {
+                protocol,
+                connect,
+                publish,
+                after,
+            }
         });
-        let msg = MqttPublish {
-            host: format!("ws://127.0.0.1:{port}/"),
+        (format!("ws://127.0.0.1:{port}/"), seen)
+    }
+
+    fn message(host: String, latency: f64) -> MqttPublish {
+        MqttPublish {
+            host,
             client: Some("me".into()),
             username: None,
             password: None,
             topic: "t".into(),
             payload: b"{}".to_vec(),
-            latency: 0.0,
-        };
-        let mut ws = open(&msg).unwrap();
-        ws.send(Message::Binary(
-            publish_packet(&msg.topic, &msg.payload).into(),
-        ))
-        .unwrap();
-        let (protocol, connect, publish) = broker.join().unwrap();
-        assert_eq!(protocol.as_ref().map(|p| p.to_str().unwrap()), Some("mqtt"));
-        assert_eq!(connect, 0x10);
+            latency,
+        }
+    }
+
+    #[test]
+    fn publishes_to_a_websocket_broker_after_the_latency() {
+        let (host, seen) = broker(vec![0x20, 2, 0, 0]);
+        let mut out = MqttOut::default();
+        let sent = Instant::now();
+        out.send(message(host, 0.3));
+        let seen = seen.join().unwrap();
+        assert_eq!(
+            seen.protocol.as_ref().map(|p| p.to_str().unwrap()),
+            Some("mqtt")
+        );
+        assert_eq!(seen.connect[0], 0x10);
+        let (publish, at) = seen.publish.expect("a PUBLISH");
         assert_eq!(publish, publish_packet("t", b"{}"));
+        assert!(at - sent >= Duration::from_millis(250), "sent early");
+        // A connection that just published needs no keep-alive yet.
+        assert_eq!(seen.after, None);
+    }
+
+    #[rstest::rstest]
+    #[case::refused(vec![0x20, 2, 0, 5], "refused the connection (code 5)")]
+    #[case::not_a_connack(vec![0x90, 2, 0, 0], "did not acknowledge")]
+    #[case::too_short(vec![0x20, 2, 0], "did not acknowledge")]
+    fn a_broker_that_does_not_accept_is_an_error(#[case] ack: Vec<u8>, #[case] why: &str) {
+        let (host, _seen) = broker(ack);
+        let err = open(&message(host, 0.0)).expect_err("an error");
+        assert!(err.contains(why), "{err}");
     }
 }

@@ -128,3 +128,57 @@ fn an_envelope_sweep_is_the_base_the_offset_rides_on() {
         &settled(&run(slot(FilterKind::Low, 1500.0, 1.0), 0.0, 0.0))
     ));
 }
+
+// --- the cutoff LFO's controls, and the FX stage's gain ---------------------
+
+fn controls(pairs: &[(&str, rudel_core::Value)]) -> rudel_core::ValueMap {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
+}
+
+#[rstest::rstest]
+#[case::skew("lpskew", rudel_core::Value::F64(0.3))]
+#[case::shape("lpshape", rudel_core::Value::from("sine"))]
+#[case::rate("lprate", rudel_core::Value::F64(2.0))]
+fn any_one_lfo_control_starts_the_cutoff_lfo(#[case] key: &str, #[case] value: rudel_core::Value) {
+    let map = controls(&[("cutoff", rudel_core::Value::F64(800.0)), (key, value)]);
+    let mut set = crate::filter::FilterSet::from_controls(&map);
+    set.set_lfos(&map, 1.0, 0.0);
+    assert!(set.lp.lfo.is_some());
+}
+
+#[test]
+fn the_cutoff_lfo_takes_its_shape_by_name() {
+    let map = controls(&[
+        ("cutoff", rudel_core::Value::F64(800.0)),
+        ("lpshape", rudel_core::Value::from("sine")),
+    ]);
+    let mut set = crate::filter::FilterSet::from_controls(&map);
+    set.set_lfos(&map, 1.0, 0.0);
+    assert_eq!(set.lp.lfo.unwrap().shape, 1);
+}
+
+#[test]
+fn an_fx_stage_scales_both_channels_by_its_modulated_gain() {
+    struct Const;
+    impl crate::voice::VoiceLike for Const {
+        fn tick(&mut self) -> (f32, f32) {
+            (0.5, -0.25)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+    }
+    let mut stage = crate::filter::FilterStageVoice::new(
+        Box::new(Const),
+        &Default::default(),
+        0.5,
+        SR,
+        1.0,
+        &[crate::modulator::ModSpec::constant(ModTarget::Gain, 0.25)],
+    );
+    use crate::voice::VoiceLike;
+    assert_eq!(stage.tick(), (0.375, -0.1875));
+}

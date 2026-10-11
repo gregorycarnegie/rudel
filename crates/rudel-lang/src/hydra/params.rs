@@ -184,4 +184,51 @@ mod tests {
         assert!(ease(name, 0.0).abs() < 1e-9);
         assert!((ease(name, 1.0) - 1.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn a_smoothed_array_eases_from_each_value_to_the_next() {
+        // [0, 10, 30], half a step of smoothing: at 2.7s the index is 1.35,
+        // 1.1 once centred, so a fifth of the way from 10 to 30.
+        let s = seq(&[0.0, 10.0, 30.0], 1.0, 0.5, 0.0);
+        assert!((s.value(2.7).unwrap() - 14.0).abs() < 1e-9);
+        // Past the smoothing span it holds the next value.
+        assert!((s.value(2.4).unwrap() - 10.0).abs() < 1e-9);
+    }
+
+    #[rstest]
+    #[case("easeInQuad", 0.09, 0.49)]
+    #[case("easeOutQuad", 0.51, 0.91)]
+    #[case("easeInOutQuad", 0.18, 0.82)]
+    #[case("easeInCubic", 0.027, 0.343)]
+    #[case("easeOutCubic", 0.657, 0.973)]
+    #[case("easeInOutCubic", 0.108, 0.892)]
+    #[case("easeInQuart", 0.0081, 0.2401)]
+    #[case("easeOutQuart", 0.7599, 0.9919)]
+    #[case("easeInOutQuart", 0.0648, 0.9352)]
+    #[case("easeInQuint", 0.00243, 0.16807)]
+    #[case("easeOutQuint", 0.83193, 0.99757)]
+    #[case("easeInOutQuint", 0.03888, 0.96112)]
+    #[case("sin", 0.206_107_373_853_763_43, 0.793_892_626_146_236_6)]
+    #[case("linear", 0.3, 0.7)]
+    fn each_easing_is_hydras_curve(#[case] name: &str, #[case] at_03: f64, #[case] at_07: f64) {
+        assert!(
+            (ease(name, 0.3) - at_03).abs() < 1e-12,
+            "{name}(0.3) = {}",
+            ease(name, 0.3)
+        );
+        assert!(
+            (ease(name, 0.7) - at_07).abs() < 1e-12,
+            "{name}(0.7) = {}",
+            ease(name, 0.7)
+        );
+    }
+
+    #[test]
+    fn a_param_is_equal_only_to_itself() {
+        let a = HydraParam::seq(seq(&[1.0], 1.0, 0.0, 0.0));
+        let b = HydraParam::seq(seq(&[1.0], 1.0, 0.0, 0.0));
+        assert_eq!(a, a.clone());
+        assert_ne!(a, b);
+        assert_eq!(format!("{a:?}"), "HydraParam::Seq");
+    }
 }

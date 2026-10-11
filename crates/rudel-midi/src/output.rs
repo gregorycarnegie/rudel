@@ -363,3 +363,16 @@ impl Drop for MidiOut {
         drop(self.conn.take());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_port_name_nothing_matches_is_reported_by_that_name() {
+        let err = MidiOut::open(Some(&Port::Name("No Such Port XYZ".into())))
+            .err()
+            .expect("no port is called that");
+        assert_eq!(err, "no MIDI port matching \"no such port xyz\"");
+    }
+}

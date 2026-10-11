@@ -102,3 +102,15 @@ fn a_wavetable_lfo_is_locked_to_the_cycle_clock() {
     let p = VoiceParams::from_controls_at(&map, 1.0, 0.5, 2.0);
     assert_eq!(p.wt.lfo.expect("an LFO").time, 4.0);
 }
+
+#[test]
+fn the_pulse_width_lfo_runs_on_the_cycle_clock() {
+    let map: ValueMap = [
+        ("s".to_string(), Value::from("pulse")),
+        ("pwrate".to_string(), Value::F64(2.0)),
+    ]
+    .into_iter()
+    .collect();
+    let p = VoiceParams::from_controls_at(&map, 1.0, 0.5, 3.0);
+    assert_eq!(p.pw_lfo.expect("pwrate starts it").time, 6.0);
+}

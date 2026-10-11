@@ -8,7 +8,9 @@
 //! code claims to implement.
 
 use super::common::*;
+use crate::modulator::{FilterSlot, ModParam};
 use crate::synth::{rand_phase, wetfade};
+use crate::wavetable::ParamMod;
 use rstest::rstest;
 
 const SR: f32 = 44100.0;
@@ -1179,4 +1181,385 @@ fn a_supersaw_filters_its_right_channel_too() {
         cut < open * 0.2,
         "right channel: {cut} filtered vs {open} open"
     );
+}
+
+// --- a constant modulator is the base param moved by the same amount --------
+//
+// `ModSpec::constant` adds an exact offset every sample, so a modulated voice
+// has to render sample for sample like one built with the param already moved.
+
+fn render(params: VoiceParams, mods: &[ModSpec], n: usize) -> Vec<(f32, f32)> {
+    let mut v = Voice::with_mods(params, SR, mods);
+    // Super-saw unison draws its phases from a process-wide counter: plant them.
+    if !v.super_phases.is_empty() {
+        v.super_phases[..3].copy_from_slice(&[0.1, 0.4, 0.7]);
+    }
+    (0..n).map(|_| v.tick()).collect()
+}
+
+fn held(params: VoiceParams) -> VoiceParams {
+    VoiceParams {
+        duration: 1.0,
+        adsr: Adsr {
+            attack: 0.001,
+            decay: 0.001,
+            sustain: 1.0,
+            release: 0.01,
+        },
+        ..params
+    }
+}
+
+fn konst(target: ModTarget, value: f64) -> Vec<ModSpec> {
+    vec![ModSpec::constant(target, value)]
+}
+
+fn assert_same_render(modulated: VoiceParams, mods: &[ModSpec], moved: VoiceParams, what: &str) {
+    let a = render(held(modulated), mods, 2048);
+    let b = render(held(moved), &[], 2048);
+    assert!(a.iter().any(|s| s.0 != 0.0), "{what}: silent");
+    assert_eq!(a, b, "{what}");
+}
+
+/// `(cos, sin)` of `sixteenths` times pi/16.
+fn angle(sixteenths: f32) -> (f32, f32) {
+    let a = sixteenths * std::f32::consts::PI / 16.0;
+    (a.cos(), a.sin())
+}
+
+#[rstest]
+#[case::left(0.0, 0.0, (1.0, 0.0))]
+#[case::quarter(0.25, 0.0, angle(2.0))]
+#[case::offset(0.25, 0.75, angle(5.0))]
+#[case::clamped_offset(0.9, 0.5, angle(8.0))]
+#[case::clamped_pan(-1.0, 0.25, angle(1.0))]
+fn mono_pan_is_equal_power_on_the_bipolar_param(
+    #[case] pan: f32,
+    #[case] offset: f32,
+    #[case] want: (f32, f32),
+) {
+    let (l, r) = crate::synth::mono_pan(pan, offset);
+    assert!(
+        (l - want.0).abs() < 1e-6 && (r - want.1).abs() < 1e-6,
+        "mono_pan({pan}, {offset}) = ({l}, {r}), want {want:?}"
+    );
+}
+
+#[test]
+fn a_pan_modulator_moves_the_mono_pan() {
+    // 0.5 on the bipolar param is +0.25 of `pan`.
+    let sine = |pan| VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 441.0,
+        pan,
+        ..Default::default()
+    };
+    assert_same_render(sine(0.25), &konst(ModTarget::Pan, 0.5), sine(0.5), "pan");
+}
+
+#[test]
+fn a_pan_modulator_moves_the_stereo_balance() {
+    let saw = |pan| VoiceParams {
+        supersaw: true,
+        unison: 3,
+        freqspread: 0.2,
+        panspread: 0.4,
+        freq: 220.0,
+        pan,
+        ..Default::default()
+    };
+    assert_same_render(
+        saw(0.5),
+        &konst(ModTarget::Pan, 0.5),
+        saw(0.75),
+        "supersaw pan",
+    );
+}
+
+#[test]
+fn spread_modulators_move_the_supersaw_unison() {
+    let saw = |freqspread, panspread| VoiceParams {
+        supersaw: true,
+        unison: 3,
+        freqspread,
+        panspread,
+        freq: 220.0,
+        ..Default::default()
+    };
+    let (spread, pan) = (ModTarget::Freqspread, ModTarget::Panspread);
+    assert_same_render(
+        saw(0.25, 0.25),
+        &konst(spread, 0.5),
+        saw(0.75, 0.25),
+        "freqspread",
+    );
+    assert_same_render(
+        saw(0.25, 0.25),
+        &konst(pan, 0.5),
+        saw(0.25, 0.75),
+        "panspread",
+    );
+}
+
+#[test]
+fn spread_modulators_move_the_wavetable_unison() {
+    let table: Vec<f32> = (0..512).map(|i| (i as f32 / 256.0 * TAU).sin()).collect();
+    let wt = |freqspread, panspread| VoiceParams {
+        wavetable: Some(WaveTable::from_samples(&table, 256)),
+        // Start every voice at phase 0 rather than a random one.
+        wtphaserand: Some(0.0),
+        unison: 3,
+        freqspread,
+        panspread,
+        freq: 220.0,
+        ..Default::default()
+    };
+    let (spread, pan) = (ModTarget::Freqspread, ModTarget::Panspread);
+    assert_same_render(
+        wt(0.25, 0.25),
+        &konst(spread, 0.5),
+        wt(0.75, 0.25),
+        "freqspread",
+    );
+    assert_same_render(
+        wt(0.25, 0.25),
+        &konst(pan, 0.5),
+        wt(0.25, 0.75),
+        "panspread",
+    );
+}
+
+#[test]
+fn position_and_warp_modulators_move_the_wavetable_params() {
+    let table: Vec<f32> = (0..1024).map(|i| ((i * i) as f32 * 0.001).sin()).collect();
+    let wt = |position, warp| VoiceParams {
+        wavetable: Some(WaveTable::from_samples(&table, 256)),
+        wt: ParamMod {
+            offset: position,
+            ..Default::default()
+        },
+        warp: ParamMod {
+            offset: warp,
+            ..Default::default()
+        },
+        warpmode: WarpMode::Asym,
+        wtphaserand: Some(0.0),
+        freq: 220.0,
+        ..Default::default()
+    };
+    let (position, warp) = (ModTarget::WtPosition, ModTarget::WtWarp);
+    assert_same_render(wt(0.25, 0.25), &konst(position, 0.5), wt(0.75, 0.25), "wt");
+    assert_same_render(wt(0.25, 0.25), &konst(warp, 0.5), wt(0.25, 0.75), "warp");
+}
+
+#[test]
+fn width_modulators_move_the_pulse_width() {
+    let pulse = |pw, pw_lfo| VoiceParams {
+        waveform: Waveform::Pulse,
+        freq: 220.0,
+        pw,
+        pw_lfo,
+        ..Default::default()
+    };
+    let width = konst(ModTarget::Pulsewidth, 0.125);
+    assert_same_render(pulse(0.25, None), &width, pulse(0.375, None), "pulsewidth");
+    // The width LFO adds on top, as a constant one shows.
+    let lfo = LfoConfig {
+        min: 0.125,
+        max: 0.125,
+        ..LfoConfig::default()
+    };
+    assert_same_render(pulse(0.25, Some(lfo)), &[], pulse(0.375, None), "pw lfo");
+}
+
+#[test]
+fn the_pulse_worklet_sets_its_own_level() {
+    // No 0.3 oscillator turn-down: the voice is source, gain and pan gain.
+    let p = || {
+        held(VoiceParams {
+            waveform: Waveform::Pulse,
+            freq: 220.0,
+            gain: 0.5,
+            pan: 0.5,
+            ..Default::default()
+        })
+    };
+    let mut source = Voice::new(p(), SR);
+    let mut voice = Voice::new(p(), SR);
+    let centre = 0.5 * std::f32::consts::FRAC_PI_4.cos();
+    let mut checked = 0;
+    for i in 0..400 {
+        let s = source.next_source();
+        let (l, _) = voice.tick();
+        if i >= 200 && s.abs() > 0.01 {
+            assert!((l / s - centre).abs() < 1e-4, "sample {i}: {l} from {s}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 50);
+}
+
+#[test]
+fn fm_modulators_move_the_operator_frequency_and_index() {
+    let fm = |amt: f32, ratio: f32| {
+        let mut spec = FmSpec::default();
+        spec.ops[1].ratio = ratio;
+        spec.amt[1][0] = amt;
+        spec.max_op = 1;
+        VoiceParams {
+            waveform: Waveform::Sine,
+            freq: 200.0,
+            fm: spec,
+            ..Default::default()
+        }
+    };
+    // Doubling the operator's oscillator but not its deviation scale is the
+    // same as doubling its ratio and halving its index.
+    let fmh = konst(ModTarget::FmFreq(1), 200.0);
+    assert_same_render(fm(1.0, 1.0), &fmh, fm(0.5, 2.0), "fmh");
+    let fmi = konst(ModTarget::FmGain(1), 1.0);
+    assert_same_render(fm(2.0, 1.0), &fmi, fm(3.0, 1.0), "fmi");
+}
+
+#[test]
+fn an_fm_operator_is_a_band_limited_oscillator_at_its_frequency() {
+    // A saw operator picks its table from its own frequency, as the carrier
+    // does: its output, scaled by index and frequency, is a 400Hz saw voice's
+    // source sample for sample.
+    let mut spec = FmSpec::default();
+    spec.ops[1].ratio = 2.0;
+    spec.ops[1].wave = Waveform::Saw;
+    spec.amt[1][0] = 0.5;
+    spec.max_op = 1;
+    let mut fm = voice(VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 200.0,
+        fm: spec,
+        duration: 1.0,
+        ..Default::default()
+    });
+    let mut saw = voice(VoiceParams {
+        waveform: Waveform::Saw,
+        freq: 400.0,
+        duration: 1.0,
+        ..Default::default()
+    });
+    for i in 0..512 {
+        assert_eq!(
+            fm.fm_deviation(200.0),
+            200.0 * saw.next_source(),
+            "sample {i}"
+        );
+    }
+}
+
+#[test]
+fn vibrato_modulators_reach_the_pitch() {
+    let vib = |vib, vibmod| VoiceParams {
+        waveform: Waveform::Sine,
+        freq: 441.0,
+        vib: Some(vib),
+        vibmod,
+        ..Default::default()
+    };
+    // 50 cents on the vibrato's gain is half a semitone of `vibmod`.
+    let gain = konst(ModTarget::VibGain, 50.0);
+    assert_same_render(vib(5.0, 0.5), &gain, vib(5.0, 1.0), "vibmod");
+    // A rate offset runs the vibrato on its own phase, so it matches the
+    // faster vibrato closely rather than bit for bit, and not the slower one.
+    let faster = render(held(vib(5.0, 2.0)), &konst(ModTarget::VibFreq, 3.0), 8820);
+    let want = render(held(vib(8.0, 2.0)), &[], 8820);
+    let plain = render(held(vib(5.0, 2.0)), &[], 8820);
+    let diff = |a: &[(f32, f32)], b: &[(f32, f32)]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x.0 - y.0).abs())
+            .fold(0.0f32, f32::max)
+    };
+    assert!(diff(&faster, &want) < 1e-2, "{}", diff(&faster, &want));
+    assert!(diff(&faster, &plain) > 0.1, "{}", diff(&faster, &plain));
+}
+
+#[test]
+fn a_detune_modulator_replays_the_noise_buffer_faster() {
+    // 600 cents is a rate of sqrt(2): the noise is read through a linear
+    // interpolation that starts on its first sample.
+    let mut v = Voice::with_mods(
+        held(VoiceParams {
+            noise: Some(NoiseKind::White),
+            gain: 1.0,
+            pan: 0.5,
+            ..Default::default()
+        }),
+        SR,
+        &konst(ModTarget::Detune, 600.0),
+    );
+    let mut generator = crate::oscillator::NoiseGen::new();
+    let first = generator.next(NoiseKind::White);
+    let mut buffer = vec![first, first];
+    let rate = 2f64.powf(0.5);
+    let centre = 0.3 * std::f32::consts::FRAC_PI_4.cos();
+    let mut pos = 0.0f64;
+    for i in 0..400 {
+        let k = pos as usize;
+        while buffer.len() < k + 2 {
+            buffer.push(generator.next(NoiseKind::White));
+        }
+        let frac = (pos - k as f64) as f32;
+        let want = buffer[k] + (buffer[k + 1] - buffer[k]) * frac;
+        // Past the attack, the voice is the source, the turn-down and the
+        // centre gain.
+        let (l, _) = v.tick();
+        if i >= 200 {
+            assert!(
+                (l - want * centre).abs() < 1e-5,
+                "sample {i}: {l} vs {want}"
+            );
+        }
+        pos += rate;
+    }
+}
+
+#[test]
+fn reset_phase_seed_restarts_the_random_phases() {
+    crate::reset_phase_seed();
+    let a = rand_phase();
+    crate::reset_phase_seed();
+    assert_eq!(rand_phase(), a);
+}
+
+#[rstest]
+#[case::low(FilterSlot::Low)]
+#[case::high(FilterSlot::High)]
+#[case::band(FilterSlot::Band)]
+fn a_cutoff_lfo_modulator_moves_that_slots_lfo(#[case] slot: FilterSlot) {
+    let lfo = |depth| {
+        Some(LfoConfig {
+            frequency: 3.0,
+            depth,
+            min: -1e4,
+            max: 1e4,
+            ..LfoConfig::default()
+        })
+    };
+    let filtered = |depth| {
+        let f = FilterParams {
+            freq: Some(800.0),
+            lfo: lfo(depth),
+            ..Default::default()
+        };
+        let mut p = VoiceParams {
+            waveform: Waveform::Saw,
+            freq: 110.0,
+            ..Default::default()
+        };
+        match slot {
+            FilterSlot::Low => p.lp = f,
+            FilterSlot::High => p.hp = f,
+            FilterSlot::Band => p.bp = f,
+        }
+        p
+    };
+    let depth = konst(ModTarget::FilterLfo(slot, ModParam::Depth), 200.0);
+    assert_same_render(filtered(400.0), &depth, filtered(600.0), "lfo depth");
 }

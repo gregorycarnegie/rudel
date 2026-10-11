@@ -1,4 +1,5 @@
 use super::common::*;
+use crate::modulator::{CompParam, ModParam};
 use proptest::prelude::*;
 use rstest::rstest;
 
@@ -742,7 +743,7 @@ fn the_phaser_lfo_sweeps_symmetrically_up_and_back() {
             inc: 1282.0 / sr, // the notch center: phasercenter + 282
         }),
         PostFx {
-            phaser: Some(1.0), // one full sweep per second
+            phaser: Some(2.0), // two full sweeps per second
             phaserdepth: 0.5,
             phasercenter: 1000.0,
             phasersweep: 1200.0, // ±1 octave, so the notch clears the tone
@@ -751,14 +752,16 @@ fn the_phaser_lfo_sweeps_symmetrically_up_and_back() {
         sr,
     );
     let out: Vec<f32> = (0..sr as usize).map(|_| v.tick().0).collect();
-    // Mean level over 50ms centred on a given point of the cycle.
+    // Mean level over 25ms centred on a given time.
     let at = |t: f32| {
         let mid = (t * sr) as usize;
-        let w = &out[mid - 1102..mid + 1103];
+        let w = &out[mid - 551..mid + 552];
         w.iter().map(|x| x.abs()).sum::<f32>() / w.len() as f32
     };
-    let (quarter, three_quarters) = (at(0.25), at(0.75));
-    let away = at(0.5).max(at(0.95));
+    // At 2Hz the quarter points fall at 1/8s and 3/8s; the sweep's top and
+    // bottom, an octave either side, at 1/4s and 1/2s.
+    let (quarter, three_quarters) = (at(0.125), at(0.375));
+    let away = at(0.25).min(at(0.5));
     assert!(
         quarter < away * 0.6 && three_quarters < away * 0.6,
         "the notch should cross the tone at both quarter points: \
@@ -1781,4 +1784,191 @@ fn a_positive_crush_modulator_adds_bits_and_so_lowers_the_error() {
         modulated < base * 0.8,
         "modulated error {modulated} vs {base}"
     );
+}
+
+// --- a constant modulator is the base amount moved by the same offset -------
+
+fn saw() -> Box<dyn VoiceLike> {
+    Box::new(Voice::new(
+        VoiceParams::from_controls(
+            &rudel_core::to_control_map(&Value::Str("sawtooth".into())),
+            10.0,
+        ),
+        44100.0,
+    ))
+}
+
+fn post_render(fx: PostFx, mods: &[ModSpec]) -> Vec<(f32, f32)> {
+    let mut v = PostFxVoice::with_mods(saw(), fx, 44100.0, mods);
+    (0..4096).map(|_| v.tick()).collect()
+}
+
+fn konst(target: ModTarget, value: f64) -> Vec<ModSpec> {
+    vec![ModSpec::constant(target, value)]
+}
+
+#[rstest]
+#[case::phaser_center(
+    PostFx { phaser: Some(2.0), phasercenter: 1000.0, ..Default::default() },
+    konst(ModTarget::PhaserCenter, 100.0),
+    PostFx { phaser: Some(2.0), phasercenter: 1100.0, ..Default::default() },
+)]
+#[case::phaser_q(
+    PostFx { phaser: Some(2.0), phaserdepth: 0.5, ..Default::default() },
+    konst(ModTarget::PhaserQ, 0.25),
+    PostFx { phaser: Some(2.0), phaserdepth: 0.375, ..Default::default() },
+)]
+#[case::tremolo_gain(
+    PostFx { tremolodepth: 0.5, tremolo_lfo: Some(LfoConfig { frequency: 3.0, min: 0.0, max: 1.0, ..LfoConfig::default() }), ..Default::default() },
+    konst(ModTarget::TremoloGain, 0.25),
+    PostFx { tremolodepth: 0.25, tremolo_lfo: Some(LfoConfig { frequency: 3.0, min: 0.0, max: 1.0, ..LfoConfig::default() }), ..Default::default() },
+)]
+#[case::stretch(
+    PostFx { stretch: Some(1.0), ..Default::default() },
+    konst(ModTarget::Stretch, 0.5),
+    PostFx { stretch: Some(1.5), ..Default::default() },
+)]
+#[case::threshold(
+    PostFx { compressor: Some(-20.0), ..Default::default() },
+    konst(ModTarget::Compressor(CompParam::Threshold), 5.0),
+    PostFx { compressor: Some(-15.0), ..Default::default() },
+)]
+#[case::knee(
+    PostFx { compressor: Some(-20.0), comp_knee: 6.0, ..Default::default() },
+    konst(ModTarget::Compressor(CompParam::Knee), 2.0),
+    PostFx { compressor: Some(-20.0), comp_knee: 8.0, ..Default::default() },
+)]
+#[case::ratio(
+    PostFx { compressor: Some(-20.0), comp_ratio: 4.0, ..Default::default() },
+    konst(ModTarget::Compressor(CompParam::Ratio), 2.0),
+    PostFx { compressor: Some(-20.0), comp_ratio: 6.0, ..Default::default() },
+)]
+#[case::attack(
+    PostFx { compressor: Some(-20.0), comp_attack: 0.0078125, ..Default::default() },
+    konst(ModTarget::Compressor(CompParam::Attack), 0.0078125),
+    PostFx { compressor: Some(-20.0), comp_attack: 0.015625, ..Default::default() },
+)]
+#[case::release(
+    PostFx { compressor: Some(-20.0), comp_release: 0.0625, ..Default::default() },
+    konst(ModTarget::Compressor(CompParam::Release), 0.0625),
+    PostFx { compressor: Some(-20.0), comp_release: 0.125, ..Default::default() },
+)]
+fn a_constant_modulator_is_the_amount_moved(
+    #[case] modulated: PostFx,
+    #[case] mods: Vec<ModSpec>,
+    #[case] moved: PostFx,
+) {
+    assert_eq!(post_render(modulated, &mods), post_render(moved, &[]));
+}
+
+#[test]
+fn the_phaser_lfo_is_clamped_to_its_sweep() {
+    // A dcoffset of +1 lifts the sweep's triangle to `[sweep, 3·sweep]`; the
+    // band built with the LFO holds it at `+sweep`, an octave up, for good.
+    let held = PostFx {
+        phaser: Some(1.0),
+        phasercenter: 1000.0,
+        phasersweep: 1200.0,
+        ..Default::default()
+    };
+    let lifted = konst(ModTarget::PhaserLfo(ModParam::Dcoffset), 1.0);
+    let fixed = PostFx {
+        phaser: Some(1.0),
+        phasercenter: 2282.0,
+        phasersweep: 0.0,
+        ..Default::default()
+    };
+    assert_eq!(post_render(held, &lifted), post_render(fixed, &[]));
+}
+
+#[test]
+fn tremolo_multiplies_by_its_gain() {
+    // A constant LFO: the gain is `1 − depth + lfo`.
+    let fx = PostFx {
+        tremolodepth: 0.5,
+        tremolo_lfo: Some(LfoConfig {
+            min: 0.25,
+            max: 0.25,
+            ..LfoConfig::default()
+        }),
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(StereoConstVoice(0.5, -0.25)), fx, 44100.0);
+    assert_eq!(v.tick(), (0.375, -0.1875));
+}
+
+#[test]
+fn a_vowel_modulator_moves_the_formants_up() {
+    // Vowel `a`'s first formant is at 660Hz. Moved up 300Hz, a 960Hz tone
+    // sits on it as a 660Hz tone sits on the unmoved one.
+    struct Sine(f32, f32);
+    impl VoiceLike for Sine {
+        fn tick(&mut self) -> (f32, f32) {
+            let s = (self.0 * TAU * self.1 / 44100.0).sin();
+            self.0 += 1.0;
+            (s, s)
+        }
+        fn is_done(&self) -> bool {
+            false
+        }
+    }
+    let rms = |freq: f32, mods: &[ModSpec]| {
+        let fx = PostFx {
+            vowel: Some(Vowel::A),
+            ..Default::default()
+        };
+        let mut v = PostFxVoice::with_mods(Box::new(Sine(0.0, freq)), fx, 44100.0, mods);
+        let out: Vec<f32> = (0..8820).map(|_| v.tick().0).collect();
+        (out[4410..].iter().map(|s| s * s).sum::<f32>() / 4410.0).sqrt()
+    };
+    let centred = rms(660.0, &[]);
+    let moved = rms(960.0, &konst(ModTarget::Vowel, 300.0));
+    assert!(
+        (moved / centred - 1.0).abs() < 0.15,
+        "{moved} against {centred}"
+    );
+}
+
+#[test]
+fn the_transient_shaper_lifts_a_faint_onset() {
+    // The followers start at rest, so the very first sample of an onset is all
+    // attack, however quiet it is.
+    let mut shaper = TransientShaper::new(44100.0, 1.0, 0.0);
+    let out = shaper.process(1e-3);
+    assert!(out > 4e-3, "{out}");
+}
+
+#[test]
+fn tremolosync_is_in_cycles_and_its_lfo_on_the_cycle_clock() {
+    let map: ValueMap = [("tremolosync".to_string(), Value::F64(2.0))]
+        .into_iter()
+        .collect();
+    let mut fx = PostFx::from_controls(&map);
+    fx.set_clock(&map, 0.5, 3.0);
+    assert_eq!(fx.tremolo, Some(1.0));
+    let lfo = fx.tremolo_lfo().expect("tremolo is on");
+    assert_eq!((lfo.frequency, lfo.time, lfo.skew), (1.0, 6.0, 1.0));
+}
+
+#[test]
+fn the_compressor_knee_edges_belong_to_the_straight_segments() {
+    // 0 dB in, 1 dB over a 2 dB knee: its top edge, so `threshold + over/ratio`.
+    let top = compressed_db(1.0, -1.0, 4.0, 2.0);
+    assert!((top - -0.75).abs() < 0.01, "{top}");
+    // 0.7 dB under a 1 dB knee is below it: untouched.
+    let below = compressed_db(1.0, 0.7, 4.0, 1.0);
+    assert!(below.abs() < 0.01, "{below}");
+}
+
+#[test]
+fn a_block_shorter_than_a_simd_lane_runs_scalar() {
+    let fx = PostFx {
+        crush: Some(4.0),
+        ..Default::default()
+    };
+    let mut v = PostFxVoice::new(Box::new(StereoConstVoice(0.3, -0.3)), fx, 44100.0);
+    let (mut l, mut r) = ([0.0f32; 5], [0.0f32; 5]);
+    v.process_block(&mut l, &mut r);
+    assert_eq!(l, [0.25; 5]);
+    assert_eq!(r, [-0.25; 5]);
 }

@@ -1032,4 +1032,11 @@ mod tests {
             .transpose(intervals);
         assert_eq!(notes(&pat), vec![67.0, 58.0]);
     }
+
+    #[test]
+    fn a_bare_root_is_its_major_scale() {
+        let (root, major) = parse_scale("D").expect("a scale");
+        assert_eq!(root.rem_euclid(12), 2);
+        assert_eq!(major, parse_scale("C:major").expect("a scale").1);
+    }
 }

@@ -1127,4 +1127,31 @@ mod tests {
         assert_eq!(ev(".5", 0.0), 0.5);
         assert_eq!(ev("sin(0)", 0.0), 0.0);
     }
+
+    #[test]
+    fn nesting_counts_depth_not_how_many_groups_there_are() {
+        // Each group gives its level back on the way out, so a hundred side
+        // by side are as shallow as one.
+        let src = vec!["(t)"; 100].join("+");
+        assert_eq!(ev(&src, 3.0), 300.0);
+    }
+
+    fn played(freq: f32, pan: f32, mods: &[ModSpec]) -> Vec<(f32, f32)> {
+        let mut params = ByteBeatParams::from_controls(&ValueMap::default(), 1.0);
+        params.freq = freq;
+        params.pan = pan;
+        let mut v = ByteBeatVoice::with_mods(params, 44100.0, mods);
+        (0..512).map(|_| v.tick()).collect()
+    }
+
+    #[test]
+    fn frequency_and_pan_modulators_reach_a_bytebeat() {
+        use crate::modulator::ModTarget;
+        let up = [ModSpec::constant(ModTarget::Frequency, 110.0)];
+        let raised = played(330.0, 0.5, &up);
+        assert!(raised.iter().any(|s| s.0 != 0.0));
+        assert_eq!(raised, played(440.0, 0.5, &[]));
+        let pan = [ModSpec::constant(ModTarget::Pan, 0.5)];
+        assert_eq!(played(330.0, 0.25, &pan), played(330.0, 0.5, &[]));
+    }
 }

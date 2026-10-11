@@ -575,3 +575,71 @@ fn a_pulse_width_lfo_follows_superdoughs_defaults() {
     assert!(lfo(&[]).is_none());
     assert!(lfo(&[("pwrate", 5.0), ("pwsweep", 0.0)]).is_none());
 }
+
+// --- RateVoice: a synthesized buffer played back at a detuned rate ----------
+
+/// Counts 1, 2, 3, ... on the left and -2, -4, -6, ... on the right, reporting
+/// a fixed detune; done once `bus` has been handed a block.
+struct Counter {
+    n: f32,
+    cents: f32,
+    fed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl VoiceLike for Counter {
+    fn tick(&mut self) -> (f32, f32) {
+        self.n += 1.0;
+        (self.n, -2.0 * self.n)
+    }
+    fn set_bus_input(&mut self, bus: i32, _: &[f32], _: &[f32]) {
+        if bus == 3 {
+            self.fed.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    fn is_done(&self) -> bool {
+        self.fed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    fn detune_cents(&self) -> f32 {
+        self.cents
+    }
+}
+
+fn counted(cents: f32, n: usize) -> Vec<(f32, f32)> {
+    let fed = Default::default();
+    let mut v = crate::voice::RateVoice::new(Box::new(Counter { n: 0.0, cents, fed }));
+    (0..n).map(|_| v.tick()).collect()
+}
+
+#[rstest]
+// The playback starts on the buffer's first sample, held for one step.
+#[case::unity(0.0, &[1.0, 1.0, 2.0, 3.0, 4.0])]
+#[case::octave_up(1200.0, &[1.0, 2.0, 4.0, 6.0, 8.0])]
+#[case::octave_down(-1200.0, &[1.0, 1.0, 1.0, 1.5, 2.0, 2.5, 3.0])]
+fn a_rate_voice_reads_its_buffer_at_two_to_the_cents(#[case] cents: f32, #[case] want: &[f32]) {
+    let got = counted(cents, want.len());
+    let left: Vec<f32> = got.iter().map(|s| s.0).collect();
+    let right: Vec<f32> = got.iter().map(|s| s.1).collect();
+    assert_eq!(left, want);
+    assert_eq!(right, want.iter().map(|x| -2.0 * x).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_rate_voice_passes_the_bus_and_its_end_through() {
+    let fed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let inner = Counter {
+        n: 0.0,
+        cents: 0.0,
+        fed: fed.clone(),
+    };
+    let mut v = crate::voice::RateVoice::new(Box::new(inner));
+    assert!(!v.is_done());
+    v.set_bus_input(3, &[0.0], &[0.0]);
+    assert!(fed.load(std::sync::atomic::Ordering::Relaxed));
+    assert!(v.is_done());
+}
+
+#[test]
+fn a_voice_reports_no_detune_unless_it_has_one() {
+    let v = Voice::new(VoiceParams::default(), 44100.0);
+    assert_eq!(VoiceLike::detune_cents(&v), 0.0);
+}

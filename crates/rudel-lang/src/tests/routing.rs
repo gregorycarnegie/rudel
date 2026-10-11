@@ -500,3 +500,71 @@ fn mqtt_tags_each_hap_with_its_options() {
     );
     assert_eq!(msg.payload, br#"{"s":"bd"}"#);
 }
+
+#[test]
+fn serial_flags_read_numbers_and_absence_as_javascript_does() {
+    use rudel_core::serial::request;
+    let bytes = |src: &str| {
+        let p = eval(src).expect(src);
+        let hap = p.query_arc(Frac::zero(), Frac::one()).remove(0);
+        request(&hap.value).expect("a serial hap").bytes
+    };
+    // No checksum and whole names, whether left off or given as 0.
+    assert_eq!(
+        bytes("pure({action: 'go', speed: 3}).serial()"),
+        b"go(speed:3)"
+    );
+    assert_eq!(
+        bytes("pure({action: 'go', speed: 3}).serial(9600, 0, 0)"),
+        b"go(speed:3)"
+    );
+    // 1 for single-character ids.
+    assert_eq!(
+        bytes("pure({action: 'go', speed: 3}).serial(9600, 0, 1)"),
+        b"g(s:3)"
+    );
+}
+
+#[test]
+fn mqtt_add_meta_reads_a_number_as_javascript_does() {
+    let payload = |src: &str| {
+        let p = eval(src).expect(src);
+        let hap = p.query_arc(Frac::zero(), Frac::one()).remove(0);
+        rudel_core::mqtt::publish(&hap.value, 1.0, 1.0)
+            .expect("an mqtt hap")
+            .payload
+    };
+    let without = r#"s("bd").mqtt(undefined, undefined, 'drums', 'ws://b/', 'me', 0, 0)"#;
+    assert_eq!(payload(without), br#"{"s":"bd"}"#);
+    let with = r#"s("bd").mqtt(undefined, undefined, 'drums', 'ws://b/', 'me', 0, 1)"#;
+    assert_ne!(payload(with), br#"{"s":"bd"}"#);
+}
+
+#[test]
+fn output_targets_name_only_the_outputs_a_pattern_uses() {
+    assert_eq!(
+        crate::output_targets(&eval("s(\"bd\")").unwrap()),
+        (false, false)
+    );
+    assert_eq!(
+        crate::output_targets(&eval("note(60).midi()").unwrap()),
+        (true, false)
+    );
+    assert_eq!(
+        crate::output_targets(&eval("s(\"bd\").osc()").unwrap()),
+        (false, true)
+    );
+}
+
+#[test]
+fn stack_by_centre_lines_a_short_pattern_up_in_the_middle() {
+    let p = eval("stackBy('centre', s(\"a b c d\"), s(\"x\"))").unwrap();
+    let x = p
+        .query_arc(Frac::zero(), Frac::one())
+        .into_iter()
+        .find(|h| format!("{:?}", h.value).contains("\"x\""))
+        .expect("x plays");
+    assert_eq!(x.whole.unwrap().begin, Frac::new(3, 8));
+    let p = eval("stackBy('center', s(\"a b c d\"), s(\"x\"))").unwrap();
+    assert_eq!(p.query_arc(Frac::zero(), Frac::one()).len(), 5);
+}

@@ -410,3 +410,22 @@ fn drums_are_deterministic_across_voices() {
         );
     }
 }
+
+#[test]
+fn detune_and_pan_modulators_reach_a_drum() {
+    let render = |pan: f32, mods: &[ModSpec]| {
+        let params = DrumParams {
+            pan,
+            ..DrumParams::new(DrumKind::Sd)
+        };
+        let mut v = DrumVoice::with_mods(params, SAMPLE_RATE, mods);
+        let out: Vec<(f32, f32)> = (0..256).map(|_| v.tick()).collect();
+        (out, v.detune_cents())
+    };
+    let (moved, cents) = render(0.25, &[ModSpec::constant(ModTarget::Pan, 0.5)]);
+    assert!(moved.iter().any(|s| s.0 != 0.0));
+    assert_eq!(moved, render(0.5, &[]).0);
+    assert_eq!(cents, 0.0);
+    let detune = ModSpec::constant(ModTarget::Detune, 300.0);
+    assert_eq!(render(0.5, &[detune]).1, 300.0);
+}

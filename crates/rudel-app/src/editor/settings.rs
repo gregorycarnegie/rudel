@@ -315,6 +315,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_theme_is_listed() {
+        let names: Vec<&str> = EditorTheme::all()
+            .map(|t| themes()[t.0].name.as_str())
+            .collect();
+        let every: Vec<&str> = themes().iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, every);
+        assert!(names.len() > 1);
+    }
+
+    #[test]
     fn saved_settings_read_back_and_bad_lines_keep_their_defaults() {
         let mut settings = EditorSettings::default();
         for (_, on) in settings.switches() {

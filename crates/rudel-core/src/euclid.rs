@@ -531,4 +531,15 @@ mod tests {
         assert_eq!(clipped[0].part.begin, Frac::new(97, 32));
         assert_eq!(clipped[0].whole.unwrap().begin, Frac::int(3));
     }
+
+    #[test]
+    fn an_even_split_alternates_from_an_onset() {
+        // Equal onsets and rests: Bjorklund's tie goes to the rests' side.
+        let x = true;
+        let o = false;
+        assert_eq!(bjorklund(4, 8), [x, o, x, o, x, o, x, o]);
+        assert_eq!(bjorklund(6, 12), [x, o, x, o, x, o, x, o, x, o, x, o]);
+        assert_eq!(bjorklund(5, 10).len(), 10);
+        assert_eq!(bjorklund(3, 6), [x, o, x, o, x, o]);
+    }
 }

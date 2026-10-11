@@ -36,7 +36,7 @@ pub(crate) fn set_base_dir(dir: Option<PathBuf>) {
 /// Where `url` points: an http(s) URL as it is; a `file://` URL as its path;
 /// a relative path against the open file's folder; anything else (an
 /// absolute path, `~/…`) as it is.
-fn resolve(url: &str) -> String {
+pub(crate) fn resolve(url: &str) -> String {
     if url.starts_with("http://") || url.starts_with("https://") {
         return url.to_string();
     }

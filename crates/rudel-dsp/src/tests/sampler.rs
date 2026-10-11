@@ -863,3 +863,62 @@ fn a_sample_takes_the_highpass_and_bandpass_too() {
         "a 4k bandpass removes a 100Hz tone: {band} {dry}"
     );
 }
+
+fn ramp_sampler(pan: f32, speed: f32) -> SamplerParams {
+    let data: Vec<f32> = (0..4096).map(|i| (i as f32 * 0.01).sin()).collect();
+    SamplerParams {
+        pan,
+        speed,
+        duration: 0.05,
+        ..SamplerParams::new(Arc::new(Sample {
+            data,
+            sample_rate: 44100.0,
+        }))
+    }
+}
+
+fn sampled(params: SamplerParams, mods: &[ModSpec]) -> Vec<(f32, f32)> {
+    let mut v = SamplerVoice::with_mods(params, 44100.0, mods);
+    (0..512).map(|_| v.tick()).collect()
+}
+
+#[test]
+fn a_detune_modulator_is_a_playback_rate() {
+    // An octave of `detune` is twice the speed.
+    let up = [ModSpec::constant(ModTarget::Detune, 1200.0)];
+    let detuned = sampled(ramp_sampler(0.5, 1.0), &up);
+    assert!(detuned.iter().any(|s| s.0 != 0.0));
+    assert_eq!(detuned, sampled(ramp_sampler(0.5, 2.0), &[]));
+}
+
+#[test]
+fn a_pan_modulator_moves_a_sample() {
+    let pan = [ModSpec::constant(ModTarget::Pan, 0.5)];
+    assert_eq!(
+        sampled(ramp_sampler(0.25, 1.0), &pan),
+        sampled(ramp_sampler(0.5, 1.0), &[])
+    );
+}
+
+#[test]
+fn a_slowed_sample_still_releases_at_its_natural_length() {
+    // The note lasts as long as its region takes at unit rate: half of a
+    // 4096-frame buffer is 2048 frames. A detune an octave down only gets
+    // halfway through it by then, and releases there rather than playing on.
+    let params = SamplerParams {
+        begin: 0.25,
+        end: 0.75,
+        duration: 0.0,
+        ..ramp_sampler(0.5, 1.0)
+    };
+    let release = params.release;
+    let down = [ModSpec::constant(ModTarget::Detune, -1200.0)];
+    let mut v = SamplerVoice::with_mods(params, 44100.0, &down);
+    let mut n = 0usize;
+    while !v.is_done() && n < 10000 {
+        v.tick();
+        n += 1;
+    }
+    let want = 2048 + (release * 44100.0) as usize;
+    assert!(n.abs_diff(want) <= 2, "{n} against {want}");
+}

@@ -91,22 +91,19 @@ impl PhaseVocoder {
     /// `stretch` is the raw control value; upstream maps it to a pitch factor as
     /// `max(0, (v < 0 ? v * 0.25 : v) + 1)`.
     pub fn new(stretch: f32) -> PhaseVocoder {
-        let pitch_factor = if stretch < 0.0 {
-            stretch * 0.25
-        } else {
-            stretch
-        };
         let hann = (0..BLOCK_SIZE)
             .map(|i| 0.5 * (1.0 - (TAU * i as f32 / BLOCK_SIZE as f32).cos()))
             .collect();
-        PhaseVocoder {
+        let mut vocoder = PhaseVocoder {
             fft: Fft::new(BLOCK_SIZE),
             hann,
             left: Channel::new(),
             right: Channel::new(),
             time_cursor: 0.0,
-            pitch_factor: (pitch_factor + 1.0).max(0.0),
-        }
+            pitch_factor: 1.0,
+        };
+        vocoder.set_stretch(stretch);
+        vocoder
     }
 
     /// Set the pitch factor from a raw `stretch` value, as the worklet reads
@@ -253,8 +250,9 @@ fn shift_peaks(ch: &mut Channel, pitch_factor: f32, time_cursor: f32) {
             }
             // A negative index reads `undefined` in a Float32Array and a write
             // to one is discarded, so upstream contributes nothing for these;
-            // skipping them is the same thing.
-            if bin < 0 || bin_shifted < 0 || bin >= n_bins as i32 {
+            // skipping them is the same thing. (`bin` itself never is: a region
+            // starts at or above the peak before it.)
+            if bin_shifted < 0 || bin >= n_bins as i32 {
                 continue;
             }
             let (bin, bin_shifted) = (bin as usize, bin_shifted as usize);
@@ -424,5 +422,56 @@ mod tests {
         let out = run(1.0, 440.0, BLOCK_SIZE * 4);
         let peak = out.iter().fold(0.0f32, |a, b| a.max(b.abs()));
         assert!(peak.is_finite() && peak < 4.0, "runaway output: {peak}");
+    }
+
+    fn shifted(peaks: &[usize], factor: f32) -> Channel {
+        let mut ch = Channel::new();
+        ch.re.fill(1.0);
+        ch.peaks.extend_from_slice(peaks);
+        shift_peaks(&mut ch, factor, 0.0);
+        ch
+    }
+
+    #[test]
+    fn a_peak_shifted_past_the_spectrum_ends_the_shift() {
+        // 513 doubles to 1026, past the 1025 bins: none of its region lands,
+        // though half of it would still fit.
+        let ch = shifted(&[400, 513], 2.0);
+        assert_eq!(ch.shifted_re[800], 1.0);
+        assert!(ch.shifted_re[857..].iter().all(|x| *x == 0.0));
+    }
+
+    #[test]
+    fn a_peak_shifted_onto_the_last_bin_lands_its_lower_half() {
+        // 410 × 2.5 is bin 1025 itself: not past the end.
+        assert_eq!(shifted(&[300, 410], 2.5).shifted_re[1000], 1.0);
+    }
+
+    #[test]
+    fn a_region_shifted_down_lands_on_bin_zero() {
+        // Halving moves peak 10 to 5, and its bin 5 to bin 0.
+        assert_eq!(shifted(&[10], 0.5).shifted_re[0], 1.0);
+    }
+
+    #[test]
+    fn the_stretch_is_read_on_the_last_sample_of_each_hop() {
+        let run = |stretch_at: &dyn Fn(usize) -> f32| {
+            let mut stage = StretchStage::new(0.0);
+            (0..HOP_SIZE * 24)
+                .map(|i| {
+                    let x = (i as f32 * 0.05).sin();
+                    stage.process_at(x, x, stretch_at(i)).0
+                })
+                .collect::<Vec<_>>()
+        };
+        let last_only = run(&|i| {
+            if i % HOP_SIZE == HOP_SIZE - 1 {
+                1.0
+            } else {
+                0.5
+            }
+        });
+        assert!(last_only.iter().any(|x| *x != 0.0));
+        assert_eq!(last_only, run(&|_| 1.0));
     }
 }

@@ -1185,3 +1185,39 @@ fn an_inlet_is_a_wire_when_it_is_an_integer_and_a_literal_otherwise() {
     let program = KabelProgram::from_value(&Value::Map(map)).expect("a well-formed program");
     assert!(program.ins[0].is_empty());
 }
+
+const NONE: &[Value] = &[];
+
+#[rstest::rstest]
+// The initial value of `midicc` is its third inlet, -1 when left off.
+#[case::midicc_default(&["midicc"], &[Value::Null], &[NONE][..], -1.0)]
+#[case::midicc_literal(
+    &["midicc"],
+    &[Value::Null],
+    &[&[Value::F64(0.0), Value::F64(0.0), Value::F64(0.5)][..]][..],
+    0.5
+)]
+#[case::midicc_from_n(
+    &["n", "midicc"],
+    &[Value::F64(0.7), Value::Null],
+    &[NONE, &[Value::F64(0.0), Value::F64(0.0), Value::Int(0)][..]][..],
+    0.7
+)]
+#[case::midicc_from_a_signal(
+    &["sgate", "midicc"],
+    &[Value::Null, Value::Null],
+    &[NONE, &[Value::F64(0.0), Value::F64(0.0), Value::Int(0)][..]][..],
+    0.0
+)]
+// The value of `cc` is its second inlet.
+#[case::cc_literal(&["cc"], &[Value::Null], &[&[Value::F64(0.0), Value::F64(0.3)][..]][..], 0.3)]
+fn a_controller_input_holds_its_initial_value(
+    #[case] types: &[&str],
+    #[case] values: &[Value],
+    #[case] ins: &[&[Value]],
+    #[case] want: f32,
+) {
+    let out = types.len() as i64 - 1;
+    let mut v = voice(program(types, values, ins, &[(out, 0)]));
+    assert_eq!(v.tick().0, want);
+}

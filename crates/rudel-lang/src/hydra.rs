@@ -556,6 +556,26 @@ mod tests {
         assert_eq!(wgsl_f32(-3.0), "-3.0");
         assert_eq!(wgsl_f32(f64::NAN), "0.0");
     }
+    #[test]
+    fn a_per_frame_slot_past_the_uniforms_falls_back_to_the_default() {
+        let read = Chain::source(f("osc"), vec![Arg::Dynamic(0)]);
+        assert!(compile(&read, 0).contains("hu.dyn[0][0]"));
+        let past = Chain::source(f("osc"), vec![Arg::Dynamic(MAX_DYNAMIC)]);
+        let out = compile(&past, 0);
+        assert!(!out.contains("hu.dyn"), "{out}");
+        assert!(out.contains("h_osc(st, 60.0,"), "{out}");
+    }
+
+    #[test]
+    fn a_per_frame_operand_past_the_uniforms_is_zero() {
+        let osc = || Chain::source(f("osc"), vec![]);
+        let read = osc().then(f("add"), vec![Arg::Dynamic(1)]);
+        assert!(compile(&read, 0).contains("hu.dyn[0][1]"));
+        let past = osc().then(f("add"), vec![Arg::Dynamic(MAX_DYNAMIC)]);
+        let out = compile(&past, 0);
+        assert!(!out.contains("hu.dyn"), "{out}");
+        assert!(out.contains("vec4<f32>(0.0)"), "{out}");
+    }
 }
 
 #[cfg(test)]

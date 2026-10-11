@@ -238,4 +238,119 @@ mod tests {
             "a reverb tail follows"
         );
     }
+
+    /// One stereo sample of (2, 0.5), then silence; done once fed bus 2.
+    struct Lopsided(bool, bool);
+
+    impl VoiceLike for Lopsided {
+        fn tick(&mut self) -> (f32, f32) {
+            let x = if self.0 { (0.0, 0.0) } else { (2.0, 0.5) };
+            self.0 = true;
+            x
+        }
+        fn set_bus_input(&mut self, bus: i32, _: &[f32], _: &[f32]) {
+            self.1 |= bus == 2;
+        }
+        fn is_done(&self) -> bool {
+            self.1
+        }
+    }
+
+    fn sends(map: &[(&str, f64)], cps: f64) -> StageSends {
+        let map: ValueMap = map
+            .iter()
+            .map(|(k, v)| (k.to_string(), rudel_core::Value::F64(*v)))
+            .collect();
+        StageSends::from_controls(&map, cps)
+    }
+
+    fn stereo(map: &[(&str, f64)], mods: &[ModSpec], frames: usize) -> Vec<(f32, f32)> {
+        let mut voice = StageSendsVoice::new(
+            Box::new(Lopsided(false, false)),
+            sends(map, 1.0),
+            1000.0,
+            mods,
+        );
+        (0..frames).map(|_| voice.tick()).collect()
+    }
+
+    const ECHO: [(&str, f64); 4] = [
+        ("delay", 0.5),
+        ("delaytime", 0.01),
+        ("delayfeedback", 0.5),
+        ("dry", 0.5),
+    ];
+
+    #[test]
+    fn both_channels_take_dry_plus_wet() {
+        let out = stereo(&ECHO, &[], 21);
+        assert_eq!(
+            (out[0], out[10], out[20]),
+            ((1.0, 0.25), (1.0, 0.25), (0.5, 0.125))
+        );
+        // The room is its own reverb of the same input, at its wet level.
+        let room = [("room", 0.5), ("size", 0.1), ("dry", 0.5)];
+        let out = stereo(&room, &[], 3000);
+        let mut reverb = build_reverb(1000.0, &sends(&room, 1.0).room.unwrap().cfg);
+        let mut tail = false;
+        for (i, got) in out.iter().enumerate() {
+            let x = if i == 0 { (2.0, 0.5) } else { (0.0, 0.0) };
+            let (rl, rr) = reverb.process(x.0, x.1);
+            assert_eq!(
+                *got,
+                (0.5 * x.0 + 0.5 * rl, 0.5 * x.1 + 0.5 * rr),
+                "frame {i}"
+            );
+            tail |= rl.abs() > 1e-4 && rr.abs() > 1e-4;
+        }
+        assert!(tail, "a tail on each side");
+    }
+
+    #[test]
+    fn a_send_modulator_adds_to_the_wet_level() {
+        let more = [ECHO[0], ECHO[1], ECHO[2], ECHO[3]]
+            .map(|(k, v)| (k, if k == "delay" { 0.75 } else { v }));
+        let modulated = stereo(&ECHO, &[ModSpec::constant(ModTarget::DelaySend, 0.25)], 21);
+        assert_eq!(modulated, stereo(&more, &[], 21));
+        let room = |wet| [("room", wet), ("size", 0.1), ("dry", 0.5)];
+        let modulated = stereo(
+            &room(0.25),
+            &[ModSpec::constant(ModTarget::RoomSend, 0.5)],
+            3000,
+        );
+        assert_eq!(modulated, stereo(&room(0.75), &[], 3000));
+    }
+
+    #[test]
+    fn either_send_makes_a_stage_active() {
+        assert!(sends(&ECHO, 1.0).is_active());
+        assert!(sends(&[("room", 0.5)], 1.0).is_active());
+    }
+
+    #[test]
+    fn delaysync_is_in_cycles_and_defaults_to_three_sixteenths() {
+        let time = |map: &[(&str, f64)], cps| sends(map, cps).delay.unwrap().1.time;
+        assert_eq!(time(&[("delay", 0.5)], 1.0), 0.1875);
+        assert_eq!(time(&[("delay", 0.5), ("delaysync", 0.25)], 0.5), 0.5);
+    }
+
+    #[test]
+    fn prepare_builds_the_reverb_ahead_of_the_voice() {
+        let mut s = sends(&[("room", 0.5), ("size", 0.1)], 1.0);
+        s.prepare(1000.0);
+        assert!(matches!(s.room.unwrap().built, Some((1000.0, _))));
+    }
+
+    #[test]
+    fn the_voice_passes_the_bus_and_its_end_through() {
+        let mut voice = StageSendsVoice::new(
+            Box::new(Lopsided(false, false)),
+            sends(&ECHO, 1.0),
+            1000.0,
+            &[],
+        );
+        assert!(!voice.is_done());
+        voice.set_bus_input(2, &[], &[]);
+        assert!(voice.is_done());
+    }
 }

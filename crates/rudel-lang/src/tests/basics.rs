@@ -1,129 +1,105 @@
 use super::common::*;
 use rstest::rstest;
 
-#[test]
-fn standalone_transforms_match_their_methods() {
-    // Strudel registers transforms both as methods and as curried standalone
-    // functions; the standalone form takes the pattern last. Each pairing must
-    // produce identical haps.
-    let pairs = [
-        (r#"fast(2, s("bd sd"))"#, r#"s("bd sd").fast(2)"#),
-        (r#"slow(2, s("bd sd"))"#, r#"s("bd sd").slow(2)"#),
-        (r#"ply(2, s("bd sd"))"#, r#"s("bd sd").ply(2)"#),
-        (r#"iter(4, note("0 1 2 3"))"#, r#"note("0 1 2 3").iter(4)"#),
-        (r#"add(7, note("0 1"))"#, r#"note("0 1").add(7)"#),
-        (r#"euclid(3, 8, s("bd"))"#, r#"s("bd").euclid(3, 8)"#),
-        (r#"palindrome(s("bd sd"))"#, r#"s("bd sd").palindrome()"#),
-        (
-            r#"compress(0.25, 0.75, s("bd sd"))"#,
-            r#"s("bd sd").compress(0.25, 0.75)"#,
-        ),
-        (r#"hurry(2, s("bd sd"))"#, r#"s("bd sd").hurry(2)"#),
-        (r#"range(0, 7, n("0 1"))"#, r#"n("0 1").range(0, 7)"#),
-        (r#"chop(2, s("bd"))"#, r#"s("bd").chop(2)"#),
-    ];
-    for (standalone, method) in pairs {
-        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
-        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
-        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
-    }
+// Strudel registers transforms both as methods and as curried standalone
+// functions; the standalone form takes the pattern last. Each pairing must
+// produce identical haps.
+#[rstest]
+#[case::fast(r#"fast(2, s("bd sd"))"#, r#"s("bd sd").fast(2)"#)]
+#[case::slow(r#"slow(2, s("bd sd"))"#, r#"s("bd sd").slow(2)"#)]
+#[case::ply(r#"ply(2, s("bd sd"))"#, r#"s("bd sd").ply(2)"#)]
+#[case::iter(r#"iter(4, note("0 1 2 3"))"#, r#"note("0 1 2 3").iter(4)"#)]
+#[case::add(r#"add(7, note("0 1"))"#, r#"note("0 1").add(7)"#)]
+#[case::euclid(r#"euclid(3, 8, s("bd"))"#, r#"s("bd").euclid(3, 8)"#)]
+#[case::palindrome(r#"palindrome(s("bd sd"))"#, r#"s("bd sd").palindrome()"#)]
+#[case::compress(
+    r#"compress(0.25, 0.75, s("bd sd"))"#,
+    r#"s("bd sd").compress(0.25, 0.75)"#
+)]
+#[case::hurry(r#"hurry(2, s("bd sd"))"#, r#"s("bd sd").hurry(2)"#)]
+#[case::range(r#"range(0, 7, n("0 1"))"#, r#"n("0 1").range(0, 7)"#)]
+#[case::chop(r#"chop(2, s("bd"))"#, r#"s("bd").chop(2)"#)]
+fn standalone_transforms_match_their_methods(#[case] standalone: &str, #[case] method: &str) {
+    let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+    let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+    assert_eq!(shape(&a, 2), shape(&b, 2));
 }
 
-#[test]
-fn standalone_callback_transforms_match_their_methods() {
-    // The higher-order combinators also have standalone forms taking a
-    // transform function and the pattern last (`jux(rev, pat)`).
-    let pairs = [
-        (r#"jux(rev, s("bd sd"))"#, r#"s("bd sd").jux(x => x.rev())"#),
-        (
-            r#"superimpose(x => x.fast(2), s("bd sd"))"#,
-            r#"s("bd sd").superimpose(x => x.fast(2))"#,
-        ),
-        (
-            r#"every(2, x => x.fast(2), s("bd sd"))"#,
-            r#"s("bd sd").every(2, x => x.fast(2))"#,
-        ),
-        (
-            r#"off(0.25, x => x.add(12), note("0 2"))"#,
-            r#"note("0 2").off(0.25, x => x.add(12))"#,
-        ),
-        (
-            r#"within(0, 0.5, x => x.fast(2), s("a b c d"))"#,
-            r#"s("a b c d").within(0, 0.5, x => x.fast(2))"#,
-        ),
-        (
-            r#"sometimes(x => x.fast(2), s("a b c d"))"#,
-            r#"s("a b c d").sometimes(x => x.fast(2))"#,
-        ),
-    ];
-    for (standalone, method) in pairs {
-        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
-        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
-        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
-    }
+// The higher-order combinators also have standalone forms taking a
+// transform function and the pattern last (`jux(rev, pat)`).
+#[rstest]
+#[case::jux(r#"jux(rev, s("bd sd"))"#, r#"s("bd sd").jux(x => x.rev())"#)]
+#[case::superimpose(
+    r#"superimpose(x => x.fast(2), s("bd sd"))"#,
+    r#"s("bd sd").superimpose(x => x.fast(2))"#
+)]
+#[case::every(
+    r#"every(2, x => x.fast(2), s("bd sd"))"#,
+    r#"s("bd sd").every(2, x => x.fast(2))"#
+)]
+#[case::off(
+    r#"off(0.25, x => x.add(12), note("0 2"))"#,
+    r#"note("0 2").off(0.25, x => x.add(12))"#
+)]
+#[case::within(
+    r#"within(0, 0.5, x => x.fast(2), s("a b c d"))"#,
+    r#"s("a b c d").within(0, 0.5, x => x.fast(2))"#
+)]
+#[case::sometimes(
+    r#"sometimes(x => x.fast(2), s("a b c d"))"#,
+    r#"s("a b c d").sometimes(x => x.fast(2))"#
+)]
+fn standalone_callback_transforms_match_their_methods(
+    #[case] standalone: &str,
+    #[case] method: &str,
+) {
+    let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+    let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+    assert_eq!(shape(&a, 2), shape(&b, 2));
 }
 
-#[test]
-fn standalone_long_tail_matches_methods_and_camelcase_aliases() {
-    // The long tail of standalone forms, exercising the extra arg groups and
-    // Strudel's camelCase names against the equivalent methods.
-    let pairs = [
-        (r#"fastGap(2, s("a b"))"#, r#"s("a b").fastGap(2)"#),
-        (
-            r#"iterBack(2, note("0 1 2 3"))"#,
-            r#"note("0 1 2 3").iterBack(2)"#,
-        ),
-        (r#"expand(2, s("a b"))"#, r#"s("a b").expand(2)"#),
-        (r#"range2(0, 7, n("0 1"))"#, r#"n("0 1").range2(0, 7)"#),
-        (r#"focus(0, 0.5, s("a b"))"#, r#"s("a b").focus(0, 0.5)"#),
-        (
-            r#"swingBy(0.25, 4, s("a b c d"))"#,
-            r#"s("a b c d").swingBy(0.25, 4)"#,
-        ),
-        (
-            r#"euclidLegato(3, 8, s("bd"))"#,
-            r#"s("bd").euclidLegato(3, 8)"#,
-        ),
-        (
-            r#"euclidRot(3, 8, 1, s("bd"))"#,
-            r#"s("bd").euclidRot(3, 8, 1)"#,
-        ),
-        (
-            r#"echo(3, 0.125, 0.5, s("bd"))"#,
-            r#"s("bd").echo(3, 0.125, 0.5)"#,
-        ),
-        (
-            r#"stut(3, 0.5, 0.125, s("bd"))"#,
-            r#"s("bd").stut(3, 0.5, 0.125)"#,
-        ),
-        (r#"degradeBy(0.4, s("a*8"))"#, r#"s("a*8").degradeBy(0.4)"#),
-        // callback long tail (i64/f64/frac/pattern + function)
-        (
-            r#"firstOf(2, x => x.fast(2), s("a b"))"#,
-            r#"s("a b").firstOf(2, x => x.fast(2))"#,
-        ),
-        (
-            r#"chunk(2, x => x.fast(2), s("a b c d"))"#,
-            r#"s("a b c d").chunk(2, x => x.fast(2))"#,
-        ),
-        (
-            r#"juxBy(0.5, rev, s("a b"))"#,
-            r#"s("a b").juxBy(0.5, x => x.rev())"#,
-        ),
-        (
-            r#"inside(2, rev, s("a b c d"))"#,
-            r#"s("a b c d").inside(2, x => x.rev())"#,
-        ),
-        (
-            r#"someCycles(x => x.fast(2), s("a b"))"#,
-            r#"s("a b").someCycles(x => x.fast(2))"#,
-        ),
-    ];
-    for (standalone, method) in pairs {
-        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
-        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
-        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
-    }
+// The long tail of standalone forms, exercising the extra arg groups and
+// Strudel's camelCase names against the equivalent methods.
+#[rstest]
+#[case::fast_gap(r#"fastGap(2, s("a b"))"#, r#"s("a b").fastGap(2)"#)]
+#[case::iter_back(r#"iterBack(2, note("0 1 2 3"))"#, r#"note("0 1 2 3").iterBack(2)"#)]
+#[case::expand(r#"expand(2, s("a b"))"#, r#"s("a b").expand(2)"#)]
+#[case::range(r#"range2(0, 7, n("0 1"))"#, r#"n("0 1").range2(0, 7)"#)]
+#[case::focus(r#"focus(0, 0.5, s("a b"))"#, r#"s("a b").focus(0, 0.5)"#)]
+#[case::swing_by(
+    r#"swingBy(0.25, 4, s("a b c d"))"#,
+    r#"s("a b c d").swingBy(0.25, 4)"#
+)]
+#[case::euclid_legato(r#"euclidLegato(3, 8, s("bd"))"#, r#"s("bd").euclidLegato(3, 8)"#)]
+#[case::euclid_rot(r#"euclidRot(3, 8, 1, s("bd"))"#, r#"s("bd").euclidRot(3, 8, 1)"#)]
+#[case::echo(r#"echo(3, 0.125, 0.5, s("bd"))"#, r#"s("bd").echo(3, 0.125, 0.5)"#)]
+#[case::stut(r#"stut(3, 0.5, 0.125, s("bd"))"#, r#"s("bd").stut(3, 0.5, 0.125)"#)]
+#[case::degrade_by(r#"degradeBy(0.4, s("a*8"))"#, r#"s("a*8").degradeBy(0.4)"#)]
+// callback long tail (i64/f64/frac/pattern + function)
+#[case::first_of(
+    r#"firstOf(2, x => x.fast(2), s("a b"))"#,
+    r#"s("a b").firstOf(2, x => x.fast(2))"#
+)]
+#[case::chunk(
+    r#"chunk(2, x => x.fast(2), s("a b c d"))"#,
+    r#"s("a b c d").chunk(2, x => x.fast(2))"#
+)]
+#[case::jux_by(r#"juxBy(0.5, rev, s("a b"))"#, r#"s("a b").juxBy(0.5, x => x.rev())"#)]
+#[case::inside(
+    r#"inside(2, rev, s("a b c d"))"#,
+    r#"s("a b c d").inside(2, x => x.rev())"#
+)]
+#[case::some_cycles(
+    r#"someCycles(x => x.fast(2), s("a b"))"#,
+    r#"s("a b").someCycles(x => x.fast(2))"#
+)]
+fn standalone_long_tail_matches_methods_and_camelcase_aliases(
+    #[case] standalone: &str,
+    #[case] method: &str,
+) {
+    let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+    let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+    assert_eq!(shape(&a, 2), shape(&b, 2));
 }
 
 #[test]
@@ -320,71 +296,62 @@ fn filter_when_selects_by_onset_time() {
     assert_eq!(values(&one, 1, 2).len(), 0, "cycle 1 dropped");
 }
 
-#[test]
-fn the_euclid_family_takes_patterned_counts() {
-    // Upstream's `register` patternifies every euclid argument, so the counts
-    // may alternate by cycle. Mini-notation's operator always could; the method
-    // and standalone spellings share its implementation, so all three agree.
+// Upstream's `register` patternifies every euclid argument, so the counts may
+// alternate by cycle. Mini-notation's operator always could; the method and
+// standalone spellings share its implementation, so all three agree.
+#[rstest]
+#[case::method(r#"s("bd").euclid("<3 5>", 8)"#)]
+#[case::standalone(r#"euclid("<3 5>", 8, s("bd"))"#)]
+fn the_euclid_family_takes_patterned_counts(#[case] src: &str) {
     let mini = eval(r#"s("bd(<3 5>,8)")"#).expect("mini");
-    for src in [
-        r#"s("bd").euclid("<3 5>", 8)"#,
-        r#"euclid("<3 5>", 8, s("bd"))"#,
-    ] {
-        let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
-        assert_eq!(shape(&pat, 4), shape(&mini, 4), "{src}");
-    }
-    // Literal counts keep the direct path, and must not have drifted from it.
+    let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    assert_eq!(shape(&pat, 4), shape(&mini, 4));
+}
+
+/// Literal euclid counts keep the direct path, and must not have drifted from
+/// it.
+#[test]
+fn literal_euclid_counts_agree_with_mini_notation() {
     assert_eq!(
         shape(&eval(r#"s("bd").euclid(3, 8)"#).expect("literal"), 2),
         shape(&eval(r#"s("bd(3,8)")"#).expect("mini literal"), 2)
     );
-    // The rotation and legato variants patternify too.
-    for src in [
-        r#"s("bd").euclidRot("<3 5>", 8, "<0 2>")"#,
-        r#"s("bd").euclidLegato("<3 5>", 8)"#,
-        r#"euclidLegatoRot("<3 5>", 8, 2, s("bd"))"#,
-    ] {
-        let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
-        assert!(!shape(&pat, 4).is_empty(), "{src} produced nothing");
-    }
+}
+
+/// The rotation and legato variants patternify too.
+#[rstest]
+#[case::rot(r#"s("bd").euclidRot("<3 5>", 8, "<0 2>")"#)]
+#[case::legato(r#"s("bd").euclidLegato("<3 5>", 8)"#)]
+#[case::legato_rot(r#"euclidLegatoRot("<3 5>", 8, 2, s("bd"))"#)]
+fn the_euclid_variants_take_patterned_counts(#[case] src: &str) {
+    let pat = eval(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+    assert!(!shape(&pat, 4).is_empty(), "nothing played");
 }
 
 /// The stepwise counts patternify (https://strudel.cc/learn/stepwise/), and the
 /// standalone spelling has to agree with the method it wraps. `stepwise_parity`
 /// pins the events themselves against Strudel; this pins that both ways in reach
 /// them.
+#[rstest]
+#[case::expand(r#"expand("3 2 1", s("bd sd"))"#, r#"s("bd sd").expand("3 2 1")"#)]
+#[case::take(r#"take("1 2", s("bd sd cp"))"#, r#"s("bd sd cp").take("1 2")"#)]
+#[case::drop(r#"drop("1 2", s("bd sd cp"))"#, r#"s("bd sd cp").drop("1 2")"#)]
+#[case::shrink(r#"shrink("1 -1", s("bd sd cp"))"#, r#"s("bd sd cp").shrink("1 -1")"#)]
+#[case::grow(r#"grow("1 -1", s("bd sd cp"))"#, r#"s("bd sd cp").grow("1 -1")"#)]
+fn the_stepwise_counts_patternify_in_both_spellings(
+    #[case] standalone: &str,
+    #[case] method: &str,
+) {
+    let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
+    let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
+    assert_eq!(shape(&a, 2), shape(&b, 2));
+    assert!(!shape(&a, 2).is_empty(), "nothing played");
+}
+
+/// A literal stepwise count still takes the direct path, and must agree with
+/// itself patterned.
 #[test]
-fn the_stepwise_counts_patternify_in_both_spellings() {
-    let pairs = [
-        (
-            r#"expand("3 2 1", s("bd sd"))"#,
-            r#"s("bd sd").expand("3 2 1")"#,
-        ),
-        (
-            r#"take("1 2", s("bd sd cp"))"#,
-            r#"s("bd sd cp").take("1 2")"#,
-        ),
-        (
-            r#"drop("1 2", s("bd sd cp"))"#,
-            r#"s("bd sd cp").drop("1 2")"#,
-        ),
-        (
-            r#"shrink("1 -1", s("bd sd cp"))"#,
-            r#"s("bd sd cp").shrink("1 -1")"#,
-        ),
-        (
-            r#"grow("1 -1", s("bd sd cp"))"#,
-            r#"s("bd sd cp").grow("1 -1")"#,
-        ),
-    ];
-    for (standalone, method) in pairs {
-        let a = eval(standalone).unwrap_or_else(|e| panic!("standalone {standalone}: {e}"));
-        let b = eval(method).unwrap_or_else(|e| panic!("method {method}: {e}"));
-        assert_eq!(shape(&a, 2), shape(&b, 2), "mismatch for `{standalone}`");
-        assert!(!shape(&a, 2).is_empty(), "`{standalone}` produced nothing");
-    }
-    // A literal count still takes the direct path, and must agree with itself
-    // patterned.
+fn a_literal_stepwise_count_agrees_with_the_patterned_one() {
     assert_eq!(
         shape(&eval(r#"s("bd sd cp").expand(2)"#).expect("literal"), 2),
         shape(&eval(r#"s("bd sd cp").expand("2")"#).expect("patterned"), 2)

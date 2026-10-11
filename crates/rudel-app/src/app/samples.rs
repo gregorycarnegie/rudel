@@ -642,6 +642,26 @@ endin"
     }
 
     #[test]
+    fn a_device_not_plugged_in_is_waited_for_once() {
+        let mut app = app();
+        let mut fail = |device: &str, why: &str| {
+            let why = why.to_string();
+            let handle = std::thread::spawn(move || Err(why));
+            while !handle.is_finished() {
+                std::thread::yield_now();
+            }
+            app.script_midi_in_pending
+                .push((device.to_string(), handle));
+            app.poll_script_midi_inputs();
+            app.midi_in_waiting.clone()
+        };
+        fail("broken", "the driver crashed");
+        let missing = "no MIDI input port matching \"nano\"";
+        assert_eq!(fail("nano", missing), ["nano"]);
+        assert_eq!(fail("nano", missing), ["nano"], "already waited for");
+    }
+
+    #[test]
     fn an_empty_device_name_means_the_default_port() {
         // `midin('')` and `midikeys()` take whatever port is there; a named
         // one has to be asked for by name, blanks and all trimmed off.

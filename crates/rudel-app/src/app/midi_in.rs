@@ -123,15 +123,19 @@ impl RudelApp {
             return;
         }
         self.midi_ports_checked = Some(Instant::now());
-        let Ok(ports) = rudel_midi::MidiIn::list_ports() else {
-            return;
-        };
+        if let Ok(ports) = rudel_midi::MidiIn::list_ports() {
+            self.follow_midi_ports(&ports);
+        }
+    }
+
+    /// Drop the open devices `ports` lacks, and reopen the waiting ones it has.
+    fn follow_midi_ports(&mut self, ports: &[String]) {
         let open: Vec<(&str, &str)> = self
             .script_midi_ins
             .iter()
             .map(|(device, input)| (device.as_str(), input.port_name()))
             .collect();
-        let (gone, back) = port_changes(&open, &self.midi_in_waiting, &ports);
+        let (gone, back) = port_changes(&open, &self.midi_in_waiting, ports);
         for device in gone {
             self.script_midi_ins.remove(&device);
             self.log_lines
@@ -189,5 +193,36 @@ mod tests {
         );
         assert_eq!(gone, ["fader"]);
         assert_eq!(back, ["launch"], "matched like connect, by substring");
+    }
+
+    #[test]
+    fn ports_are_checked_while_a_device_is_waited_for_and_not_every_frame() {
+        let ctx = egui::Context::default();
+        let mut app = RudelApp::headless();
+        app.watch_midi_inputs(&ctx);
+        assert_eq!(app.midi_ports_checked, None, "nothing open or waited for");
+        app.midi_in_waiting.push("rudel-test-absent".into());
+        app.watch_midi_inputs(&ctx);
+        let first = app.midi_ports_checked.expect("checked");
+        app.watch_midi_inputs(&ctx);
+        assert_eq!(app.midi_ports_checked, Some(first), "not again so soon");
+        let long_ago = Instant::now() - PORT_POLL * 2;
+        app.midi_ports_checked = Some(long_ago);
+        app.watch_midi_inputs(&ctx);
+        assert!(app.midi_ports_checked > Some(long_ago), "checked again");
+    }
+
+    #[test]
+    fn a_returning_device_stops_being_waited_for_and_is_reopened() {
+        let mut app = RudelApp::headless();
+        app.midi_in_waiting = vec!["launch".into(), "absent".into()];
+        app.follow_midi_ports(&["Launchpad X 2".to_string()]);
+        assert_eq!(app.midi_in_waiting, ["absent"]);
+        let reopening: Vec<&str> = app
+            .script_midi_in_pending
+            .iter()
+            .map(|(device, _)| device.as_str())
+            .collect();
+        assert_eq!(reopening, ["launch"]);
     }
 }

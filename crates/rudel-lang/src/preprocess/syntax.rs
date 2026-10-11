@@ -295,4 +295,18 @@ mod tests {
             "x = tag(`a ${b} c`)\ny = `plain ${d}`"
         );
     }
+
+    #[rstest::rstest]
+    #[case::drive(r"'C:\Users\x'", true)]
+    #[case::share(r"'\\server\share'", true)]
+    // Three bytes is a bare drive, whose backslash escapes the closing quote.
+    #[case::bare_drive(r"'C:\'", false)]
+    // A third letter alone is no share.
+    #[case::not_a_share(r"'abc\d'", false)]
+    fn a_raw_windows_path_is_a_drive_or_share_with_a_lone_backslash(
+        #[case] literal: &str,
+        #[case] want: bool,
+    ) {
+        assert_eq!(is_raw_windows_path(literal), want);
+    }
 }

@@ -839,6 +839,23 @@ pub struct ModSpecs {
     pub stages: Vec<(Vec<ModSpec>, Vec<ModSpec>, Vec<ModSpec>)>,
 }
 
+#[cfg(test)]
+impl ModSpec {
+    /// A modulator that adds exactly `value` to `target` on every sample: an
+    /// LFO clamped to `value..=value`. Lets a test compare a modulated voice
+    /// with one whose base param is shifted by the same amount.
+    pub(crate) fn constant(target: ModTarget, value: f64) -> ModSpec {
+        ModSpec {
+            target,
+            source: SourceConfig::Lfo(LfoConfig {
+                min: value,
+                max: value,
+                ..LfoConfig::default()
+            }),
+        }
+    }
+}
+
 impl ModSpec {
     /// The param this modulator lands on.
     pub fn target(&self) -> ModTarget {
@@ -1249,7 +1266,7 @@ fn current_of(config: &SourceConfig, p: ModParam) -> f64 {
             ModParam::Skew => c.skew,
             ModParam::Curve => c.curve,
             ModParam::Dcoffset => c.dcoffset,
-            ModParam::Shape => c.shape as f64,
+            // No control routes to an LFO's `shape` (there is no `lfo_shape`).
             _ => 0.0,
         },
         SourceConfig::Env(c) => match p {
@@ -2096,5 +2113,336 @@ mod tests {
             moved |= sine.tick_with(&whole) != 0.0;
         }
         assert!(moved, "a whole step to another shape still plays");
+    }
+
+    // --- modulators driving modulators, exactly ------------------------------
+    //
+    // An input on a modulator's param is added to its config, so it has to
+    // run sample for sample like one configured with the sum.
+
+    fn an_lfo() -> LfoConfig {
+        LfoConfig {
+            shape: 0,
+            frequency: 3.0,
+            skew: 0.25,
+            depth: 2.0,
+            dcoffset: -0.25,
+            curve: 1.0,
+            min: -10.0,
+            max: 10.0,
+            ..LfoConfig::default()
+        }
+    }
+
+    fn inputs(p: ModParam, v: f64) -> ParamOffsets {
+        let mut o = ParamOffsets::default();
+        o.0[p.index()] = v;
+        o
+    }
+
+    #[rstest]
+    #[case(ModParam::Frequency, |c: &mut LfoConfig| c.frequency += 0.5)]
+    #[case(ModParam::Skew, |c: &mut LfoConfig| c.skew += 0.5)]
+    #[case(ModParam::Depth, |c: &mut LfoConfig| c.depth += 0.5)]
+    #[case(ModParam::Dcoffset, |c: &mut LfoConfig| c.dcoffset += 0.5)]
+    #[case(ModParam::Curve, |c: &mut LfoConfig| c.curve += 0.5)]
+    fn an_lfo_input_adds_to_its_param(#[case] p: ModParam, #[case] moved: fn(&mut LfoConfig)) {
+        let mut want = an_lfo();
+        moved(&mut want);
+        let (mut a, mut b) = (Lfo::new(&an_lfo(), 1000.0), Lfo::new(&want, 1000.0));
+        let offsets = inputs(p, 0.5);
+        for i in 0..300 {
+            assert_eq!(a.tick_with(&offsets), b.tick(), "sample {i}");
+        }
+    }
+
+    #[test]
+    fn an_lfo_phase_wraps_only_past_one() {
+        // At 250Hz on 1kHz the phase lands on exactly 1.0, which the worklet
+        // keeps for that sample: a ramp reads its top there, not its bottom.
+        let mut lfo = Lfo::new(
+            &LfoConfig {
+                shape: 2,
+                frequency: 250.0,
+                depth: 1.0,
+                dcoffset: 0.0,
+                min: -10.0,
+                max: 10.0,
+                ..LfoConfig::default()
+            },
+            1000.0,
+        );
+        let out: Vec<f64> = (0..6).map(|_| lfo.tick()).collect();
+        assert_eq!(out, [0.0, 0.25, 0.5, 0.75, 1.0, 0.25]);
+    }
+
+    fn an_env() -> EnvConfig {
+        EnvConfig {
+            attack: 0.05,
+            decay: 0.1,
+            sustain: 0.5,
+            release: 0.1,
+            depth: 2.0,
+            sustain_time: 0.3,
+            ..EnvConfig::default()
+        }
+    }
+
+    #[rstest]
+    #[case(ModParam::Attack, |c: &mut EnvConfig| c.attack += 0.025)]
+    #[case(ModParam::Decay, |c: &mut EnvConfig| c.decay += 0.025)]
+    #[case(ModParam::Sustain, |c: &mut EnvConfig| c.sustain += 0.025)]
+    #[case(ModParam::Release, |c: &mut EnvConfig| c.release += 0.025)]
+    #[case(ModParam::Depth, |c: &mut EnvConfig| c.depth += 0.025)]
+    fn an_envelope_input_adds_to_its_param(#[case] p: ModParam, #[case] moved: fn(&mut EnvConfig)) {
+        let mut want = an_env();
+        moved(&mut want);
+        let (mut a, mut b) = (ModEnv::new(&an_env(), 1000.0), ModEnv::new(&want, 1000.0));
+        let offsets = inputs(p, 0.025);
+        for i in 0..600 {
+            assert_eq!(a.tick_with(&offsets), b.tick(), "sample {i}");
+        }
+    }
+
+    #[test]
+    fn a_straight_envelope_segment_is_linear_in_its_phase() {
+        // Curvature 0 is the calm branch's `phase^1`, which is the phase
+        // itself; `1 - (1 - phase)` would round it.
+        let mut env = ModEnv::new(
+            &EnvConfig {
+                attack: 0.1,
+                ..an_env()
+            },
+            1000.0,
+        );
+        let mut t = 0.0f64;
+        for i in 0..100 {
+            assert_eq!(env.tick(), t / 0.1 * 2.0, "sample {i}");
+            t += 0.001;
+        }
+    }
+
+    #[test]
+    fn modulator_inputs_from_two_sources_add() {
+        let lfo = |depth| ModSpec {
+            target: ModTarget::Gain,
+            source: SourceConfig::Lfo(LfoConfig { depth, ..an_lfo() }),
+        };
+        let depth = |v| ModSpec::constant(ModTarget::Modulator(0, ModParam::Depth), v);
+        let driven = [lfo(2.0), depth(0.5), depth(0.25)];
+        let mut a = ModBank::new(&driven, 1000.0);
+        let mut b = ModBank::new(&[lfo(2.75)], 1000.0);
+        for i in 0..300 {
+            a.tick();
+            b.tick();
+            assert_eq!(a.get(ModTarget::Gain), b.get(ModTarget::Gain), "sample {i}");
+        }
+    }
+
+    #[test]
+    fn lfo_inputs_read_the_offsets_on_that_lfo() {
+        let mut bank = ModBank::new(
+            &[
+                ModSpec::constant(ModTarget::PwLfo(ModParam::Skew), 0.5),
+                ModSpec::constant(ModTarget::PwLfo(ModParam::Depth), 0.25),
+            ],
+            1000.0,
+        );
+        bank.tick();
+        let got = bank.lfo_inputs(ModTarget::PwLfo);
+        assert_eq!(got.get(ModParam::Skew), 0.5);
+        assert_eq!(got.get(ModParam::Depth), 0.25);
+        assert_eq!(bank.lfo_inputs(ModTarget::WtLfo).get(ModParam::Skew), 0.0);
+    }
+
+    // --- reaching a modulator by name ----------------------------------------
+
+    fn lfo_config(spec: &ModSpec) -> LfoConfig {
+        match &spec.source {
+            SourceConfig::Lfo(c) => *c,
+            other => panic!("not an LFO: {other:?}"),
+        }
+    }
+
+    #[rstest]
+    #[case::rate("lfo", "rate", ModParam::Frequency, 3.0)]
+    #[case::depth("lfo", "depth", ModParam::Depth, 5.0)]
+    #[case::skew("lfo", "skew", ModParam::Skew, 0.25)]
+    #[case::curve("lfo", "curve", ModParam::Curve, 2.0)]
+    #[case::dcoffset("lfo", "dcoffset", ModParam::Dcoffset, 0.125)]
+    #[case::attack("env", "attack", ModParam::Attack, 0.2)]
+    #[case::decay("env", "decay", ModParam::Decay, 0.3)]
+    #[case::sustain("env", "sustain", ModParam::Sustain, 0.4)]
+    #[case::release("env", "release", ModParam::Release, 0.6)]
+    #[case::env_depth("env", "depth", ModParam::Depth, 7.0)]
+    fn a_modulator_reaches_another_ones_param_at_its_value(
+        #[case] kind: &str,
+        #[case] sub: &str,
+        #[case] param: ModParam,
+        #[case] current: f64,
+    ) {
+        let first: Vec<(&str, Value)> = vec![
+            ("control", Value::from("gain")),
+            ("rate", Value::F64(3.0)),
+            ("skew", Value::F64(0.25)),
+            ("curve", Value::F64(2.0)),
+            ("dcoffset", Value::F64(0.125)),
+            ("attack", Value::F64(0.2)),
+            ("decay", Value::F64(0.3)),
+            ("sustain", Value::F64(0.4)),
+            ("release", Value::F64(0.6)),
+            (
+                "depthabs",
+                Value::F64(if kind == "lfo" { 5.0 } else { 7.0 }),
+            ),
+        ];
+        // A relative depth of 1 is the param's own value.
+        let second = vec![
+            ("control", Value::from(format!("{kind}_0").as_str())),
+            ("subControl", Value::from(sub)),
+            ("depth", Value::F64(1.0)),
+        ];
+        // Both of one kind: an LFO cannot reach an envelope, which is made
+        // after it.
+        let map = several(kind, &[&first, &second]);
+        let specs = ModSpecs::from_controls(&map, &ctx(), |_| 1.0);
+        let driver = specs.voice.last().unwrap();
+        assert_eq!(driver.target, ModTarget::Modulator(0, param));
+        let depth = match &driver.source {
+            SourceConfig::Lfo(c) => c.depth,
+            SourceConfig::Env(c) => c.depth,
+            SourceConfig::Bus(_) => panic!("a bus"),
+        };
+        assert_eq!(depth, current);
+    }
+
+    #[test]
+    fn a_later_modulator_does_not_hide_an_earlier_one() {
+        let cutoff = vec![("control", Value::from("cutoff"))];
+        let rate = vec![
+            ("control", Value::from("lfo_0")),
+            ("subControl", Value::from("rate")),
+        ];
+        let map = several("lfo", &[&cutoff, &cutoff, &rate]);
+        let specs = ModSpecs::from_controls(&map, &ctx(), |_| 500.0);
+        assert_eq!(
+            specs.voice[2].target,
+            ModTarget::Modulator(0, ModParam::Frequency)
+        );
+    }
+
+    #[test]
+    fn an_lfo_band_defaults_to_dcoffset_whole_depths() {
+        let map = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from("gain")),
+                ("depthabs", Value::F64(4.0)),
+                ("dcoffset", Value::F64(-0.25)),
+            ],
+        );
+        let c = lfo_config(&ModSpecs::from_controls(&map, &ctx(), |_| 1.0).voice[0]);
+        assert_eq!((c.min, c.max), (-1.0, 3.0));
+    }
+
+    #[test]
+    fn retrig_at_one_half_still_follows_the_cycle_clock() {
+        let map = descriptor(
+            "lfo",
+            &[
+                ("control", Value::from("gain")),
+                ("retrig", Value::F64(0.5)),
+            ],
+        );
+        let ctx = ModContext {
+            cps: 0.5,
+            cycle: 3.0,
+            note_seconds: 1.0,
+        };
+        let c = lfo_config(&ModSpecs::from_controls(&map, &ctx, |_| 1.0).voice[0]);
+        assert_eq!(c.time, 6.0);
+    }
+
+    // --- where a modulator lands ---------------------------------------------
+
+    #[rstest]
+    #[case(ModTarget::DelaySend, crate::routing::Fxi::Main, ModOwner::Orbit)]
+    #[case(
+        ModTarget::RoomSend,
+        crate::routing::Fxi::Stage(2),
+        ModOwner::StageSends(2)
+    )]
+    #[case(ModTarget::Djf, crate::routing::Fxi::Stage(1), ModOwner::Orbit)]
+    #[case(
+        ModTarget::Crush,
+        crate::routing::Fxi::Stage(1),
+        ModOwner::StagePost(1)
+    )]
+    #[case(
+        ModTarget::Gain,
+        crate::routing::Fxi::Stage(1),
+        ModOwner::StageVoice(1)
+    )]
+    fn each_target_has_its_owner(
+        #[case] target: ModTarget,
+        #[case] fxi: crate::routing::Fxi,
+        #[case] want: ModOwner,
+    ) {
+        assert_eq!(target.owner(fxi), want);
+    }
+
+    #[test]
+    fn the_slot_table_is_exactly_as_long_as_the_targets() {
+        let last = ModTarget::all().into_iter().map(ModTarget::index).max();
+        assert_eq!(last, Some(ModTarget::SLOTS - 1));
+    }
+
+    #[test]
+    fn a_short_unknown_node_is_no_fm_operator() {
+        assert_eq!(ModTarget::of_node("dj", "gain"), None);
+    }
+
+    #[rstest]
+    #[case::voice(ModSpecs { voice: vec![ModSpec::constant(ModTarget::Gain, 1.0)], ..ModSpecs::default() })]
+    #[case::post(ModSpecs { post: vec![ModSpec::constant(ModTarget::Crush, 1.0)], ..ModSpecs::default() })]
+    #[case::stage_post(ModSpecs { stages: vec![(vec![], vec![ModSpec::constant(ModTarget::Crush, 1.0)], vec![])], ..ModSpecs::default() })]
+    #[case::stage_sends(ModSpecs { stages: vec![(vec![], vec![], vec![ModSpec::constant(ModTarget::RoomSend, 1.0)])], ..ModSpecs::default() })]
+    fn any_modulator_anywhere_makes_specs_non_empty(#[case] specs: ModSpecs) {
+        assert!(!specs.is_empty());
+    }
+
+    #[test]
+    fn an_unregistered_node_is_skipped_not_thrown() {
+        // `dry` is a known control whose node is never registered.
+        let dry = vec![("control", Value::from("dry"))];
+        let gain = vec![("control", Value::from("gain"))];
+        let specs = ModSpecs::from_controls(&several("lfo", &[&dry, &gain]), &ctx(), |_| 1.0);
+        assert_eq!(specs.voice.len(), 1);
+        assert_eq!(specs.voice[0].target, ModTarget::Gain);
+    }
+
+    #[rstest]
+    // A negative `fxi` is not a stage, so it is the main chain.
+    #[case::negative(Value::F64(-1.0), true)]
+    #[case::not_a_number(Value::from("main"), true)]
+    #[case::stage(Value::F64(0.0), false)]
+    fn fxi_picks_the_chain(#[case] fxi: Value, #[case] main: bool) {
+        let entry = vec![("control", Value::from("gain")), ("fxi", fxi)];
+        let stage = several("lfo", &[&entry]);
+        let specs = ModSpecs::resolve(&ValueMap::new(), &[stage], &ctx(), &EveryNode(|_| 1.0));
+        assert_eq!(specs.voice.len(), main as usize);
+        assert_eq!(
+            specs.for_owner(ModOwner::StageVoice(0)).len(),
+            !main as usize
+        );
+    }
+
+    #[test]
+    fn a_stage_modulator_without_fxi_stays_on_its_stage() {
+        let entry = vec![("control", Value::from("gain"))];
+        let stage = several("lfo", &[&entry]);
+        let specs = ModSpecs::resolve(&ValueMap::new(), &[stage], &ctx(), &EveryNode(|_| 1.0));
+        assert!(specs.voice.is_empty());
+        assert_eq!(specs.for_owner(ModOwner::StageVoice(0)).len(), 1);
     }
 }

@@ -198,4 +198,15 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn values_print_as_a_javascript_template_does() {
+        use crate::fraction::Frac;
+        assert_eq!(js_string(&Value::Frac(Frac::new(1, 4))), "0.25");
+        assert_eq!(js_string(&Value::Bool(true)), "true");
+        let list = Value::List(vec![Value::Int(1), Value::Str("a".into())]);
+        assert_eq!(js_string(&list), "1,a");
+        assert_eq!(js_string(&Value::Map(ValueMap::new())), "[object Object]");
+        assert!(!is_serial(&Value::Map(ValueMap::new())));
+    }
 }

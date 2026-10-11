@@ -559,3 +559,25 @@ pub(super) fn with_callback(
     cb.finish()?;
     Ok(result.into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn a_memo_builds_each_key_once() {
+        // A pattern of functions is a callback too, and needs no engine.
+        let callback = Deferred::keep("test", &Arg::Pat(rudel_core::silence())).expect("kept");
+        let memo = Memo::new(callback);
+        let builds = Arc::new(AtomicUsize::new(0));
+        for key in ["a", "b", "a", "b"] {
+            let builds = builds.clone();
+            memo.get(key.to_string(), move |_| {
+                builds.fetch_add(1, Ordering::Relaxed);
+                rudel_core::silence()
+            });
+        }
+        assert_eq!(builds.load(Ordering::Relaxed), 2);
+    }
+}

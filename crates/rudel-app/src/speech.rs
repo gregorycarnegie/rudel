@@ -200,6 +200,19 @@ mod backend {
                 .collect()
         }
 
+        /// How many utterances have been handed to SAPI.
+        #[cfg(test)]
+        pub(super) fn queued(&self) -> i32 {
+            unsafe { self.voice.Status().and_then(|s| s.LastStreamNumberQueued()) }
+                .expect("voice status")
+        }
+
+        /// Speak at volume 0, so a test can say real words without a sound.
+        #[cfg(test)]
+        pub(super) fn mute(&self) {
+            unsafe { self.voice.SetVolume(0) }.expect("set volume");
+        }
+
         pub(super) fn say(
             &self,
             words: &str,
@@ -381,6 +394,17 @@ mod tests {
             voices.iter().all(|(locale, _)| !locale.contains('\0')),
             "{voices:?}"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn saying_hands_the_words_to_sapi() {
+        // SAPI does not queue empty words, so say one, muted.
+        let engine = backend::Engine::open().expect("open SAPI");
+        engine.mute();
+        assert_eq!(engine.queued(), 0);
+        engine.say("hi", Some("en"), None).unwrap();
+        assert_eq!(engine.queued(), 1);
     }
 
     #[cfg(windows)]

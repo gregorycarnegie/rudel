@@ -171,7 +171,7 @@ impl DistortAlgo {
 
     fn from_name(name: &str) -> Option<DistortAlgo> {
         Some(match name {
-            "scurve" => DistortAlgo::Scurve,
+            // `scurve`, the default, is what an unknown name falls back to.
             "soft" => DistortAlgo::Soft,
             "hard" => DistortAlgo::Hard,
             "cubic" => DistortAlgo::Cubic,
@@ -570,8 +570,6 @@ pub struct PostFxVoice {
     inner: Box<dyn VoiceLike>,
     fx: PostFx,
     sample_rate: f32,
-    /// Elapsed time in seconds, driving the tremolo / phaser LFOs.
-    time: f32,
     coarse_hold: (f32, f32),
     coarse_count: u32,
     /// Per-channel formant banks when `vowel` is set.
@@ -629,7 +627,6 @@ impl PostFxVoice {
             inner,
             fx,
             sample_rate,
-            time: 0.0,
             coarse_hold: (0.0, 0.0),
             coarse_count: 0,
             vowel,
@@ -898,7 +895,6 @@ impl VoiceLike for PostFxVoice {
             l *= postgain;
             r *= postgain;
         }
-        self.time += 1.0 / self.sample_rate;
         (l, r)
     }
 
@@ -917,8 +913,6 @@ impl VoiceLike for PostFxVoice {
         self.inner.process_block(out_l, out_r);
 
         let fx = self.memoryless_coeffs();
-        let inv_sr = 1.0 / self.sample_rate;
-        let t0 = self.time;
 
         let mut i = 0;
         while i + 8 <= n {
@@ -933,7 +927,6 @@ impl VoiceLike for PostFxVoice {
             out_r[i] = fx.apply1(out_r[i]);
             i += 1;
         }
-        self.time = t0 + n as f32 * inv_sr;
     }
 
     fn set_bus_input(&mut self, bus: i32, left: &[f32], right: &[f32]) {

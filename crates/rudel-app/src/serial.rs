@@ -119,4 +119,38 @@ mod tests {
         assert_eq!(pick("default", &ports[..1]).unwrap().port_name, "COM1");
         assert!(pick("default", &[]).is_none());
     }
+
+    #[test]
+    fn a_write_is_tried_after_the_latency_and_a_missing_port_is_logged() {
+        if !serialport::available_ports().unwrap_or_default().is_empty() {
+            return; // only a machine with no ports says why it could not write
+        }
+        let wanted = "serial: no serial port found";
+        // Anything else in the log goes back for whoever reads it.
+        let seen = || {
+            let lines = rudel_core::drain_log();
+            let found = lines.iter().any(|l| l == wanted);
+            lines
+                .into_iter()
+                .filter(|l| l != wanted)
+                .for_each(rudel_core::log_line);
+            found
+        };
+        let mut out = SerialOut::default();
+        let sent = Instant::now();
+        out.send(SerialWrite {
+            name: "default".into(),
+            baud: 9600,
+            bytes: b"hi".to_vec(),
+        });
+        let deadline = sent + Duration::from_secs(10);
+        while !seen() {
+            assert!(
+                Instant::now() < deadline,
+                "the missing port was never logged"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(sent.elapsed() >= LATENCY, "written before its latency");
+    }
 }

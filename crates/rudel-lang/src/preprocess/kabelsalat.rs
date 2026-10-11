@@ -142,3 +142,15 @@ fn is_kabelsalat_name(name: &str) -> bool {
     }
     TYPES.iter().any(|t| t.name == name) || MODULES.contains(&name)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn s_is_dropped_only_where_it_is_called() {
+        // `S(x)` is a grouping; a bare `S` is some other name, left alone.
+        assert_eq!(
+            super::scope_kabelsalat_calls("K(sine(S(2)).mul(S))"),
+            "K(Kabel.sine((2)).mul(S))"
+        );
+    }
+}

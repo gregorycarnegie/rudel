@@ -1098,6 +1098,26 @@ mod tests {
     use eframe::egui;
     use std::time::{Duration, Instant};
 
+    #[test]
+    fn settings_a_pattern_plays_change_the_editor() {
+        use crate::editor::settings::{EditorFontFamily, EditorTheme};
+        let result =
+            rudel_lang::eval_result(r#"s("bd").theme("nord").fontSize(20).fontFamily("serif")"#)
+                .expect("eval");
+        let mut hooks = result.trigger_hooks;
+        let hap = result
+            .pattern
+            .query_arc(rudel_core::Frac::from(0), rudel_core::Frac::from(1))
+            .remove(0);
+        assert_eq!(hooks.fire(&hap), None);
+        let mut app = RudelApp::headless();
+        app.apply_pattern_settings();
+        let settings = &app.editor_settings;
+        assert_eq!(settings.theme, EditorTheme::named("nord").unwrap());
+        assert_eq!(settings.font_size, 20.0);
+        assert_eq!(settings.font_family, EditorFontFamily::Proportional);
+    }
+
     /// A headless app with a pattern evaluated and the wall clock as its
     /// playhead (there is no audio device here).
     fn playing_app(started_ago: Duration, cps: f64) -> RudelApp {

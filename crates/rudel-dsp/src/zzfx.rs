@@ -343,7 +343,8 @@ fn next_rand01() -> f64 {
     let previous = ZZFX_RNG
         .try_update(Ordering::Relaxed, Ordering::Relaxed, |x| Some(step(x)))
         .unwrap_or(0);
-    (step(previous) as f64) / (u32::MAX as f64 + 1.0)
+    // 2^32: one past the largest draw, so the result stays below 1.
+    (step(previous) as f64) / 4_294_967_296.0
 }
 
 /// A ZzFX voice playing its pre-rendered buffer.
@@ -725,6 +726,24 @@ mod tests {
 #[cfg(test)]
 mod filter_clock_tests {
     use super::*;
+
+    #[test]
+    fn detune_and_pan_modulators_reach_the_voice() {
+        let render = |pan: f64, mods: &[ModSpec]| {
+            let map: ValueMap = [("pan".to_string(), Value::F64(pan))].into_iter().collect();
+            let params = ZzfxParams::from_controls("z_triangle", &map, 0.2);
+            let mut v = ZzfxVoice::with_mods(params, 44100.0, mods);
+            let out: Vec<(f32, f32)> = (0..256).map(|_| v.tick()).collect();
+            (out, v.detune_cents())
+        };
+        let pan = ModSpec::constant(crate::modulator::ModTarget::Pan, 0.5);
+        let (moved, cents) = render(0.25, &[pan]);
+        assert!(moved.iter().any(|s| s.0 != 0.0));
+        assert_eq!(moved, render(0.5, &[]).0);
+        assert_eq!(cents, 0.0);
+        let detune = ModSpec::constant(crate::modulator::ModTarget::Detune, 300.0);
+        assert_eq!(render(0.5, &[detune]).1, 300.0);
+    }
 
     #[test]
     fn the_voice_s_own_clock_drives_its_filter_envelope() {

@@ -576,6 +576,30 @@ slider(0.5, 0, 1)"#
     }
 
     #[test]
+    fn a_block_without_hydra_keeps_the_running_hydra_values() {
+        let mut app = app_without_engine();
+        app.code = "await initHydra()\nosc([1, 2]).out()\n\ns(\"bd\")".to_string();
+        app.evaluate();
+        assert_eq!(app.hydra_params.len(), 1);
+        app.editor_cursor_byte = app.code.find("s(").unwrap();
+        app.evaluate_current_block();
+        assert_eq!(app.hydra_params.len(), 1, "the block had none of its own");
+    }
+
+    #[test]
+    fn a_block_reads_pictures_from_beside_the_open_file() {
+        // The picture folder is process-wide, and every evaluation sets it:
+        // this needs its own process, as nextest gives it.
+        let mut app = app_without_engine();
+        let dir = std::env::temp_dir().join("rudel-picture-dir");
+        app.file_path = Some(dir.join("song.js"));
+        app.code = "s(\"bd\")".to_string();
+        app.evaluate_current_block();
+        let want = dir.join("a.png").to_string_lossy().into_owned();
+        assert_eq!(crate::editor::widgets::resolve_picture("a.png"), want);
+    }
+
+    #[test]
     fn block_eval_keeps_the_other_blocks_playing() {
         let mut app = app_without_engine();
         app.code = "a: s(\"bd\")\n\nb: s(\"sd\")".to_string();

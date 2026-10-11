@@ -384,16 +384,20 @@ pub struct WavetableOsc {
 }
 
 impl WavetableOsc {
-    /// Re-spread the unison (`freqspread` semitones, `panspread` width) — what
-    /// the worklet does every sample, here only when a modulator moves them.
+    /// Spread the unison (`freqspread` semitones, `panspread` width) — what
+    /// the worklet does every sample, here at construction and when a
+    /// modulator moves them.
     pub fn set_spread(&mut self, freqspread: f32, panspread: f32) {
         let voices = self.phase.len().max(1);
+        // `getDetuner(unison, detune)`.
         let scale = if voices > 1 {
             freqspread / (voices as f32 - 1.0)
         } else {
             0.0
         };
         let center = freqspread * 0.5;
+        // The worklet forces panspread to 0 for a single voice, then takes the
+        // sqrt pair around 0.5.
         let panspread = if voices > 1 { clamp01(panspread) } else { 0.0 };
         let gain1 = (0.5 - 0.5 * panspread).sqrt();
         let gain2 = (0.5 + 0.5 * panspread).sqrt();
@@ -404,6 +408,7 @@ impl WavetableOsc {
                 0.0
             };
             self.ratio[n] = 2f32.powf(detune / 12.0);
+            // invert the left and right gain each voice
             let (l, r) = if n % 2 == 0 {
                 (gain1, gain2)
             } else {
@@ -427,48 +432,18 @@ impl WavetableOsc {
         mut rand: impl FnMut() -> f32,
     ) -> WavetableOsc {
         let voices = voices.max(1);
-        // `getDetuner(unison, detune)`.
-        let scale = if voices > 1 {
-            freqspread / (voices as f32 - 1.0)
-        } else {
-            0.0
-        };
-        let center = freqspread * 0.5;
-        // The worklet forces panspread to 0 for a single voice, then takes the
-        // sqrt pair around 0.5.
-        let panspread = if voices > 1 { clamp01(panspread) } else { 0.0 };
-        let gain1 = (0.5 - 0.5 * panspread).sqrt();
-        let gain2 = (0.5 + 0.5 * panspread).sqrt();
-        let mut phase = Vec::with_capacity(voices);
-        let mut ratio = Vec::with_capacity(voices);
-        let mut gain_l = Vec::with_capacity(voices);
-        let mut gain_r = Vec::with_capacity(voices);
-        for n in 0..voices {
-            phase.push(rand() * clamp01(phaserand));
-            let detune = if voices > 1 {
-                n as f32 * scale - center
-            } else {
-                0.0
-            };
-            ratio.push(2f32.powf(detune / 12.0));
-            // invert the left and right gain each voice
-            let (l, r) = if n % 2 == 0 {
-                (gain1, gain2)
-            } else {
-                (gain2, gain1)
-            };
-            gain_l.push(l);
-            gain_r.push(r);
-        }
-        WavetableOsc {
+        let phase = (0..voices).map(|_| rand() * clamp01(phaserand)).collect();
+        let mut osc = WavetableOsc {
             table,
             phase,
-            ratio,
-            gain_l,
-            gain_r,
+            ratio: vec![0.0; voices],
+            gain_l: vec![0.0; voices],
+            gain_r: vec![0.0; voices],
             normalizer: 1.0 / (voices as f32).sqrt(),
             inv_sr: 1.0 / sample_rate,
-        }
+        };
+        osc.set_spread(freqspread, panspread);
+        osc
     }
 
     /// Render one stereo sample at `freq` Hz, reading table position `position`
@@ -708,6 +683,17 @@ mod tests {
             .iter()
             .map(|(k, v)| (format!("wt{k}"), Value::F64(*v)))
             .collect()
+    }
+
+    #[test]
+    fn bend_mp_switches_to_mirror_at_one_half() {
+        // `amt < 0.5 ? bendp : mirror`: one half is already the mirror, at 0.
+        let p = 0.3;
+        assert_eq!(
+            warp_phase(p, 0.5, WarpMode::BendMP),
+            warp_phase(p, 0.0, WarpMode::Mirror)
+        );
+        assert_ne!(warp_phase(p, 0.5, WarpMode::BendMP), p);
     }
 
     #[test]
@@ -1232,5 +1218,24 @@ mod tests {
             .map(|_| osc.tick(1.0, 0.0, 0.0, WarpMode::None).0)
             .collect();
         assert_eq!(got, vec![0.0 * g, 1.0 * g, 2.0 * g, 3.0 * g]);
+    }
+
+    #[test]
+    fn the_unison_spreads_its_detune_and_alternates_its_pan() {
+        // Three voices over 2 semitones: -1, 0, +1. Pan spread 0.5 gives the
+        // pair sqrt(0.25), sqrt(0.75), swapped on every other voice.
+        let osc = WavetableOsc::new(flat_table(&[1.0]), 3, 2.0, 0.5, 0.0, 48000.0, || 0.0);
+        let semitone = 2f32.powf(1.0 / 12.0);
+        let want = [1.0 / semitone, 1.0, semitone];
+        for (got, want) in osc.ratio.iter().zip(want) {
+            assert!((got - want).abs() < 1e-6, "{:?}", osc.ratio);
+        }
+        let (a, b) = (0.5f32, 0.75f32.sqrt());
+        assert_eq!(osc.gain_l, [a, b, a]);
+        assert_eq!(osc.gain_r, [b, a, b]);
+        // One voice has nothing to spread.
+        let one = WavetableOsc::new(flat_table(&[1.0]), 1, 2.0, 0.5, 0.0, 48000.0, || 0.0);
+        assert_eq!(one.ratio, [1.0]);
+        assert_eq!(one.gain_l, [0.5f32.sqrt()]);
     }
 }

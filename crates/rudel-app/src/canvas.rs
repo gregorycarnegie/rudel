@@ -527,6 +527,10 @@ mod tests {
             (" ".into(), "Space".into())
         );
         assert_eq!(key_names(egui::Key::ArrowLeft, false).0, "ArrowLeft");
+        assert_eq!(
+            key_names(egui::Key::Enter, false),
+            ("Enter".into(), "Enter".into())
+        );
     }
 
     #[test]
@@ -553,5 +557,347 @@ mod tests {
             .filter(|p| p[3] > 128)
             .count();
         assert!(inked > 20, "{inked}");
+    }
+
+    #[test]
+    fn more_css_colours_parse_as_a_canvas_reads_them() {
+        // A fraction from a percentage, a plain number on the 0..255 scale.
+        assert_eq!(rgba("rgb(50%, 0%, 0%)"), Some([128, 0, 0, 255]));
+        assert_eq!(rgba("rgb(1, 0, 0)"), Some([1, 0, 0, 255]));
+        // Dark and light, and a hue in each sixth of the wheel that matters.
+        assert_eq!(rgba("hsl(0, 100%, 25%)"), Some([128, 0, 0, 255]));
+        assert_eq!(rgba("hsl(0, 100%, 75%)"), Some([255, 128, 128, 255]));
+        assert_eq!(rgba("hsl(30, 100%, 50%)"), Some([255, 128, 0, 255]));
+        assert_eq!(rgba("hsl(210, 100%, 50%)"), Some([0, 128, 255, 255]));
+        // Below full saturation, where `l * s` is not just `l`.
+        assert_eq!(rgba("hsl(0, 50%, 75%)"), Some([223, 159, 159, 255]));
+    }
+
+    /// One pass of input through `Canvas::events`, over a rect at (10, 20).
+    fn events(canvas: &mut Canvas, raw: egui::RawInput) -> Vec<CanvasEvent> {
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(100.0, 100.0));
+        let mut got = Vec::new();
+        let mut out = ctx.run_ui(raw, |ui| got = canvas.events(ui.ctx(), rect));
+        out.textures_delta.clear();
+        got
+    }
+
+    #[test]
+    fn input_over_the_editor_becomes_dom_events_in_canvas_pixels() {
+        let mut canvas = Canvas::default();
+        let ctrl = egui::Modifiers {
+            ctrl: true,
+            ..egui::Modifiers::NONE
+        };
+        let raw = egui::RawInput {
+            events: vec![
+                egui::Event::ModifiersChanged(ctrl),
+                egui::Event::PointerMoved(egui::pos2(15.0, 25.0)),
+                // Outside the editor: not the canvas's.
+                egui::Event::PointerMoved(egui::pos2(500.0, 25.0)),
+                egui::Event::PointerButton {
+                    pos: egui::pos2(12.0, 22.0),
+                    button: egui::PointerButton::Secondary,
+                    pressed: true,
+                    modifiers: ctrl,
+                },
+                egui::Event::PointerButton {
+                    pos: egui::pos2(500.0, 22.0),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: ctrl,
+                },
+                egui::Event::PointerButton {
+                    pos: egui::pos2(13.0, 23.0),
+                    button: egui::PointerButton::Middle,
+                    pressed: false,
+                    modifiers: egui::Modifiers::SHIFT,
+                },
+                egui::Event::Key {
+                    key: egui::Key::A,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::SHIFT,
+                },
+            ],
+            ..Default::default()
+        };
+        let got = events(&mut canvas, raw);
+        let event = |kind: &'static str| CanvasEvent {
+            kind,
+            ..CanvasEvent::default()
+        };
+        let want = vec![
+            CanvasEvent {
+                x: 5.0,
+                y: 5.0,
+                ctrl: true,
+                ..event("mousemove")
+            },
+            CanvasEvent {
+                x: 2.0,
+                y: 2.0,
+                button: 2,
+                ctrl: true,
+                ..event("mousedown")
+            },
+            CanvasEvent {
+                x: 3.0,
+                y: 3.0,
+                button: 1,
+                shift: true,
+                ..event("mouseup")
+            },
+            CanvasEvent {
+                x: 3.0,
+                y: 3.0,
+                button: 1,
+                shift: true,
+                ..event("click")
+            },
+            CanvasEvent {
+                key: "A".into(),
+                code: "KeyA".into(),
+                shift: true,
+                ..event("keydown")
+            },
+            // Ctrl went down since the last frame.
+            CanvasEvent {
+                key: "Control".into(),
+                code: "ControlLeft".into(),
+                ctrl: true,
+                ..event("keydown")
+            },
+        ];
+        assert_eq!(got, want);
+        // ...and comes back up, with every flag reported as it now is.
+        let mods = egui::Modifiers {
+            alt: true,
+            mac_cmd: true,
+            ..egui::Modifiers::NONE
+        };
+        let got = events(
+            &mut canvas,
+            egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(mods)],
+                ..Default::default()
+            },
+        );
+        let up = CanvasEvent {
+            key: "Control".into(),
+            code: "ControlLeft".into(),
+            alt: true,
+            meta: true,
+            ..event("keyup")
+        };
+        let alt = CanvasEvent {
+            key: "Alt".into(),
+            code: "AltLeft".into(),
+            alt: true,
+            meta: true,
+            ..event("keydown")
+        };
+        assert_eq!(got, [up, alt]);
+    }
+
+    #[test]
+    fn a_canvas_is_a_texture_from_its_first_frame_until_cleared() {
+        let ctx = egui::Context::default();
+        let mut canvas = Canvas::default();
+        assert_eq!(canvas.texture(), None);
+        // An empty first frame still makes the (blank) canvas.
+        canvas.draw(&ctx, &[], 8, 8);
+        let id = canvas.texture.as_ref().map(egui::TextureHandle::id);
+        assert!(id.is_some());
+        assert_eq!(canvas.texture(), id);
+        canvas.clear();
+        assert_eq!(canvas.texture(), None);
+        assert!(canvas.pixmap.is_none());
+    }
+
+    /// Alpha at pixel (x, y) after `ops` on a 100 x 100 canvas.
+    fn alpha_after(ops: &[CanvasOp], points: &[(usize, usize)]) -> Vec<u8> {
+        let ctx = egui::Context::default();
+        let mut canvas = Canvas::default();
+        canvas.draw(&ctx, ops, 100, 100);
+        let p = canvas.pixmap.as_ref().unwrap();
+        points
+            .iter()
+            .map(|&(x, y)| p.data()[(y * 100 + x) * 4 + 3])
+            .collect()
+    }
+
+    fn stroke(cap: &str, join: &str, points: Vec<[f32; 2]>) -> CanvasOp {
+        CanvasOp::Stroke {
+            color: "white".into(),
+            alpha: 1.0,
+            width: 20.0,
+            cap: cap.into(),
+            join: join.into(),
+            lines: vec![(false, points)],
+        }
+    }
+
+    #[rstest::rstest]
+    // Past the end of (20, 20)..(50, 20), on the line and off its corner.
+    #[case::butt("butt", [false, false])]
+    #[case::square("square", [true, true])]
+    #[case::round("round", [true, false])]
+    fn a_line_ends_in_its_cap(#[case] cap: &str, #[case] inked: [bool; 2]) {
+        let line = stroke(cap, "miter", vec![[20.0, 20.0], [50.0, 20.0]]);
+        let got = alpha_after(&[line], &[(55, 20), (58, 28)]);
+        let got_inked: Vec<bool> = got.iter().map(|&a| a > 128).collect();
+        assert_eq!(got_inked, inked, "{got:?}");
+    }
+
+    #[rstest::rstest]
+    // Outside the corner of (20, 50)..(50, 50)..(50, 80): far out, then near.
+    #[case::miter("miter", [true, true])]
+    #[case::round("round", [false, true])]
+    #[case::bevel("bevel", [false, false])]
+    fn a_corner_takes_its_join(#[case] join: &str, #[case] inked: [bool; 2]) {
+        let corner = stroke("butt", join, vec![[20.0, 50.0], [50.0, 50.0], [50.0, 80.0]]);
+        let got = alpha_after(&[corner], &[(58, 41), (56, 43)]);
+        let got_inked: Vec<bool> = got.iter().map(|&a| a > 128).collect();
+        assert_eq!(got_inked, inked, "{got:?}");
+    }
+
+    #[test]
+    fn a_line_is_as_wide_as_its_width() {
+        let line = stroke("butt", "miter", vec![[20.0, 20.0], [50.0, 20.0]]);
+        assert!(alpha_after(&[line], &[(35, 28)])[0] > 128);
+    }
+
+    /// The inked box of `text` drawn at (50, 50), size 40: `(min x, min y,
+    /// max x, max y)`.
+    fn ink(text: &str, align: &str, baseline: &str) -> (usize, usize, usize, usize) {
+        let ctx = egui::Context::default();
+        let mut canvas = Canvas::default();
+        let op = CanvasOp::Text {
+            text: text.into(),
+            x: 50.0,
+            y: 50.0,
+            size: 40.0,
+            color: "white".into(),
+            alpha: 1.0,
+            align: align.into(),
+            baseline: baseline.into(),
+        };
+        canvas.draw(&ctx, &[op], 100, 100);
+        let p = canvas.pixmap.as_ref().unwrap();
+        let mut b = (usize::MAX, usize::MAX, 0, 0);
+        for (i, px) in p.data().chunks(4).enumerate() {
+            if px[3] > 64 {
+                let (x, y) = (i % 100, i / 100);
+                b = (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y));
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn text_is_placed_by_its_align_and_baseline() {
+        let scaled = Canvas::default().font.into_scaled(40.0);
+        let (ascent, descent) = (scaled.ascent(), scaled.descent());
+        // ab_glyph reads only a legacy `kern` table, which this font lacks, so
+        // even "AV" places by advances alone.
+        let start = ink("AV", "start", "alphabetic");
+        let width = (start.2 - start.0) as f32;
+        let right = ink("AV", "right", "alphabetic");
+        let centre = ink("AV", "center", "alphabetic");
+        assert!((right.2 as f32 - 50.0).abs() <= 2.0, "{right:?}");
+        assert!(
+            ((centre.0 + centre.2) as f32 / 2.0 - 50.0).abs() <= 2.0,
+            "{centre:?}"
+        );
+        assert!(((right.2 - right.0) as f32 - width).abs() <= 1.0);
+        // The ink sits on the baseline, so its bottom moves with it.
+        assert!((start.3 as f32 - 50.0).abs() <= 1.0, "{start:?}");
+        let shift = |b: &str| ink("AV", "start", b).3 as f32 - start.3 as f32;
+        assert!((shift("top") - ascent).abs() <= 1.0);
+        assert!((shift("middle") - (ascent + descent) / 2.0).abs() <= 1.0);
+        assert!((shift("bottom") - descent).abs() <= 1.0);
+    }
+
+    #[test]
+    fn text_off_any_edge_is_clipped_not_wrapped() {
+        // Ink reaches the very first row and column, and nothing wraps round.
+        let ctx = egui::Context::default();
+        let mut canvas = Canvas::default();
+        let at = |x: f32, y: f32, baseline: &str| CanvasOp::Text {
+            text: "MM".into(),
+            x,
+            y,
+            size: 40.0,
+            color: "white".into(),
+            alpha: 1.0,
+            align: "start".into(),
+            baseline: baseline.into(),
+        };
+        canvas.draw(
+            &ctx,
+            &[at(-10.0, 20.0, "alphabetic"), at(80.0, 110.0, "bottom")],
+            100,
+            100,
+        );
+        let p = canvas.pixmap.as_ref().unwrap();
+        let a = |x: usize, y: usize| p.data()[(y * 100 + x) * 4 + 3];
+        assert!((0..30).any(|y| a(0, y) > 64), "column 0");
+        let mut top = Canvas::default();
+        top.draw(&ctx, &[at(10.0, 10.0, "alphabetic")], 100, 100);
+        let t = top.pixmap.as_ref().unwrap();
+        assert!((0..100).any(|x| t.data()[x * 4 + 3] > 64), "row 0");
+        // Nothing from the right/bottom text lands back on the left.
+        assert!((40..100).all(|y| (0..20).all(|x| a(x, y) == 0)));
+    }
+
+    #[test]
+    fn text_blends_over_what_is_there() {
+        // Half-transparent white over opaque grey: grey shows through half.
+        let ctx = egui::Context::default();
+        let mut canvas = Canvas::default();
+        let grey = CanvasOp::Fill {
+            color: "rgb(100, 100, 100)".into(),
+            alpha: 1.0,
+            even_odd: false,
+            polygons: vec![vec![[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]],
+        };
+        let text = |alpha: f32| CanvasOp::Text {
+            text: "O".into(),
+            x: 20.0,
+            y: 80.0,
+            size: 80.0,
+            color: "white".into(),
+            alpha,
+            align: "start".into(),
+            baseline: "alphabetic".into(),
+        };
+        canvas.draw(&ctx, &[grey, text(0.5)], 100, 100);
+        let p = canvas.pixmap.as_ref().unwrap();
+        let px: Vec<&[u8]> = p.data().chunks(4).collect();
+        // Fully covered pixels: 128 + 100 / 2.
+        let full = px.iter().filter(|c| c[0] == 178 && c[3] == 255).count();
+        assert!(full > 50, "{full}");
+        assert!(px.iter().all(|c| c[0] >= 100 && c[0] <= 178 && c[3] == 255));
+        // The hole in the O is untouched: no coverage, no ink.
+        let mut solo = Canvas::default();
+        solo.draw(&ctx, &[text(1.0)], 100, 100);
+        let p = solo.pixmap.as_ref().unwrap();
+        let o = ink_box(p);
+        let middle = ((o.1 + o.3) / 2 * 100 + (o.0 + o.2) / 2) * 4;
+        assert_eq!(p.data()[middle + 3], 0, "the counter of the O");
+    }
+
+    fn ink_box(p: &Pixmap) -> (usize, usize, usize, usize) {
+        let mut b = (usize::MAX, usize::MAX, 0, 0);
+        for (i, px) in p.data().chunks(4).enumerate() {
+            if px[3] > 64 {
+                let (x, y) = (i % 100, i / 100);
+                b = (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y));
+            }
+        }
+        b
     }
 }

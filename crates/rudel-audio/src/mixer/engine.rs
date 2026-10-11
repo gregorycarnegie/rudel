@@ -880,4 +880,11 @@ mod tests {
         out.pull(48_000); // past any release
         assert!(peak(&out.pull(4_800)) < 1e-4, "panic ends the note");
     }
+
+    #[test]
+    fn the_engine_registers_an_alias_map_and_counts_it() {
+        let (engine, _out) = Engine::with_fake_output(48_000.0);
+        let json = br#"{"LinnDrum": ["linn", "LD"], "Other": "o"}"#;
+        assert_eq!(engine.alias_bank_json(json), Ok(3));
+    }
 }

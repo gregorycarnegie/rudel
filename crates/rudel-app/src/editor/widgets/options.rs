@@ -270,6 +270,28 @@ mod tests {
     }
 
     #[test]
+    fn a_zoomed_spiral_scales_its_size_and_thickness_and_nothing_else() {
+        let n = rudel_lang::WidgetOption::Number;
+        let set = VisualWidgetOptions::from_widget(&widget(
+            "_spiral",
+            &[("size", n(10.0)), ("thickness", n(3.0))],
+        ));
+        let zoomed = set.zoomed(2.0);
+        assert_eq!(
+            (zoomed.spiral_size, zoomed.spiral_thickness),
+            (set.spiral_size * 2.0, Some(6.0))
+        );
+        assert_eq!(
+            VisualWidgetOptions {
+                spiral_size: set.spiral_size,
+                spiral_thickness: set.spiral_thickness,
+                ..zoomed
+            },
+            set
+        );
+    }
+
+    #[test]
     fn the_draw_window_reaches_the_same_distance_either_side_of_now() {
         // Notes that began before the window are still sounding, and ones just
         // ahead are about to be drawn scrolling in.

@@ -540,3 +540,231 @@ pub(crate) fn register(prelude: &Scope) {
         });
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f64::consts::{FRAC_PI_2, PI, TAU};
+
+    fn near(got: [f32; 2], want: [f64; 2]) {
+        assert!(
+            (f64::from(got[0]) - want[0]).abs() < 1e-3
+                && (f64::from(got[1]) - want[1]).abs() < 1e-3,
+            "{got:?} against {want:?}"
+        );
+    }
+
+    /// Every point of every subpath, in order.
+    fn points(r: &Recorder) -> Vec<[f32; 2]> {
+        r.path.iter().flat_map(|s| s.points.clone()).collect()
+    }
+
+    #[test]
+    fn the_size_packs_both_dimensions() {
+        // Evaluations read it; hold them off while it is not the default.
+        let _lock = crate::EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        set_size(800, 600);
+        assert_eq!(size(), (800, 600));
+        set_size(1280, 720);
+    }
+
+    #[test]
+    fn a_curve_is_a_piece_every_four_pixels_within_limits() {
+        assert_eq!(pieces(100.0), 25);
+        assert_eq!(pieces(10.0), 8);
+        assert_eq!(pieces(1e6), 256);
+        assert_eq!(pieces(f64::NAN), 8);
+    }
+
+    #[test]
+    fn the_transform_composes_and_maps_points() {
+        let mut r = Recorder {
+            t: [2.0, 1.0, 3.0, 4.0, 5.0, 6.0],
+            ..Recorder::default()
+        };
+        // det = 8 - 3.
+        assert_eq!(r.unit(), 5f64.sqrt());
+        assert_eq!(r.map(1.0, 2.0), [13.0, 15.0]);
+        r.transform([7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
+        assert_eq!(r.t, [38.0, 39.0, 48.0, 49.0, 63.0, 65.0]);
+        // A collapsed transform still draws lines a pixel wide.
+        r.t = [0.0; 6];
+        assert_eq!(r.unit(), 1.0);
+    }
+
+    #[test]
+    fn a_rect_is_a_closed_subpath_of_its_corners() {
+        let mut r = Recorder::default();
+        r.rect([1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(
+            r.path[0].points,
+            [[1.0, 2.0], [4.0, 2.0], [4.0, 6.0], [1.0, 6.0]]
+        );
+        assert!(r.path[0].closed);
+    }
+
+    #[test]
+    fn an_ellipse_turns_by_its_rotation_from_its_centre() {
+        // A quarter of a 10 x 5 ellipse, turned a quarter: x runs down.
+        let mut r = Recorder::default();
+        r.ellipse([100.0, 50.0, 10.0, 5.0, FRAC_PI_2, 0.0, FRAC_PI_2], false);
+        let p = points(&r);
+        assert_eq!(p.len(), 9);
+        near(p[0], [100.0, 60.0]);
+        let (s, c) = (PI / 4.0).sin_cos();
+        near(p[4], [100.0 - 5.0 * s, 50.0 + 10.0 * c]);
+        near(p[8], [95.0, 50.0]);
+    }
+
+    #[rstest::rstest]
+    // Clockwise from the left, through the top (y is down).
+    #[case::wrapped_forward(PI, 0.0, false, [0.0, -5.0])]
+    // Anticlockwise the long way to the bottom: through the top.
+    #[case::wrapped_back(0.0, FRAC_PI_2, true, [-10.0 * (PI / 4.0).cos(), 5.0 * (-3.0 * PI / 4.0).sin()])]
+    fn an_arc_sweeps_the_way_it_turns(
+        #[case] start: f64,
+        #[case] end: f64,
+        #[case] ccw: bool,
+        #[case] mid: [f64; 2],
+    ) {
+        let mut r = Recorder::default();
+        r.ellipse([0.0, 0.0, 10.0, 5.0, 0.0, start, end], ccw);
+        let p = points(&r);
+        near(p[p.len() / 2], mid);
+    }
+
+    #[rstest::rstest]
+    #[case::clockwise(7.0, false, [0.0, 5.0])]
+    #[case::anticlockwise(-7.0, true, [0.0, -5.0])]
+    fn more_than_a_turn_is_one_whole_turn(
+        #[case] end: f64,
+        #[case] ccw: bool,
+        #[case] quarter: [f64; 2],
+    ) {
+        let mut r = Recorder::default();
+        r.ellipse([0.0, 0.0, 10.0, 5.0, 0.0, 0.0, end], ccw);
+        let p = points(&r);
+        // A whole turn of radius 10 is 63 pixels: sixteen pieces.
+        assert_eq!(p.len(), 17);
+        near(p[4], quarter);
+        near(p[16], [10.0, 0.0]);
+    }
+
+    #[test]
+    fn a_long_arc_is_cut_finer() {
+        let mut r = Recorder::default();
+        r.ellipse([0.0, 0.0, 100.0, 50.0, 0.0, 0.0, TAU], false);
+        // 628 pixels around: 158 pieces.
+        assert_eq!(points(&r).len(), 159);
+    }
+
+    #[test]
+    fn a_bezier_is_cut_by_its_chord() {
+        let mut r = Recorder::default();
+        r.move_to(10.0, 20.0);
+        r.bezier([30.0, 90.0, 80.0, -40.0, 110.0, 60.0]);
+        let p = points(&r);
+        // A chord of hypot(100, 40) = 107.7: 27 pieces after the start.
+        assert_eq!(p.len(), 28);
+        let s = 10.0 / 27.0;
+        let u = 1.0 - s;
+        let at = |a: f64, b: f64, c: f64, d: f64| {
+            u * u * u * a + 3.0 * u * u * s * b + 3.0 * u * s * s * c + s * s * s * d
+        };
+        near(
+            p[10],
+            [at(10.0, 30.0, 80.0, 110.0), at(20.0, 90.0, -40.0, 60.0)],
+        );
+    }
+
+    #[test]
+    fn a_quadratic_is_the_cubic_through_two_thirds_of_its_control() {
+        // From (0, 0) by (48, 100) to (96, 0): halfway, (48, 50).
+        let mut r = Recorder::default();
+        r.move_to(0.0, 0.0);
+        r.quadratic([48.0, 100.0, 96.0, 0.0]);
+        let p = points(&r);
+        assert_eq!(p.len(), 25);
+        near(p[12], [48.0, 50.0]);
+        // ...and from a start that is not the origin.
+        let mut r = Recorder::default();
+        r.move_to(10.0, 20.0);
+        r.quadratic([58.0, 120.0, 106.0, 20.0]);
+        near(points(&r)[12], [58.0, 70.0]);
+    }
+
+    #[test]
+    fn fill_takes_only_the_subpaths_that_enclose_something() {
+        let mut r = Recorder::default();
+        r.move_to(0.0, 0.0);
+        r.line_to(5.0, 0.0);
+        r.move_to(0.0, 0.0);
+        r.line_to(5.0, 0.0);
+        r.line_to(5.0, 5.0);
+        r.fill("red".into(), 0.5, true);
+        assert_eq!(
+            r.ops,
+            [CanvasOp::Fill {
+                color: "red".into(),
+                alpha: 0.5,
+                even_odd: true,
+                polygons: vec![vec![[0.0, 0.0], [5.0, 0.0], [5.0, 5.0]]],
+            }]
+        );
+    }
+
+    #[rstest::rstest]
+    #[case(Arg::Bool(true), true)]
+    #[case(Arg::Bool(false), false)]
+    #[case(Arg::Num(2.0), true)]
+    #[case(Arg::Num(0.0), false)]
+    #[case(Arg::Num(f64::NAN), false)]
+    #[case(Arg::Str("x".into()), true)]
+    #[case(Arg::Str(String::new()), false)]
+    #[case(Arg::Null, false)]
+    #[case(Arg::List(vec![]), true)]
+    fn truthy_is_javascripts(#[case] arg: Arg, #[case] want: bool) {
+        assert_eq!(truthy(Some(&arg)), want);
+    }
+
+    #[rstest::rstest]
+    // (start, end, ccw) -> points, and the angle halfway along.
+    #[case::wraps_forward(FRAC_PI_2, PI / 4.0, false, 15, FRAC_PI_2 + 7.0 * PI / 8.0)]
+    #[case::wraps_back(PI / 4.0, FRAC_PI_2, true, 15, PI / 4.0 - 7.0 * PI / 8.0)]
+    #[case::short_of_a_turn(4.0, 3.0, false, 15, 4.0 + (TAU - 1.0) / 2.0)]
+    #[case::still_clockwise(1.0, 1.0, false, 9, 1.0)]
+    #[case::still_anticlockwise(1.0, 1.0, true, 9, 1.0)]
+    fn an_arc_between_any_two_angles_turns_the_short_way_round_its_direction(
+        #[case] start: f64,
+        #[case] end: f64,
+        #[case] ccw: bool,
+        #[case] count: usize,
+        #[case] mid: f64,
+    ) {
+        let mut r = Recorder::default();
+        r.ellipse([0.0, 0.0, 10.0, 5.0, 0.0, start, end], ccw);
+        let p = points(&r);
+        assert_eq!(p.len(), count);
+        let (s, c) = mid.sin_cos();
+        near(p[count / 2], [10.0 * c, 5.0 * s]);
+    }
+
+    #[test]
+    fn a_scaled_curve_is_cut_by_its_length_on_screen() {
+        let mut r = Recorder {
+            t: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            ..Recorder::default()
+        };
+        // Half a turn of radius 10, drawn twice the size: 63 pixels, 16 pieces.
+        r.ellipse([0.0, 0.0, 10.0, 10.0, 0.0, 0.0, PI], false);
+        assert_eq!(points(&r).len(), 17);
+        // A 48-unit chord drawn as 96 pixels: 24 pieces after the start.
+        let mut r = Recorder {
+            t: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            ..Recorder::default()
+        };
+        r.move_to(0.0, 0.0);
+        r.bezier([10.0, 10.0, 30.0, 10.0, 48.0, 0.0]);
+        assert_eq!(points(&r).len(), 25);
+    }
+}

@@ -233,3 +233,96 @@ fn hydra_sequences_use_array_iterators_and_keep_function_captures() {
     js::on_js_thread(boa_gc::force_collect);
     assert_eq!(result.meta.hydra_params[1].value(2.0, 0.0), Some(7.0));
 }
+
+#[test]
+fn array_offsets_wrap_and_the_analyser_smooths_and_gates_beats() {
+    check(
+        r#"
+        initHydra({detectAudio: true});
+        const offset = [1, 2].offset(1.75)._offset;
+        a.setBins(1); a.setScale(1); a.setSmooth(0.5); a.setCutoff(0);
+        let frame = 0;
+        Hydra._loudness = () => ({frame: ++frame, specific: [4]});
+        a.tick(); a.tick();
+        // Half the new level and half the last: 2, then 3.
+        const smoothed = a.bins[0];
+        let beats = 0; a.onBeat = () => beats++;
+        const beatAt = (cutoff, threshold, level) => {
+            a.beat._cutoff = cutoff; a.beat.threshold = threshold; a.detectBeat(level);
+        };
+        beatAt(0.6, 0.5, 0.6); beatAt(0.1, 0.5, 0.5); beatAt(0.1, 0.9, 0.5);
+        const none = beats;
+        beatAt(0.1, 0.2, 0.5);
+        offset === 0.75 && smoothed === 3 && none === 0 && beats === 1
+    "#,
+    );
+}
+
+#[test]
+fn a_camera_index_that_is_not_a_number_is_camera_zero() {
+    check(
+        r#"
+        initHydra();
+        let got;
+        Hydra._image = (...args) => { got = args; };
+        s0.initCam('front');
+        got[0] === 0 && got[1] === 'camera:0'
+    "#,
+    );
+}
+
+#[test]
+fn src_reads_an_output_by_its_index_and_passes_anything_else_on() {
+    let _lock = crate::EVAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    js::on_js_thread(|| {
+        let (mut ctx, _) = crate::prepare();
+        let first = |ctx: &mut js::Context, src: &str| match js::run(ctx, src) {
+            Ok(Arg::Hydra(chain)) => chain.transforms[0].args.first().cloned(),
+            Ok(_) => panic!("{src}: not a chain"),
+            Err(e) => panic!("{src}: {e}"),
+        };
+        js::run(&mut ctx, "initHydra()").unwrap();
+        use crate::hydra::Arg as H;
+        assert_eq!(first(&mut ctx, "src(s1)"), Some(H::Number(5.0)));
+        assert!(matches!(
+            first(&mut ctx, "src(() => 1)"),
+            Some(H::Dynamic(_))
+        ));
+    });
+}
+
+#[test]
+fn the_hydra_scene_is_a_background_widget_and_lends_its_pictures() {
+    let result = crate::eval_result(
+        "await initHydra()\nosc().out()\ns0.initImage('pic.png')\nHydra.render(NaN)\ns(\"bd\").hydra()",
+    )
+    .unwrap();
+    let scene = result.meta.hydra.expect("a scene");
+    assert_eq!(scene.id, "hydra-background");
+    // A render index that is not a number shows every output.
+    assert_eq!(
+        scene.options["render"],
+        crate::WidgetOption::String("all".into())
+    );
+    let picture = crate::WidgetOption::String("pic.png".into());
+    assert_eq!(scene.options["s0"], picture);
+    let inline = result
+        .meta
+        .widgets
+        .iter()
+        .find(|w| w.widget_type == "_hydra");
+    assert_eq!(
+        inline.expect("an inline widget").options.get("s0"),
+        Some(&picture)
+    );
+}
+
+#[test]
+fn a_hydra_sequence_eases_by_name() {
+    let result = crate::eval_result(
+        "await initHydra()\nosc([0, 1].smooth(1).ease('easeInQuad')).out()\nsilence",
+    )
+    .unwrap();
+    // Halfway between 0 and 1, eased in: a quarter.
+    assert_eq!(result.meta.hydra_params[0].value(2.0, 0.0), Some(0.25));
+}

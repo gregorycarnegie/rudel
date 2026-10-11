@@ -452,7 +452,6 @@ impl Voice {
             let lfo = self.pw_lfo.as_mut().map_or(0.0, |l| l.tick_with(&inputs));
             let width = (self.params.pw as f64 + self.mods.get(ModTarget::Pulsewidth) as f64 + lfo)
                 .max(0.0);
-            self.phase = wrap01(self.phase + inc);
             return self.pulse.next((inc * sr) as f64, width, sr as f64);
         }
         let mut s = if let Some(table) = &self.params.additive {

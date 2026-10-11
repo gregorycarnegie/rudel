@@ -536,3 +536,85 @@ fn a_reverb_config_prints_its_impulse_length_not_its_samples() {
     assert!(text.contains("size: 2.0"), "{text}");
     assert!(text.contains("ir: None"), "{text}");
 }
+
+// --- the delay line ----------------------------------------------------------
+
+/// An impulse through a 10-sample, half-feedback delay at 1kHz, `time` and
+/// `feedback` offsets added every frame.
+fn echoes(time: f32, feedback: f32, n: usize) -> Vec<(f32, f32)> {
+    let mut d = StereoDelay::new(
+        1000.0,
+        DelayConfig {
+            time: 0.01,
+            feedback: 0.5,
+        },
+    );
+    (0..n)
+        .map(|i| {
+            let x = if i == 0 { (1.0, 0.5) } else { (0.0, 0.0) };
+            d.process_with(x.0, x.1, time, feedback)
+        })
+        .collect()
+}
+
+fn nonzero(out: &[(f32, f32)]) -> Vec<(usize, (f32, f32))> {
+    out.iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, s)| *s != (0.0, 0.0))
+        .collect()
+}
+
+#[test]
+fn the_delay_repeats_each_channel_at_its_feedback() {
+    let mut d = StereoDelay::new(
+        1000.0,
+        DelayConfig {
+            time: 0.01,
+            feedback: 0.5,
+        },
+    );
+    let out: Vec<(f32, f32)> = (0..31)
+        .map(|i| {
+            if i == 0 {
+                d.process(1.0, 0.5)
+            } else {
+                d.process(0.0, 0.0)
+            }
+        })
+        .collect();
+    assert_eq!(
+        nonzero(&out),
+        [(10, (1.0, 0.5)), (20, (0.5, 0.25)), (30, (0.25, 0.125))]
+    );
+    assert_eq!(out, echoes(0.0, 0.0, 31));
+}
+
+#[test]
+fn delay_modulators_add_to_the_time_and_the_feedback() {
+    // 5ms more is 15 samples; a quarter more feedback is 0.75 per repeat.
+    assert_eq!(
+        nonzero(&echoes(0.005, 0.0, 31)),
+        [(15, (1.0, 0.5)), (30, (0.5, 0.25))]
+    );
+    assert_eq!(
+        nonzero(&echoes(0.0, 0.25, 21)),
+        [(10, (1.0, 0.5)), (20, (0.75, 0.375))]
+    );
+}
+
+#[test]
+fn a_pan_modulator_moves_a_bus_voice() {
+    let render = |pan: f32, mods: &[ModSpec]| {
+        let params = BusParams {
+            pan,
+            ..BusParams::from_controls(&ValueMap::new(), 1.0)
+        };
+        let mut v = BusVoice::with_mods(params, SR, mods);
+        v.set_bus_input(0, &[0.5; 64], &[-0.25; 64]);
+        (0..64).map(|_| v.tick()).collect::<Vec<_>>()
+    };
+    let moved = render(0.25, &[ModSpec::constant(ModTarget::Pan, 0.5)]);
+    assert!(moved.iter().any(|s| s.0 != 0.0));
+    assert_eq!(moved, render(0.5, &[]));
+}

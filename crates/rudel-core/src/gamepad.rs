@@ -146,9 +146,6 @@ impl SequenceDetector {
             self.states.resize(index + 1, 0.0);
         }
         if value == 1.0 && self.states[index] == 0.0 {
-            if now - self.last_input > self.window_ms {
-                self.sequence.clear();
-            }
             let name = BUTTON_MAP
                 .iter()
                 .find(|(_, i)| *i == index)
@@ -451,5 +448,77 @@ mod tests {
         assert_eq!(parse_int(" 3x"), Some(3));
         assert_eq!(parse_int("-4"), Some(-4));
         assert_eq!(parse_int("a"), None);
+    }
+
+    #[test]
+    fn buttons_are_found_by_name() {
+        assert_eq!(button_index("start"), Some(9));
+        assert_eq!(button_index("nope"), None);
+    }
+
+    #[test]
+    fn a_press_leaves_the_sequence_two_seconds_later() {
+        let _l = test_lock();
+        let mut g = Gamepad::new(4);
+        let press = |g: &Gamepad, button: usize| {
+            set_gamepad(4, pad(&[0.0; 4], &[button]));
+            g.poll();
+            set_gamepad(4, pad(&[0.0; 4], &[]));
+            g.poll();
+        };
+        press(&g, 0);
+        // Three seconds on, by the pad's own clock.
+        g.started -= std::time::Duration::from_secs(3);
+        press(&g, 1);
+        let sequence: Vec<String> = g
+            .inner
+            .lock()
+            .unwrap()
+            .detector
+            .sequence
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        assert_eq!(sequence, ["b"], "a went out of the 2 s window");
+        remove_gamepad(4);
+    }
+
+    #[test]
+    fn a_removed_pad_frees_its_slot_for_the_next() {
+        let _l = test_lock();
+        for i in 0..4 {
+            set_gamepad(i, pad(&[0.0; 4], &[]));
+        }
+        remove_gamepad(2);
+        assert_eq!(read_pad(2), None);
+        assert_eq!(free_gamepad_slot(), 2);
+        for i in 0..4 {
+            remove_gamepad(i);
+        }
+    }
+
+    #[test]
+    fn clearing_the_states_forgets_every_toggle() {
+        let _l = test_lock();
+        let g = Gamepad::new(5);
+        set_gamepad(5, pad(&[0.0; 4], &[0]));
+        at(&g.toggle(0));
+        assert!(!gamepad_states().is_empty());
+        clear_gamepad_states();
+        assert!(gamepad_states().is_empty());
+        remove_gamepad(5);
+    }
+
+    #[test]
+    fn only_gamepad_zero_adopts_another_slot() {
+        let _l = test_lock();
+        for i in 0..8 {
+            remove_gamepad(i);
+        }
+        set_gamepad(6, pad(&[0.0; 4], &[1]));
+        assert_eq!(at(&Gamepad::new(0).button(1)), Value::F64(1.0));
+        assert_eq!(at(&Gamepad::new(7).button(1)), Value::F64(0.0));
+        assert!(gamepad_requested());
+        remove_gamepad(6);
     }
 }

@@ -171,19 +171,20 @@ impl WaveTables {
 
     /// `DoInterpolation`: read both tables at `phase`, then blend them.
     fn sample_at(&self, phase: f32, pitch: &Pitch) -> f32 {
-        let (higher, lower) = (&self.ranges[pitch.higher], &self.ranges[pitch.lower]);
+        let higher = &self.ranges[pitch.higher];
         let mask = self.size - 1;
         let phase = if (0.0..1.0).contains(&phase) {
             phase
         } else {
             phase.rem_euclid(1.0)
         };
-        let factor = pitch.factor;
         if pitch.incr >= INTERPOLATE_2_POINT {
+            let factor = pitch.factor;
             let index = phase * self.size as f32;
             let i0 = index as usize;
             let t = index - i0 as f32;
             let (i0, i1) = (i0 & mask, (i0 + 1) & mask);
+            let lower = &self.ranges[pitch.lower];
             let h = (1.0 - t) * higher[i0] + t * higher[i1];
             let l = (1.0 - t) * lower[i0] + t * lower[i1];
             return (1.0 - factor) * h + factor * l;
@@ -204,7 +205,9 @@ impl WaveTables {
                     + t * (t2 - 1.0) * (t + 2.0) / 24.0 * at(2)
             }
         };
-        ((1.0 - factor) * read(higher) as f32) + factor * read(lower) as f32
+        // This slow an oscillator is below the first range (its pitch range
+        // clamps to 0), so the blend is all the first table.
+        read(higher) as f32
     }
 }
 

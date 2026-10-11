@@ -663,3 +663,11 @@ fn a_wt_sound_in_a_sample_map_loads_as_a_wavetable() {
     assert!(bank.contains("wt_test"), "still a sound it can play");
     assert_eq!(bank.names(), ["wt_test"]);
 }
+
+#[test]
+fn a_local_file_is_its_own_cached_copy() {
+    assert_eq!(
+        crate::samples::fetch_cached_file("some/dir/take.wav"),
+        Ok(std::path::PathBuf::from("some/dir/take.wav"))
+    );
+}

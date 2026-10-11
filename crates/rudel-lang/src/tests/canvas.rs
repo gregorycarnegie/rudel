@@ -173,3 +173,153 @@ fn curves_are_flattened_through_the_transform() {
     near(12, [102.5, 10.0]);
     near(16, [120.0, 0.0]);
 }
+
+fn near(got: [f32; 2], want: [f32; 2]) {
+    assert!(
+        (got[0] - want[0]).abs() < 1e-3 && (got[1] - want[1]).abs() < 1e-3,
+        "{got:?} against {want:?}"
+    );
+}
+
+/// The ops of the first frame of a script, drawn on 1280 x 720.
+fn first_frame(src: &str) -> Vec<CanvasOp> {
+    let (d, _alive) = driver(src);
+    d.frame(1.0, 16.0, 1280, 720, &[]).expect("a frame")
+}
+
+fn said(op: &CanvasOp) -> &str {
+    match op {
+        CanvasOp::Text { text, .. } => text,
+        other => panic!("not text: {other:?}"),
+    }
+}
+
+fn polygon(op: &CanvasOp) -> &[[f32; 2]] {
+    match op {
+        CanvasOp::Fill { polygons, .. } => &polygons[0],
+        other => panic!("not a fill: {other:?}"),
+    }
+}
+
+#[test]
+fn a_matrix_object_sets_the_transform_and_rotate_turns_it() {
+    let ops = first_frame(
+        "requestAnimationFrame(() => {\n  const c = getDrawContext()\n  \
+         c.setTransform({ a: 2, b: 0, c: 0, d: 2, e: 10, f: 20 }); c.fillRect(0, 0, 1, 1)\n  \
+         c.resetTransform(); c.rotate(Math.PI / 2); c.fillRect(0, 0, 2, 1)\n  \
+         c.resetTransform(); c.scale(3); c.font = '10px sans'; c.fillText('a', 1, 1)\n})\ns(\"bd\")",
+    );
+    assert_eq!(
+        polygon(&ops[0]),
+        [[10.0, 20.0], [12.0, 20.0], [12.0, 22.0], [10.0, 22.0]]
+    );
+    // A quarter turn clockwise (y down): x runs down, y runs left.
+    let turned = polygon(&ops[1]);
+    for (got, want) in turned
+        .iter()
+        .zip([[0.0, 0.0], [0.0, 2.0], [-1.0, 2.0], [-1.0, 0.0]])
+    {
+        near(*got, want);
+    }
+    let CanvasOp::Text { x, y, size, .. } = &ops[2] else {
+        panic!("{ops:?}");
+    };
+    assert_eq!((*x, *y, *size), (3.0, 3.0, 30.0));
+}
+
+#[test]
+fn styles_fill_rules_and_the_methods_that_draw_nothing() {
+    let ops = first_frame(
+        "requestAnimationFrame(() => {\n  const c = getDrawContext()\n  \
+         const g = c.createLinearGradient(0, 0, 1, 1); g.addColorStop(0, 'blue')\n  \
+         c.fillStyle = g; c.fillRect(0, 0, 1, 1)\n  \
+         c.drawImage(); c.putImageData(); c.setLineDash([2]); c.clip()\n  \
+         c.fillStyle = 'red'; c.beginPath(); c.rect(0, 0, 4, 4)\n  \
+         c.fill(null, 'evenodd'); c.fill('evenodd'); c.fill({}, 'nonzero')\n  \
+         c.fillText([c.fill.length, c.createImageData.length, c.fillText.length].join(), 0, 0)\n})\ns(\"bd\")",
+    );
+    let fills: Vec<(&str, bool)> = ops
+        .iter()
+        .filter_map(|op| match op {
+            CanvasOp::Fill {
+                color, even_odd, ..
+            } => Some((color.as_str(), *even_odd)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fills,
+        [
+            ("blue", false),
+            ("red", true),
+            ("red", true),
+            ("red", false)
+        ]
+    );
+    // The declared arities scripts can read.
+    assert_eq!(said(ops.last().unwrap()), "1,2,3");
+}
+
+#[test]
+fn frame_ids_are_distinct_and_events_can_be_prevented() {
+    let (d, _alive) = driver(
+        "let seen = ''\nrequestAnimationFrame(() => { seen += 'a' })\n\
+         const b = requestAnimationFrame(() => { seen += 'b' })\ncancelAnimationFrame(b)\n\
+         document.onmousedown = e => { e.preventDefault(); e.stopPropagation(); seen += 'd' }\n\
+         requestAnimationFrame(() => getDrawContext().fillText(seen, 0, 0))\ns(\"bd\")",
+    );
+    let down = CanvasEvent {
+        kind: "mousedown",
+        ..CanvasEvent::default()
+    };
+    let ops = d.frame(0.0, 0.0, 100, 100, &[down]).expect("a frame");
+    assert_eq!(said(&ops[0]), "da");
+}
+
+#[test]
+fn on_paint_sees_two_cycles_either_side_and_haps_answer_where_they_are() {
+    let ops = first_frame(
+        "s(\"bd\").onPaint((ctx, time, haps) => {\n  \
+         const h = haps.find(h => Number(h.whole.begin) === 0)\n  \
+         ctx.fillText([haps.length, h.isInFuture(0), h.isInFuture(-0.1), h.isActive(1.1), \
+         h.isActive(0.5)].join(), 0, 0)\n})",
+    );
+    assert_eq!(said(&ops[0]), "4,false,true,false,true");
+}
+
+#[test]
+fn animate_places_a_shape_by_radius_and_angle() {
+    // From the middle of the room left by a 128 x 72 shape, (576, 324), half
+    // way out at an eighth of a turn.
+    let ops = first_frame(
+        "pure({ r: 0.5, angle: 0.125, w: 0.1, h: 0.1, s: 'rect', fill: 'red' }).animate({ smear: 0 })",
+    );
+    let (s, c) = std::f32::consts::FRAC_PI_4.sin_cos();
+    near(
+        polygon(&ops[1])[0],
+        [576.0 + c * 0.5 * 576.0, 324.0 + s * 0.5 * 324.0],
+    );
+}
+
+#[test]
+fn animate_draws_an_ellipse_inside_its_box() {
+    // A 128 x 144 box at (576, 288): the ellipse's right end first, all the
+    // way round back to it.
+    let ops =
+        first_frame("x(0.5).y(0.5).w(0.1).h(0.2).s('ellipse').fill('red').animate({ smear: 0 })");
+    let points = polygon(&ops[1]);
+    near(points[0], [704.0, 360.0]);
+    near(*points.last().unwrap(), [704.0, 360.0]);
+    let fold = |f: fn(f32, f32) -> f32, axis: usize, start: f32| {
+        points.iter().map(|p| p[axis]).fold(start, f)
+    };
+    assert!((fold(f32::min, 0, f32::MAX) - 576.0).abs() < 0.1);
+    assert!((fold(f32::max, 1, f32::MIN) - 432.0).abs() < 0.1);
+}
+
+#[test]
+fn a_driver_is_equal_to_no_other() {
+    let (d, _alive) = driver("requestAnimationFrame(() => {})\ns(\"bd\")");
+    assert_ne!(d, d);
+    assert_eq!(format!("{d:?}"), "CanvasDriver");
+}

@@ -117,10 +117,11 @@ mod tests {
             |a| match a {
                 Axis::LeftStickY => 1.0,
                 Axis::RightStickX => -0.5,
+                Axis::RightStickY => 0.25,
                 _ => 0.0,
             },
         );
-        assert_eq!(state.axes, [0.0, -1.0, -0.5, 0.0], "stick up reads as -1");
+        assert_eq!(state.axes, [0.0, -1.0, -0.5, -0.25], "stick up reads as -1");
         assert_eq!(state.buttons.len(), 17);
         assert_eq!(state.buttons[0], 1.0, "a");
         assert_eq!(state.buttons[6], 0.5, "lt is analog");

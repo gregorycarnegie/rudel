@@ -70,6 +70,7 @@ winresource = "0.1.31"
 egui_kittest = { version = "0.36.2", features = ["eframe", "wgpu"] }
 tempfile = "3.27.0"
 rstest.workspace = true
+serde_json.workspace = true
 
 # hydra's `s0.initScreen()`: screen capture. Not on Linux, where xcap needs
 # PipeWire, GBM and DRM development libraries to build; `initScreen` reads as

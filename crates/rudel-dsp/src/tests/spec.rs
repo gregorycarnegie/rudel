@@ -124,3 +124,67 @@ fn an_fx_stage_reads_its_effects_filters_and_length_from_the_controls() {
     assert_eq!(stage.filters.lp.freq, Some(800.0));
     assert_eq!(stage.duration, 2.5);
 }
+
+#[test]
+fn an_fx_stage_gain_is_gain_times_velocity() {
+    let map: ValueMap = [
+        ("gain".to_string(), Value::F64(0.5)),
+        ("velocity".to_string(), Value::F64(0.5)),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(FxStage::from_controls(&map, 1.0).gain, 0.25);
+}
+
+#[test]
+fn set_filter_lfos_gives_the_voice_its_cutoff_lfo() {
+    let map: ValueMap = [
+        ("cutoff".to_string(), Value::F64(800.0)),
+        ("lprate".to_string(), Value::F64(2.0)),
+    ]
+    .into_iter()
+    .collect();
+    let mut spec = VoiceSpec::Synth(Box::new(VoiceParams::from_controls(&map, 1.0)));
+    spec.set_filter_lfos(&map, 1.0, 0.0);
+    let VoiceSpec::Synth(p) = spec else {
+        unreachable!()
+    };
+    assert_eq!(p.lp.lfo.expect("lprate starts it").frequency, 2.0);
+}
+
+fn chained(spec: VoiceSpec, chain: Vec<FxStage>, mods: ModSpecs) -> Vec<(f32, f32)> {
+    let mut v = spec.into_chained_voice(44100.0, chain, PostFx::default(), &mods);
+    (0..512).map(|_| v.tick()).collect()
+}
+
+#[test]
+fn a_stage_modulator_wraps_the_stage_in_post_fx_even_with_none_of_its_own() {
+    // A stage's postgain is 1 until a modulator moves it.
+    let stage = || FxStage {
+        gain: 1.0,
+        ..FxStage::default()
+    };
+    let half = ModSpec::constant(ModTarget::Postgain, -0.5);
+    let mods = ModSpecs {
+        stages: vec![(vec![], vec![half], vec![])],
+        ..ModSpecs::default()
+    };
+    let halved = chained(synth(), vec![stage()], mods);
+    let plain = chained(synth(), vec![stage()], ModSpecs::default());
+    assert!(plain.iter().any(|s| s.0 != 0.0));
+    for (h, p) in halved.iter().zip(&plain) {
+        assert!((h.0 - p.0 * 0.5).abs() < 1e-6 && (h.1 - p.1 * 0.5).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn only_a_detune_modulator_replays_a_drum_at_a_rate() {
+    // Anything else leaves the drum on its own clock, sample for sample.
+    let drum = || VoiceSpec::Drum(DrumParams::new(DrumKind::Sd));
+    let mods = ModSpecs {
+        voice: vec![ModSpec::constant(ModTarget::Gain, 0.0)],
+        ..ModSpecs::default()
+    };
+    let plain = chained(drum(), vec![], ModSpecs::default());
+    assert_eq!(chained(drum(), vec![], mods), plain);
+}
