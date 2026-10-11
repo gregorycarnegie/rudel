@@ -650,11 +650,13 @@ impl Mixer {
                         m.djf[i] += djf;
                     }
                     gain -= step;
-                }
-                if let Some(choke) = &mut av.choke {
-                    if gain <= 0.0 {
+                    // Faded out: stop here, as the unmodulated path does, rather
+                    // than mixing the rest of the block at a negative gain.
+                    if av.choke.is_some() && gain <= 0.0 {
                         return false;
                     }
+                }
+                if let Some(choke) = &mut av.choke {
                     choke.gain = gain;
                 }
             } else if let Some(choke) = &mut av.choke {
