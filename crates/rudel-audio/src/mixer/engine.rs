@@ -702,10 +702,14 @@ mod tests {
             !pull_until_heard(&out, Duration::from_millis(100)),
             "silence before a pattern"
         );
-        engine.set_pattern(pattern(r#"note("c4").s("sine")"#));
+        // Eight onsets a cycle, so any scheduler pass that runs at all has one
+        // in its window: a single onset every two seconds could fall between
+        // passes on a starved CI runner (macOS) and leave nothing to hear.
+        engine.set_pattern(pattern(r#"note("c4*8").s("sine")"#));
         assert!(
             pull_until_heard(&out, Duration::from_secs(5)),
-            "the pattern should play"
+            "the pattern should play; the playhead reached cycle {}",
+            engine.position_cycles()
         );
     }
 
