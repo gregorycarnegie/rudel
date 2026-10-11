@@ -633,7 +633,10 @@ mod tests {
             if peak(&out.pull(480)) > 1e-4 {
                 return true;
             }
-            std::thread::sleep(Duration::from_millis(5));
+            // In real time: the scheduler wakes on the wall clock and plans
+            // 0.1 s of device time ahead, so a device pulled faster than that
+            // can outrun a late wake-up (macOS CI) and skip the note.
+            std::thread::sleep(Duration::from_secs_f64(480.0 / f64::from(SR)));
         }
         false
     }
