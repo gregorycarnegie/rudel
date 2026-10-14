@@ -33,17 +33,17 @@ jobs:
         run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
       - name: Build targets
         id: build
-        run: cargo +nightly fuzz build
+        run: cargo +nightly fuzz build --target x86_64-unknown-linux-gnu
       - name: Fuzz mini-notation
         run: |
           mkdir -p fuzz/corpus/mini
-          cargo +nightly fuzz run mini fuzz/corpus/mini fuzz/seeds/mini -- -max_total_time=60 -max_len=4096
+          cargo +nightly fuzz run --target x86_64-unknown-linux-gnu mini fuzz/corpus/mini fuzz/seeds/mini -- -max_total_time=60 -max_len=4096
       - name: Fuzz bytebeat
         # Still fuzz bytebeat when mini finds a crash, but not after a failed build.
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           mkdir -p fuzz/corpus/bytebeat
-          cargo +nightly fuzz run bytebeat fuzz/corpus/bytebeat fuzz/seeds/bytebeat -- -max_total_time=60 -max_len=4096
+          cargo +nightly fuzz run --target x86_64-unknown-linux-gnu bytebeat fuzz/corpus/bytebeat fuzz/seeds/bytebeat -- -max_total_time=60 -max_len=4096
       - uses: actions/upload-artifact@v4
         if: always()
         with:
