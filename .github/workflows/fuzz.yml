@@ -1,0 +1,54 @@
+name: Parser fuzzing
+
+on:
+  pull_request:
+    paths:
+      - 'fuzz/**'
+      - 'crates/rudel-mini/**'
+      - 'crates/rudel-dsp/src/bytebeat.rs'
+      - '.github/workflows/fuzz.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Check target formatting
+        run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+      - name: Build targets
+        id: build
+        run: cargo +nightly fuzz build
+      - name: Fuzz mini-notation
+        run: |
+          mkdir -p fuzz/corpus/mini
+          cargo +nightly fuzz run mini fuzz/corpus/mini fuzz/seeds/mini -- -max_total_time=60 -max_len=4096
+      - name: Fuzz bytebeat
+        # Still fuzz bytebeat when mini finds a crash, but not after a failed build.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          mkdir -p fuzz/corpus/bytebeat
+          cargo +nightly fuzz run bytebeat fuzz/corpus/bytebeat fuzz/seeds/bytebeat -- -max_total_time=60 -max_len=4096
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-inputs
+          path: |
+            fuzz/artifacts
+            fuzz/corpus
+          if-no-files-found: ignore

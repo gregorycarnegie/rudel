@@ -1,0 +1,32 @@
+[package]
+name = "rudel-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "AGPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+rudel-mini = { path = "../crates/rudel-mini" }
+rudel-dsp = { path = "../crates/rudel-dsp" }
+
+# Keep nightly/libFuzzer dependencies out of normal builds and the MSRV check.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "mini"
+path = "fuzz_targets/mini.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bytebeat"
+path = "fuzz_targets/bytebeat.rs"
+test = false
+doc = false
+bench = false

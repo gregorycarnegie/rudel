@@ -12,6 +12,7 @@ rudel-core.workspace = true
 wide.workspace = true
 
 [dev-dependencies]
+googletest.workspace = true
 libtest-mimic.workspace = true
 proptest.workspace = true
 rstest.workspace = true
