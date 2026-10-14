@@ -20,3 +20,8 @@ runs:
     - if: steps.native.outputs.cache-hit != 'true'
       shell: bash
       run: python tools/build-ffmpeg.py
+    # Only target/ffmpeg and the sources archive are used after the build. The
+    # vcpkg checkout and build tree are gigabytes that rust-cache would save,
+    # and its cleanup logs an ENOENT error for every `tests` folder inside.
+    - shell: bash
+      run: rm -rf target/ffmpeg-vcpkg target/ffmpeg-triplets
