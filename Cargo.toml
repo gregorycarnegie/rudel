@@ -34,6 +34,7 @@ num-integer = "0.1.47"
 num-traits = "0.2.19"
 phf = { version = "0.14.0", features = ["macros"] }
 proptest = "1.12.0"
+googletest = { version = "0.14.3", default-features = false }
 # Named table cases (`#[case]`) and fixtures: each case is its own test, so
 # one failing row neither hides the rows after it nor goes unnamed.
 rstest = { version = "0.27.0", default-features = false }
@@ -51,7 +52,7 @@ naga = { version = "30.0.1", features = ["wgsl-in"] }
 # `float_roundtrip`: serde_json's default float parser can land one ulp off the
 # correctly-rounded value, which is enough to flip a golden comparison against
 # JS-produced numbers (it did, on the bytebeat oracle).
-serde_json = { version = "1.0.152", features = ["float_roundtrip", "raw_value"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip", "raw_value"] }
 
 # Release codegen plus line tables, so a sampling profiler resolves frames to
 # source. Separate from `release` so normal builds stay small.

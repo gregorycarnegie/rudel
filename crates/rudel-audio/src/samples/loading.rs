@@ -367,11 +367,15 @@ pub(super) fn cache_path(url: &str) -> Option<PathBuf> {
     // bump just re-downloads the cache once.
     let mut hasher = std::hash::DefaultHasher::new();
     url.hash(&mut hasher);
-    let dir = std::env::var_os("LOCALAPPDATA")
+    // Tests stay out of the user's cache, and a fresh process never reads an
+    // earlier run's downloads.
+    #[cfg(test)]
+    let root = Some(std::env::temp_dir().join(format!("rudel-test-{}", std::process::id())));
+    #[cfg(not(test))]
+    let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?
-        .join("rudel")
-        .join("sample-cache");
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")));
+    let dir = root?.join("rudel").join("sample-cache");
     Some(dir.join(format!("{:016x}", hasher.finish())))
 }
 

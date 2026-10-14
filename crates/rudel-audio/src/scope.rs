@@ -105,6 +105,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn latest_pads_unwritten_samples_and_keeps_stereo_mono() {
+        let tap = ScopeTap::new();
+        let mut out = [99.0; 5];
+        tap.latest(&mut out);
+        assert_eq!(out, [0.0; 5]);
+        tap.write_frames(&[(1.0, -1.0), (0.5, 1.0), (-0.5, -1.0)]);
+        tap.latest(&mut out);
+        assert_eq!(out, [0.0, 0.0, 0.0, 0.75, -0.75]);
+        let mut last = [99.0; 2];
+        tap.latest(&mut last);
+        assert_eq!(last, [0.75, -0.75]);
+    }
+
+    #[test]
+    fn latest_wraps_and_pads_requests_larger_than_the_ring() {
+        let tap = ScopeTap::new();
+        let count = SCOPE_TAP_LEN * 2 + 3;
+        tap.write((0..count).map(|i| i as f32));
+        let mut out = vec![99.0; SCOPE_TAP_LEN + 2];
+        tap.latest(&mut out);
+        assert_eq!(&out[..2], &[0.0, 0.0]);
+        let expected: Vec<f32> = (count - SCOPE_TAP_LEN..count).map(|i| i as f32).collect();
+        assert_eq!(&out[2..], expected);
+        // Empty reads and writes must leave the cursor and stored data alone.
+        tap.latest(&mut []);
+        tap.write(std::iter::empty());
+        let mut last = [0.0; 4];
+        tap.latest(&mut last);
+        assert_eq!(last, std::array::from_fn(|i| (count - 4 + i) as f32));
+    }
+
+    #[test]
     fn a_removed_tap_is_gone_and_asking_again_makes_a_new_one() {
         let taps = ScopeTaps::new();
         let first = taps.get_or_create("w1");

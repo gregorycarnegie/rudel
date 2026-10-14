@@ -1,0 +1,1 @@
+t ? sin(t*PI/128)*127+127 : pow($input, 2)+time

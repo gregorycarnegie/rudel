@@ -10,3 +10,8 @@
 # `samply record` output.
 /*.json.gz
 /profile.kernel.etl
+
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/fuzz/coverage

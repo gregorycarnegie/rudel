@@ -22,7 +22,13 @@ impl Fft {
         assert!(size.is_power_of_two());
         let bits = size.trailing_zeros();
         let rev = (0..size)
-            .map(|i| (i as u32).reverse_bits() >> (32 - bits))
+            // A one-sample transform has no index bits to reverse.
+            .map(|i| {
+                (i as u32)
+                    .reverse_bits()
+                    .checked_shr(32 - bits)
+                    .unwrap_or(0)
+            })
             .collect();
         let (cos, sin) = (0..size / 2)
             .map(|k| {
@@ -89,6 +95,7 @@ impl Fft {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use googletest::prelude::*;
     use std::f32::consts::TAU;
 
     #[test]
@@ -105,7 +112,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[gtest]
     fn a_complex_signal_round_trips_in_both_parts() {
         // The roundtrip above starts from a real signal and only checks the
         // real part, so the inverse's conjugation and its `1/n` scaling of the
@@ -117,20 +124,37 @@ mod tests {
         let (mut re, mut im) = (re0.clone(), im0.clone());
         fft.forward(&mut re, &mut im);
         fft.inverse(&mut re, &mut im);
-        for i in 0..n {
-            assert!(
-                (re[i] - re0[i]).abs() < 1e-4,
-                "re[{i}]: {} != {}",
-                re[i],
-                re0[i]
-            );
-            assert!(
-                (im[i] - im0[i]).abs() < 1e-4,
-                "im[{i}]: {} != {}",
-                im[i],
-                im0[i]
-            );
-        }
+        expect_that!(re, pointwise!(|want| near(want, 1e-4), re0));
+        expect_that!(im, pointwise!(|want| near(want, 1e-4), im0));
+    }
+
+    #[rstest::rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(4)]
+    #[case(8)]
+    #[case(32)]
+    fn complex_spectrum_matches_a_direct_dft(#[case] n: usize) {
+        // A round trip alone can hide matching mistakes in forward and inverse.
+        let input: Vec<(f64, f64)> = (0..n)
+            .map(|i| ((i as f64 * 0.7).sin(), (i as f64 * 0.31).cos()))
+            .collect();
+        let expected: Vec<(f32, f32)> = (0..n)
+            .map(|k| {
+                let (mut re, mut im) = (0.0, 0.0);
+                for (j, &(r, i)) in input.iter().enumerate() {
+                    let angle = -std::f64::consts::TAU * (j * k) as f64 / n as f64;
+                    re += r * angle.cos() - i * angle.sin();
+                    im += r * angle.sin() + i * angle.cos();
+                }
+                (re as f32, im as f32)
+            })
+            .collect();
+        let mut re: Vec<f32> = input.iter().map(|x| x.0 as f32).collect();
+        let mut im: Vec<f32> = input.iter().map(|x| x.1 as f32).collect();
+        Fft::new(n).forward(&mut re, &mut im);
+        assert_that!(re, pointwise!(|x: &(f32, f32)| near(x.0, 1e-4), &expected));
+        assert_that!(im, pointwise!(|x: &(f32, f32)| near(x.1, 1e-4), &expected));
     }
 
     #[test]

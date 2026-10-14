@@ -1,7 +1,7 @@
 # cargo-nextest configuration. See https://nexte.st/docs/configuration/
 #
 # The slowest test in the workspace takes about 40 s in a debug build (the
-# modulation-target table, which renders every target three ways). A test that takes more than twelve times that is not slow,
+# modulation-target table, which renders every target three ways). A test that takes more than three times that is not slow,
 # it is stuck — most likely waiting on the one JavaScript thread that every
 # evaluation and every script callback goes through — and without a limit a
 # stuck test holds CI until the runner's own six-hour timeout.
@@ -13,3 +13,8 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Report every failure in one run rather than stopping at the first.
 fail-fast = false
+
+# Instrumentation slows DSP rendering; keep a separate budget for coverage.
+[profile.coverage]
+inherits = "ci"
+slow-timeout = { period = "60s", terminate-after = 10 }

@@ -35,7 +35,7 @@ jobs:
         # CoreMIDI, CoreAudio), so it is tested rather than only built.
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # System libraries for the GUI (`eframe`/egui) and audio (`cpal`/ALSA)
       # crates so the whole workspace builds on Linux.
@@ -76,6 +76,13 @@ jobs:
 
       - uses: taiki-e/install-action@nextest
 
+      - name: Install coverage tools
+        if: runner.os == 'Linux'
+        run: rustup component add llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+        if: runner.os == 'Linux'
+
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -85,7 +92,25 @@ jobs:
       # fails here instead of hiding behind a shared process. The workspace has
       # no doctests, so nextest not running them costs nothing.
       - name: Test
+        if: runner.os != 'Linux'
         run: cargo nextest run --workspace --profile ci
+
+      - name: Test with coverage
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p target/coverage
+          cargo llvm-cov nextest --workspace --profile coverage --lcov --output-path target/coverage/lcov.info
+
+      - name: Coverage HTML
+        if: runner.os == 'Linux'
+        run: cargo llvm-cov report --html --output-dir target/coverage
+
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: coverage
+          path: target/coverage
+          if-no-files-found: error
 
   # Formatting is the same on every OS and needs no system libraries or
   # FFmpeg, so it is one quick job rather than a step in each matrix leg.
@@ -93,7 +118,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -110,7 +135,7 @@ jobs:
     name: MSRV
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |

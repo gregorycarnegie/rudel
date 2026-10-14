@@ -666,6 +666,23 @@ impl Djf {
 mod tests {
     use super::*;
 
+    #[rstest::rstest]
+    #[case(0.0, 0.8)]
+    #[case(0.125, 16.0 / 17.0)]
+    #[case(0.25, 64.0 / 65.0)]
+    fn two_pole_step_settles_to_its_dc_gain(#[case] resonance: f32, #[case] gain: f32) {
+        use googletest::prelude::*;
+        // At equilibrium s0 = r*s1, so a unit input gives s1 = 1/(1+r*r).
+        let mut filter = TwoPole::default();
+        for _ in 0..4096 {
+            filter.update(1.0, 48000.0, 3000.0, resonance);
+        }
+        let tail: Vec<f32> = (0..128)
+            .map(|_| filter.update(1.0, 48000.0, 3000.0, resonance))
+            .collect();
+        assert_that!(tail, each(near(gain, 1e-5)));
+    }
+
     #[test]
     fn a_duck_dips_exponentially_to_its_floor_over_the_onset() {
         // Depth 0.75 dips to 1 - sqrt(0.75), about 0.134. Half way through a
