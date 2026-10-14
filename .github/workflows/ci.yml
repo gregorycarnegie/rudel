@@ -35,7 +35,7 @@ jobs:
         # CoreMIDI, CoreAudio), so it is tested rather than only built.
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # System libraries for the GUI (`eframe`/egui) and audio (`cpal`/ALSA)
       # crates so the whole workspace builds on Linux.
@@ -105,7 +105,7 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo llvm-cov report --html --output-dir target/coverage
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: runner.os == 'Linux'
         with:
           name: coverage
@@ -118,7 +118,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -135,7 +135,7 @@ jobs:
     name: MSRV
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
