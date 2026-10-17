@@ -22,7 +22,7 @@ pub(crate) mod widgets;
 use brackets::bracket_match_spans;
 use completion::{
     Completion, CompletionCatalog, apply_completion, completion_at, completion_popup,
-    completion_tooltip, reference_tooltip_at,
+    completion_tooltip, pointer_over_popup, reference_tooltip_at,
 };
 use decorations::{SliderDecoration, TextChange, WidgetDecoration};
 use edit::{
@@ -136,7 +136,7 @@ pub(crate) fn code_editor(
 
     apply_editor_style(ui, settings);
     let before = code.clone();
-    let editor_id = ui.make_persistent_id(egui::Id::new(CODE_EDITOR_ID));
+    let editor_id = ui.make_persistent_id(egui::Id::unique(CODE_EDITOR_ID));
     let bracket_id = editor_id.with("bracket_match");
     let completion_id = editor_id.with("completion");
     let tooltip_id = editor_id.with("tooltip");
@@ -220,7 +220,7 @@ pub(crate) fn code_editor(
     // frame at that size.
     let visible = ui.clip_rect();
     ui.ctx()
-        .data_mut(|d| d.insert_temp(egui::Id::new(CANVAS_RECT), visible));
+        .data_mut(|d| d.insert_temp(egui::Id::unique(CANVAS_RECT), visible));
     let canvas_visuals = !feeds && !full_canvas.is_empty();
     if canvas_visuals {
         for widget in &full_canvas {
@@ -292,10 +292,33 @@ pub(crate) fn code_editor(
             .desired_width(f32::INFINITY)
             .show(ui)
     };
+    output
+        .response
+        .response
+        .clone()
+        .accessible_name("Code editor");
 
     if let Some(range) = selection_before_right_click.filter(|_| output.response.hovered()) {
         output.state.cursor.set_char_range(Some(range));
         output.state.clone().store(ui.ctx(), output.response.id);
+        output.cursor_range = Some(range);
+    }
+    // A click on a menu entry takes focus off the editor, and egui 0.37 then
+    // reports no cursor range and collapses what was selected. Keep the
+    // selection the menu opened over and act on that.
+    let menu_selection = editor_id.with("menu_selection");
+    if ui.input(|i| i.pointer.secondary_pressed()) {
+        let kept = selection_before_right_click.filter(|_| output.response.hovered());
+        ui.data_mut(|d| d.insert_temp(menu_selection, kept));
+    }
+    if output.cursor_range.is_none() {
+        output.cursor_range = output.state.cursor.range(&output.galley);
+    }
+    if output.response.context_menu_opened()
+        && !output.response.has_focus()
+        && let Some(Some(range)) =
+            ui.data(|d| d.get_temp::<Option<egui::text::CCursorRange>>(menu_selection))
+    {
         output.cursor_range = Some(range);
     }
 
@@ -389,7 +412,9 @@ pub(crate) fn code_editor(
             }
         }
     } else {
-        completion = None;
+        if !pointer_over_popup(ui.ctx(), completion_id) {
+            completion = None;
+        }
         if !brackets.is_empty() {
             ui.data_mut(|d| d.insert_temp(bracket_id, Vec::<(usize, usize)>::new()));
             ui.ctx().request_repaint();
@@ -464,7 +489,7 @@ pub(crate) fn code_editor(
             MenuChoice::Paste => {
                 ui.ctx()
                     .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                None
+                output.cursor_range
             }
             MenuChoice::SelectAll => Some(egui::text::CCursorRange::two(
                 egui::text::CCursor::new(egui::text::CharIndex(0)),
@@ -514,8 +539,23 @@ pub(crate) fn code_editor(
         ui.ctx().request_repaint();
     }
 
-    if let Some(state) = &completion {
-        completion_popup(ui, completion_id, &output.response, state);
+    let picked = completion
+        .as_ref()
+        .and_then(|state| completion_popup(ui, completion_id, &output.response, state));
+    if let (Some(i), Some(state), Some(range)) = (picked, &completion, output.cursor_range) {
+        let item = state.items[i].clone();
+        let cursor_byte = byte_index_at_char(code, range.primary.index);
+        let cursor = apply_completion(code, state.start, cursor_byte, &item);
+        output
+            .state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(
+                egui::text::CCursor::new(cursor),
+            )));
+        output.state.clone().store(ui.ctx(), output.response.id);
+        output.response.request_focus();
+        completion = None;
+        ui.ctx().request_repaint();
     }
     // Strudel's Ctrl tooltip is a hover tooltip: the word under the pointer.
     // Failing that (the pointer off any name), the word at the text cursor.

@@ -796,7 +796,7 @@ two";
         settings: &EditorSettings,
     ) -> EditorShortcuts {
         let ctx = egui::Context::default();
-        let id = egui::Id::new("editor");
+        let id = egui::Id::unique("editor");
         let captured = std::cell::Cell::new(EditorShortcuts::default());
         let mut out = ctx.run_ui(
             egui::RawInput {
@@ -908,7 +908,7 @@ two";
         // Otherwise the editor would eat Ctrl+/ while the user is typing in
         // the sample path box.
         let ctx = egui::Context::default();
-        let id = egui::Id::new("editor");
+        let id = egui::Id::unique("editor");
         let captured = std::cell::Cell::new(EditorShortcuts::default());
         let mut out = ctx.run_ui(
             egui::RawInput {

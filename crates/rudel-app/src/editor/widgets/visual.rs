@@ -209,10 +209,13 @@ fn capture_canvas(
     paint: WidgetPaintInput<'_>,
 ) -> Feed {
     let ctx = ui.ctx();
-    let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("rudel-hydra-feed"));
+    let layer = egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::unique("rudel-hydra-feed"),
+    );
     let mut canvas_ui = egui::Ui::new(
         ctx.clone(),
-        egui::Id::new("rudel-hydra-feed-ui"),
+        egui::Id::unique("rudel-hydra-feed-ui"),
         egui::UiBuilder::new().layer_id(layer).max_rect(rect),
     );
     canvas_ui.set_clip_rect(rect);
@@ -261,7 +264,7 @@ pub(super) struct Feed {
 /// grown, and otherwise at most twice a second (glyphs are added as text is
 /// laid out; copying the whole atlas every frame would cost megabytes).
 fn font_atlas(ctx: &egui::Context) -> Option<Arc<egui::ColorImage>> {
-    let id = egui::Id::new("rudel-hydra-feed-atlas");
+    let id = egui::Id::unique("rudel-hydra-feed-atlas");
     let now = ctx.input(|i| i.time);
     let size = ctx.fonts(|f| f.font_image_size());
     let last: Option<([usize; 2], f64)> = ctx.data(|d| d.get_temp(id));

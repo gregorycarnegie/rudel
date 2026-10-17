@@ -368,7 +368,7 @@ pub(super) fn paint_wgsl(
     colors: WidgetDrawColors,
 ) {
     let hash = hash_of(&source);
-    let cache_id = egui::Id::new(("rudel-shader-check", id));
+    let cache_id = egui::Id::unique(("rudel-shader-check", id));
     let checked = || CachedCheck {
         hash,
         error: check(&source).err(),

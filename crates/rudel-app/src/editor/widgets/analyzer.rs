@@ -42,7 +42,7 @@ pub(super) fn paint_scope(
     // Smear: keep recent traces and draw them fading out (Strudel overpaints
     // the old canvas with alpha 1-smear; trace age a gets alpha smear^a).
     let traces: Arc<Mutex<VecDeque<Vec<f32>>>> = ui.data_mut(|d| {
-        d.get_temp_mut_or_default::<Arc<Mutex<VecDeque<Vec<f32>>>>>(egui::Id::new((
+        d.get_temp_mut_or_default::<Arc<Mutex<VecDeque<Vec<f32>>>>>(egui::Id::unique((
             "rudel-scope-smear",
             widget_id,
         )))
@@ -166,7 +166,7 @@ pub(super) fn paint_spectrum(
 ) {
     let db = frequency_data(ui, widget_id, tap);
     let state: Arc<Mutex<SpectrumState>> = ui.data_mut(|d| {
-        d.get_temp_mut_or_default::<Arc<Mutex<SpectrumState>>>(egui::Id::new((
+        d.get_temp_mut_or_default::<Arc<Mutex<SpectrumState>>>(egui::Id::unique((
             "rudel-spectrum",
             widget_id,
         )))
@@ -266,7 +266,7 @@ fn frequency_data(ui: &egui::Ui, widget_id: &str, tap: Option<&ScopeTap>) -> Vec
     FFT.forward(&mut re, &mut im);
 
     let smoothed: Arc<Mutex<Vec<f32>>> = ui.data_mut(|d| {
-        d.get_temp_mut_or_default::<Arc<Mutex<Vec<f32>>>>(egui::Id::new((
+        d.get_temp_mut_or_default::<Arc<Mutex<Vec<f32>>>>(egui::Id::unique((
             "rudel-analyzer-smooth",
             widget_id,
         )))

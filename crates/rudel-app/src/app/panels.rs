@@ -197,13 +197,13 @@ impl RudelApp {
                 let recording = self.is_recording();
                 let record_button = if recording {
                     egui::Button::new(
-                        egui::RichText::new("⏺ Stop")
+                        egui::RichText::new("■ Stop")
                             .strong()
                             .color(egui::Color32::WHITE),
                     )
                     .fill(crate::theme::STOP)
                 } else {
-                    egui::Button::new("⏺ Rec")
+                    egui::Button::new("● Rec")
                 };
                 if ui
                     .add(record_button)
@@ -222,14 +222,14 @@ impl RudelApp {
                 // accent while stopped, red while playing.
                 let play_button = if self.playing {
                     egui::Button::new(
-                        egui::RichText::new("⏹ Stop")
+                        egui::RichText::new("■ Stop")
                             .strong()
                             .color(egui::Color32::WHITE),
                     )
                     .fill(crate::theme::STOP)
                 } else {
                     egui::Button::new(
-                        egui::RichText::new("▶ Play")
+                        egui::RichText::new("► Play")
                             .strong()
                             .color(egui::Color32::BLACK),
                     )
@@ -270,7 +270,9 @@ impl RudelApp {
                 ui.separator();
                 ui.label("cps");
                 let mut cps = self.cps;
-                let response = ui.add(egui::Slider::new(&mut cps, 0.1..=2.0).fixed_decimals(2));
+                let response = ui
+                    .add(egui::Slider::new(&mut cps, 0.1..=2.0).fixed_decimals(2))
+                    .accessible_name("Cycles per second");
                 if response.changed()
                     | crate::scroll::scroll_adjust(ui, &response, &mut cps, 0.1..=2.0, 0.01)
                 {
@@ -294,7 +296,9 @@ impl RudelApp {
                         ui.selectable_value(&mut self.output, Output::Audio, "Audio");
                         ui.selectable_value(&mut self.output, Output::Midi, "MIDI");
                         ui.selectable_value(&mut self.output, Output::Osc, "OSC");
-                    });
+                    })
+                    .response
+                    .accessible_name("Output");
                 if self.output != prev {
                     self.route();
                 }
@@ -647,7 +651,7 @@ impl RudelApp {
                         // painters, at the size the editor showed last frame.
                         let rect = ui
                             .ctx()
-                            .data(|d| d.get_temp::<egui::Rect>(egui::Id::new(CANVAS_RECT)))
+                            .data(|d| d.get_temp::<egui::Rect>(egui::Id::unique(CANVAS_RECT)))
                             .unwrap_or(egui::Rect::from_min_size(
                                 egui::Pos2::ZERO,
                                 egui::vec2(1280.0, 720.0),
@@ -991,7 +995,7 @@ fn visible_rows(from: f32, height: f32, row: f32, len: usize) -> (usize, usize) 
 /// A reference list entry: draggable into the editor, double-click to insert
 /// at the cursor. Returns the name when it was double-clicked this frame.
 fn reference_item(ui: &mut egui::Ui, name: &str, hits: &[usize]) -> Option<String> {
-    let id = ui.id().with(name);
+    let id = ui.scope_id().with(name);
     let response = ui.dnd_drag_source(id, name.to_string(), |ui| fuzzy_label(ui, name, hits));
     response.inner.double_clicked().then(|| name.to_string())
 }

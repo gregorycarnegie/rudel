@@ -20,7 +20,7 @@ rudel-osc.workspace = true
 # `persistence`: eframe autosaves every 30s and on exit, which is what keeps
 # the editor buffer across a crash or a close. No file dialogs, no autosave
 # thread of our own.
-eframe = { version = "0.36.2", features = ["persistence"] }
+eframe = { version = "0.37.0", features = ["persistence"] }
 # Native Open/Save dialogs; egui has no file picker of its own.
 rfd = "0.17.2"
 # Parses and validates a widget's WGSL *before* handing it to wgpu, whose
@@ -42,7 +42,7 @@ rudel-ffmpeg.workspace = true
 # raster like a browser canvas, and its text in egui's own default font.
 tiny-skia = "0.12.0"
 ab_glyph = "0.2.32"
-epaint_default_fonts = "0.36.2"
+epaint_default_fonts = "0.37.0"
 # Editor themes are TOML files (themes/, and the user's own themes folder).
 # Already in the tree through the Windows resource build step.
 toml = "1.1.8"
@@ -67,7 +67,7 @@ windows = { version = "0.62.2", features = [
 winresource = "0.1.31"
 
 [dev-dependencies]
-egui_kittest = { version = "0.36.2", features = ["eframe", "wgpu"] }
+egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
 tempfile.workspace = true
 rstest.workspace = true
 serde_json.workspace = true

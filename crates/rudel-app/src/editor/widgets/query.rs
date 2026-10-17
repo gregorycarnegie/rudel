@@ -42,7 +42,7 @@ pub(super) fn widget_haps(
 ) -> Arc<[Hap]> {
     let cycles = (window.begin.floor() as i64, window.end.ceil() as i64);
     let range = (widget.range.from, widget.range.to);
-    let id = egui::Id::new((
+    let id = egui::Id::unique((
         "rudel-widget-haps",
         widget.widget_type.as_str(),
         widget.id.as_str(),

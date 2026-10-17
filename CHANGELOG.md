@@ -13,6 +13,30 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-10-17
+
+### Added
+
+- **Autocomplete takes a click.** Click a suggestion to use it, as Tab does.
+- **Autocomplete after a dot.** Typing `.` after a value (`s("bd").`) lists the
+  methods and controls you can chain, narrowing as you type.
+- **Parameters in the suggestions.** Each documented name shows its parameters
+  after it, like `slider(value: number, min: number, …)`, shortened to fit.
+
+### Changed
+
+- egui and eframe 0.36 → 0.37, with the rest of the dependencies brought up to
+  date. The record and play buttons use plain `●` `■` `►` symbols: egui 0.37
+  falls back to system fonts, which draw `⏺` `⏹` `▶` as colour emoji.
+- The cps slider, the output menu and the code editor have accessible names.
+
+### Fixed
+
+- The editor's right-click menu acts on the selection again under egui 0.37:
+  Cut, Paste over a selection, Toggle comment, Indent and Outdent had stopped
+  working, because clicking a menu entry takes focus off the editor and egui
+  then reports no cursor.
+
 ## [0.23.0] — 2026-10-11
 
 0.23 out of beta: the two betas below, and the changes in this section on top.

@@ -108,25 +108,37 @@ pub(super) struct Completion {
 
 /// Draw the autocomplete suggestions just below the editor, with the selected
 /// row highlighted. Keyboard-driven (Tab/Enter accept, arrows navigate, Esc
-/// dismiss); see `code_editor`.
+/// dismiss); see `code_editor`. Returns the row the pointer clicked, if any.
 pub(super) fn completion_popup(
     ui: &egui::Ui,
     id: egui::Id,
     response: &egui::Response,
     state: &Completion,
-) {
-    egui::Area::new(id.with("popup"))
+) -> Option<usize> {
+    let mut picked = None;
+    egui::Area::new(popup_area_id(id))
         .order(egui::Order::Foreground)
         .fixed_pos(response.rect.left_bottom())
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_max_width(300.0);
                 for (i, item) in state.items.iter().enumerate() {
-                    let text = format!("{}  {}", item.label, item.kind.label());
-                    let response = ui.selectable_label(
-                        i == state.selected,
-                        egui::RichText::new(text).monospace(),
+                    let font = egui::TextStyle::Monospace.resolve(ui.style());
+                    let color = |c: egui::Color32| egui::TextFormat::simple(font.clone(), c);
+                    let mut text = egui::text::LayoutJob::default();
+                    text.append(&item.label, 0.0, color(ui.visuals().text_color()));
+                    if let Some(signature) = signature(&item.label) {
+                        text.append(&signature, 0.0, color(ui.visuals().weak_text_color()));
+                    }
+                    text.append(
+                        &format!("  {}", item.kind.label()),
+                        0.0,
+                        color(ui.visuals().text_color()),
                     );
+                    let response = ui.selectable_label(i == state.selected, text);
+                    if response.clicked() {
+                        picked = Some(i);
+                    }
                     if let Some(doc) = doc(&item.label) {
                         response.on_hover_text(doc.description);
                     } else if let Some(detail) = &item.detail {
@@ -135,6 +147,41 @@ pub(super) fn completion_popup(
                 }
             });
         });
+    picked
+}
+
+/// `(factor: number, …)` from the docs' parameters, shortened to fit a row.
+fn signature(name: &str) -> Option<String> {
+    const MAX: usize = 36;
+    let params = doc(name)?.params;
+    if params.is_empty() {
+        return None;
+    }
+    let inner = params
+        .iter()
+        .map(|(name, ty, _)| format!("{name}: {ty}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(if inner.chars().count() > MAX {
+        let cut: String = inner.chars().take(MAX).collect();
+        format!("({}…)", cut.trim_end_matches([',', ' ']))
+    } else {
+        format!("({inner})")
+    })
+}
+
+fn popup_area_id(id: egui::Id) -> egui::Id {
+    id.with("popup")
+}
+
+/// Whether the pointer is over the popup — a press there takes focus off the
+/// editor, which must not close the popup before the click lands.
+pub(super) fn pointer_over_popup(ctx: &egui::Context, id: egui::Id) -> bool {
+    ctx.input(|i| i.pointer.interact_pos())
+        .and_then(|pos| ctx.layer_id_at(pos))
+        .is_some_and(|layer| {
+            layer == egui::LayerId::new(egui::Order::Foreground, popup_area_id(id))
+        })
 }
 
 pub(super) fn completion_tooltip(
@@ -462,7 +509,9 @@ fn fallback_completion(
     cursor: usize,
     catalog: &CompletionCatalog<'_>,
 ) -> Option<(usize, usize, Vec<CompletionItem>)> {
-    let (start, end, prefix) = word_at_cursor(code, cursor)?;
+    let Some((start, end, prefix)) = word_at_cursor(code, cursor) else {
+        return method_completion(code, cursor, catalog);
+    };
     if start == end
         || !(prefix
             .as_bytes()
@@ -490,6 +539,32 @@ fn fallback_completion(
     });
     items.truncate(MAX_COMPLETIONS);
     (!items.is_empty()).then_some((start, end, items))
+}
+
+/// Right after a `.` that follows a value — `s("bd").` — offer what can be
+/// chained, as an editor does for member access.
+fn method_completion(
+    code: &str,
+    cursor: usize,
+    catalog: &CompletionCatalog<'_>,
+) -> Option<(usize, usize, Vec<CompletionItem>)> {
+    let before = code[..cursor].strip_suffix('.')?;
+    let after_value = before
+        .chars()
+        .next_back()
+        .is_some_and(|ch| ch.is_alphanumeric() || matches!(ch, ')' | ']' | '_' | '"' | '`'));
+    if !after_value || in_string_or_comment(code, cursor, catalog.idents) {
+        return None;
+    }
+    let mut items: Vec<_> = fallback_items(catalog)
+        .into_iter()
+        .filter(|item| {
+            matches!(item.kind, CompletionKind::Method | CompletionKind::Control)
+                && !doc_excluded(&item.label)
+        })
+        .collect();
+    items.truncate(MAX_COMPLETIONS);
+    (!items.is_empty()).then_some((cursor, cursor, items))
 }
 
 fn non_empty_result(
@@ -1120,6 +1195,15 @@ mod tests {
     #[case(CompletionKind::Pitch, "pitch")]
     fn each_kind_names_itself_in_the_popup(#[case] kind: CompletionKind, #[case] want: &str) {
         assert_eq!(kind.label(), want);
+    }
+
+    #[test]
+    fn a_documented_name_shows_its_parameters_shortened_to_fit() {
+        assert_eq!(
+            signature("slider").as_deref(),
+            Some("(value: number, min: number, max: num…)")
+        );
+        assert_eq!(signature("no_such_name_anywhere"), None);
     }
 
     #[test]

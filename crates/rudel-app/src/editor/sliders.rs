@@ -64,7 +64,8 @@ pub(crate) fn draw_slider_hosts(
         }
 
         let step = slider_step(slider, min, max);
-        let area = egui::Area::new(egui::Id::new(("rudel-inline-slider", slider.id.as_str())))
+        let id = egui::Id::unique(("rudel-inline-slider", slider.id.as_str()));
+        let area = egui::Area::new(id)
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
             // Bound the slider to the editor's visible area: clips its paint to

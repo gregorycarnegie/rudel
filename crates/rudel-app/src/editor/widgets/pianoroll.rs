@@ -50,7 +50,7 @@ pub(super) fn paint_pianoroll(
     // only recorded when the draw time actually advanced, so a paused
     // transport does not restack the same blocks forever.
     let trail: Arc<Mutex<SmearTrail>> = ui.data_mut(|d| {
-        d.get_temp_mut_or_default::<Arc<Mutex<SmearTrail>>>(egui::Id::new((
+        d.get_temp_mut_or_default::<Arc<Mutex<SmearTrail>>>(egui::Id::unique((
             "rudel-pianoroll-smear",
             widget_id,
         )))

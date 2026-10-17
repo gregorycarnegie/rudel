@@ -125,6 +125,7 @@ mod tests {
                 unit,
                 delta: egui::vec2(0.0, delta),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
         }
@@ -203,6 +204,7 @@ mod tests {
                 unit: egui::MouseWheelUnit::Line,
                 delta: egui::vec2(0.0, -1.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
         }
@@ -275,6 +277,7 @@ mod page_and_modifier_tests {
             unit,
             delta: egui::vec2(0.0, delta),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers,
         });
         harness.run();

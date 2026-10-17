@@ -14,6 +14,8 @@ use rstest::rstest;
 fn harness<'a>() -> Harness<'a, RudelApp> {
     let mut harness = Harness::builder()
         .with_size(eframe::egui::vec2(1100.0, 640.0))
+        // The harness has no system fonts, which the app uses for ●, ▶, →.
+        .allow_missing_glyphs()
         .build_eframe(|cc| {
             crate::theme::apply(&cc.egui_ctx);
             RudelApp::headless()
@@ -279,6 +281,7 @@ fn transport_buttons_stay_clickable_under_a_scrolled_widget_surface() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -150.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: Modifiers::NONE,
     });
     harness.run_steps(4);
@@ -316,7 +319,7 @@ fn double_clicking_a_widget_pops_it_out_until_the_widget_goes() {
     harness.run_steps(2);
     let widget = harness.state().editor_decorations.widgets()[0].clone();
     // The first surface created gets serial 0.
-    let area = egui::Id::new((
+    let area = egui::Id::unique((
         "rudel-inline-widget",
         widget.widget_type.as_str(),
         widget.id.as_str(),
@@ -537,6 +540,7 @@ fn without_a_filter_the_collapsed_sections_stay_shut() {
     // so a missing entry is collapsed, not just off screen.
     let mut harness = Harness::builder()
         .with_size(eframe::egui::vec2(1100.0, 30_000.0))
+        .allow_missing_glyphs()
         .build_eframe(|cc| {
             crate::theme::apply(&cc.egui_ctx);
             RudelApp::headless()
@@ -603,6 +607,7 @@ fn gpu_app<'a>(code: &str) -> Harness<'a, RudelApp> {
 fn gpu_app_at<'a>(code: &str, pixels_per_point: f32) -> Harness<'a, RudelApp> {
     let mut harness = Harness::builder()
         .with_size(eframe::egui::vec2(1100.0, 640.0))
+        .allow_missing_glyphs()
         .with_pixels_per_point(pixels_per_point)
         .wgpu()
         .build_eframe(|cc| {
@@ -1028,9 +1033,34 @@ fn the_arrows_step_through_completions_and_tab_takes_the_selected_one() {
     harness.run_steps(2);
     let rows = completion_rows(&harness);
     assert!(rows.len() > 1 && rows[1].1 && !rows[0].1, "{rows:?}");
-    let second = rows[1].0.split("  ").next().unwrap().to_string();
+    let second = rows[1].0.split(['(', ' ']).next().unwrap().to_string();
     harness.key_press(Key::Tab);
     harness.run_steps(2);
+    let code = &harness.state().code;
+    assert!(code.starts_with(&format!("s(\"bd\").{second}")), "{code}");
+    assert!(completion_rows(&harness).is_empty(), "taken, so closed");
+}
+
+#[test]
+fn a_dot_after_a_value_offers_the_methods_to_chain() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "s(\"bd\")");
+    type_chars(&mut harness, ".");
+    assert!(!completion_rows(&harness).is_empty(), "offered on the dot");
+    type_chars(&mut harness, "x");
+    assert!(!completion_rows(&harness).is_empty(), "then narrowed");
+}
+
+#[test]
+fn clicking_a_completion_takes_it() {
+    let mut harness = harness();
+    focus_editor(&mut harness, "s(\"bd\")");
+    type_chars(&mut harness, ".fas");
+    let rows = completion_rows(&harness);
+    assert!(rows.len() > 1, "{rows:?}");
+    let second = rows[1].0.split(['(', ' ']).next().unwrap().to_string();
+    harness.get_by_label(&rows[1].0).click();
+    harness.run_steps(3);
     let code = &harness.state().code;
     assert!(code.starts_with(&format!("s(\"bd\").{second}")), "{code}");
     assert!(completion_rows(&harness).is_empty(), "taken, so closed");
@@ -1127,6 +1157,7 @@ fn rendered_editor(
 ) -> Vec<u8> {
     let mut harness = Harness::builder()
         .with_size(eframe::egui::vec2(1100.0, 640.0))
+        .allow_missing_glyphs()
         .wgpu()
         .build_eframe(|cc| {
             crate::theme::apply(&cc.egui_ctx);

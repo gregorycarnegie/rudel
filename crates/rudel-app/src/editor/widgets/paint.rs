@@ -100,7 +100,7 @@ pub(crate) fn draw_widget_hosts(
         if double_click.is_some_and(|pos| clip.intersect(rect).contains(pos)) {
             to_toggle = Some(widget);
         }
-        egui::Area::new(egui::Id::new((
+        egui::Area::new(egui::Id::unique((
             "rudel-inline-widget",
             widget.widget_type.as_str(),
             widget.id.as_str(),
