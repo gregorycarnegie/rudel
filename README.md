@@ -40,7 +40,7 @@ For source builds, first build the pinned native libraries (cached under
 `target/ffmpeg`):
 
 ```bash
-python tools/build-ffmpeg.py
+zig run tools/build-ffmpeg.zig
 ```
 
 This requires Python 3, Git, CMake, a C/C++ toolchain, and libclang for Rust

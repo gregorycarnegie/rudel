@@ -3,7 +3,7 @@ use std::{env, path::PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../../vcpkg.json");
-    println!("cargo:rerun-if-changed=../../tools/build-ffmpeg.py");
+    println!("cargo:rerun-if-changed=../../tools/build-ffmpeg.zig");
     let target = env::var("TARGET").unwrap();
     let triplet = match target.as_str() {
         "x86_64-pc-windows-msvc" => "x64-windows-static-md",
@@ -24,7 +24,7 @@ fn main() {
     let include = root.join("include");
     assert!(
         include.join("libavformat/avformat.h").exists(),
-        "Build the bundled FFmpeg first: python tools/build-ffmpeg.py"
+        "Build the bundled FFmpeg first: zig run tools/build-ffmpeg.zig"
     );
     let pkgconf = root.join("tools/pkgconf").join(if cfg!(windows) {
         "pkgconf.exe"

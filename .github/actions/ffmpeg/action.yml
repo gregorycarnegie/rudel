@@ -8,7 +8,7 @@ runs:
         path: |
           target/ffmpeg
           target/ffmpeg-sources.tar.gz
-        key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'tools/build-ffmpeg.py') }}
+        key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'tools/build-ffmpeg.zig') }}
       id: native
     # dav1d's assembly needs nasm; vcpkg fetches its own only on Windows.
     - if: steps.native.outputs.cache-hit != 'true' && runner.os == 'Linux'
@@ -18,8 +18,12 @@ runs:
       shell: bash
       run: brew install nasm
     - if: steps.native.outputs.cache-hit != 'true'
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.17.0
+    - if: steps.native.outputs.cache-hit != 'true'
       shell: bash
-      run: python tools/build-ffmpeg.py
+      run: zig run tools/build-ffmpeg.zig
     # Only target/ffmpeg and the sources archive are used after the build. The
     # vcpkg checkout and build tree are gigabytes that rust-cache would save,
     # and its cleanup logs an ENOENT error for every `tests` folder inside.

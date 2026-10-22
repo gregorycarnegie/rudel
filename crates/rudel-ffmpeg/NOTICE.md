@@ -18,7 +18,7 @@ runtime download. The native libraries are statically linked, with dav1d for
 AV1, zlib, and HTTPS through Windows SChannel or OpenSSL on Linux/macOS.
 
 `vcpkg.json` pins FFmpeg 9.0.2 and the complete native dependency baseline.
-`tools/build-ffmpeg.py` builds it; the pinned vcpkg ports contain the source
+`tools/build-ffmpeg.zig` builds it; the pinned vcpkg ports contain the source
 checksums, patches and configuration. GPL/nonfree FFmpeg components are not
 enabled. Native dependency licences accompany release archives in `licenses/`.
 Rudel's own code remains AGPL-3.0-or-later.

@@ -5,7 +5,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.24.0"
+version = "0.24.1"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/gregorycarnegie/rudel"
@@ -37,7 +37,7 @@ proptest = "1.12.0"
 googletest = { version = "0.14.3", default-features = false }
 # Named table cases (`#[case]`) and fixtures: each case is its own test, so
 # one failing row neither hides the rows after it nor goes unnamed.
-rstest = { version = "0.27.0", default-features = false }
+rstest = { version = "0.28.0", default-features = false }
 tempfile = "3.27.0"
 # The oracle golden tests: one named trial per golden case, read from the JSON
 # at run time (`harness = false`), so a case fails, filters and reports on its

@@ -13,6 +13,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.24.1] — 2026-10-22
+
+### Changed
+
+- The FFmpeg build script and the tune-table generator are now Zig
+  (`zig run tools/build-ffmpeg.zig`, 0.17.0) instead of Python. The sources
+  archive carries `tools/build-ffmpeg.zig`.
+- `rstest` 0.27 → 0.28.
+
 ## [0.24.0] — 2026-10-17
 
 ### Added
