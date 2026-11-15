@@ -101,11 +101,21 @@ pub(crate) fn register(prelude: &Scope) {
     ] {
         prelude.func(name, move |a| Ok(f(arg_to_pattern(arg0(a))).into()));
     }
-    prelude.func("getFreq", |a| {
-        Ok(rudel_core::get_freq(&to_value(arg0(a)))
-            .unwrap_or(0.0)
-            .into())
+    // `getFrequency` is upstream's name now, `getFreq` its synonym.
+    for name in ["getFrequency", "getFreq"] {
+        prelude.func(name, |a| {
+            Ok(rudel_core::get_freq(&to_value(arg0(a)))
+                .unwrap_or(0.0)
+                .into())
+        });
+    }
+    // The scheduler state a script can read (core/schedulerState.mjs), as the
+    // host last reported it: the clock `onSchedule` times are on, in seconds,
+    // and the tempo. Before the host has reported, 0 and Strudel's default cps.
+    prelude.func("getClockTime", |_| {
+        Ok(crate::triggers::transport().0.into())
     });
+    prelude.func("getCps", |_| Ok(crate::triggers::transport().2.into()));
     // Scalar conversion/util helpers from core/util.mjs that a user can reach
     // from the REPL (the rest of util.mjs is registration/curry/hashing/keyboard
     // plumbing). These operate on numbers, not patterns.
@@ -203,6 +213,7 @@ pub(crate) fn register(prelude: &Scope) {
         ("stackRight", rudel_core::stack_right),
         ("stackCentre", rudel_core::stack_centre),
         ("stackCenter", rudel_core::stack_centre), // US spelling
+        ("stackRepeat", rudel_core::stack_repeat),
         ("cat", rudel_core::cat),
         ("seq", rudel_core::fastcat),
         ("sequence", rudel_core::fastcat),
@@ -246,7 +257,7 @@ pub(crate) fn register(prelude: &Scope) {
             "left" => rudel_core::stack_left(&pats),
             "right" => rudel_core::stack_right(&pats),
             "centre" | "center" => rudel_core::stack_centre(&pats),
-            "repeat" => rudel_core::polymeter(&pats),
+            "repeat" => rudel_core::stack_repeat(&pats),
             _ => rudel_core::stack(&pats), // "expand"
         };
         Ok(out.into())
@@ -624,6 +635,8 @@ pub(crate) fn register(prelude: &Scope) {
         ("rand2", rudel_core::rand2),
         ("brand", rudel_core::brand),
         ("time", rudel_core::time),
+        ("open", rudel_core::open),
+        ("close", rudel_core::close),
         ("perlin", rudel_core::perlin),
         ("berlin", rudel_core::berlin),
         // Pointer position, 0..1 across the app window (Strudel reads the
@@ -689,6 +702,15 @@ pub(crate) fn register(prelude: &Scope) {
     fn nbits_arg(a: &[Arg]) -> i64 {
         a.get(1).map(arg_to_f64).unwrap_or(16.0) as i64
     }
+    // base(n, b = 10, d = 0): the digits of `n` in base `b`, the last `d` of
+    // them when `d` is not 0. Each may be a pattern; an array `n` is a sequence.
+    prelude.func("base", |a| {
+        let or = |i: usize, default: i64| match a.get(i) {
+            None | Some(Arg::Null) => rudel_core::pure(rudel_core::Value::Int(default)),
+            Some(arg) => arg_to_pattern(arg),
+        };
+        Ok(rudel_core::base(arg_to_pattern(arg0(a)), or(1, 10), or(2, 0)).into())
+    });
     prelude.func("binaryN", |a| {
         Ok(rudel_core::binary_n(arg_to_pattern(arg0(a)), nbits_arg(a)).into())
     });
@@ -826,6 +848,7 @@ pub(crate) fn register(prelude: &Scope) {
             "add" => add, "sub" => sub, "mul" => mul, "div" => div, "modulo" => modulo,
             "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask, "bypass" => bypass,
             "struct" => struct_pat, "scale" => scale, "scrub" => scrub,
+            "isobite" => isobite, "cycleStruct" => isobite, "cyclestruct" => isobite,
             "timeline" => timeline,
             // waveshaping-distortion shortcuts (pattern-last standalone form)
             "soft" => soft, "hard" => hard, "cubic" => cubic, "diode" => diode,

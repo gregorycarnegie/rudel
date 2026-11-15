@@ -13,7 +13,21 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **Names Strudel added by November 2026.** `stackRepeat`, `isobite` (also
+  `cycleStruct`, `cyclestruct`), `base` and the `open` and `close` signals,
+  each checked hap for hap against Strudel; `getFrequency`, which `getFreq` is
+  now a synonym of; and `onSchedule`, `getCps` and `getClockTime`.
+  `onSchedule(f)` calls `f(hap, time, cps)` as each event plays and, as
+  upstream, silences those events unless its second argument is `false`.
+- `stackLeft`, `stackRight`, `stackCentre`/`stackCenter` and `stackRepeat` can
+  be chained: `"0 1 2 3".stackLeft("3 4")`.
+
 ### Changed
+
+- `stackBy("repeat", …)` paces the result to the longest pattern's step count,
+  as upstream does; it used the least common multiple.
 
 - The completion docs generator is now Zig (`zig run tools/generate_docs.zig`).
   It still runs Strudel's jsdoc, so regenerating needs Node as before.

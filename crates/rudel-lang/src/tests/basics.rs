@@ -734,9 +734,11 @@ fn the_javascript_collection_builtins_helpers_call(#[case] expr: &str, #[case] w
 }
 
 #[test]
-fn stack_by_repeat_is_polymeter() {
+fn stack_by_repeat_is_polymeter_paced_to_the_longest() {
+    // Upstream: `polymeter(...).steps(3)`, 3 being the highest step count.
+    // Pinned against Strudel as `stackBy_repeat` in stepwise_golden.json.
     let by = eval(r#"stackBy("repeat", "a b", "c d e")"#).expect("eval");
-    let poly = eval(r#"polymeter("a b", "c d e")"#).expect("eval");
+    let poly = eval(r#"polymeter("a b", "c d e").pace(3)"#).expect("eval");
     assert_eq!(values(&by, 0, 2), values(&poly, 0, 2));
     let stacked = eval(r#"stack("a b", "c d e")"#).expect("eval");
     assert_ne!(values(&by, 0, 2), values(&stacked, 0, 2));

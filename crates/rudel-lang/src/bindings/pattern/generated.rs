@@ -149,6 +149,7 @@ pub(super) fn register_generated(p: &Scope) {
         keep,
         mask,
         struct_pat,
+        isobite,
         early,
         late,
         fast_gap,
@@ -284,6 +285,23 @@ pub(super) fn register_generated(p: &Scope) {
     }
     for name in ["seq", "fastcat", "sequence"] {
         method(p, name, |pat, a| Ok(pat.seq_with(pattern_arg(a, 0)).into()));
+    }
+    // `"0 1 2 3".stackLeft("3 4", "5 6 7")`: `this`, then every argument.
+    for (name, stacker) in [
+        (
+            "stackLeft",
+            rudel_core::stack_left as fn(&[Pattern]) -> Pattern,
+        ),
+        ("stackRight", rudel_core::stack_right),
+        ("stackCentre", rudel_core::stack_centre),
+        ("stackCenter", rudel_core::stack_centre),
+        ("stackRepeat", rudel_core::stack_repeat),
+    ] {
+        method(p, name, move |pat, a| {
+            let mut pats = vec![pat.clone()];
+            pats.extend((0..a.len()).map(|i| pattern_arg(a, i)));
+            Ok(stacker(&pats).into())
+        });
     }
     no_arg![
         dough,
@@ -426,6 +444,7 @@ pub(super) fn register_generated(p: &Scope) {
             &["on_trigger_time", "onTriggerTime"],
             kpattern_on_trigger_time,
         ),
+        (&["on_schedule", "onSchedule"], kpattern_on_schedule),
         (&["edo_scale", "edoScale"], kpattern_edo_scale),
         (&["i"], kpattern_i),
         (&["freq"], kpattern_freq),
@@ -528,6 +547,8 @@ pub(super) fn register_generated(p: &Scope) {
     }
     // `struct` is a reserved word in Rust, so the core method is `struct_pat`.
     p.alias("struct", "struct_pat");
+    p.alias("cycleStruct", "isobite");
+    p.alias("cyclestruct", "isobite");
     p.alias("loop", "loop_play");
     for name in ["loopBegin", "loopb"] {
         p.alias(name, "loop_begin");

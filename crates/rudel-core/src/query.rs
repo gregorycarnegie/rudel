@@ -56,6 +56,11 @@ pub const LOG_KEY: &str = "_log";
 /// registry itself lives in the language layer, which owns the script engine.
 pub const TRIGGER_KEY: &str = "_ontrigger";
 
+/// The control a dominant `onSchedule` tags its haps with. Upstream's
+/// `dominantSchedule` turns the default output off for them, so they are
+/// dropped here: the callback fires and nothing sounds.
+pub const DOMINANT_KEY: &str = "_dominant";
+
 /// Build the line a `_log`-tagged event writes. `"hap"` is `log()`'s default
 /// (`[hap] ${hap.showWhole(true)}`), `"values"` is `logValues()`'s
 /// (`[hap] ${stringifyValues(value, true)}`); anything else is a message a
@@ -116,6 +121,9 @@ pub fn query_controls(
         // engine), not here; strip it so it never reaches a voice or an OSC
         // message.
         controls.shift_remove(TRIGGER_KEY);
+        if controls.contains_key(DOMINANT_KEY) {
+            continue;
+        }
         // Fold mtranspose/ctranspose into `note` using the hap's tagged scale,
         // matching SuperDirt's external-synth pitch handling.
         crate::tonal::apply_transpose_controls(&mut controls, hap.context.scale.as_deref());

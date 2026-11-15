@@ -31,6 +31,16 @@ pub fn time() -> Pattern {
     signal(|t| Value::F64(t.to_f64()))
 }
 
+/// 0 to 1 over cycle zero, then 1 forever (`open`): an envelope for whatever
+/// restarts the cycle, as `.restart("x/4")` does.
+pub fn open() -> Pattern {
+    signal_f64(|t| t.min(1.0))
+}
+/// 1 to 0 over cycle zero, then 0 forever (`close`).
+pub fn close() -> Pattern {
+    signal_f64(|t| (1.0 - t).max(0.0))
+}
+
 /// Sawtooth 0..1.
 pub fn saw() -> Pattern {
     signal_f64(|t| t.rem_euclid(1.0))
@@ -206,6 +216,58 @@ pub fn binary_n(n: impl crate::transforms::IntoPattern, nbits: i64) -> Pattern {
         .segment(Frac::int(nbits))
         .brshift(bit_pos)
         .band(pure(Value::Int(1)))
+}
+
+/// `base(n, b, d)`: each number of `n` as its digits in base `b`, most
+/// significant first, squeezed into that number's step. A non-zero `d` keeps
+/// only the last `d` digits. All three can be patterns.
+pub fn base(
+    n: impl crate::transforms::IntoPattern,
+    b: impl crate::transforms::IntoPattern,
+    d: impl crate::transforms::IntoPattern,
+) -> Pattern {
+    let (n, b) = (n.into_pattern(), b.into_pattern());
+    d.into_pattern().squeeze_bind(move |keep| {
+        let n = n.clone();
+        let keep = keep.as_f64().unwrap_or(0.0);
+        Value::Pat(Box::new(b.squeeze_bind(move |radix| {
+            let radix = radix.as_f64().unwrap_or(f64::NAN);
+            Value::Pat(Box::new(n.squeeze_bind(move |v| {
+                let v = v.as_f64().unwrap_or(f64::NAN);
+                Value::Pat(Box::new(fastcat(&digits(v, radix, keep))))
+            })))
+        })))
+    })
+}
+
+/// The digits of `v` in base `radix`, as [`base`] lays them out.
+fn digits(v: f64, radix: f64, keep: f64) -> Vec<Pattern> {
+    let mut out = Vec::new();
+    // Upstream never returns for a base from 0 to 1, or an infinite number.
+    if v.is_finite() && !(0.0..=1.0).contains(&radix) {
+        let mut value = v;
+        while value > 0.0 {
+            out.push(value % radix);
+            value = (value / radix).floor();
+        }
+        out.reverse();
+    }
+    // `digits.slice(-keep)` once there are more than `keep` of them.
+    let len = out.len() as f64;
+    if keep != 0.0 && len > keep {
+        let start = -keep.trunc();
+        let from = if start < 0.0 { len + start } else { start };
+        out.drain(..(from as usize).min(out.len()));
+    }
+    out.into_iter()
+        .map(|d| {
+            pure(if d.fract() == 0.0 && d.abs() < 9e15 {
+                Value::Int(d as i64)
+            } else {
+                Value::F64(d)
+            })
+        })
+        .collect()
 }
 
 /// `binary(n)`: like [`binary_n`] with `nBits = floor(log2(n)) + 1`.
@@ -501,6 +563,17 @@ mod tests {
     fn binary_produces_msb_first_bits() {
         // binary(5): 0b101 -> "1 0 1" (nBits = floor(log2 5)+1 = 3).
         assert_eq!(ints(&binary(5)), vec![1, 0, 1]);
+    }
+
+    #[test]
+    fn base_keeps_the_digits_javascript_slice_would() {
+        // The ordinary cases are pinned against Strudel in stepwise_golden.json;
+        // these are the arguments it cannot be asked about.
+        assert_eq!(ints(&base(1234, 10, 0)), vec![1, 2, 3, 4]);
+        // `slice(-d)`: a negative `d` drops that many from the front instead.
+        assert_eq!(ints(&base(1234, 10, -1)), vec![2, 3, 4]);
+        // In base 1 the number never shrinks: upstream loops forever, this ends.
+        assert_eq!(ints(&base(5, 1, 0)), Vec::<i64>::new());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1137 methods=1182 controls=675
+# functions=1147 methods=1192 controls=675
 
 [functions]
 AggregateError
@@ -91,6 +91,7 @@ band
 bandf
 bandq
 bank
+base
 bb
 bbexpr
 bbst
@@ -174,6 +175,7 @@ clearGamepadStates
 clearHydra
 clearScope
 clip
+close
 coarse
 collect
 color
@@ -206,7 +208,9 @@ cubic
 curve
 cut
 cutoff
+cycleStruct
 cyclesPer
+cyclestruct
 datt
 dec
 decay
@@ -618,10 +622,13 @@ gamepad
 gap
 gat
 gate
+getClockTime
+getCps
 getDrawContext
 getDur
 getDuration
 getFreq
+getFrequency
 getGamepadStates
 getTime
 globalThis
@@ -683,6 +690,7 @@ isFinite
 isNaN
 isaw
 isaw2
+isobite
 iter
 iterBack
 iter_back
@@ -798,6 +806,7 @@ octersubsub
 off
 offset
 often
+open
 orbit
 oschost
 oscport
@@ -1005,6 +1014,7 @@ stackBy
 stackCenter
 stackCentre
 stackLeft
+stackRepeat
 stackRight
 steady
 stepBind
@@ -1297,6 +1307,8 @@ cubic
 curve
 cut
 cutoff
+cycleStruct
+cyclestruct
 d1
 d2
 d3
@@ -1785,6 +1797,7 @@ ir
 irbegin
 iresponse
 irspeed
+isobite
 iter
 iterBack
 iter_back
@@ -1927,8 +1940,10 @@ off
 offset
 often
 onPaint
+onSchedule
 onTrigger
 onTriggerTime
+on_schedule
 on_trigger_time
 or
 orbit
@@ -2178,6 +2193,11 @@ squeezeout
 squiz
 src
 stack
+stackCenter
+stackCentre
+stackLeft
+stackRepeat
+stackRight
 stepBind
 stepJoin
 step_join

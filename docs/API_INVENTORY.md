@@ -14,16 +14,16 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 A row that is not `implemented` carries the allowlist category it falls under in its Note. What each one means, from `tools/oracle/reference_allowlist.json`:
 
 - **doc artifact** — Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).
+- **dough synth** — Names of the dough-synth engine (packages/dough), added upstream by November 2026 and not ported: the controls `glide`/`group`/`voices`, `groupmod` (which throws at query time upstream as of Strudel cac73dc5) and `initDough`. Waiting on a decision about what `.dough()` should mean in Rudel, which still gives it the older DSP-worklet reading. Owned by the FULL_STRUDEL.md item 'Port the dough-synth names added upstream by November 2026'.
 - **editor theme** — CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is one of the 39 Strudel themes generated into crates/rudel-app/themes/*.toml (tools/generate_themes.mjs), selectable in the editor settings panel or by `theme("dracula")` as a pattern setting, so it never appears in `rudel_lang::reference()`.
 - **motion** — @strudel/motion browser DeviceMotion/DeviceOrientation sensor signals; no native sensor source (docs/UNSUPPORTED.md).
-- **new upstream** — Added upstream since the reference golden was last generated and not ported yet (golden regenerated from Strudel cac73dc5, 2026-11-15). `glide`/`group`/`voices`/`groupmod`/`initDough` belong to the new dough-synth engine (packages/dough); the rest are core additions. Owned by the FULL_STRUDEL.md item 'Port the names added upstream by November 2026'.
 
 ## Summary
 
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 651 | 639 | 3 | 9 | 0 |
+| `core` | 651 | 648 | 3 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
 | `dough` | 6 | 1 | 0 | 5 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
@@ -35,7 +35,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **748** | **682** | **52** | **14** | **0** |
+| **Total** | **748** | **691** | **52** | **5** | **0** |
 
 ## `codemirror`
 
@@ -79,7 +79,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `bandf` | implemented |  |
 | `bandq` | implemented |  |
 | `bank` | implemented |  |
-| `base` | deferred | new upstream |
+| `base` | implemented |  |
 | `bb` | implemented |  |
 | `bbexpr` | implemented |  |
 | `bbst` | implemented |  |
@@ -170,8 +170,8 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `curve` | implemented |  |
 | `cut` | implemented |  |
 | `cutoff` | implemented |  |
-| `cycleStruct` | deferred | new upstream |
-| `cyclestruct` | deferred | new upstream |
+| `cycleStruct` | implemented |  |
+| `cyclestruct` | implemented |  |
 | `datt` | implemented |  |
 | `dec` | implemented |  |
 | `decay` | implemented |  |
@@ -286,10 +286,10 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `gap` | implemented |  |
 | `gat` | implemented |  |
 | `gate` | implemented |  |
-| `getClockTime` | deferred | new upstream |
-| `getCps` | deferred | new upstream |
+| `getClockTime` | implemented |  |
+| `getCps` | implemented |  |
 | `getFreq` | implemented |  |
-| `getFrequency` | deferred | new upstream |
+| `getFrequency` | implemented |  |
 | `getTime` | implemented |  |
 | `grow` | implemented |  |
 | `gt` | implemented |  |
@@ -338,7 +338,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `irbegin` | implemented |  |
 | `iresponse` | implemented |  |
 | `irspeed` | implemented |  |
-| `isobite` | deferred | new upstream |
+| `isobite` | implemented |  |
 | `iter` | implemented |  |
 | `iterBack` | implemented |  |
 | `iterback` | implemented |  |
@@ -435,7 +435,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `off` | implemented |  |
 | `offset` | implemented |  |
 | `often` | implemented |  |
-| `onSchedule` | deferred | new upstream |
+| `onSchedule` | implemented |  |
 | `onTriggerTime` | implemented |  |
 | `or` | implemented |  |
 | `orbit` | implemented |  |
@@ -585,7 +585,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `stackCenter` | implemented |  |
 | `stackCentre` | implemented |  |
 | `stackLeft` | implemented |  |
-| `stackRepeat` | deferred | new upstream |
+| `stackRepeat` | implemented |  |
 | `stackRight` | implemented |  |
 | `stepcat` | implemented |  |
 | `stepsPerOctave` | implemented |  |
@@ -713,11 +713,11 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | Name | Status | Note |
 | --- | --- | --- |
 | `dough` | implemented |  |
-| `glide` | deferred | new upstream |
-| `group` | deferred | new upstream |
-| `groupmod` | deferred | new upstream |
-| `initDough` | deferred | new upstream |
-| `voices` | deferred | new upstream |
+| `glide` | deferred | dough synth |
+| `group` | deferred | dough synth |
+| `groupmod` | deferred | dough synth |
+| `initDough` | deferred | dough synth |
+| `voices` | deferred | dough synth |
 
 ## `draw`
 

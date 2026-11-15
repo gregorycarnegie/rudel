@@ -1044,6 +1044,20 @@ pub fn polymeter(pats: &[Pattern]) -> Pattern {
     stack(&paced).set_steps(Some(steps))
 }
 
+/// Stack patterns of differing step counts, the shorter ones repeating to fill
+/// the longest (`stackRepeat`, and `stackBy`'s `repeat`): the polymeter of
+/// them, paced to the highest step count.
+pub fn stack_repeat(pats: &[Pattern]) -> Pattern {
+    let longest = pats
+        .iter()
+        .filter_map(|p| p.steps)
+        .reduce(|a, b| if a >= b { a } else { b });
+    match longest {
+        Some(steps) => polymeter(pats).pace(steps),
+        None => silence(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Settable string parser (mini-notation). rudel-mini installs a hook here so
 // that `&str` arguments parse as mini-notation, mirroring Strudel's

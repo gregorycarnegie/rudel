@@ -19,7 +19,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 /// The control an `onTriggerTime`-tagged hap carries: the id of the callback to
 /// fire. The scheduler's event extraction strips it, like `rudel_core::LOG_KEY`.
-pub use rudel_core::TRIGGER_KEY;
+pub use rudel_core::{DOMINANT_KEY, TRIGGER_KEY};
 
 thread_local! {
     /// Callbacks registered by the evaluation currently running, keyed by id.
@@ -35,8 +35,32 @@ pub(crate) fn reset_hooks() {
 
 /// `pat.onTriggerTime(f)`: keep `f` and tag the pattern with its id.
 pub(crate) fn kpattern_on_trigger_time(pat: &Pattern, a: &[Arg]) -> Res {
+    hook(pat, a, "onTriggerTime").map(Into::into)
+}
+
+/// `pat.onSchedule(f, dominant = true)`: the hook upstream puts under every
+/// output. `f` gets the hap, its time in seconds on the host's clock, and the
+/// tempo. Unless `dominant` is false the haps then go to no output, as
+/// upstream turns its default output off for them.
+pub(crate) fn kpattern_on_schedule(pat: &Pattern, a: &[Arg]) -> Res {
+    let hooked = hook(pat, a, "onSchedule")?;
+    let dominant = match a.get(1) {
+        Some(Arg::Bool(b)) => *b,
+        Some(Arg::Num(n)) => *n != 0.0,
+        _ => true,
+    };
+    Ok(if dominant {
+        hooked.ctrl(DOMINANT_KEY, rudel_core::pure(Value::Bool(true)))
+    } else {
+        hooked
+    }
+    .into())
+}
+
+/// Keep the callback `a` starts with, and tag `pat` with its id.
+fn hook(pat: &Pattern, a: &[Arg], name: &str) -> Result<Pattern, String> {
     let Some(func) = a.first().and_then(js::keep) else {
-        return Err("onTriggerTime: expected a function".to_string());
+        return Err(format!("{name}: expected a function"));
     };
     let id = PENDING.with(|p| {
         let mut p = p.borrow_mut();
@@ -73,8 +97,21 @@ pub(crate) fn kpattern_on_trigger_time(pat: &Pattern, a: &[Arg]) -> Res {
     Ok(pat
         .with_value(set_aside)
         .ctrl(TRIGGER_KEY, rudel_core::pure(Value::Int(id)))
-        .with_value(append)
-        .into())
+        .with_value(append))
+}
+
+/// The host's transport as it last reported it: its clock in seconds, the
+/// cycle playing at that moment, and the tempo in cycles per second.
+static TRANSPORT: std::sync::Mutex<(f64, f64, f64)> = std::sync::Mutex::new((0.0, 0.0, 0.5));
+
+/// Tell scripts where the transport is, for `getClockTime()`, `getCps()` and
+/// the time an `onSchedule` callback is given. The host calls this each frame.
+pub fn set_transport(seconds: f64, cycle: f64, cps: f64) {
+    *TRANSPORT.lock().unwrap_or_else(|e| e.into_inner()) = (seconds, cycle, cps);
+}
+
+pub(crate) fn transport() -> (f64, f64, f64) {
+    *TRANSPORT.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The hook ids a `TRIGGER_KEY` value holds: one, or a list, oldest first.
@@ -116,9 +153,14 @@ impl TriggerHooks {
     }
 
     /// Fire the callbacks `hap` is tagged for, oldest first, passing the hap
-    /// as the object a `filter` predicate sees. Returns the first callback
-    /// error, if one raised, so the host can surface it.
+    /// as the object a `filter` predicate sees, then the clock time of its
+    /// onset and the tempo (what `onSchedule` documents; an `onTriggerTime`
+    /// callback takes the hap alone). Returns the first callback error, if
+    /// one raised, so the host can surface it.
     pub fn fire(&mut self, hap: &Hap) -> Option<String> {
+        let (seconds, cycle, cps) = transport();
+        let onset = hap.whole_or_part().begin.to_f64();
+        let time = seconds - (cycle - onset) / cps;
         let mut error = None;
         for id in trigger_ids_of(&hap.value) {
             let Some(&func) = self.hooks.get(&id) else {
@@ -126,7 +168,10 @@ impl TriggerHooks {
             };
             let hap = hap.clone();
             let e = func
-                .run(move |f| js::call(f, vec![crate::bindings::hap_to_filter_arg(&hap)]).err())
+                .run(move |f| {
+                    let hap = crate::bindings::hap_to_filter_arg(&hap);
+                    js::call(f, vec![hap, Arg::Num(time), Arg::Num(cps)]).err()
+                })
                 .flatten();
             error = error.or(e);
         }

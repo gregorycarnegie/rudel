@@ -109,7 +109,41 @@ const FUNCTIONS = {
   zip: 'zip(mini("e f"), mini("e f g"), mini("g [f e] a f4 c")).note().sound("folkharp").pace(8)',
 };
 
-const CASES = { ...PAGE, ...FUNCTIONS };
+// --- core functions added upstream by November 2026 --------------------------
+// `stackRepeat` is stepwise; `isobite` and `base` are not, but they are pinned
+// here the same way, from the same source string on both sides. Their
+// `@example`s, without the `.scale(...)` this scope has no tonal package for.
+const ADDED = {
+  stackRepeat: 'stackRepeat(mini("0 1 2 3"), mini("3 4"), mini("[4 5 6] 7 8 9 10")).note()',
+  stackRepeat_method: 'mini("0 1 2 3").stackRepeat(mini("3 4"), mini("[4 5 6] 7 8 9 10")).note()',
+  stackLeft_method: 'mini("0 1 2 3").stackLeft(mini("3 4"), mini("[4 5 6] 7 8 9 10")).note()',
+  stackRepeat_stepcat: 'stepcat(stackRepeat(mini("0 1 2"), mini("3 4")), mini("5")).note()',
+  stackBy_repeat: 'stackBy(mini("repeat"), mini("0 1 2 3"), mini("3 4"), mini("[4 5 6] 7 8 9 10")).note()',
+
+  isobite: 'mini("<0 1 2 3 4 5>").isobite(mini("[x - x*2]*2")).n()',
+  isobite_equiv: 'mini("0 - [1 2] 3 - [4 5]").n()',
+  isobite_isorhythm: 'mini("<0 1 2 3 4>").isobite(mini("x - x")).n()',
+  isobite_slow_struct: 'mini("<0 1 2 3>").isobite(mini("x x*2").slow(2)).n()',
+  isobite_slowed: 'mini("<0 1 2 3>").isobite(mini("x x*2")).slow(2).n()',
+  isobite_zero_is_rest: 'mini("<0 1 2>").isobite(mini("1 0 1 1")).n()',
+  isobite_function: 'isobite(mini("x - x"), mini("<0 1 2 3 4>")).n()',
+  cycleStruct: 'mini("<0 1 2 3 4>").cycleStruct(mini("x - x")).n()',
+  cyclestruct: 'mini("<0 1 2 3 4>").cyclestruct(mini("x - x")).n()',
+
+  // `open` and `close` run once over cycle zero and then hold.
+  open: 'open.slow(2).range(0, 8).segment(4).note()',
+  close: 'close.slow(2).range(0, 8).segment(4).note()',
+
+  base: 'note(base(mini("7175 543"), 10, 3))',
+  base_equiv: 'note(mini("1 7 5 5 4 3"))',
+  base_binary: 'note(base(5, 2))',
+  base_default: 'note(base(mini("<12 345>")))',
+  base_array: 'note(base([5, 9], 2, 3))',
+  base_patterned: 'note(base(10, mini("<2 3>"), mini("<0 2>/2")))',
+  base_zero: 'note(base(mini("0 7"), 2))',
+};
+
+const CASES = { ...PAGE, ...FUNCTIONS, ...ADDED };
 const CYCLES = 4;
 
 const scope = { mini, ...core };

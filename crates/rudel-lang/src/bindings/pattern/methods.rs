@@ -672,7 +672,7 @@ fn merge_log_key(value: Value, message: String) -> Value {
     Value::Map(map)
 }
 
-pub(super) use crate::triggers::kpattern_on_trigger_time;
+pub(super) use crate::triggers::{kpattern_on_schedule, kpattern_on_trigger_time};
 
 pub(super) fn kpattern_log(pat: &Pattern, a: &[Arg]) -> Res {
     log_build(pat, a, "hap", false)

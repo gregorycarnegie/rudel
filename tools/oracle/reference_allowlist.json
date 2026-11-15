@@ -71,23 +71,14 @@
         "dracula"
       ]
     },
-    "new_upstream": {
+    "dough_synth": {
       "status": "deferred",
-      "reason": "Added upstream since the reference golden was last generated and not ported yet (golden regenerated from Strudel cac73dc5, 2026-11-15). `glide`/`group`/`voices`/`groupmod`/`initDough` belong to the new dough-synth engine (packages/dough); the rest are core additions. Owned by the FULL_STRUDEL.md item 'Port the names added upstream by November 2026'.",
+      "reason": "Names of the dough-synth engine (packages/dough), added upstream by November 2026 and not ported: the controls `glide`/`group`/`voices`, `groupmod` (which throws at query time upstream as of Strudel cac73dc5) and `initDough`. Waiting on a decision about what `.dough()` should mean in Rudel, which still gives it the older DSP-worklet reading. Owned by the FULL_STRUDEL.md item 'Port the dough-synth names added upstream by November 2026'.",
       "names": [
-        "base",
-        "cycleStruct",
-        "cyclestruct",
-        "getClockTime",
-        "getCps",
-        "getFrequency",
         "glide",
         "group",
         "groupmod",
         "initDough",
-        "isobite",
-        "onSchedule",
-        "stackRepeat",
         "voices"
       ]
     }

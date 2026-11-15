@@ -111,6 +111,13 @@ impl eframe::App for RudelApp {
         }
 
         self.sync_window_title(ui.ctx());
+        // What a script reads back through `getClockTime()` and `getCps()`,
+        // and what times an `onSchedule` callback.
+        rudel_lang::triggers::set_transport(
+            self.hydra_epoch.elapsed().as_secs_f64(),
+            self.playback_position_cycles().unwrap_or(0.0),
+            self.cps,
+        );
         self.fire_trigger_hooks();
         let active_spans = self.active_editor_spans();
         self.transport_panel(ui);

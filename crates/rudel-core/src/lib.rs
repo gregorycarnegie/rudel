@@ -43,7 +43,7 @@ pub use modulate::modulate;
 pub use pattern::{
     Pattern, arrange, cat, fastcat, gap, nothing, parray, parse_string, polymeter, pure, reify,
     sequence, set_string_parser, silence, slowcat, slowcat_prime, stack, stack_centre, stack_left,
-    stack_right, stepcat, timecat, value_to_pattern,
+    stack_repeat, stack_right, stepcat, timecat, value_to_pattern,
 };
 pub use state::State;
 pub use timespan::TimeSpan;
@@ -52,9 +52,9 @@ pub use value::{Value, ValueMap};
 
 // Signals and randomness.
 pub use signal::{
-    berlin, binary, binary_l, binary_n, binary_nl, brand, brand_by, cosine, cosine2, cycles_per,
-    irand, isaw, isaw2, itri, itri2, per, perlin, perx, rand, rand_l, rand2, randrun, run, saw,
-    saw2, scan, sine, sine2, square, square2, steady, time, tri, tri2,
+    base, berlin, binary, binary_l, binary_n, binary_nl, brand, brand_by, close, cosine, cosine2,
+    cycles_per, irand, isaw, isaw2, itri, itri2, open, per, perlin, perx, rand, rand_l, rand2,
+    randrun, run, saw, saw2, scan, sine, sine2, square, square2, steady, time, tri, tri2,
 };
 // Euclidean rhythms.
 pub use euclid::{bjorklund, euclid_bools};
@@ -94,7 +94,7 @@ pub use xen::{edo_ratios, freq_to_midi, get_freq, midi_to_freq};
 // CSS named colors + color/hex -> number conversion (draw/color.mjs).
 pub use color::{convert_color_to_number, convert_hex_to_number, css_color_hex};
 // Scheduler-agnostic event extraction (shared by audio / MIDI / OSC).
-pub use query::{ControlEvent, LOG_KEY, TRIGGER_KEY, query_controls, to_control_map};
+pub use query::{ControlEvent, DOMINANT_KEY, LOG_KEY, TRIGGER_KEY, query_controls, to_control_map};
 
 /// Convenience: build a `pure` pattern from anything convertible to a [`Value`].
 pub fn p(v: impl Into<Value>) -> Pattern {

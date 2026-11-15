@@ -568,3 +568,43 @@ fn stack_by_centre_lines_a_short_pattern_up_in_the_middle() {
     let p = eval("stackBy('center', s(\"a b c d\"), s(\"x\"))").unwrap();
     assert_eq!(p.query_arc(Frac::zero(), Frac::one()).len(), 5);
 }
+
+#[test]
+fn on_schedule_gets_the_hap_its_clock_time_and_the_tempo() {
+    // The one test that sets the transport: it is process-global.
+    crate::triggers::set_transport(10.0, 3.0, 2.0);
+    // The callback reports what it was given by raising it.
+    let script = r#"s("bd sd").onSchedule((hap, time, cps) => { throw hap.value.s + ' ' + time + ' ' + cps })"#;
+    let result = crate::eval_result(script).expect("eval");
+    let mut hooks = result.trigger_hooks;
+    let said: Vec<String> = result
+        .pattern
+        .query_arc(Frac::zero(), Frac::one())
+        .iter()
+        .map(|hap| hooks.fire(hap).expect("the callback raises"))
+        .collect();
+    // Cycle 3 is at 10 s and a cycle lasts half a second, so cycle 0 was at
+    // 8.5 s and its second half a quarter of a second later.
+    assert!(said[0].contains("bd 8.5 2"), "{said:?}");
+    assert!(said[1].contains("sd 8.75 2"), "{said:?}");
+
+    // Dominant by default, as upstream: the haps reach no output.
+    let events = rudel_core::query_controls(&result.pattern, 1.0, 0.0, 1.0);
+    assert!(events.is_empty(), "a dominant onSchedule still sounded");
+    // `false` leaves the sound alone, and the tags never reach a back-end.
+    let quiet = crate::eval_result(r#"s("bd sd").onSchedule(hap => hap, false)"#).expect("eval");
+    let events = rudel_core::query_controls(&quiet.pattern, 1.0, 0.0, 1.0);
+    assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .iter()
+            .all(|e| e.controls.keys().all(|k| !k.starts_with('_')))
+    );
+
+    // The same transport, read back by a script.
+    let pat = eval("n(getCps() * 100 + getClockTime())").expect("eval");
+    match &values(&pat, 0, 1)[0] {
+        Value::Map(m) => assert_eq!(m.get("n").and_then(|v| v.as_f64()), Some(210.0)),
+        other => panic!("expected control map, got {other:?}"),
+    }
+}

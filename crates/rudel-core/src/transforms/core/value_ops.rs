@@ -149,7 +149,7 @@ pub(super) fn cmp_gte(a: &Value, b: &Value) -> Value {
 }
 
 /// Loose equality (`==`): numeric coercion when both look like numbers.
-fn loose_eq(a: &Value, b: &Value) -> bool {
+pub(super) fn loose_eq(a: &Value, b: &Value) -> bool {
     match (a.as_f64(), b.as_f64()) {
         (Some(x), Some(y)) => x == y,
         _ => a == b,

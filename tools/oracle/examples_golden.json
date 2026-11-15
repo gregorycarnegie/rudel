@@ -323,6 +323,13 @@
    "code": "s(\"bd sd [~ bd] sd\").bank('RolandTR909') // = s(\"RolandTR909_bd RolandTR909_sd\")"
   },
   {
+   "id": "base#0",
+   "name": "base",
+   "index": 0,
+   "package": "core",
+   "code": "$: note(base(\"7175 543\", 10, 3)).scale(\"c:major\").s(\"saw\")\n// $: note(\"1 7 5 5 4 3\").scale(\"c:major\").s(\"saw\")"
+  },
+  {
    "id": "beat#0",
    "name": "beat",
    "index": 0,
@@ -376,7 +383,7 @@
    "name": "bite",
    "index": 1,
    "package": "core",
-   "code": "sound(\"bd - bd bd*2, - sd:6 - sd:5 sd:1 - [- sd:2] -, hh [- cp:7]\")\n  .bank(\"RolandTR909\").speed(1.2)\n  .bite(4, \"0 0 [1 2] <3 2> 0 0 [2 1] 3\")"
+   "code": "sound(\"bd - bd bd*2, - sd:6 - sd:5 sd:1 - [- sd:2] -, hh [- cp:7]\")\n.bank(\"RolandTR909\").speed(1.2)\n.bite(4, \"0 0 [1 2] <3 2> 0 0 [2 1] 3\")"
   },
   {
    "id": "bmod#0",
@@ -440,6 +447,13 @@
    "index": 0,
    "package": "core",
    "code": "note(\"c2 e2 f2 g2\")\n.sound('sawtooth')\n.bpf(500)\n.bpd(.5)\n.bps(\"<0 .25 .5 1>/4\")\n.bpenv(4)"
+  },
+  {
+   "id": "brak#0",
+   "name": "brak",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd hh!2 rim\").brak()"
   },
   {
    "id": "brand#0",
@@ -519,11 +533,32 @@
    "code": "s(\"bd | hh | sd\").fast(8)"
   },
   {
+   "id": "chooseInWith#0",
+   "name": "chooseInWith",
+   "index": 0,
+   "package": "core",
+   "code": "// Because the structure comes from the chosen values (the notes, here)\n// The choosing pattern will only advance once per cycle (not 3 times per cycle)\nnote(chooseInWith(\"<0 0.5 1>*3\", [\"c3\", \"b3\", \"d3\"]))"
+  },
+  {
+   "id": "chooseInWith#1",
+   "name": "chooseInWith",
+   "index": 1,
+   "package": "core",
+   "code": "// Here, the chosen values have a structure such that the choosing pattern will advance 3 times per cycle\nnote(chooseInWith(\"<0 0.5 1>*3\", [\"c3*3\", \"b3*3\", \"d3*3\"]))"
+  },
+  {
    "id": "chooseWith#0",
    "name": "chooseWith",
    "index": 0,
    "package": "core",
    "code": "note(\"c2 g2!2 d2 f1\").s(chooseWith(sine.fast(2), [\"sawtooth\", \"triangle\", \"bd:6\"]))"
+  },
+  {
+   "id": "chooseWith#1",
+   "name": "chooseWith",
+   "index": 1,
+   "package": "core",
+   "code": "// Compare with chooseInWith\nnote(chooseWith(\"<0 0.5 1>*3\", [\"c3\", \"b3\", \"d3\"]))"
   },
   {
    "id": "chop#0",
@@ -575,18 +610,18 @@
    "code": "sound(\"bd sd ht lt bd - cp lt\").chunkInto(4, hurry(2))\n  .bank(\"tr909\")"
   },
   {
-   "id": "clearScope#0",
-   "name": "clearScope",
-   "index": 0,
-   "package": "core",
-   "code": "// After defining variables in blocks:\n// let myVar = 5\n// function myFunc() { return 10; }\nclearScope() // removes myVar and myFunc from scope"
-  },
-  {
    "id": "clip#0",
    "name": "clip",
    "index": 0,
    "package": "core",
    "code": "note(\"c a f e\").s(\"piano\").clip(\"<.5 1 2>\")"
+  },
+  {
+   "id": "close#0",
+   "name": "close",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"bd sd [- bd] sd\".fast(2))\n  .lpf(close.slow(4).range(300,3000)) // close envelope over 4 cycles\n  .restart(\"x/4\") // restart every 4 cycles"
   },
   {
    "id": "coarse#0",
@@ -701,6 +736,27 @@
    "code": "//beat generator\ns(\"bd\").segment(16).degradeBy(.5).ribbon(16,1)"
   },
   {
+   "id": "degradeByWith#0",
+   "name": "degradeByWith",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c a f e\").degradeByWith(sine, .1)"
+  },
+  {
+   "id": "degradeByWith#1",
+   "name": "degradeByWith",
+   "index": 1,
+   "package": "core",
+   "code": "note(\"c a f e\").degradeByWith(perlin, .5)"
+  },
+  {
+   "id": "degradeByWith#2",
+   "name": "degradeByWith",
+   "index": 2,
+   "package": "core",
+   "code": "note(\"c a f e\").degradeByWith(sine, cosine)"
+  },
+  {
    "id": "delay#0",
    "name": "delay",
    "index": 0,
@@ -722,13 +778,6 @@
    "code": "s(\"bd\").delay(.25).delayfeedback(\"<.25 .5 .75 1>\")"
   },
   {
-   "id": "delayspeed#0",
-   "name": "delayspeed",
-   "index": 0,
-   "package": "core",
-   "code": "note(\"d d a# a\".fast(2)).s(\"sawtooth\").delay(.8).delaytime(1/2).delayspeed(\"<2 .5 -1 -2>\")"
-  },
-  {
    "id": "delaysync#0",
    "name": "delaysync",
    "index": 0,
@@ -740,7 +789,7 @@
    "name": "delaytime",
    "index": 0,
    "package": "core",
-   "code": "note(\"d d a# a\".fast(2))\n.s(\"sawtooth\")\n.delay(.8)\n.delaytime(1/2)\n.delayspeed(\"<2 .5 -1 -2>\")"
+   "code": "note(\"d d a# a\".fast(2))\n.s(\"sawtooth\")\n.delay(.8)\n.delaytime(1/2)"
   },
   {
    "id": "density#0",
@@ -811,6 +860,13 @@
    "index": 0,
    "package": "core",
    "code": "n(irand(16).seg(8)).scale(\"d:phrygian\").s(\"supersaw\").djf(\"<.5 .3 .2 .75>\")"
+  },
+  {
+   "id": "dough#0",
+   "name": "dough",
+   "index": 0,
+   "package": "dough",
+   "code": "$: chord(\"<Dm9 Dm11 Dm7>\").offset(\"<-1 0 1 0>\").voicing()\n.phaser(3).fm(1.4).fmh(1.01)\n.dough()"
   },
   {
    "id": "drawLine#0",
@@ -1069,7 +1125,7 @@
    "name": "extend",
    "index": 0,
    "package": "core",
-   "code": "stepcat(\n  sound(\"bd bd - cp\").extend(2),\n  sound(\"bd - sd -\")\n).pace(8)"
+   "code": "stepcat(\n  sound(\"bd bd - <cp hh>\").extend(2),\n  sound(\"bd - sd -\")\n).pace(8)"
   },
   {
    "id": "fadeTime#0",
@@ -1142,6 +1198,20 @@
    "code": "note(\"42 42.1 42.5 43\".floor())"
   },
   {
+   "id": "fm#0",
+   "name": "fm",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"c e g b g e\")\n.fm(\"<0 1 2 8 32>\")\n._scope()"
+  },
+  {
+   "id": "fm#1",
+   "name": "fm",
+   "index": 1,
+   "package": "core",
+   "code": "s(\"sine\").note(\"F1\").seg(8)\n .fm(4).fm2(rand.mul(4)).fm3(saw.mul(8).slow(8))\n .fmh(1.06).fmh2(10).fmh3(0.1)"
+  },
+  {
    "id": "fmattack#0",
    "name": "fmattack",
    "index": 0,
@@ -1168,20 +1238,6 @@
    "index": 0,
    "package": "core",
    "code": "note(\"c e g b g e\")\n.fm(4)\n.fmh(\"<1 2 1.5 1.61>\")\n._scope()"
-  },
-  {
-   "id": "fmi#0",
-   "name": "fmi",
-   "index": 0,
-   "package": "core",
-   "code": "note(\"c e g b g e\")\n.fm(\"<0 1 2 8 32>\")\n._scope()"
-  },
-  {
-   "id": "fmi#1",
-   "name": "fmi",
-   "index": 1,
-   "package": "core",
-   "code": "s(\"sine\").note(\"F1\").seg(8)\n .fm(4).fm2(rand.mul(4)).fm3(saw.mul(8).slow(8))\n .fmh(1.06).fmh2(10).fmh3(0.1)"
   },
   {
    "id": "fmsustain#0",
@@ -1303,11 +1359,18 @@
    "code": "gap(3) // \"~@3\""
   },
   {
-   "id": "getDuration,getDur#0",
-   "name": "getDuration,getDur",
+   "id": "getDuration#0",
+   "name": "getDuration",
    "index": 0,
    "package": "superdough",
    "code": "// Set a patterns cycle length to exactly the length of the sample\nsamples('github:tidalcycles/dirt-samples')\nlet k = await getDuration('sax')\ns(\"sax\").cps(1/k)"
+  },
+  {
+   "id": "getFrequency#0",
+   "name": "getFrequency",
+   "index": 0,
+   "package": "core",
+   "code": "i(\"4 8 9 10 - - 5 7 9 11 - -\").tune(\"tranh3\")\n.mul(getFreq('c3'))\n.freq().clip(.5).room(1)"
   },
   {
    "id": "gravityX#0",
@@ -1356,7 +1419,7 @@
    "name": "grow",
    "index": 3,
    "package": "core",
-   "code": "note(\"0 1 2 3 4 5 6 7\".scale(\"C:ritusen\")).sound(\"folkharp\")\n   .grow(\"1 -1\").pace(8)"
+   "code": "note(\"0 1 2 3 4 5 6 7\".scale(\"C:ritusen\")).sound(\"folkharp\")\n.grow(\"1 -1\").pace(8)"
   },
   {
    "id": "hpattack#0",
@@ -1457,6 +1520,13 @@
    "code": "s(\"a@2 [a b] a\"\n.inhabit({a: \"bd(3,8)\", b: \"sd sd\"}))\n.slow(4)"
   },
   {
+   "id": "initDough#0",
+   "name": "initDough",
+   "index": 0,
+   "package": "dough",
+   "code": "await initDough()\n$: chord(\"<Dm9 Dm11 Dm7>\").offset(\"<-1 0 1 0>\").voicing()\n.phaser(3).fm(1.4).fmh(1.01)\n.dough()"
+  },
+  {
    "id": "inside#0",
    "name": "inside",
    "index": 0,
@@ -1518,6 +1588,34 @@
    "index": 1,
    "package": "core",
    "code": "n(isaw.range(0,8).segment(8))\n.scale('C major')"
+  },
+  {
+   "id": "isobite#0",
+   "name": "isobite",
+   "index": 0,
+   "package": "core",
+   "code": "\"<0 1 2 3 4 5>\".isobite(\"[x - x*2]*2\").n().scale(\"c:major\")\n// the same as \"0 - [1 2] 3 - [4 5]\".n().scale(\"c:major\")"
+  },
+  {
+   "id": "isobite#1",
+   "name": "isobite",
+   "index": 1,
+   "package": "core",
+   "code": "\"<0 1 2 3 4>\".isobite(\"x - x\").n().scale(\"c:major\")\n// the same as \"<[0 - 1] [2 - 3] [4 - 0] [1 - 2] [3 - 4]>\".n().scale(\"c:major\")"
+  },
+  {
+   "id": "isobite#2",
+   "name": "isobite",
+   "index": 2,
+   "package": "core",
+   "code": "// Here the structure pattern repeats after 2 cycles,\n// so certain haps from the melody are skipped.\n\"<0 1 2 3>\".isobite(\"x x*2\".slow(2)).n().scale(\"c:major\")\n// the same as \"<[0] [2 3] [2] [2 3]>\".n().scale(\"c:major\")"
+  },
+  {
+   "id": "isobite#3",
+   "name": "isobite",
+   "index": 3,
+   "package": "core",
+   "code": "// This can be avoided by making the struct pattern 1 cycle,\n// and slowing the whole pattern down as follows:\n\"<0 1 2 3>\".isobite(\"x x*2\").slow(2).n().scale(\"c:major\")\n// the same as \"<[0] [1 2] [3] [0 1] [2] [3 0] [1] [2 3]>\".n().scale(\"c:major\")"
   },
   {
    "id": "iter#0",
@@ -1870,13 +1968,6 @@
    "code": "note(\"c4\").midichan(1).midi('IAC Driver Bus 1')"
   },
   {
-   "id": "midi#1",
-   "name": "midi",
-   "index": 1,
-   "package": "midi",
-   "code": "note(\"c4\").midichan(1).midi('IAC Driver Bus 1', { controller: true, latency: 50 })"
-  },
-  {
    "id": "midibend#0",
    "name": "midibend",
    "index": 0,
@@ -1910,6 +2001,13 @@
    "index": 1,
    "package": "midi",
    "code": "const kb = await midikeys('Arturia KeyStep 32')\nkb(\"0.5 1\")\n  .s(\"saw\")\n  .add(note(rand.mul(0.3)))\n  .lpf(1000).lpe(2).room(0.5)"
+  },
+  {
+   "id": "midikeys#2",
+   "name": "midikeys",
+   "index": 2,
+   "package": "midi",
+   "code": "// discard all notes not coming out from midi channel 2\nconst kb = await midikeys('Arturia KeyStep 32')\nkb().filterValues(v=>v.midichan==2).s(\"tri\")"
   },
   {
    "id": "midin#0",
@@ -2080,11 +2178,25 @@
    "code": "s(\"hh*8\").often(x=>x.speed(\"0.5\"))"
   },
   {
+   "id": "onSchedule#0",
+   "name": "onSchedule",
+   "index": 0,
+   "package": "core",
+   "code": "s(\"bd sd\").onSchedule((hap, time, cps) => {\n  console.log('hap scheduled', time, cps);\n})"
+  },
+  {
    "id": "onTriggerTime#0",
    "name": "onTriggerTime",
    "index": 0,
    "package": "core",
    "code": "s(\"bd!8\").onTriggerTime((hap) => {console.log(hap)})"
+  },
+  {
+   "id": "open#0",
+   "name": "open",
+   "index": 0,
+   "package": "core",
+   "code": "sound(\"bd sd [- bd] sd\".fast(2))\n  .lpf(open.slow(4).range(300,3000)) // close envelope over 4 cycles\n  .restart(\"x/4\") // restart every 4 cycles"
   },
   {
    "id": "orbit#0",
@@ -2339,6 +2451,13 @@
    "code": "\"<a@2 b@2 c@2 d@2>\".pickRestart({\n        a: n(\"0 1 2 0\"),\n        b: n(\"2 3 4 ~\"),\n        c: n(\"[4 5] [4 3] 2 0\"),\n        d: n(\"0 -3 0 ~\")\n      }).scale(\"C:major\").s(\"piano\")"
   },
   {
+   "id": "pickOut#0",
+   "name": "pickOut",
+   "index": 0,
+   "package": "core",
+   "code": "note(\"<0*4 1 2*2 3*3>\".pickOut([\"g a\", \"e f\", \"f g f g\" , \"g c d\"]))"
+  },
+  {
    "id": "pitchwheel#0",
    "name": "pitchwheel",
    "index": 0,
@@ -2518,7 +2637,7 @@
    "name": "replicate",
    "index": 0,
    "package": "core",
-   "code": "stepcat(\n  sound(\"bd bd - cp\").replicate(2),\n  sound(\"bd - sd -\")\n).pace(8)"
+   "code": "stepcat(\n  sound(\"bd bd - <cp hh>\").replicate(2),\n  sound(\"bd - sd -\")\n).pace(8)"
   },
   {
    "id": "reset#0",
@@ -2840,7 +2959,7 @@
    "name": "seqPLoop",
    "index": 0,
    "package": "core",
-   "code": "seqPLoop(\n  [0, 2, \"bd(3,8)\"],\n  [1, 3, \"cp(3,8)\"]\n).sound()"
+   "code": "seqPLoop(\n[0, 2, \"bd(3,8)\"],\n[1, 3, \"cp(3,8)\"]\n).sound()"
   },
   {
    "id": "set#0",
@@ -2910,7 +3029,7 @@
    "name": "shrink",
    "index": 3,
    "package": "core",
-   "code": "note(\"0 1 2 3 4 5 6 7\".scale(\"C:ritusen\")).sound(\"folkharp\")\n   .shrink(\"1 -1\").pace(8)"
+   "code": "note(\"0 1 2 3 4 5 6 7\".scale(\"C:ritusen\")).sound(\"folkharp\")\n.shrink(\"1 -1\").pace(8)"
   },
   {
    "id": "shuffle#0",
@@ -2925,6 +3044,20 @@
    "index": 1,
    "package": "core",
    "code": "seq(\"c d e f\".shuffle(4), \"g\").note().sound(\"piano\")"
+  },
+  {
+   "id": "signal#0",
+   "name": "signal",
+   "index": 0,
+   "package": "core",
+   "code": "// sawtooth signal definition\nsignal(t=>t%1).segment(16).range(30,40).note()"
+  },
+  {
+   "id": "signal#1",
+   "name": "signal",
+   "index": 1,
+   "package": "core",
+   "code": "signal(t=>Math.pow(t,2)%1).range(40, 60).add(5).segment(16)\n.off(0, x=>x.add(7))\n.note()\n.s(\"gm_electric_guitar_jazz,gm_epiano\")\n  .gain(1.7)\n.pianoroll()"
   },
   {
    "id": "silence#0",
@@ -3074,6 +3207,62 @@
    "code": "// As a chained function:\ns(\"hh*4\").stack(\n  note(\"c4(5,8)\")\n)"
   },
   {
+   "id": "stackCenter#0",
+   "name": "stackCenter",
+   "index": 0,
+   "package": "core",
+   "code": "stackCenter(\"0 1 2 3\", \"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackCenter#1",
+   "name": "stackCenter",
+   "index": 1,
+   "package": "core",
+   "code": "// chainable\n\"0 1 2 3\".stackCenter(\"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackLeft#0",
+   "name": "stackLeft",
+   "index": 0,
+   "package": "core",
+   "code": "stackLeft(\"0 1 2 3\", \"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackLeft#1",
+   "name": "stackLeft",
+   "index": 1,
+   "package": "core",
+   "code": "// chainable\n\"0 1 2 3\".stackLeft(\"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackRepeat#0",
+   "name": "stackRepeat",
+   "index": 0,
+   "package": "core",
+   "code": "stackRepeat(\"0 1 2 3\", \"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackRepeat#1",
+   "name": "stackRepeat",
+   "index": 1,
+   "package": "core",
+   "code": "// chainable\n\"0 1 2 3\".stackRepeat(\"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackRight#0",
+   "name": "stackRight",
+   "index": 0,
+   "package": "core",
+   "code": "stackRight(\"0 1 2 3\", \"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
+   "id": "stackRight#1",
+   "name": "stackRight",
+   "index": 1,
+   "package": "core",
+   "code": "// chainable\n\"0 1 2 3\".stackRight(\"3 4\", \"[4 5 6] 7 8 9 10\").scale(\"c:minor\").note()"
+  },
+  {
    "id": "stepalt#0",
    "name": "stepalt",
    "index": 0,
@@ -3218,7 +3407,7 @@
    "name": "tour",
    "index": 0,
    "package": "core",
-   "code": "\"[c g]\".tour(\"e f\", \"e f g\", \"g f e c\").note()\n   .sound(\"folkharp\")\n   .pace(8)"
+   "code": "\"[c g]\".tour(\"e f\", \"e f g\", \"g f e c\").note()\n.sound(\"folkharp\")\n.pace(8)"
   },
   {
    "id": "transient#0",
@@ -3505,7 +3694,7 @@
    "name": "wt",
    "index": 0,
    "package": "core",
-   "code": "s(\"squelch\").bank(\"wt_digital\").seg(8).note(\"F1\").wt(\"0 0.25 0.5 0.75 1\")"
+   "code": "s(\"wt_digital\").seg(8).note(\"F1\").wt(\"0 0.25 0.5 0.75 1\")"
   },
   {
    "id": "wtphaserand#0",
@@ -3533,12 +3722,19 @@
    "name": "xen",
    "index": 2,
    "package": "xen",
-   "code": "// xen also supports all scale names that\n// tune does:\ni(\"0 1 2 3 4 5\").xen(\"hexany15\")\n// equiv to:\n// \"0 1 2 3 4 5\".tune(\"hexany15\").mul(\"220\").freq()"
+   "code": "// However, with the above you won't get highlighting of the scale indices,\n// instead you could do something like:\ni(\"[<2 ->, 0 1 <- 2> 3]*2\").xen([\n  \"1:1\", // tonic\n  \"5:4\", // Major 3rd\n  \"[3:2 4:3]\", // Perfect 5th, 4th\n  \"5:3\" // Major 6th\n]).s(\"tri\")"
   },
   {
    "id": "xen#3",
    "name": "xen",
    "index": 3,
+   "package": "xen",
+   "code": "// xen also supports all scale names that\n// tune does:\ni(\"0 1 2 3 4 5\").xen(\"hexany15\")\n// equiv to:\n// \"0 1 2 3 4 5\".tune(\"hexany15\").mul(\"220\").freq()"
+  },
+  {
+   "id": "xen#4",
+   "name": "xen",
+   "index": 4,
    "package": "xen",
    "code": "i(\"0 1 2 3 4 5 6 7\").xen(\"<5edo 10edo 15edo hexany15>\")"
   },
@@ -3554,7 +3750,7 @@
    "name": "zip",
    "index": 0,
    "package": "core",
-   "code": "zip(\"e f\", \"e f g\", \"g [f e] a f4 c\").note()\n   .sound(\"folkharp\")\n   .pace(8)"
+   "code": "zip(\"e f\", \"e f g\", \"g [f e] a f4 c\").note()\n.sound(\"folkharp\")\n.pace(8)"
   },
   {
    "id": "zoom#0",
