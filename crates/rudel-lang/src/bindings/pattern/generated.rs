@@ -150,6 +150,7 @@ pub(super) fn register_generated(p: &Scope) {
         mask,
         struct_pat,
         isobite,
+        groupmod,
         early,
         late,
         fast_gap,
@@ -549,6 +550,8 @@ pub(super) fn register_generated(p: &Scope) {
     p.alias("struct", "struct_pat");
     p.alias("cycleStruct", "isobite");
     p.alias("cyclestruct", "isobite");
+    // `Pattern.prototype.gmod = Pattern.prototype.groupmod` (@strudel/dough).
+    p.alias("gmod", "groupmod");
     p.alias("loop", "loop_play");
     for name in ["loopBegin", "loopb"] {
         p.alias(name, "loop_begin");

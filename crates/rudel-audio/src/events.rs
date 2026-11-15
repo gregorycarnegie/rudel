@@ -843,6 +843,34 @@ mod tests {
     }
 
     #[test]
+    fn groupmod_sends_update_group_messages_at_the_modulators_events() {
+        let pattern = rudel_lang::eval(r#"s("saw").group(1).groupmod(lpf("200 400")).dough()"#)
+            .expect("eval");
+        let mut messages: Vec<String> = collect_events(&pattern, 1.0, 0.0, 1.0, &SampleBank::new())
+            .into_iter()
+            .filter_map(|ev| ev.dough.map(|note| note.message))
+            .collect();
+        messages.sort();
+        // The pattern plays with the modulator set at its onset; each modulator
+        // event retunes group 1. `.dough()` leaves the update command alone.
+        assert_eq!(
+            messages,
+            [
+                "dough/play/s/saw/group/1/cutoff/200/duration/1",
+                "dough/update_group/cutoff/200/group/1/duration/0.5",
+                "dough/update_group/cutoff/400/group/1/duration/0.5",
+            ]
+        );
+        // `gmod` is the same method.
+        let gmod =
+            rudel_lang::eval(r#"s("saw").group(1).gmod(lpf("200 400")).dough()"#).expect("eval");
+        assert_eq!(
+            collect_events(&gmod, 1.0, 0.0, 1.0, &SampleBank::new()).len(),
+            messages.len()
+        );
+    }
+
+    #[test]
     fn a_dough_hap_naming_a_sample_carries_it_with_doughs_speed() {
         let mut bank = SampleBank::new();
         let blip = |rate: f32| {

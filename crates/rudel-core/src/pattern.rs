@@ -123,6 +123,47 @@ impl Pattern {
         })
     }
 
+    /// `groupmod(modulator)` (`gmod`, `@strudel/dough`): this pattern with the
+    /// modulator's values set, plus, at every modulator event, a dough
+    /// `update_group` message with the modulator's values and this pattern's
+    /// `group`, which retunes the voices of that group as they sound.
+    ///
+    /// Upstream's is `register('groupmod', …)` with its argument patterned, so
+    /// the modulator reaches it as a plain value and `modulator.withValue`
+    /// throws: as of Strudel cac73dc5 every query of it fails. This is what
+    /// its body evidently means, taking the modulator as a pattern.
+    pub fn groupmod(&self, modulator: impl crate::transforms::IntoPattern) -> Pattern {
+        let modulator = modulator.into_pattern();
+        let pat = self.clone();
+        // `modulator.withValue((vm) => pat.withValue(({ group }) => ({ ...vm, group })))
+        //   .outerJoin().set({ dough: 'update_group' })`
+        let updates = modulator
+            .fmap(move |vm| {
+                let vm = match vm {
+                    Value::Map(m) => m,
+                    _ => crate::value::ValueMap::new(),
+                };
+                Value::Pat(Box::new(pat.with_value(move |v| {
+                    let mut update = vm.clone();
+                    let group = match &v {
+                        Value::Map(m) => m.get("group").cloned(),
+                        _ => None,
+                    };
+                    update.insert("group".to_string(), group.unwrap_or(Value::Null));
+                    Value::Map(update)
+                })))
+            })
+            .outer_join()
+            .with_value(|v| match v {
+                Value::Map(mut m) => {
+                    m.insert("dough".to_string(), Value::Str("update_group".to_string()));
+                    Value::Map(m)
+                }
+                v => v,
+            });
+        stack(&[self.set(modulator), updates])
+    }
+
     pub fn new<F>(query: F) -> Pattern
     where
         F: Fn(&State) -> Vec<Hap> + Send + Sync + 'static,

@@ -887,8 +887,12 @@ What differs:
   silence for its `.dough()` haps.
 - **Master volume applies**, as it does to Csound; Rudel's own effects and
   orbits do not, as upstream connects dough straight to the output.
-- **`groupmod` is missing.** Upstream's throws when queried, so there is
-  nothing to match.
+- **`groupmod` works here and not upstream.** Upstream registers it with its
+  argument patterned, so the modulator arrives as a plain value and every
+  query throws. Rudel takes the modulator as a pattern and does what the
+  function's body describes: the pattern plays with the modulator's values,
+  and each modulator event sends dough an `update_group` for the pattern's
+  `group`. `gmod` is the same.
 - **The old meaning is gone.** `.dough()` used to stand in for the older
   `dough\`…\`` DSP-worklet template by playing the hap's `s` value as
   bytebeat. Spell that out instead:

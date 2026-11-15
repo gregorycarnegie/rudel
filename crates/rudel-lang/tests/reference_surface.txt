@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1152 methods=1195 controls=678
+# functions=1153 methods=1197 controls=678
 
 [functions]
 AggregateError
@@ -635,6 +635,7 @@ getTime
 glide
 globalThis
 group
+groupmod
 grow
 gt
 gte
@@ -1751,7 +1752,9 @@ gain
 gat
 gate
 glide
+gmod
 group
+groupmod
 grow
 gt
 gte

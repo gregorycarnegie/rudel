@@ -70,13 +70,6 @@
       "names": [
         "dracula"
       ]
-    },
-    "dough_synth": {
-      "status": "deferred",
-      "reason": "`groupmod` (packages/dough) is not ported: as of Strudel cac73dc5 it throws at query time upstream (it calls `withValue` on a plain value), so there is no behaviour to match yet. The rest of the dough names are exposed and play through the dough engine itself (crates/rudel-dough). Owned by the FULL_STRUDEL.md item about the dough-synth names.",
-      "names": [
-        "groupmod"
-      ]
     }
   }
 }

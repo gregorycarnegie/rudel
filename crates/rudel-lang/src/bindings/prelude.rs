@@ -855,6 +855,7 @@ pub(crate) fn register(prelude: &Scope) {
             "set" => set, "keep" => keep, "keepif" => keepif, "mask" => mask, "bypass" => bypass,
             "struct" => struct_pat, "scale" => scale, "scrub" => scrub,
             "isobite" => isobite, "cycleStruct" => isobite, "cyclestruct" => isobite,
+            "groupmod" => groupmod,
             "timeline" => timeline,
             // waveshaping-distortion shortcuts (pattern-last standalone form)
             "soft" => soft, "hard" => hard, "cubic" => cubic, "diode" => diode,

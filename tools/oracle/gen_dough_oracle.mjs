@@ -67,6 +67,13 @@ const CASES = [
       'dough/play/s/saw/freq/330/group/1/voices/1/glide/0.02/time/0.03/duration/0.05',
     ],
   },
+  {
+    id: 'update_group',
+    messages: [
+      'dough/play/s/saw/freq/110/group/2/lpf/300/duration/0.08',
+      'dough/update_group/group/2/lpf/3000/time/0.03',
+    ],
+  },
   { id: 'white_noise', messages: ['dough/play/s/white/duration/0.03'] },
   {
     id: 'delay',
