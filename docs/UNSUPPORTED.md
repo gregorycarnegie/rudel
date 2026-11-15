@@ -863,6 +863,12 @@ dough's own code rather than a port. `group`, `voices` and `glide` reach it as
 controls, and `initDough()` is accepted and returns at once, since the engine
 is ready by the first hap.
 
+The output is bit-identical to the browser's for the same events: the native
+build uses the WebAssembly build's own number parsing and rounding, and
+`crates/rudel-dough/tests/wasm_golden.rs` checks sixteen cases (oscillators,
+filters, envelopes, FM, vibrato, glide in a voice group, noise, delay, reverb
+and a sample) against `dough.wasm` frame for frame, with no tolerance.
+
 What differs:
 
 - **One sample bank.** Upstream's dough has a sound map of its own, filled
@@ -876,9 +882,6 @@ What differs:
   file at its own sample rate by adjusting `speed`, where the browser
   resamples it to the engine's rate first. dough reads the nearest frame, so
   the two are close but not the same.
-- **Not bit-identical to the browser.** The browser runs a WebAssembly build
-  that carries its own maths routines; the native build uses the system's. The
-  two have not been compared sample for sample yet.
 - **One engine per process.** dough keeps its state in globals, so a second
   mixer in the same process (an offline render while the app plays) gets
   silence for its `.dough()` haps.

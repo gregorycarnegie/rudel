@@ -27,7 +27,9 @@ This file starts at 0.7.0. Earlier history is in the git log.
   upstream's now does: its C source (0.4.1, the version Strudel pins) is
   compiled into Rudel as `crates/rudel-dough`. With it come `initDough` and
   the `group`, `voices` and `glide` controls, and `doughsamples(...)`. A
-  `.dough()` hap that names a sample plays it from Rudel's sample bank.
+  `.dough()` hap that names a sample plays it from Rudel's sample bank. Its
+  output is bit-identical to the browser's WebAssembly build of dough, checked
+  frame for frame (`tools/oracle/gen_dough_oracle.mjs`).
 
 ### Changed
 

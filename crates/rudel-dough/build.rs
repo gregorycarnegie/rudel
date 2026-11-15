@@ -11,6 +11,10 @@ fn main() {
         .define("_USE_MATH_DEFINES", None)
         // Upstream builds it as GNU C99; MSVC ignores the flag.
         .flag_if_supported("-std=gnu99")
+        // No fused multiply-adds: WebAssembly has none, and a compiler that
+        // fuses `a * b + c` (clang on ARM does by default) rounds once where
+        // the browser rounds twice, so the output would drift from it.
+        .flag_if_supported("-ffp-contract=off")
         // Third-party code: its warnings are not ours to act on.
         .warnings(false)
         .compile("dough");

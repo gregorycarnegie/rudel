@@ -175,6 +175,23 @@ by `biquad_impulse_response_matches_webaudio`,
 
 Then run `cargo test -p rudel-mini`.
 
+### dough oracle (no deps, needs the network)
+
+`gen_dough_oracle.mjs` renders a set of events through `dough.wasm`, the
+WebAssembly build of the dough synth that Strudel runs in the browser, and
+`crates/rudel-dough/tests/wasm_golden.rs` renders the same events through the
+natively compiled engine and requires them to match bit for bit. The script
+fetches the `dough-synth` tarball it is pinned to from the npm registry and
+checks the wasm's hash, so it needs no `npm install` (which would prune the
+`@strudel` junctions above).
+
+```sh
+node gen_dough_oracle.mjs       # -> dough_golden.json  (dough.wasm output)
+```
+
+Bump `VERSION` and `WASM_SHA256` in the script together with the vendored
+`crates/rudel-dough/vendor/dough.h`.
+
 ### Reference-surface oracle (no deps)
 
 `gen_reference_oracle.mjs` reconstructs Strudel's `@strudel/reference` name
