@@ -22,7 +22,7 @@ rudel-osc.workspace = true
 # thread of our own.
 eframe = { version = "0.37.0", features = ["persistence"] }
 # Native Open/Save dialogs; egui has no file picker of its own.
-rfd = "0.17.2"
+rfd = "0.18.0"
 # Parses and validates a widget's WGSL *before* handing it to wgpu, whose
 # default handler aborts the process on a validation error — a typo mid-set
 # must not be fatal.
@@ -66,14 +66,14 @@ windows = { version = "0.62.2", features = [
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1.31"
 
-[dev-dependencies]
-egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
-tempfile.workspace = true
-rstest.workspace = true
-serde_json.workspace = true
-
 # hydra's `s0.initScreen()`: screen capture. Not on Linux, where xcap needs
 # PipeWire, GBM and DRM development libraries to build; `initScreen` reads as
 # empty there.
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 xcap = { version = "0.9.8", default-features = false }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
+tempfile.workspace = true
+rstest.workspace = true
+serde_json.workspace = true

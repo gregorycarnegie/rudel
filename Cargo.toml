@@ -48,7 +48,7 @@ stacker = "0.1.25"
 # WGSL with it — `rudel-app` validates a widget's shader before wgpu can abort
 # the process over it, `rudel-lang` checks the hydra port's output in tests — so
 # the version lives here to keep them from drifting apart.
-naga = { version = "30.0.1", features = ["wgsl-in"] }
+naga = { version = "30.0.2", features = ["wgsl-in"] }
 # `float_roundtrip`: serde_json's default float parser can land one ulp off the
 # correctly-rounded value, which is enough to flip a golden comparison against
 # JS-produced numbers (it did, on the bytebeat oracle).
