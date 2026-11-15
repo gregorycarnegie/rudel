@@ -13,6 +13,11 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- The completion docs generator is now Zig (`zig run tools/generate_docs.zig`).
+  It still runs Strudel's jsdoc, so regenerating needs Node as before.
+
 ## [0.24.1] — 2026-10-22
 
 ### Changed
