@@ -72,22 +72,27 @@ fn done() -> Res {
 /// its sample bank) and return an empty pattern.
 pub(crate) fn register_samples(prelude: &Scope, effects: Arc<Mutex<SampleEffects>>) {
     register_midimaps(prelude, effects.clone());
-    let eff = effects.clone();
-    prelude.func("samples", move |args| {
-        let mut eff = eff.lock().unwrap();
-        match args.first() {
-            // Inline map form: samples({ bd: "...", ... }, base?)
-            Some(map @ Arg::Map(_)) => {
-                if let Some(json) = arg_to_json(map) {
-                    let base = args.get(1).and_then(arg_to_raw_str).unwrap_or_default();
-                    eff.maps.push((json.to_string(), base));
+    // `doughsamples(...)` is `samples(...)` for the dough engine. Upstream
+    // keeps a sound map of dough's own; here both fill the one bank, so a
+    // `.dough()` hap also hears what `samples(...)` and the defaults load.
+    for name in ["samples", "doughsamples"] {
+        let eff = effects.clone();
+        prelude.func(name, move |args| {
+            let mut eff = eff.lock().unwrap();
+            match args.first() {
+                // Inline map form: samples({ bd: "...", ... }, base?)
+                Some(map @ Arg::Map(_)) => {
+                    if let Some(json) = arg_to_json(map) {
+                        let base = args.get(1).and_then(arg_to_raw_str).unwrap_or_default();
+                        eff.maps.push((json.to_string(), base));
+                    }
                 }
+                // String source form: samples("github:...", "https://...", ...)
+                _ => eff.sources.extend(args.iter().filter_map(arg_to_raw_str)),
             }
-            // String source form: samples("github:...", "https://...", ...)
-            _ => eff.sources.extend(args.iter().filter_map(arg_to_raw_str)),
-        }
-        done()
-    });
+            done()
+        });
+    }
 
     let eff = effects.clone();
     // `setSoundfontUrl(url)`: repoint General MIDI preset loading at another

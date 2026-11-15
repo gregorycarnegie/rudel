@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::ffi::{CString, c_char, c_double, c_float, c_int};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 unsafe extern "C" {
@@ -22,6 +23,13 @@ unsafe extern "C" {
     );
     fn dough_evaluate(msg: *const c_char);
     fn dough_render(out: *mut c_float, frames: c_int, start_time: c_double);
+    fn dough_register_pcm(
+        file_index: c_int,
+        pcm: *const c_float,
+        frames: c_int,
+        channels: c_int,
+        freq: c_float,
+    ) -> c_int;
 }
 
 // What dough.js hands `dough_init` in the browser, so voice stealing and the
@@ -31,9 +39,12 @@ const MAX_ORBITS: c_int = 1;
 const MAX_DELAY_TIME: c_int = 1;
 const MAX_EVENTS: c_int = 64;
 const MAX_FILES: c_int = 128;
-// shortcut: no sample memory, so only dough's own oscillators and noises
-// sound; give this the browser's size once samples are registered with it.
-const MAX_PCM: c_int = 0;
+/// Sample memory, in floats: 196 MB, laid out with the engine.
+const MAX_PCM: c_int = (1024 * 1024 * 196) / 4;
+
+/// The pitch a registered file is taken to be at, which dough.js gives every
+/// sample: a note of this frequency plays the file at its own rate.
+const FILE_FREQ: c_float = 65.46;
 
 /// The longest message the engine reads (`EVENT_INPUT_SIZE`), terminator
 /// included. A longer one would be cut mid-pair, so it is not sent at all.
@@ -45,6 +56,11 @@ static TAKEN: AtomicBool = AtomicBool::new(false);
 /// The sample rate the engine's memory was last laid out for; 0 before the
 /// first [`Dough::acquire`].
 static LAID_OUT_FOR: AtomicU32 = AtomicU32::new(0);
+
+/// The keys of the sample files registered with the engine; a file's index is
+/// its place here. They outlive any one [`Dough`], as the engine's memory does,
+/// and go when that memory is laid out afresh.
+static FILES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// The process's one dough engine. Whoever holds this may play and render it.
 pub struct Dough {
@@ -75,6 +91,7 @@ impl Dough {
             // second layout (a different sample rate) leaks the first one's
             // block: the engine has no teardown, and a device rate changes
             // rarely enough for that to be the smaller evil.
+            FILES.lock().unwrap_or_else(|e| e.into_inner()).clear();
             unsafe {
                 dough_init(
                     sample_rate as c_int,
@@ -105,6 +122,33 @@ impl Dough {
         // the call, which copies it.
         unsafe { dough_evaluate(message.as_ptr()) };
         true
+    }
+
+    /// The engine's file index for the sample `key` names, copying `pcm`
+    /// (interleaved, at the engine's sample rate or compensated for by the
+    /// event's `speed`) into the engine the first time the key is seen. An
+    /// event plays it with a `file/<index>` pair. `None` once the engine has
+    /// no room for another file.
+    pub fn sample_file(&mut self, key: &str, pcm: &[f32], channels: usize) -> Option<i32> {
+        let mut files = FILES.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(index) = files.iter().position(|k| k == key) {
+            return Some(index as i32);
+        }
+        if channels == 0 || files.len() >= MAX_FILES as usize {
+            return None;
+        }
+        let index = files.len() as c_int;
+        let frames = (pcm.len() / channels) as c_int;
+        // SAFETY: holding `self` is holding the engine; it copies
+        // `frames * channels` floats, which `pcm` has.
+        let status = unsafe {
+            dough_register_pcm(index, pcm.as_ptr(), frames, channels as c_int, FILE_FREQ)
+        };
+        if status != 0 {
+            return None; // out of sample memory
+        }
+        files.push(key.to_string());
+        Some(index)
     }
 
     /// Render the next `out.len()` frames and add them to `out`.
@@ -170,6 +214,27 @@ mod tests {
         // An endless note was still sounding; the new holder must not hear it.
         let mut second = Dough::acquire(44_100).expect("released on drop");
         assert_eq!(peak(&mut second, 4_410), 0.0);
+    }
+
+    #[test]
+    fn a_registered_sample_plays_and_keeps_its_index_for_the_next_holder() {
+        let _turn = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut dough = Dough::acquire(44_100).expect("the engine is free");
+        // Half a second of a full-scale square, as mono PCM.
+        let pcm: Vec<f32> = (0..22_050)
+            .map(|i| if (i / 50) % 2 == 0 { 1.0 } else { -1.0 })
+            .collect();
+        let index = dough
+            .sample_file("square:0", &pcm, 1)
+            .expect("room for a file");
+        assert_eq!(dough.sample_file("square:0", &pcm, 1), Some(index));
+        assert!(dough.evaluate(&format!("dough/play/s/square:0/file/{index}")));
+        assert!(peak(&mut dough, 4_410) > 0.1, "the sample is silent");
+        drop(dough);
+        // The engine's memory, and so the file, outlives the holder.
+        let mut next = Dough::acquire(44_100).expect("released on drop");
+        assert_eq!(next.sample_file("square:0", &pcm, 1), Some(index));
+        assert_ne!(next.sample_file("other:0", &pcm, 1), Some(index));
     }
 
     #[test]

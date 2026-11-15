@@ -26,8 +26,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - **The dough engine.** `.dough()` plays a pattern through dough itself, as
   upstream's now does: its C source (0.4.1, the version Strudel pins) is
   compiled into Rudel as `crates/rudel-dough`. With it come `initDough` and
-  the `group`, `voices` and `glide` controls. Only dough's own oscillators
-  and noises sound so far; samples are not registered with it yet.
+  the `group`, `voices` and `glide` controls, and `doughsamples(...)`. A
+  `.dough()` hap that names a sample plays it from Rudel's sample bank.
 
 ### Changed
 

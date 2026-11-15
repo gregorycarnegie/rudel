@@ -2663,6 +2663,33 @@ fn dough_haps_play_through_the_dough_engine_instead_of_a_voice() {
         (peak - expected).abs() < expected * 0.05,
         "peak {peak}, expected dough's {expected}"
     );
+
+    // A sample from the bank plays through dough too: a constant 0.5 comes out
+    // at dough's file level. The next mixer finds the engine silent, so this is
+    // the sample alone. (Same test, as there is one engine per process.)
+    drop(mixer);
+    let mut bank = SampleBank::new();
+    bank.register(
+        "flat",
+        Arc::new(rudel_dsp::Sample {
+            data: vec![0.5; 44_100],
+            sample_rate: 44_100.0,
+        }),
+    );
+    let pat = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("flat".into()))).dough();
+    let (tx, rx) = mpsc::channel::<NoteEvent>();
+    let mut mixer = test_mixer(rx);
+    for ev in crate::collect_events_at(&pat, &Clock::new(1.0), 0.0, 1.0, &bank, 44_100.0).0 {
+        tx.send(ev).unwrap();
+    }
+    let mut out = vec![(0.0f32, 0.0f32); 22_050];
+    mixer.render_block(&mut out);
+    let level = out[11_025].0 / super::load_f64(&mixer.volume) as f32;
+    assert!(level > 0.05, "the sample played at {level} through dough");
+    assert!(
+        mixer.active.is_empty(),
+        "a dough sample started a Rudel voice"
+    );
 }
 
 #[test]

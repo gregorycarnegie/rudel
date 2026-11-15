@@ -853,7 +853,7 @@ It sums into the master after the orbits, so it is not fed by `room`, `delay`
 or the DJ filter; upstream wires it straight to the audio context's destination,
 which has the same effect. Master volume still applies.
 
-### dough (`@strudel/dough`) — the engine itself, without samples yet
+### dough (`@strudel/dough`) — the engine itself
 
 `.dough()` plays a pattern through the dough synth instead of Rudel's own
 voices, as upstream does. It is the same engine: Rudel compiles dough's C source
@@ -865,9 +865,17 @@ is ready by the first hap.
 
 What differs:
 
-- **No samples.** Only dough's own sources sound: `sine`, `tri`, `saw`,
-  `zaw`, `pulse`, `pulze`, the noises and `const`. `doughsamples(...)` is not
-  there, and a hap naming a sample is silent.
+- **One sample bank.** Upstream's dough has a sound map of its own, filled
+  only by `doughsamples(...)`, so `s("bd").dough()` is silent there unless a
+  script registers `bd` that way. Here `doughsamples(...)` loads into the
+  same bank as `samples(...)`, and a `.dough()` hap hears everything in it,
+  the default banks included. As upstream, `bank` is not read: `s("bd")` is
+  looked up as `bd`, by `n`.
+- **Samples are mono, at their own rate.** Rudel decodes every sample to one
+  channel, where the browser hands dough the file's channels; and it plays a
+  file at its own sample rate by adjusting `speed`, where the browser
+  resamples it to the engine's rate first. dough reads the nearest frame, so
+  the two are close but not the same.
 - **Not bit-identical to the browser.** The browser runs a WebAssembly build
   that carries its own maths routines; the native build uses the system's. The
   two have not been compared sample for sample yet.

@@ -454,13 +454,26 @@ impl Mixer {
                 // is a dominant `onSchedule`. The engine is taken on first
                 // use, and there is one per process: while another mixer holds
                 // it the hap is dropped, like a statement with no Csound.
-                if let Some(message) = &ev.dough {
+                // A sample is copied into the engine the first time its key
+                // plays, here on the audio thread, where upstream's worklet
+                // registers it too. One the engine has no room for is dropped,
+                // as upstream's plays nothing when registering fails.
+                if let Some(note) = &ev.dough {
                     if let Some(slot) = dough.as_deref_mut() {
                         if slot.is_none() {
                             *slot = rudel_dough::Dough::acquire(self.sample_rate as u32);
                         }
                         if let Some(engine) = slot {
-                            engine.evaluate(message);
+                            match &note.file {
+                                None => {
+                                    engine.evaluate(&note.message);
+                                }
+                                Some((key, sample)) => {
+                                    if let Some(index) = engine.sample_file(key, &sample.data, 1) {
+                                        engine.evaluate(&format!("{}/file/{index}", note.message));
+                                    }
+                                }
+                            }
                         }
                     }
                     continue;

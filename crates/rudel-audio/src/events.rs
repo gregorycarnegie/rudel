@@ -79,11 +79,30 @@ pub struct NoteEvent {
     /// starting a voice — upstream's `csound` output is an `onTrigger`, which
     /// replaces the sound rather than adding to it.
     pub csound: Option<String>,
-    /// The message for the dough engine, when the hap came through
+    /// What the dough engine is to play, when the hap came through
     /// `.dough()`. The mixer hands it to the engine at the onset instead of
     /// starting a voice — upstream's is a dominant `onSchedule`.
-    pub dough: Option<String>,
+    pub dough: Option<DoughNote>,
 }
+
+/// One `.dough()` hap, for the mixer to hand the dough engine.
+#[derive(Clone)]
+pub struct DoughNote {
+    /// The `key/value` message dough's driver would send.
+    pub message: String,
+    /// The sample the hap names, keyed `name:n` as dough.js keys it. The mixer
+    /// registers it with the engine the first time the key is seen and adds the
+    /// `file/<index>` pair to the message, as upstream's worklet does once a
+    /// sample has loaded.
+    pub file: Option<(String, Arc<Sample>)>,
+}
+
+/// The sounds dough makes itself (dough.js `sources`). Any other `s` names a
+/// sample.
+const DOUGH_SOURCES: &[&str] = &[
+    "triangle", "tri", "sine", "sawtooth", "saw", "zawtooth", "zaw", "pulse", "square", "pulze",
+    "zquare", "white", "pink", "brown", "const",
+];
 
 /// The requested MIDI note for a sampler, from `freq` or `note` (name or
 /// number). `None` when neither is set. Mirrors superdough's `valueToMidi`.
@@ -187,12 +206,30 @@ fn csound_statement(map: &ValueMap, duration: f64) -> Option<String> {
 /// and the duration in seconds. A note name becomes its MIDI number, which is
 /// the only form the engine reads. There is no `time` pair: the mixer delivers
 /// the message at the sub-block the onset falls on, so "now" is the onset.
-fn dough_message(map: &ValueMap, duration: f64) -> Option<String> {
+///
+/// An `s` that is not one of dough's own sounds names a sample, looked up in
+/// `bank` as dough.js looks it up in its sound map: by name and `n`, without
+/// `bank`, which dough does not read. `speed` is then what dough.js makes it.
+fn dough_note(
+    map: &ValueMap,
+    duration: f64,
+    bank: &SampleBank,
+    engine_rate: f32,
+) -> Option<DoughNote> {
     let command = control_text(map.get("dough")?);
+    let name = map
+        .get("s")
+        .and_then(|v| v.as_str())
+        .filter(|s| !DOUGH_SOURCES.contains(s));
+    let file = name.and_then(|name| {
+        let n = map.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i64;
+        Some((format!("{name}:{n}"), bank.get(name, n)?))
+    });
     let mut message = format!("dough/{command}");
     for (key, value) in map.iter() {
         let text = match (key.as_str(), value) {
             ("dough" | "duration", _) => continue,
+            ("speed", _) if file.is_some() => continue,
             (key, _) if key.starts_with('_') => continue,
             ("note", Value::Str(name)) => match rudel_core::note_to_midi(name) {
                 Some(midi) => midi.to_string(),
@@ -208,8 +245,21 @@ fn dough_message(map: &ValueMap, duration: f64) -> Option<String> {
             message.push_str(&format!("/{key}/{text}"));
         }
     }
+    if let Some((_, sample)) = &file {
+        let mut speed = map.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+        // dough.js decodes every sample at the engine's rate; Rudel keeps the
+        // file's own, so the rate makes up the difference.
+        // shortcut: dough reads the nearest frame, so this is not the browser's
+        // resampled buffer; resample on registration if the two must agree.
+        speed *= f64::from(sample.sample_rate / engine_rate);
+        // `unit: "c"`: dough.js scales speed by the buffer's length in seconds.
+        if map.get("unit").and_then(|v| v.as_str()) == Some("c") {
+            speed *= sample.data.len() as f64 / f64::from(sample.sample_rate);
+        }
+        message.push_str(&format!("/speed/{speed}"));
+    }
     message.push_str(&format!("/duration/{duration}"));
-    Some(message)
+    Some(DoughNote { message, file })
 }
 
 /// One control value as Csound's `keymap` string map carries it. Quotes and
@@ -512,7 +562,7 @@ pub fn collect_events_at(
                     .map(|v| v as i32),
                 tags: ev.tags,
                 csound: csound_statement(&ev.controls, ev.duration_seconds),
-                dough: dough_message(&ev.controls, ev.duration_seconds),
+                dough: dough_note(&ev.controls, ev.duration_seconds, bank, sample_rate),
             }
         })
         .collect();
@@ -775,6 +825,7 @@ mod tests {
                 .next()
                 .expect("one event")
                 .dough
+                .map(|note| note.message)
         };
         // `{ dough: 'play', ...hap.value, duration }`, joined with slashes; the
         // note name as the MIDI number the engine reads.
@@ -789,6 +840,43 @@ mod tests {
         );
         // Anything else is not dough's to play.
         assert_eq!(message(r#"note("a4").s("saw")"#), None);
+    }
+
+    #[test]
+    fn a_dough_hap_naming_a_sample_carries_it_with_doughs_speed() {
+        let mut bank = SampleBank::new();
+        let blip = |rate: f32| {
+            Arc::new(Sample {
+                data: vec![0.5; 22_050],
+                sample_rate: rate,
+            })
+        };
+        bank.register("blip", blip(22_050.0));
+        bank.register("blip", blip(44_100.0));
+        let note = |src: &str| {
+            let pattern = rudel_lang::eval(src).expect("eval");
+            collect_events_at(&pattern, &Clock::new(1.0), 0.0, 1.0, &bank, 44_100.0)
+                .0
+                .remove(0)
+                .dough
+                .expect("a dough note")
+        };
+        // Keyed `name:n`; a 22.05 kHz file on a 44.1 kHz engine plays at half
+        // speed, which is its own pitch; `bank` is not dough's to read.
+        let plain = note(r#"s("blip").bank("x").dough()"#);
+        let (key, sample) = plain.file.as_ref().expect("the sample");
+        assert_eq!((key.as_str(), sample.sample_rate), ("blip:0", 22_050.0));
+        assert!(plain.message.contains("/speed/0.5/"), "{}", plain.message);
+        // `n` picks the file, and `speed` multiplies.
+        let second = note(r#"s("blip").n(1).speed(2).dough()"#);
+        assert_eq!(second.file.as_ref().map(|f| f.0.as_str()), Some("blip:1"));
+        assert!(second.message.contains("/speed/2/"), "{}", second.message);
+        // `unit: "c"`: times the buffer's length, half a second here.
+        let unit = note(r#"s("blip").n(1).unit("c").dough()"#);
+        assert!(unit.message.contains("/speed/0.5/"), "{}", unit.message);
+        // dough's own sounds, and names nothing has loaded, carry no file.
+        assert!(note(r#"s("saw").dough()"#).file.is_none());
+        assert!(note(r#"s("nope").dough()"#).file.is_none());
     }
 
     /// The score statement one hap of `src` becomes.

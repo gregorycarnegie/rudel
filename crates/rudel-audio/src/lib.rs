@@ -24,7 +24,7 @@ pub mod sf2;
 pub mod soundfont;
 mod sync;
 
-pub use events::{NoteEvent, collect_events, collect_events_at, to_control_map};
+pub use events::{DoughNote, NoteEvent, collect_events, collect_events_at, to_control_map};
 pub use midimap_source::{load_midimaps, spawn_midimaps};
 pub use mixer::{CsoundSource, Engine, FakeOutput, OfflineMixer};
 pub use record::Recorder;
