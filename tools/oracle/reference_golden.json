@@ -36,6 +36,7 @@
     "amp",
     "analyze",
     "anchor",
+    "and",
     "apply",
     "applyN",
     "ar",
@@ -45,9 +46,11 @@
     "asym",
     "att",
     "attack",
+    "band",
     "bandf",
     "bandq",
     "bank",
+    "base",
     "bb",
     "bbexpr",
     "bbst",
@@ -62,7 +65,9 @@
     "binshift",
     "bite",
     "bjork",
+    "blshift",
     "bmod",
+    "bor",
     "bp",
     "bpa",
     "bpattack",
@@ -87,8 +92,10 @@
     "brak",
     "brand",
     "brandBy",
+    "brshift",
     "bus",
     "busgain",
+    "bxor",
     "bypass",
     "byteBeatExpression",
     "byteBeatStartTime",
@@ -110,7 +117,6 @@
     "chunkback",
     "chunkbackinto",
     "chunkinto",
-    "clearScope",
     "clip",
     "coarse",
     "color",
@@ -137,6 +143,8 @@
     "curve",
     "cut",
     "cutoff",
+    "cycleStruct",
+    "cyclestruct",
     "datt",
     "dec",
     "decay",
@@ -148,7 +156,6 @@
     "delayfb",
     "delayfeedback",
     "delays",
-    "delayspeed",
     "delaysync",
     "delayt",
     "delaytime",
@@ -169,6 +176,7 @@
     "distvol",
     "div",
     "djf",
+    "dough",
     "dracula",
     "drive",
     "dry",
@@ -192,6 +200,8 @@
     "end",
     "enhance",
     "env",
+    "eq",
+    "eqt",
     "euclid",
     "euclidLegato",
     "euclidLegatoRot",
@@ -257,14 +267,24 @@
     "gap",
     "gat",
     "gate",
+    "getClockTime",
+    "getCps",
     "getDuration",
+    "getFreq",
+    "getFrequency",
+    "getTime",
+    "glide",
     "gravX",
     "gravY",
     "gravZ",
     "gravityX",
     "gravityY",
     "gravityZ",
+    "group",
+    "groupmod",
     "grow",
+    "gt",
+    "gte",
     "hard",
     "harmonic",
     "hbrick",
@@ -300,6 +320,7 @@
     "imag",
     "inhabit",
     "inhabitmod",
+    "initDough",
     "inside",
     "into",
     "inv",
@@ -309,6 +330,7 @@
     "irbegin",
     "iresponse",
     "irspeed",
+    "isobite",
     "iter",
     "iterBack",
     "iterback",
@@ -368,6 +390,8 @@
     "lpsync",
     "lrate",
     "lsize",
+    "lt",
+    "lte",
     "markcss",
     "midibend",
     "midichan",
@@ -378,13 +402,18 @@
     "midiport",
     "miditouch",
     "minutes",
+    "mod",
     "mode",
+    "mouseX",
+    "mouseY",
     "mousex",
     "mousey",
     "moveXY",
     "mtranspose",
     "mul",
     "n",
+    "ne",
+    "net",
     "never",
     "noise",
     "note",
@@ -402,7 +431,9 @@
     "off",
     "offset",
     "often",
+    "onSchedule",
     "onTriggerTime",
+    "or",
     "orbit",
     "oriA",
     "oriB",
@@ -476,6 +507,7 @@
     "polyTouch",
     "polyrhythm",
     "postgain",
+    "pow",
     "pr",
     "prel",
     "prelease",
@@ -556,6 +588,7 @@
     "shapevol",
     "shrink",
     "shuffle",
+    "signal",
     "silence",
     "sinefold",
     "size",
@@ -584,6 +617,11 @@
     "spread",
     "squiz",
     "src",
+    "stackCenter",
+    "stackCentre",
+    "stackLeft",
+    "stackRepeat",
+    "stackRight",
     "stepcat",
     "stepsPerOctave",
     "strans",
@@ -646,6 +684,7 @@
     "vlpf",
     "vmod",
     "voice",
+    "voices",
     "voicing",
     "voicings",
     "vowel",
@@ -789,7 +828,6 @@
     "delayfb",
     "delayfeedback",
     "delays",
-    "delayspeed",
     "delaysync",
     "delayt",
     "delaytime",
@@ -840,6 +878,8 @@
     "gain",
     "gat",
     "gate",
+    "glide",
+    "group",
     "harmonic",
     "hbrick",
     "hcutoff",
@@ -1041,6 +1081,7 @@
     "vibrato",
     "vmod",
     "voice",
+    "voices",
     "vowel",
     "warp",
     "warpatt",
@@ -1195,6 +1236,9 @@
     "anchor": [
       "core"
     ],
+    "and": [
+      "core"
+    ],
     "apply": [
       "core"
     ],
@@ -1222,6 +1266,9 @@
     "attack": [
       "core"
     ],
+    "band": [
+      "core"
+    ],
     "bandf": [
       "core"
     ],
@@ -1229,6 +1276,9 @@
       "core"
     ],
     "bank": [
+      "core"
+    ],
+    "base": [
       "core"
     ],
     "bb": [
@@ -1273,7 +1323,13 @@
     "bjork": [
       "core"
     ],
+    "blshift": [
+      "core"
+    ],
     "bmod": [
+      "core"
+    ],
+    "bor": [
       "core"
     ],
     "bp": [
@@ -1348,10 +1404,16 @@
     "brandBy": [
       "core"
     ],
+    "brshift": [
+      "core"
+    ],
     "bus": [
       "core"
     ],
     "busgain": [
+      "core"
+    ],
+    "bxor": [
       "core"
     ],
     "bypass": [
@@ -1415,9 +1477,6 @@
       "core"
     ],
     "chunkinto": [
-      "core"
-    ],
-    "clearScope": [
       "core"
     ],
     "clip": [
@@ -1498,6 +1557,12 @@
     "cutoff": [
       "core"
     ],
+    "cycleStruct": [
+      "core"
+    ],
+    "cyclestruct": [
+      "core"
+    ],
     "datt": [
       "core"
     ],
@@ -1529,9 +1594,6 @@
       "core"
     ],
     "delays": [
-      "core"
-    ],
-    "delayspeed": [
       "core"
     ],
     "delaysync": [
@@ -1593,6 +1655,9 @@
     ],
     "djf": [
       "core"
+    ],
+    "dough": [
+      "dough"
     ],
     "dracula": [
       "codemirror"
@@ -1661,6 +1726,12 @@
       "core"
     ],
     "env": [
+      "core"
+    ],
+    "eq": [
+      "core"
+    ],
+    "eqt": [
       "core"
     ],
     "euclid": [
@@ -1858,8 +1929,26 @@
     "gate": [
       "core"
     ],
+    "getClockTime": [
+      "core"
+    ],
+    "getCps": [
+      "core"
+    ],
     "getDuration": [
       "superdough"
+    ],
+    "getFreq": [
+      "core"
+    ],
+    "getFrequency": [
+      "core"
+    ],
+    "getTime": [
+      "core"
+    ],
+    "glide": [
+      "dough"
     ],
     "gravX": [
       "motion"
@@ -1879,7 +1968,19 @@
     "gravityZ": [
       "motion"
     ],
+    "group": [
+      "dough"
+    ],
+    "groupmod": [
+      "dough"
+    ],
     "grow": [
+      "core"
+    ],
+    "gt": [
+      "core"
+    ],
+    "gte": [
       "core"
     ],
     "hard": [
@@ -1987,6 +2088,9 @@
     "inhabitmod": [
       "core"
     ],
+    "initDough": [
+      "dough"
+    ],
     "inside": [
       "core"
     ],
@@ -2012,6 +2116,9 @@
       "core"
     ],
     "irspeed": [
+      "core"
+    ],
+    "isobite": [
       "core"
     ],
     "iter": [
@@ -2191,6 +2298,12 @@
     "lsize": [
       "core"
     ],
+    "lt": [
+      "core"
+    ],
+    "lte": [
+      "core"
+    ],
     "markcss": [
       "codemirror"
     ],
@@ -2221,7 +2334,16 @@
     "minutes": [
       "core"
     ],
+    "mod": [
+      "core"
+    ],
     "mode": [
+      "core"
+    ],
+    "mouseX": [
+      "core"
+    ],
+    "mouseY": [
       "core"
     ],
     "mousex": [
@@ -2240,6 +2362,12 @@
       "core"
     ],
     "n": [
+      "core"
+    ],
+    "ne": [
+      "core"
+    ],
+    "net": [
       "core"
     ],
     "never": [
@@ -2293,7 +2421,13 @@
     "often": [
       "core"
     ],
+    "onSchedule": [
+      "core"
+    ],
     "onTriggerTime": [
+      "core"
+    ],
+    "or": [
       "core"
     ],
     "orbit": [
@@ -2513,6 +2647,9 @@
       "core"
     ],
     "postgain": [
+      "core"
+    ],
+    "pow": [
       "core"
     ],
     "pr": [
@@ -2755,6 +2892,9 @@
     "shuffle": [
       "core"
     ],
+    "signal": [
+      "core"
+    ],
     "silence": [
       "core"
     ],
@@ -2837,6 +2977,21 @@
       "core"
     ],
     "src": [
+      "core"
+    ],
+    "stackCenter": [
+      "core"
+    ],
+    "stackCentre": [
+      "core"
+    ],
+    "stackLeft": [
+      "core"
+    ],
+    "stackRepeat": [
+      "core"
+    ],
+    "stackRight": [
       "core"
     ],
     "stepcat": [
@@ -3024,6 +3179,9 @@
     ],
     "voice": [
       "core"
+    ],
+    "voices": [
+      "dough"
     ],
     "voicing": [
       "tonal"

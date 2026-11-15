@@ -16,14 +16,16 @@ A row that is not `implemented` carries the allowlist category it falls under in
 - **doc artifact** — Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).
 - **editor theme** — CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is one of the 39 Strudel themes generated into crates/rudel-app/themes/*.toml (tools/generate_themes.mjs), selectable in the editor settings panel or by `theme("dracula")` as a pattern setting, so it never appears in `rudel_lang::reference()`.
 - **motion** — @strudel/motion browser DeviceMotion/DeviceOrientation sensor signals; no native sensor source (docs/UNSUPPORTED.md).
+- **new upstream** — Added upstream since the reference golden was last generated and not ported yet (golden regenerated from Strudel cac73dc5, 2026-11-15). `glide`/`group`/`voices`/`groupmod`/`initDough` belong to the new dough-synth engine (packages/dough); the rest are core additions. Owned by the FULL_STRUDEL.md item 'Port the names added upstream by November 2026'.
 
 ## Summary
 
 | Package | Names | Implemented | Intentional | Deferred | Unaccounted |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
-| `core` | 618 | 615 | 3 | 0 | 0 |
+| `core` | 651 | 639 | 3 | 9 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
+| `dough` | 6 | 1 | 0 | 5 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
 | `midi` | 2 | 2 | 0 | 0 | 0 |
@@ -33,7 +35,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **709** | **657** | **52** | **0** | **0** |
+| **Total** | **748** | **682** | **52** | **14** | **0** |
 
 ## `codemirror`
 
@@ -63,6 +65,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `amp` | implemented |  |
 | `analyze` | implemented |  |
 | `anchor` | implemented |  |
+| `and` | implemented |  |
 | `apply` | implemented |  |
 | `applyN` | implemented |  |
 | `ar` | implemented |  |
@@ -72,9 +75,11 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `asym` | implemented |  |
 | `att` | implemented |  |
 | `attack` | implemented |  |
+| `band` | implemented |  |
 | `bandf` | implemented |  |
 | `bandq` | implemented |  |
 | `bank` | implemented |  |
+| `base` | deferred | new upstream |
 | `bb` | implemented |  |
 | `bbexpr` | implemented |  |
 | `bbst` | implemented |  |
@@ -89,7 +94,9 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `binshift` | implemented |  |
 | `bite` | implemented |  |
 | `bjork` | implemented |  |
+| `blshift` | implemented |  |
 | `bmod` | implemented |  |
+| `bor` | implemented |  |
 | `bp` | implemented |  |
 | `bpa` | implemented |  |
 | `bpattack` | implemented |  |
@@ -114,8 +121,10 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `brak` | implemented |  |
 | `brand` | implemented |  |
 | `brandBy` | implemented |  |
+| `brshift` | implemented |  |
 | `bus` | implemented |  |
 | `busgain` | implemented |  |
+| `bxor` | implemented |  |
 | `bypass` | implemented |  |
 | `byteBeatExpression` | implemented |  |
 | `byteBeatStartTime` | implemented |  |
@@ -137,7 +146,6 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `chunkback` | implemented |  |
 | `chunkbackinto` | implemented |  |
 | `chunkinto` | implemented |  |
-| `clearScope` | implemented |  |
 | `clip` | implemented |  |
 | `coarse` | implemented |  |
 | `color` | implemented |  |
@@ -162,6 +170,8 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `curve` | implemented |  |
 | `cut` | implemented |  |
 | `cutoff` | implemented |  |
+| `cycleStruct` | deferred | new upstream |
+| `cyclestruct` | deferred | new upstream |
 | `datt` | implemented |  |
 | `dec` | implemented |  |
 | `decay` | implemented |  |
@@ -173,7 +183,6 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `delayfb` | implemented |  |
 | `delayfeedback` | implemented |  |
 | `delays` | implemented |  |
-| `delayspeed` | implemented |  |
 | `delaysync` | implemented |  |
 | `delayt` | implemented |  |
 | `delaytime` | implemented |  |
@@ -215,6 +224,8 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `end` | implemented |  |
 | `enhance` | implemented |  |
 | `env` | implemented |  |
+| `eq` | implemented |  |
+| `eqt` | implemented |  |
 | `euclid` | implemented |  |
 | `euclidLegato` | implemented |  |
 | `euclidLegatoRot` | implemented |  |
@@ -275,7 +286,14 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `gap` | implemented |  |
 | `gat` | implemented |  |
 | `gate` | implemented |  |
+| `getClockTime` | deferred | new upstream |
+| `getCps` | deferred | new upstream |
+| `getFreq` | implemented |  |
+| `getFrequency` | deferred | new upstream |
+| `getTime` | implemented |  |
 | `grow` | implemented |  |
+| `gt` | implemented |  |
+| `gte` | implemented |  |
 | `hard` | implemented |  |
 | `harmonic` | implemented |  |
 | `hbrick` | implemented |  |
@@ -320,6 +338,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `irbegin` | implemented |  |
 | `iresponse` | implemented |  |
 | `irspeed` | implemented |  |
+| `isobite` | deferred | new upstream |
 | `iter` | implemented |  |
 | `iterBack` | implemented |  |
 | `iterback` | implemented |  |
@@ -379,6 +398,8 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `lpsync` | implemented |  |
 | `lrate` | implemented |  |
 | `lsize` | implemented |  |
+| `lt` | implemented |  |
+| `lte` | implemented |  |
 | `midibend` | implemented |  |
 | `midichan` | implemented |  |
 | `midicmd` | implemented |  |
@@ -386,12 +407,17 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `midiport` | implemented |  |
 | `miditouch` | implemented |  |
 | `minutes` | implemented |  |
+| `mod` | implemented |  |
 | `mode` | implemented |  |
+| `mouseX` | implemented |  |
+| `mouseY` | implemented |  |
 | `mousex` | implemented |  |
 | `mousey` | implemented |  |
 | `mtranspose` | implemented |  |
 | `mul` | implemented |  |
 | `n` | implemented |  |
+| `ne` | implemented |  |
+| `net` | implemented |  |
 | `never` | implemented |  |
 | `noise` | implemented |  |
 | `note` | implemented |  |
@@ -409,7 +435,9 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `off` | implemented |  |
 | `offset` | implemented |  |
 | `often` | implemented |  |
+| `onSchedule` | deferred | new upstream |
 | `onTriggerTime` | implemented |  |
+| `or` | implemented |  |
 | `orbit` | implemented |  |
 | `oschost` | implemented |  |
 | `oscport` | implemented |  |
@@ -468,6 +496,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `polyTouch` | implemented |  |
 | `polyrhythm` | implemented |  |
 | `postgain` | implemented |  |
+| `pow` | implemented |  |
 | `pr` | implemented |  |
 | `prel` | implemented |  |
 | `prelease` | implemented |  |
@@ -527,6 +556,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `shapevol` | implemented |  |
 | `shrink` | implemented |  |
 | `shuffle` | implemented |  |
+| `signal` | implemented |  |
 | `silence` | implemented |  |
 | `sinefold` | implemented |  |
 | `size` | implemented |  |
@@ -552,6 +582,11 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `spread` | implemented |  |
 | `squiz` | implemented |  |
 | `src` | implemented |  |
+| `stackCenter` | implemented |  |
+| `stackCentre` | implemented |  |
+| `stackLeft` | implemented |  |
+| `stackRepeat` | deferred | new upstream |
+| `stackRight` | implemented |  |
 | `stepcat` | implemented |  |
 | `stepsPerOctave` | implemented |  |
 | `stretch` | implemented |  |
@@ -672,6 +707,17 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | --- | --- | --- |
 | `csound` | implemented |  |
 | `csoundm` | implemented |  |
+
+## `dough`
+
+| Name | Status | Note |
+| --- | --- | --- |
+| `dough` | implemented |  |
+| `glide` | deferred | new upstream |
+| `group` | deferred | new upstream |
+| `groupmod` | deferred | new upstream |
+| `initDough` | deferred | new upstream |
+| `voices` | deferred | new upstream |
 
 ## `draw`
 

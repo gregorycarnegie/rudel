@@ -70,6 +70,26 @@
       "names": [
         "dracula"
       ]
+    },
+    "new_upstream": {
+      "status": "deferred",
+      "reason": "Added upstream since the reference golden was last generated and not ported yet (golden regenerated from Strudel cac73dc5, 2026-11-15). `glide`/`group`/`voices`/`groupmod`/`initDough` belong to the new dough-synth engine (packages/dough); the rest are core additions. Owned by the FULL_STRUDEL.md item 'Port the names added upstream by November 2026'.",
+      "names": [
+        "base",
+        "cycleStruct",
+        "cyclestruct",
+        "getClockTime",
+        "getCps",
+        "getFrequency",
+        "glide",
+        "group",
+        "groupmod",
+        "initDough",
+        "isobite",
+        "onSchedule",
+        "stackRepeat",
+        "voices"
+      ]
     }
   }
 }
