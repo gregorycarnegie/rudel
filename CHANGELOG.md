@@ -23,9 +23,17 @@ This file starts at 0.7.0. Earlier history is in the git log.
   upstream, silences those events unless its second argument is `false`.
 - `stackLeft`, `stackRight`, `stackCentre`/`stackCenter` and `stackRepeat` can
   be chained: `"0 1 2 3".stackLeft("3 4")`.
+- **The dough engine.** `.dough()` plays a pattern through dough itself, as
+  upstream's now does: its C source (0.4.1, the version Strudel pins) is
+  compiled into Rudel as `crates/rudel-dough`. With it come `initDough` and
+  the `group`, `voices` and `glide` controls. Only dough's own oscillators
+  and noises sound so far; samples are not registered with it yet.
 
 ### Changed
 
+- **`.dough()` no longer plays `s` as bytebeat.** That stood in for the old
+  `dough\`…\`` worklet template, which upstream has dropped. Write
+  `s("bytebeat").byteBeatExpression("…")` instead.
 - `stackBy("repeat", …)` paces the result to the longest pattern's step count,
   as upstream does; it used the least common multiple.
 

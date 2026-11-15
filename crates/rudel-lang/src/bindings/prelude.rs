@@ -538,20 +538,26 @@ pub(crate) fn register(prelude: &Scope) {
             Ok(Arg::Null)
         });
     }
-    // ``dough`…` ``: compile the given JavaScript into an AudioWorklet and run
-    // its `dsp(t)` at sample rate (superdough/dspworklet.mjs). That needs a JS
-    // engine on the audio thread, so the code is accepted and not run — and the
-    // pattern it was installed for still plays, because `.dough()` renders the
-    // bytebeat these worklets are always built to play. See `Pattern::dough`
-    // for what that covers and what it does not.
-    prelude.func("dough", |_| {
-        rudel_core::log_line(
-            "dough: the DSP worklet needs a JS engine on the audio thread and is \
-             not run here; `.dough()` plays its pattern as bytebeat"
-                .to_string(),
-        );
-        Ok(Arg::Null)
+    // `dough(pat)`: `pat.dough()`, the dough engine as the output
+    // (`@strudel/dough`). The name used to be a tagged template that compiled
+    // JavaScript into a DSP worklet (superdough/dspworklet.mjs); upstream no
+    // longer exports that, and it needs a JS engine on the audio thread, so
+    // anything that is not a pattern is accepted and not run.
+    prelude.func("dough", |a| match arg0(a) {
+        Arg::Pat(pat) => Ok(pat.dough().into()),
+        _ => {
+            rudel_core::log_line(
+                "dough: the DSP worklet template is not supported; `.dough()` \
+                 now plays its pattern through the dough engine"
+                    .to_string(),
+            );
+            Ok(Arg::Null)
+        }
     });
+    // `initDough()`: upstream starts the engine ahead of time and returns a
+    // promise to await. Here the engine is ready when the first hap needs it,
+    // so there is nothing to wait for.
+    prelude.func("initDough", |_| Ok(Arg::Null));
     // `console.log` goes to the same place the pattern's own `log` does, which
     // is the console panel.
     let console = prelude.namespace("console");

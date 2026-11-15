@@ -271,6 +271,12 @@ controls!(
     enhance,
     comb,
     smear,
+    // @strudel/dough's own controls: voice groups, polyphony per group and
+    // pitch glide. They reach the dough engine through `.dough()`; Rudel's
+    // voices do not read them.
+    group,
+    voices,
+    glide,
     // animate.mjs shape params (`smear` above is shared with the pianoroll).
     x,
     y,

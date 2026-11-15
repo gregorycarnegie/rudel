@@ -79,6 +79,10 @@ pub struct NoteEvent {
     /// starting a voice — upstream's `csound` output is an `onTrigger`, which
     /// replaces the sound rather than adding to it.
     pub csound: Option<String>,
+    /// The message for the dough engine, when the hap came through
+    /// `.dough()`. The mixer hands it to the engine at the onset instead of
+    /// starting a voice — upstream's is a dominant `onSchedule`.
+    pub dough: Option<String>,
 }
 
 /// The requested MIDI note for a sampler, from `freq` or `note` (name or
@@ -175,6 +179,37 @@ fn csound_statement(map: &ValueMap, duration: f64) -> Option<String> {
         "i \"{instrument}\" 0 {duration} {p4} {p5} \"{}\"",
         controls.join("/")
     ))
+}
+
+/// The message a `.dough()` hap sends the dough engine, as `@strudel/dough`'s
+/// `hap2dough` and dough.js's `encodeEvent` build it between them: the command
+/// (`play`, or `groupmod`'s `update_group`), every control as `key/value`,
+/// and the duration in seconds. A note name becomes its MIDI number, which is
+/// the only form the engine reads. There is no `time` pair: the mixer delivers
+/// the message at the sub-block the onset falls on, so "now" is the onset.
+fn dough_message(map: &ValueMap, duration: f64) -> Option<String> {
+    let command = control_text(map.get("dough")?);
+    let mut message = format!("dough/{command}");
+    for (key, value) in map.iter() {
+        let text = match (key.as_str(), value) {
+            ("dough" | "duration", _) => continue,
+            (key, _) if key.starts_with('_') => continue,
+            ("note", Value::Str(name)) => match rudel_core::note_to_midi(name) {
+                Some(midi) => midi.to_string(),
+                None => continue,
+            },
+            (_, Value::Null | Value::List(_) | Value::Map(_) | Value::Func(_) | Value::Pat(_)) => {
+                continue;
+            }
+            _ => control_text(value),
+        };
+        // An empty value would shift every pair after it by one.
+        if !text.is_empty() {
+            message.push_str(&format!("/{key}/{text}"));
+        }
+    }
+    message.push_str(&format!("/duration/{duration}"));
+    Some(message)
 }
 
 /// One control value as Csound's `keymap` string map carries it. Quotes and
@@ -477,6 +512,7 @@ pub fn collect_events_at(
                     .map(|v| v as i32),
                 tags: ev.tags,
                 csound: csound_statement(&ev.controls, ev.duration_seconds),
+                dough: dough_message(&ev.controls, ev.duration_seconds),
             }
         })
         .collect();
@@ -728,6 +764,31 @@ mod tests {
         // No velocity, or a velocity of 1, leaves gain exactly as it was.
         assert!((gain_of(r#"note("c3").gain(0.8)"#) - 0.8).abs() < 1e-6);
         assert!((gain_of(r#"note("c3").gain(0.8).velocity(1)"#) - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_dough_hap_becomes_the_message_doughs_driver_sends() {
+        let message = |src: &str| {
+            let pattern = rudel_lang::eval(src).expect("eval");
+            collect_events(&pattern, 1.0, 0.0, 1.0, &SampleBank::new())
+                .into_iter()
+                .next()
+                .expect("one event")
+                .dough
+        };
+        // `{ dough: 'play', ...hap.value, duration }`, joined with slashes; the
+        // note name as the MIDI number the engine reads.
+        assert_eq!(
+            message(r#"note("a4").s("saw").lpf(800).dough()"#).as_deref(),
+            Some("dough/play/note/69/s/saw/cutoff/800/duration/1")
+        );
+        // Half a cycle at one cycle a second is half a second.
+        assert_eq!(
+            message(r#"s("sine*2").dough()"#).as_deref(),
+            Some("dough/play/s/sine/duration/0.5")
+        );
+        // Anything else is not dough's to play.
+        assert_eq!(message(r#"note("a4").s("saw")"#), None);
     }
 
     /// The score statement one hap of `src` becomes.

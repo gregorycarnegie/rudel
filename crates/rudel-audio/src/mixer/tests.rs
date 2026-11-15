@@ -30,6 +30,7 @@ fn test_mixer_with_volume(rx: Receiver<NoteEvent>, volume: Arc<AtomicU64>) -> Mi
         taps: Arc::new(ScopeTaps::new()),
         tag_bufs: HashMap::new(),
         csound: Default::default(),
+        dough: Default::default(),
         recorder: Default::default(),
     }
 }
@@ -69,6 +70,7 @@ fn tagged_voices_feed_their_widget_tap_only() {
         mods: Default::default(),
         tags,
         csound: None,
+        dough: None,
     };
     mixer.schedule(ev(vec!["w1".to_string()]));
     mixer.schedule(ev(Vec::new()));
@@ -765,6 +767,7 @@ fn cut_group_chokes_the_previous_voice() {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     };
     tx.send(held(0.0)).unwrap();
     tx.send(held(0.2)).unwrap();
@@ -810,6 +813,7 @@ fn block_render_matches_frame_render_across_onsets() {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     };
     // Onsets at frames 0, ~37 and ~150 (44.1kHz) force mid-buffer splits.
     let onsets = [0.0, 37.0 / 44100.0, 150.0 / 44100.0];
@@ -879,6 +883,7 @@ mod block_partition_props {
             mods: Default::default(),
             tags: Vec::new(),
             csound: None,
+            dough: None,
         }
     }
 
@@ -1145,6 +1150,7 @@ fn routed_event(send: OrbitSend) -> NoteEvent {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     }
 }
 
@@ -1514,6 +1520,7 @@ fn a_choked_voice_is_routed_through_the_same_sends() {
             mods: Default::default(),
             tags: Vec::new(),
             csound: None,
+            dough: None,
         });
         let mut out = vec![(0.0f32, 0.0f32); 16384];
         mixer.render_block(&mut out);
@@ -1600,6 +1607,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); 4096];
     mixer.render_block(&mut out);
@@ -1641,6 +1649,7 @@ fn the_bus_send_is_additional_to_the_orbit_routing() {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     });
     let mut out2 = vec![(0.0f32, 0.0f32); 4096];
     quiet.render_block(&mut out2);
@@ -1682,6 +1691,7 @@ fn render_choked(send: OrbitSend, n: usize) -> Vec<(f32, f32)> {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); n];
     mixer.render_block(&mut out);
@@ -2579,6 +2589,7 @@ fn a_centred_voice_stays_centred_through_a_signal_bus() {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     });
     let mut out = vec![(0.0f32, 0.0f32); 4096];
     mixer.render_block(&mut out);
@@ -2629,28 +2640,29 @@ fn max_polyphony_fades_out_the_oldest_voices() {
 }
 
 #[test]
-fn dough_plays_its_pattern_as_bytebeat() {
-    // `dough(code)` compiles the script's own JavaScript into an AudioWorklet,
-    // which needs a JS engine at sample rate. What that code always is, in the
-    // wild, is a bytebeat player reading the hap's `s` value, so `.dough()`
-    // hands that value to the `bytebeat` voice instead — see `Pattern::dough`.
-    let expr = "t>>6^t&t>>9^t>>12";
-    let doughed = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(expr.into()))).dough();
-    // The same thing spelled out, which is what it has to be equivalent to.
-    let spelled = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("bytebeat".into())))
-        .ctrl("byteBeatExpression", rudel_core::Value::Str(expr.into()));
-
-    let level = rms(&render_pattern(&doughed, 1.0, 0.5));
-    assert!(level > 0.0, "a doughed bytebeat should make a sound");
-    assert_eq!(
-        level,
-        rms(&render_pattern(&spelled, 1.0, 0.5)),
-        "`.dough()` should render as the bytebeat voice"
+fn dough_haps_play_through_the_dough_engine_instead_of_a_voice() {
+    // The one test here that plays dough: the engine is one per process, and a
+    // second mixer asking for it while this one holds it would get silence.
+    let pat = rudel_core::s(rudel_core::pure(rudel_core::Value::Str("sine".into())))
+        .ctrl("freq", rudel_core::Value::Int(330))
+        .dough();
+    let (tx, rx) = mpsc::channel::<NoteEvent>();
+    let mut mixer = test_mixer(rx);
+    for ev in collect_events(&pat, 1.0, 0.0, 1.0, &SampleBank::new()) {
+        tx.send(ev).unwrap();
+    }
+    let mut out = vec![(0.0f32, 0.0f32); 22_050];
+    mixer.render_block(&mut out);
+    // Upstream's `.dough()` is a dominant output: the hap goes to dough alone.
+    assert!(mixer.active.is_empty(), "a dough hap started a Rudel voice");
+    // dough's own level for a sine, GAIN_SINE (0.2) times GAIN_MIX (0.5),
+    // under the mixer's master volume. A Rudel sine is nowhere near it.
+    let peak = out.iter().fold(0.0f32, |m, f| m.max(f.0.abs()));
+    let expected = 0.1 * super::load_f64(&mixer.volume) as f32;
+    assert!(
+        (peak - expected).abs() < expected * 0.05,
+        "peak {peak}, expected dough's {expected}"
     );
-    // Without it the expression is just a sound name, which resolves to the
-    // fallback voice and plays something else entirely.
-    let raw = rudel_core::s(rudel_core::pure(rudel_core::Value::Str(expr.into())));
-    assert_ne!(rms(&render_pattern(&raw, 1.0, 0.5)), level);
 }
 
 #[test]

@@ -1,0 +1,11 @@
+[package]
+name = "rudel-dough"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "The dough synth engine, compiled from its C source for Rudel's `.dough()`"
+
+[build-dependencies]
+cc = "1.2.63"

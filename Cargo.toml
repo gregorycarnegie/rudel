@@ -27,6 +27,7 @@ rudel-mini = { path = "crates/rudel-mini" }
 rudel-osc = { path = "crates/rudel-osc" }
 rudel-audio = { path = "crates/rudel-audio" }
 rudel-ffmpeg = { path = "crates/rudel-ffmpeg" }
+rudel-dough = { path = "crates/rudel-dough" }
 wide = "1.7.1"
 indexmap = "2.14.2"
 num-rational = "0.4.2"

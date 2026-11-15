@@ -1,8 +1,8 @@
 //! Output-device setup and the lookahead scheduler.
 
 use super::{
-    DEFAULT_MASTER_VOLUME, MAX_MASTER_VOLUME, MixScratch, Mixer, SharedCsound, load_f64, store_f64,
-    write_frames,
+    DEFAULT_MASTER_VOLUME, MAX_MASTER_VOLUME, MixScratch, Mixer, SharedCsound, SharedDough,
+    load_f64, store_f64, write_frames,
 };
 use crate::{
     Clock, NoteEvent, SampleBank, ScopeTaps, collect_events_at,
@@ -42,6 +42,8 @@ pub struct Engine {
     taps: Arc<ScopeTaps>,
     /// Csound, created the first time a script calls `loadCsound`/`loadOrc`.
     csound: SharedCsound,
+    /// The dough engine, taken the first time a pattern uses `.dough()`.
+    dough: SharedDough,
     /// Master-output recorder, shared with the audio callback.
     recorder: Arc<crate::Recorder>,
 }
@@ -111,6 +113,7 @@ impl Engine {
         store_f64(&volume, DEFAULT_MASTER_VOLUME);
         let taps = Arc::new(ScopeTaps::new());
         let csound = SharedCsound::default();
+        let dough = SharedDough::default();
         let recorder: Arc<crate::Recorder> = Default::default();
 
         let mut mixer = Mixer {
@@ -127,6 +130,7 @@ impl Engine {
             taps: taps.clone(),
             tag_bufs: HashMap::new(),
             csound: csound.clone(),
+            dough: dough.clone(),
             recorder: recorder.clone(),
         };
         let output = open(Box::new(move |frames| mixer.render_block(frames)))?;
@@ -154,6 +158,7 @@ impl Engine {
             sample_rate,
             taps,
             csound,
+            dough,
             recorder,
         })
     }
@@ -400,6 +405,17 @@ impl Engine {
     /// Register a single decoded sample under `name`.
     pub fn register_sample(&self, name: &str, sample: Arc<rudel_dsp::Sample>) {
         write_lock(&self.bank).register(name, sample);
+    }
+
+    /// Take the dough engine now, from this thread, so that the first
+    /// `.dough()` hap does not make the audio callback lay its memory out.
+    /// Harmless to repeat, and a no-op while something else in the process
+    /// holds the engine.
+    pub fn warm_dough(&self) {
+        let mut slot = self.dough.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_none() {
+            *slot = rudel_dough::Dough::acquire(self.sample_rate as u32);
+        }
     }
 
     /// Swap in a new pattern (live update).

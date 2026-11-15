@@ -146,6 +146,14 @@ impl RudelApp {
         self.mqtt_haps = first_cycle
             .iter()
             .any(|hap| rudel_core::mqtt::is_mqtt(&hap.value));
+        // `.dough()` haps play on the dough engine; take it here rather than
+        // leave that to the audio callback.
+        let doughs = first_cycle
+            .iter()
+            .any(|hap| matches!(&hap.value, rudel_core::Value::Map(m) if m.contains_key("dough")));
+        if doughs && let Some(e) = &self.engine {
+            e.warm_dough();
+        }
         // `.serial()`'s and `.mqtt()`'s triggers are dominant too: their haps
         // go to the port or the broker only.
         let active = active

@@ -1,7 +1,7 @@
 # Rudel reference / autocomplete surface snapshot
 # Generated from rudel_lang::reference(); do not edit by hand.
 # Regenerate: RUDEL_BLESS=1 cargo test -p rudel-lang --test reference_snapshot
-# functions=1147 methods=1192 controls=675
+# functions=1151 methods=1195 controls=678
 
 [functions]
 AggregateError
@@ -631,7 +631,9 @@ getFreq
 getFrequency
 getGamepadStates
 getTime
+glide
 globalThis
+group
 grow
 gt
 gte
@@ -673,6 +675,7 @@ id
 imag
 inhabit
 inhabitmod
+initDough
 initHydra
 innerBind
 innerHeight
@@ -1085,6 +1088,7 @@ vibmod
 vibrato
 vmod
 voice
+voices
 voicing
 voicingRegistry
 vowel
@@ -1745,6 +1749,8 @@ fxr
 gain
 gat
 gate
+glide
+group
 grow
 gt
 gte
@@ -2274,6 +2280,7 @@ vibmod
 vibrato
 vmod
 voice
+voices
 voicing
 voicings
 vowel
@@ -2767,6 +2774,8 @@ fxr
 gain
 gat
 gate
+glide
+group
 h
 harmonic
 hbrick
@@ -2972,6 +2981,7 @@ vibmod
 vibrato
 vmod
 voice
+voices
 vowel
 w
 warp

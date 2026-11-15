@@ -853,6 +853,36 @@ It sums into the master after the orbits, so it is not fed by `room`, `delay`
 or the DJ filter; upstream wires it straight to the audio context's destination,
 which has the same effect. Master volume still applies.
 
+### dough (`@strudel/dough`) — the engine itself, without samples yet
+
+`.dough()` plays a pattern through the dough synth instead of Rudel's own
+voices, as upstream does. It is the same engine: Rudel compiles dough's C source
+(`crates/rudel-dough`, version 0.4.1, the one Strudel pins) and renders it into
+the mixer, so its oscillators, filters, envelopes, FM, delay and reverb are
+dough's own code rather than a port. `group`, `voices` and `glide` reach it as
+controls, and `initDough()` is accepted and returns at once, since the engine
+is ready by the first hap.
+
+What differs:
+
+- **No samples.** Only dough's own sources sound: `sine`, `tri`, `saw`,
+  `zaw`, `pulse`, `pulze`, the noises and `const`. `doughsamples(...)` is not
+  there, and a hap naming a sample is silent.
+- **Not bit-identical to the browser.** The browser runs a WebAssembly build
+  that carries its own maths routines; the native build uses the system's. The
+  two have not been compared sample for sample yet.
+- **One engine per process.** dough keeps its state in globals, so a second
+  mixer in the same process (an offline render while the app plays) gets
+  silence for its `.dough()` haps.
+- **Master volume applies**, as it does to Csound; Rudel's own effects and
+  orbits do not, as upstream connects dough straight to the output.
+- **`groupmod` is missing.** Upstream's throws when queried, so there is
+  nothing to match.
+- **The old meaning is gone.** `.dough()` used to stand in for the older
+  `dough\`…\`` DSP-worklet template by playing the hap's `s` value as
+  bytebeat. Spell that out instead:
+  `s("bytebeat").byteBeatExpression("t>>6^t&t>>9^t>>12")`.
+
 ## Alternative language front-ends
 
 ### Mondo (`@strudel/mondo`, `@strudel/mondough`) — supported

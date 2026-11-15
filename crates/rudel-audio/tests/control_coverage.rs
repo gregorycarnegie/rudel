@@ -53,6 +53,13 @@ const NOT_AUDIO_PATH: &[&str] = &["input.rs", "midimap.rs", "draw.rs", "color.rs
 /// needed to catch `clip` and `velocity`. Deleting an entry as it gets
 /// implemented is the intended direction of travel.
 const UNREAD: &[&str] = &[
+    // @strudel/dough's controls. Nothing in Rust reads them by name: a
+    // `.dough()` hap's whole control map goes to the dough engine as a
+    // `key/value` message (`events.rs` `dough_message`), and the engine's C
+    // parser is what picks these out.
+    "glide",
+    "group",
+    "voices",
     // SuperDirt synth parameters: Strudel registers them so `.osc()` can send
     // them on, and superdough does not implement them either. `superdirt_message`
     // forwards the whole control map verbatim, so these do reach SuperDirt —

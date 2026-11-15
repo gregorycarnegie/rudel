@@ -58,6 +58,7 @@ fn note_event_with_room(room: f32) -> NoteEvent {
         mods: Default::default(),
         tags: Vec::new(),
         csound: None,
+        dough: None,
     }
 }
 

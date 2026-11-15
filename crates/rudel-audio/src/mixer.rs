@@ -29,6 +29,11 @@ use std::{
 /// compile can take milliseconds, and a block of Csound silence during a live
 /// re-evaluation is cheaper than missing the device deadline for every layer.
 pub(crate) type SharedCsound = Arc<Mutex<Option<Csound>>>;
+
+/// The dough engine `.dough()` plays through, taken the first time a hap asks
+/// for it. `None` until then, so a session that never uses it never has the
+/// engine lay its memory out.
+pub(crate) type SharedDough = Arc<Mutex<Option<rudel_dough::Dough>>>;
 /// One orbit's effect bus: its own reverb, feedback delay and DJ filter, plus
 /// the accumulation buffers the voices routed to it mix into.
 ///
@@ -353,6 +358,8 @@ struct Mixer {
     tag_bufs: HashMap<String, Vec<f32>>,
     /// Csound, when a script has asked for it.
     csound: SharedCsound,
+    /// The dough engine, once a hap has asked for it.
+    dough: SharedDough,
     /// Master-output recorder; idle unless a take is running.
     recorder: crate::record::SharedRecorder,
 }
@@ -380,10 +387,16 @@ impl Mixer {
         // The `Arc` is cloned so the guard does not borrow `self`.
         let csound = self.csound.clone();
         let mut guard = csound.try_lock().ok();
+        // The same for dough; the only other holder is whoever warms it up.
+        let dough = self.dough.clone();
+        let mut dough_guard = dough.try_lock().ok();
         let total = out.len();
         let mut offset = 0;
         while offset < total {
-            self.start_due_events(guard.as_deref_mut().and_then(Option::as_mut));
+            self.start_due_events(
+                guard.as_deref_mut().and_then(Option::as_mut),
+                dough_guard.as_deref_mut(),
+            );
             // Run until the next not-yet-started onset (or the end of the buffer).
             let next_onset_clock = self
                 .pending
@@ -399,6 +412,7 @@ impl Mixer {
             self.mix_sub_block(
                 &mut out[offset..offset + sub_len],
                 guard.as_deref_mut().and_then(Option::as_mut),
+                dough_guard.as_deref_mut().and_then(Option::as_mut),
             );
             offset += sub_len;
         }
@@ -421,7 +435,11 @@ impl Mixer {
 
     /// Start every pending event whose onset frame has arrived, choking any
     /// same-`cut`-group voice (last-one-wins, like Strudel's cut groups).
-    fn start_due_events(&mut self, mut csound: Option<&mut Csound>) {
+    fn start_due_events(
+        &mut self,
+        mut csound: Option<&mut Csound>,
+        mut dough: Option<&mut Option<rudel_dough::Dough>>,
+    ) {
         let mut i = 0;
         while i < self.pending.len() {
             if self.onset_clock(&self.pending[i]) <= self.sample_clock {
@@ -432,6 +450,21 @@ impl Mixer {
                 // is dropped rather than falling back to a synth: the tune
                 // asked for an instrument this engine does not have, and a
                 // sawtooth in its place is a worse answer than silence.
+                // `.dough()` does the same with the dough engine: upstream's
+                // is a dominant `onSchedule`. The engine is taken on first
+                // use, and there is one per process: while another mixer holds
+                // it the hap is dropped, like a statement with no Csound.
+                if let Some(message) = &ev.dough {
+                    if let Some(slot) = dough.as_deref_mut() {
+                        if slot.is_none() {
+                            *slot = rudel_dough::Dough::acquire(self.sample_rate as u32);
+                        }
+                        if let Some(engine) = slot {
+                            engine.evaluate(message);
+                        }
+                    }
+                    continue;
+                }
                 if let Some(statement) = &ev.csound {
                     if let Some(cs) = csound.as_deref_mut() {
                         cs.input_message(statement);
@@ -521,7 +554,12 @@ impl Mixer {
     /// Mix all active voices over `out` (no new voices start within it): render
     /// each voice's block, accumulate the dry / reverb / delay buses, then apply
     /// the global delay + reverb per sample and write the master mix.
-    fn mix_sub_block(&mut self, out: &mut [(f32, f32)], csound: Option<&mut Csound>) {
+    fn mix_sub_block(
+        &mut self,
+        out: &mut [(f32, f32)],
+        csound: Option<&mut Csound>,
+        dough: Option<&mut rudel_dough::Dough>,
+    ) {
         let len = out.len();
         let volume = load_f64(&self.volume) as f32;
         let sample_rate = self.sample_rate;
@@ -714,6 +752,11 @@ impl Mixer {
         if let Some(cs) = csound {
             cs.render_into(out);
         }
+        // So does dough, which has its own delay and reverb: upstream connects
+        // its worklet to the destination as well.
+        if let Some(engine) = dough {
+            engine.render_into(out);
+        }
         for frame in out.iter_mut() {
             frame.0 *= volume;
             frame.1 *= volume;
@@ -757,6 +800,7 @@ impl OfflineMixer {
             taps: Arc::new(ScopeTaps::new()),
             tag_bufs: HashMap::new(),
             csound: SharedCsound::default(),
+            dough: SharedDough::default(),
             // Never armed: an offline render is already a file.
             recorder: Default::default(),
         };

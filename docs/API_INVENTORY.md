@@ -14,7 +14,7 @@ Regenerate with `RUDEL_BLESS=1 cargo test -p rudel-lang --test api_inventory`. A
 A row that is not `implemented` carries the allowlist category it falls under in its Note. What each one means, from `tools/oracle/reference_allowlist.json`:
 
 - **doc artifact** — Names the reference oracle scrapes from jsdoc that are not live Strudel exports: `vlpf` appears only inside `register()`'s `@example`, and `weave`/`weaveWith` are commented out in core/pattern.mjs (only the `@name` tags survive).
-- **dough synth** — Names of the dough-synth engine (packages/dough), added upstream by November 2026 and not ported: the controls `glide`/`group`/`voices`, `groupmod` (which throws at query time upstream as of Strudel cac73dc5) and `initDough`. Waiting on a decision about what `.dough()` should mean in Rudel, which still gives it the older DSP-worklet reading. Owned by the FULL_STRUDEL.md item 'Port the dough-synth names added upstream by November 2026'.
+- **dough synth** — `groupmod` (packages/dough) is not ported: as of Strudel cac73dc5 it throws at query time upstream (it calls `withValue` on a plain value), so there is no behaviour to match yet. The rest of the dough names are exposed and play through the dough engine itself (crates/rudel-dough). Owned by the FULL_STRUDEL.md item about the dough-synth names.
 - **editor theme** — CodeMirror theme names are editor settings, not names a pattern can call. `dracula` is one of the 39 Strudel themes generated into crates/rudel-app/themes/*.toml (tools/generate_themes.mjs), selectable in the editor settings panel or by `theme("dracula")` as a pattern setting, so it never appears in `rudel_lang::reference()`.
 - **motion** — @strudel/motion browser DeviceMotion/DeviceOrientation sensor signals; no native sensor source (docs/UNSUPPORTED.md).
 
@@ -25,7 +25,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `codemirror` | 3 | 2 | 1 | 0 | 0 |
 | `core` | 651 | 648 | 3 | 0 | 0 |
 | `csound` | 2 | 2 | 0 | 0 | 0 |
-| `dough` | 6 | 1 | 0 | 5 | 0 |
+| `dough` | 6 | 5 | 0 | 1 | 0 |
 | `draw` | 8 | 8 | 0 | 0 | 0 |
 | `edo` | 1 | 1 | 0 | 0 | 0 |
 | `midi` | 2 | 2 | 0 | 0 | 0 |
@@ -35,7 +35,7 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | `tonal` | 10 | 10 | 0 | 0 | 0 |
 | `webaudio` | 4 | 4 | 0 | 0 | 0 |
 | `xen` | 8 | 8 | 0 | 0 | 0 |
-| **Total** | **748** | **691** | **52** | **5** | **0** |
+| **Total** | **748** | **695** | **52** | **1** | **0** |
 
 ## `codemirror`
 
@@ -713,11 +713,11 @@ A row that is not `implemented` carries the allowlist category it falls under in
 | Name | Status | Note |
 | --- | --- | --- |
 | `dough` | implemented |  |
-| `glide` | deferred | dough synth |
-| `group` | deferred | dough synth |
+| `glide` | implemented |  |
+| `group` | implemented |  |
 | `groupmod` | deferred | dough synth |
-| `initDough` | deferred | dough synth |
-| `voices` | deferred | dough synth |
+| `initDough` | implemented |  |
+| `voices` | implemented |  |
 
 ## `draw`
 

@@ -5023,6 +5023,7 @@ dependencies = [
  "proptest",
  "rstest",
  "rudel-core",
+ "rudel-dough",
  "rudel-dsp",
  "rudel-lang",
  "rudel-mini",
@@ -5045,6 +5046,13 @@ dependencies = [
  "proptest",
  "rstest",
  "stacker",
+]
+
+[[package]]
+name = "rudel-dough"
+version = "0.24.1"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

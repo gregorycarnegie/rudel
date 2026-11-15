@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 rudel-core.workspace = true
 rudel-dsp.workspace = true
+rudel-dough.workspace = true
 cpal = "0.18.2"
 # Sample decoding. `all` is the codec set fundsp pulled in when it owned this,
 # and is not optional: MP3 is behind a feature flag and off by default. Gapless
