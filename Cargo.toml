@@ -9,7 +9,7 @@ version = "0.24.1"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/gregorycarnegie/rudel"
-rust-version = "1.99"
+rust-version = "1.100"
 
 [workspace.dependencies]
 # Path only, deliberately. A `version` here would not be the one the members
