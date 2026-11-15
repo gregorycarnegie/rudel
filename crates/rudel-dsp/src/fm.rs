@@ -60,15 +60,16 @@ impl FmSpec {
     /// connection in use, registers its gain under both ends, so the last one
     /// touching operator `n` wins.
     pub(crate) fn gain_connection(&self, n: usize) -> Option<(usize, usize)> {
-        let mut last = None;
-        for i in 1..=FM_OPS {
-            for j in 0..=FM_OPS {
-                if self.amt[i][j] != 0.0 && (i == n || j == n) {
-                    last = Some((i, j));
-                }
-            }
-        }
-        last
+        // Row 0 is padding: sources start at operator 1, as superdough's do.
+        self.amt
+            .iter()
+            .enumerate()
+            .skip(1)
+            .flat_map(|(i, row)| row.iter().enumerate().map(move |(j, &amt)| (i, j, amt)))
+            // The last one in walk order wins: search from the end.
+            .rev()
+            .find(|&(i, j, amt)| amt != 0.0 && (i == n || j == n))
+            .map(|(i, j, _)| (i, j))
     }
 
     /// True when any FM routing is active.
@@ -92,18 +93,19 @@ impl FmSpec {
         let mut spec = FmSpec::default();
 
         // Per-operator ratio / waveform / index envelope. Operator 1 uses the
-        // un-suffixed control names (`fmh`, `fmwave`, `fmattack`, ...).
-        for n in 1..=FM_OPS {
+        // un-suffixed control names (`fmh`, `fmwave`, `fmattack`, ...); slot 0
+        // is padding.
+        for (n, op) in spec.ops.iter_mut().enumerate().skip(1) {
             let s = if n == 1 { String::new() } else { n.to_string() };
             if let Some(r) = f(&format!("fmh{s}")) {
-                spec.ops[n].ratio = r;
+                op.ratio = r;
             }
             if let Some(w) = map.get(&format!("fmwave{s}")).and_then(|v| v.as_str())
                 && let Some(wave) = Waveform::from_name(w)
             {
-                spec.ops[n].wave = wave;
+                op.wave = wave;
             }
-            spec.ops[n].env = op_env(
+            op.env = op_env(
                 f(&format!("fmattack{s}")),
                 f(&format!("fmdecay{s}")),
                 f(&format!("fmsustain{s}")),
@@ -114,8 +116,9 @@ impl FmSpec {
         // Modulation matrix. The control name per (i, j) matches superdough:
         // adjacent `i == j+1` is the chain control `fmi{i}` (`fmi` for i=1);
         // everything else is the two-digit `fmi{i}{j}`.
-        for i in 1..=FM_OPS {
-            for j in 0..=FM_OPS {
+        // Row 0 is padding: sources start at operator 1.
+        for (i, row) in spec.amt.iter_mut().enumerate().skip(1) {
+            for (j, amt) in row.iter_mut().enumerate() {
                 let name = if i == j + 1 {
                     if i == 1 {
                         "fmi".to_string()
@@ -126,7 +129,7 @@ impl FmSpec {
                     format!("fmi{i}{j}")
                 };
                 if let Some(a) = f(&name) {
-                    spec.amt[i][j] = a;
+                    *amt = a;
                 }
             }
         }

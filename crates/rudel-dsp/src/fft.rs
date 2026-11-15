@@ -51,8 +51,8 @@ impl Fft {
         let n = self.size;
         debug_assert_eq!(re.len(), n);
         debug_assert_eq!(im.len(), n);
-        for i in 0..n {
-            let j = self.rev[i] as usize;
+        for (i, &rev) in self.rev.iter().enumerate() {
+            let j = rev as usize;
             if i < j {
                 re.swap(i, j);
                 im.swap(i, j);

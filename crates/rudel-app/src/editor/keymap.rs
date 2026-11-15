@@ -1113,16 +1113,14 @@ impl KeymapState {
             ('r', None) => return None,
             ('r', Some(c)) => {
                 if p + n <= line_end_here {
-                    for i in p..p + n {
-                        buf.text[i] = c;
-                    }
+                    buf.text[p..p + n].fill(c);
                     buf.at(p + n - 1);
                 }
             }
             ('~', None) => {
                 let end = (p + n).min(line_end_here);
-                for i in p..end {
-                    buf.text[i] = toggle_case(buf.text[i]);
+                for ch in &mut buf.text[p..end] {
+                    *ch = toggle_case(*ch);
                 }
                 buf.at(clamp_normal(&buf.text, end));
             }
@@ -1209,8 +1207,8 @@ impl KeymapState {
                 return done(self);
             }
             "~" => {
-                for i in start..end {
-                    buf.text[i] = toggle_case(buf.text[i]);
+                for ch in &mut buf.text[start..end] {
+                    *ch = toggle_case(*ch);
                 }
                 buf.at(start);
                 return done(self);
@@ -1368,15 +1366,15 @@ impl KeymapState {
             ('U', None) => return Some(Outcome::Redo),
             ('r', None) | ('g', None) | ('f' | 't' | 'F' | 'T', None) => return None,
             ('r', Some(c)) => {
-                for i in lo..end {
-                    if buf.text[i] != '\n' {
-                        buf.text[i] = c;
+                for ch in &mut buf.text[lo..end] {
+                    if *ch != '\n' {
+                        *ch = c;
                     }
                 }
             }
             ('~', None) => {
-                for i in lo..end {
-                    buf.text[i] = toggle_case(buf.text[i]);
+                for ch in &mut buf.text[lo..end] {
+                    *ch = toggle_case(*ch);
                 }
             }
             ('>' | '<', None) => {
