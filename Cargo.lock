@@ -5053,6 +5053,7 @@ name = "rudel-dough"
 version = "0.24.1"
 dependencies = [
  "cc",
+ "serde_json",
 ]
 
 [[package]]
