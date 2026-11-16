@@ -13,6 +13,8 @@ This file starts at 0.7.0. Earlier history is in the git log.
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-11-16
+
 ### Added
 
 - **Names Strudel added by November 2026.** `stackRepeat`, `isobite` (also
