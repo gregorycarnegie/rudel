@@ -451,9 +451,9 @@ impl Mixer {
                 // asked for an instrument this engine does not have, and a
                 // sawtooth in its place is a worse answer than silence.
                 // `.dough()` does the same with the dough engine: upstream's
-                // is a dominant `onSchedule`. The engine is taken on first
-                // use, and there is one per process: while another mixer holds
-                // it the hap is dropped, like a statement with no Csound.
+                // is a dominant `onSchedule`. Each mixer makes its own engine
+                // on first use; while `warm_dough` holds the lock the hap is
+                // dropped, like a statement with no Csound.
                 // A sample is copied into the engine the first time its key
                 // plays, here on the audio thread, where upstream's worklet
                 // registers it too. One the engine has no room for is dropped,
@@ -461,7 +461,7 @@ impl Mixer {
                 if let Some(note) = &ev.dough {
                     if let Some(slot) = dough.as_deref_mut() {
                         if slot.is_none() {
-                            *slot = rudel_dough::Dough::acquire(self.sample_rate as u32);
+                            *slot = Some(rudel_dough::Dough::new(self.sample_rate as u32));
                         }
                         if let Some(engine) = slot {
                             match &note.file {

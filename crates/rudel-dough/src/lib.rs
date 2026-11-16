@@ -1,126 +1,69 @@
 // lib.rs - the dough synth engine, for `.dough()`.
 //
 // Upstream's `.dough()` plays a pattern through dough (https://codeberg.org/uzu/dough)
-// instead of superdough. Rather than imitate its sound in Rust, this crate
-// compiles the engine's own C source (vendor/dough.h, see vendor/NOTICE.md) and
-// lets the mixer render it: an event goes in as the same `key/value/...`
-// string dough's JavaScript driver sends, and stereo frames come out.
+// instead of superdough. This crate is a Rust port of dough's engine
+// (dough-synth 0.4.1, the version Strudel pins), and the mixer renders it: an
+// event goes in as the same `key/value/...` string dough's JavaScript driver
+// sends, and stereo frames come out. The output is bit-identical to the
+// browser's WebAssembly build of the C (tests/wasm_golden.rs), and to the C
+// itself (tests/c_reference.rs, with the `c-reference` feature).
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::ffi::{CString, c_char, c_double, c_float, c_int};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+mod dsp;
+mod engine;
+mod event;
 
-unsafe extern "C" {
-    fn dough_init(
-        sample_rate: c_int,
-        max_voices: c_int,
-        max_orbits: c_int,
-        max_delay_time: c_int,
-        max_pcm: c_int,
-        max_events: c_int,
-        max_files: c_int,
-    );
-    fn dough_evaluate(msg: *const c_char);
-    fn dough_render(out: *mut c_float, frames: c_int, start_time: c_double);
-    fn dough_register_pcm(
-        file_index: c_int,
-        pcm: *const c_float,
-        frames: c_int,
-        channels: c_int,
-        freq: c_float,
-    ) -> c_int;
-}
+#[cfg(feature = "c-reference")]
+#[doc(hidden)]
+pub mod c_reference;
 
-// What dough.js hands `dough_init` in the browser, so voice stealing and the
-// delay line behave as they do there.
-const MAX_VOICES: c_int = 32;
-const MAX_ORBITS: c_int = 1;
-const MAX_DELAY_TIME: c_int = 1;
-const MAX_EVENTS: c_int = 64;
-const MAX_FILES: c_int = 128;
-/// Sample memory, in floats: 196 MB, laid out with the engine.
-const MAX_PCM: c_int = (1024 * 1024 * 196) / 4;
+use engine::{Engine, Limits};
+
+/// What dough.js hands `dough_init` in the browser, so voice stealing, the
+/// schedule and the delay line behave as they do there.
+const LIMITS: Limits = Limits {
+    voices: 32,
+    delay_seconds: 1,
+    events: 64,
+    files: 128,
+    // 196 MB of floats.
+    pcm: (1024 * 1024 * 196) / 4,
+};
 
 /// The pitch a registered file is taken to be at, which dough.js gives every
 /// sample: a note of this frequency plays the file at its own rate.
-const FILE_FREQ: c_float = 65.46;
+const FILE_FREQ: f32 = 65.46;
 
-/// The longest message the engine reads (`EVENT_INPUT_SIZE`), terminator
-/// included. A longer one would be cut mid-pair, so it is not sent at all.
+/// The longest message dough reads (`EVENT_INPUT_SIZE`), terminator included.
+/// A longer one would be cut mid-pair, so it is not sent at all.
 const MAX_MESSAGE: usize = 1024;
 
-/// Set while a [`Dough`] exists. The engine keeps its state in C globals, so
-/// there is one per process.
-static TAKEN: AtomicBool = AtomicBool::new(false);
-/// The sample rate the engine's memory was last laid out for; 0 before the
-/// first [`Dough::acquire`].
-static LAID_OUT_FOR: AtomicU32 = AtomicU32::new(0);
-
-/// The keys of the sample files registered with the engine; a file's index is
-/// its place here. They outlive any one [`Dough`], as the engine's memory does,
-/// and go when that memory is laid out afresh.
-static FILES: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-/// The process's one dough engine. Whoever holds this may play and render it.
+/// A dough engine.
 pub struct Dough {
-    sample_rate: f64,
-    /// Frames rendered so far: the engine's clock.
-    clock: u64,
-    /// Interleaved stereo, reused between calls.
-    scratch: Vec<f32>,
+    engine: Engine,
+    /// The keys of the registered sample files; a file's index is its place.
+    files: Vec<String>,
 }
 
 impl Dough {
-    /// Take the engine, silent and at time zero, or `None` while another
-    /// `Dough` is alive.
-    pub fn acquire(sample_rate: u32) -> Option<Dough> {
-        TAKEN
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .ok()?;
-        let mut dough = Dough {
-            sample_rate: f64::from(sample_rate),
-            clock: 0,
-            scratch: Vec::new(),
-        };
-        if LAID_OUT_FOR.swap(sample_rate, Ordering::AcqRel) == sample_rate {
-            // Same layout as last time: drop its voices and pending events.
-            dough.evaluate("dough/reset");
-        } else {
-            // SAFETY: `TAKEN` makes this the only caller into the engine. A
-            // second layout (a different sample rate) leaks the first one's
-            // block: the engine has no teardown, and a device rate changes
-            // rarely enough for that to be the smaller evil.
-            FILES.lock().unwrap_or_else(|e| e.into_inner()).clear();
-            unsafe {
-                dough_init(
-                    sample_rate as c_int,
-                    MAX_VOICES,
-                    MAX_ORBITS,
-                    MAX_DELAY_TIME,
-                    MAX_PCM,
-                    MAX_EVENTS,
-                    MAX_FILES,
-                );
-            }
+    /// A silent engine at time zero.
+    pub fn new(sample_rate: u32) -> Dough {
+        Dough {
+            engine: Engine::new(sample_rate, &LIMITS),
+            files: Vec::new(),
         }
-        Some(dough)
     }
 
     /// Hand the engine one event, written as dough's driver writes it:
     /// `dough/play/s/saw/note/60/duration/0.5`. With no `time` pair it takes
-    /// effect at the next rendered frame. Returns false, sending nothing, for
-    /// a message the engine could not read whole.
+    /// effect at the next rendered frame; a `time` is seconds on the engine's
+    /// clock, which `dough/reset` restarts. Returns false, doing nothing, for a
+    /// message dough could not read whole.
     pub fn evaluate(&mut self, message: &str) -> bool {
-        if message.len() >= MAX_MESSAGE {
+        if message.len() >= MAX_MESSAGE || message.contains('\0') {
             return false;
         }
-        let Ok(message) = CString::new(message) else {
-            return false; // an interior NUL
-        };
-        // SAFETY: holding `self` is holding the engine; the string outlives
-        // the call, which copies it.
-        unsafe { dough_evaluate(message.as_ptr()) };
+        self.engine.evaluate(message.as_bytes());
         true
     }
 
@@ -130,58 +73,26 @@ impl Dough {
     /// event plays it with a `file/<index>` pair. `None` once the engine has
     /// no room for another file.
     pub fn sample_file(&mut self, key: &str, pcm: &[f32], channels: usize) -> Option<i32> {
-        let mut files = FILES.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(index) = files.iter().position(|k| k == key) {
+        if let Some(index) = self.files.iter().position(|k| k == key) {
             return Some(index as i32);
         }
-        if channels == 0 || files.len() >= MAX_FILES as usize {
+        let index = self.files.len();
+        if !self.engine.register_pcm(index, pcm, channels, FILE_FREQ) {
             return None;
         }
-        let index = files.len() as c_int;
-        let frames = (pcm.len() / channels) as c_int;
-        // SAFETY: holding `self` is holding the engine; it copies
-        // `frames * channels` floats, which `pcm` has.
-        let status = unsafe {
-            dough_register_pcm(index, pcm.as_ptr(), frames, channels as c_int, FILE_FREQ)
-        };
-        if status != 0 {
-            return None; // out of sample memory
-        }
-        files.push(key.to_string());
-        Some(index)
+        self.files.push(key.to_string());
+        Some(index as i32)
     }
 
     /// Render the next `out.len()` frames and add them to `out`.
     pub fn render_into(&mut self, out: &mut [(f32, f32)]) {
-        let frames = out.len();
-        if self.scratch.len() < frames * 2 {
-            self.scratch.resize(frames * 2, 0.0);
-        }
-        let start = self.clock as f64 / self.sample_rate;
-        // SAFETY: the buffer holds `frames` stereo frames, which is what
-        // `dough_render` writes.
-        unsafe { dough_render(self.scratch.as_mut_ptr(), frames as c_int, start) };
-        self.clock += frames as u64;
-        for (frame, pair) in out.iter_mut().zip(self.scratch.as_chunks::<2>().0) {
-            frame.0 += pair[0];
-            frame.1 += pair[1];
-        }
-    }
-}
-
-impl Drop for Dough {
-    fn drop(&mut self) {
-        TAKEN.store(false, Ordering::Release);
+        self.engine.render_add(out);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    /// One engine per process: the tests take turns with it.
-    static ENGINE: Mutex<()> = Mutex::new(());
 
     fn peak(dough: &mut Dough, frames: usize) -> f32 {
         let mut out = vec![(0.0f32, 0.0f32); frames];
@@ -191,8 +102,7 @@ mod tests {
 
     #[test]
     fn a_sine_plays_at_doughs_own_level_and_stops_after_its_duration() {
-        let _turn = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        let mut dough = Dough::acquire(44_100).expect("the engine is free");
+        let mut dough = Dough::new(44_100);
         assert_eq!(peak(&mut dough, 512), 0.0, "silent before any event");
         assert!(dough.evaluate("dough/play/s/sine/freq/330/duration/0.25"));
         // GAIN_SINE (0.2) times GAIN_MIX (0.5), the engine's own constants.
@@ -204,22 +114,20 @@ mod tests {
     }
 
     #[test]
-    fn there_is_one_engine_and_the_next_holder_gets_it_silent() {
-        let _turn = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        let mut first = Dough::acquire(44_100).expect("the engine is free");
-        assert!(Dough::acquire(44_100).is_none(), "a second engine");
+    fn engines_are_independent_and_reset_silences_one() {
+        let mut first = Dough::new(44_100);
+        let mut second = Dough::new(44_100);
         assert!(first.evaluate("dough/play/s/saw/freq/110"));
         assert!(peak(&mut first, 512) > 0.0);
-        drop(first);
-        // An endless note was still sounding; the new holder must not hear it.
-        let mut second = Dough::acquire(44_100).expect("released on drop");
-        assert_eq!(peak(&mut second, 4_410), 0.0);
+        assert_eq!(peak(&mut second, 512), 0.0, "one engine heard the other");
+        // An endless note is still sounding; a reset stops it.
+        assert!(first.evaluate("dough/reset"));
+        assert_eq!(peak(&mut first, 4_410), 0.0);
     }
 
     #[test]
-    fn a_registered_sample_plays_and_keeps_its_index_for_the_next_holder() {
-        let _turn = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        let mut dough = Dough::acquire(44_100).expect("the engine is free");
+    fn a_registered_sample_plays_and_keeps_its_index() {
+        let mut dough = Dough::new(44_100);
         // Half a second of a full-scale square, as mono PCM.
         let pcm: Vec<f32> = (0..22_050)
             .map(|i| if (i / 50) % 2 == 0 { 1.0 } else { -1.0 })
@@ -228,21 +136,20 @@ mod tests {
             .sample_file("square:0", &pcm, 1)
             .expect("room for a file");
         assert_eq!(dough.sample_file("square:0", &pcm, 1), Some(index));
+        assert_ne!(dough.sample_file("other:0", &pcm, 1), Some(index));
         assert!(dough.evaluate(&format!("dough/play/s/square:0/file/{index}")));
         assert!(peak(&mut dough, 4_410) > 0.1, "the sample is silent");
-        drop(dough);
-        // The engine's memory, and so the file, outlives the holder.
-        let mut next = Dough::acquire(44_100).expect("released on drop");
-        assert_eq!(next.sample_file("square:0", &pcm, 1), Some(index));
-        assert_ne!(next.sample_file("other:0", &pcm, 1), Some(index));
+        // Files outlive a reset, as the engine's sample memory does in dough.
+        assert!(dough.evaluate("dough/reset"));
+        assert_eq!(dough.sample_file("square:0", &pcm, 1), Some(index));
     }
 
     #[test]
-    fn a_message_too_long_for_the_engine_is_refused() {
-        let _turn = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        let mut dough = Dough::acquire(44_100).expect("the engine is free");
+    fn a_message_dough_cannot_read_whole_is_refused() {
+        let mut dough = Dough::new(44_100);
         let long = format!("dough/play/s/sine/x/{}", "9".repeat(MAX_MESSAGE));
         assert!(!dough.evaluate(&long));
+        assert!(!dough.evaluate("dough/play\0/s/sine"));
         assert_eq!(peak(&mut dough, 512), 0.0);
     }
 }

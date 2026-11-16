@@ -95,6 +95,14 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo nextest run --workspace --profile ci
 
+      # The dough engine is a Rust port of dough's C; this builds the C too and
+      # holds the port to it bit for bit (and lints the benchmark that times
+      # the two, which only builds with the feature).
+      - name: Dough port against its C
+        run: |
+          cargo clippy -p rudel-dough --all-targets --features c-reference -- -D warnings
+          cargo nextest run -p rudel-dough --features c-reference --profile ci
+
       - name: Test with coverage
         if: runner.os == 'Linux'
         run: |

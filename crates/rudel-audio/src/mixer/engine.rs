@@ -409,12 +409,11 @@ impl Engine {
 
     /// Take the dough engine now, from this thread, so that the first
     /// `.dough()` hap does not make the audio callback lay its memory out.
-    /// Harmless to repeat, and a no-op while something else in the process
-    /// holds the engine.
+    /// Harmless to repeat.
     pub fn warm_dough(&self) {
         let mut slot = self.dough.lock().unwrap_or_else(|e| e.into_inner());
         if slot.is_none() {
-            *slot = rudel_dough::Dough::acquire(self.sample_rate as u32);
+            *slot = Some(rudel_dough::Dough::new(self.sample_rate as u32));
         }
     }
 

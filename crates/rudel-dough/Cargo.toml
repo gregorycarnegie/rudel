@@ -5,10 +5,20 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "The dough synth engine, compiled from its C source for Rudel's `.dough()`"
+description = "The dough synth engine, ported to Rust for Rudel's `.dough()`"
+
+[features]
+# Build dough's C engine as well, to compare the port against it
+# (tests/c_reference.rs) and to time the two (benches/engine.rs).
+c-reference = ["dep:cc"]
 
 [dev-dependencies]
 serde_json.workspace = true
 
 [build-dependencies]
-cc = "1.2.63"
+cc = { version = "1.2.63", optional = true }
+
+[[bench]]
+name = "engine"
+harness = false
+required-features = ["c-reference"]

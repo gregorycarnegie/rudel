@@ -856,18 +856,22 @@ which has the same effect. Master volume still applies.
 ### dough (`@strudel/dough`) — the engine itself
 
 `.dough()` plays a pattern through the dough synth instead of Rudel's own
-voices, as upstream does. It is the same engine: Rudel compiles dough's C source
-(`crates/rudel-dough`, version 0.4.1, the one Strudel pins) and renders it into
-the mixer, so its oscillators, filters, envelopes, FM, delay and reverb are
-dough's own code rather than a port. `group`, `voices` and `glide` reach it as
+voices, as upstream does. `crates/rudel-dough` is dough's engine (version
+0.4.1, the one Strudel pins) ported line for line from its C to Rust, and the
+mixer renders it, so its oscillators, filters, envelopes, FM, delay and reverb
+work exactly as dough's do. `group`, `voices` and `glide` reach it as
 controls, and `initDough()` is accepted and returns at once, since the engine
 is ready by the first hap.
 
-The output is bit-identical to the browser's for the same events: the native
-build uses the WebAssembly build's own number parsing and rounding, and
-`crates/rudel-dough/tests/wasm_golden.rs` checks sixteen cases (oscillators,
-filters, envelopes, FM, vibrato, glide in a voice group, noise, delay, reverb
-and a sample) against `dough.wasm` frame for frame, with no tolerance.
+The output is bit-identical to the browser's for the same events: the port
+uses the WebAssembly build's own number parsing and rounding, and
+`crates/rudel-dough/tests/wasm_golden.rs` checks seventeen cases
+(oscillators, filters, envelopes, FM, vibrato, glide in a voice group, a group
+update, noise, delay, reverb and a sample) against `dough.wasm` frame for
+frame, with no tolerance. `tests/c_reference.rs` (with the `c-reference`
+feature) builds the C as well and compares the two over hundreds of random
+scenarios, bit for bit; `benches/engine.rs` times them, and the port is the
+faster on every workload there.
 
 What differs:
 
@@ -882,9 +886,6 @@ What differs:
   file at its own sample rate by adjusting `speed`, where the browser
   resamples it to the engine's rate first. dough reads the nearest frame, so
   the two are close but not the same.
-- **One engine per process.** dough keeps its state in globals, so a second
-  mixer in the same process (an offline render while the app plays) gets
-  silence for its `.dough()` haps.
 - **Master volume applies**, as it does to Csound; Rudel's own effects and
   orbits do not, as upstream connects dough straight to the output.
 - **`groupmod` works here and not upstream.** Upstream registers it with its

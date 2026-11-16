@@ -24,13 +24,15 @@ This file starts at 0.7.0. Earlier history is in the git log.
 - `stackLeft`, `stackRight`, `stackCentre`/`stackCenter` and `stackRepeat` can
   be chained: `"0 1 2 3".stackLeft("3 4")`.
 - **The dough engine.** `.dough()` plays a pattern through dough itself, as
-  upstream's now does: its C source (0.4.1, the version Strudel pins) is
-  compiled into Rudel as `crates/rudel-dough`. With it come `initDough` and
-  the `group`, `voices` and `glide` controls, `doughsamples(...)`, and
-  `groupmod`/`gmod` (which throws on every query upstream; here it works). A
-  `.dough()` hap that names a sample plays it from Rudel's sample bank. Its
-  output is bit-identical to the browser's WebAssembly build of dough, checked
-  frame for frame (`tools/oracle/gen_dough_oracle.mjs`).
+  upstream's now does: its engine (0.4.1, the version Strudel pins) is ported
+  from C to Rust as `crates/rudel-dough`, bit-identical to the C and faster
+  than it, and each mixer (an offline render too) has its own. With it come
+  `initDough` and the `group`, `voices` and `glide` controls,
+  `doughsamples(...)`, and `groupmod`/`gmod` (which throws on every query
+  upstream; here it works). A `.dough()` hap that names a sample plays it from
+  Rudel's sample bank. Its output is bit-identical to the browser's WebAssembly
+  build of dough too, checked frame for frame
+  (`tools/oracle/gen_dough_oracle.mjs`).
 
 ### Changed
 

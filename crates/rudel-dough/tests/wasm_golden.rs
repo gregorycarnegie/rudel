@@ -1,15 +1,15 @@
-//! The native dough engine against the browser's.
+//! The Rust dough engine against the browser's.
 //!
 //! `dough_golden.json` (from tools/oracle/gen_dough_oracle.mjs) holds, per
-//! case, the stereo output of `dough.wasm`, the WebAssembly build of the same
-//! dough source that Strudel runs in the browser, for a few events. This plays
-//! the same events through `rudel_dough` and compares frame for frame.
+//! case, the stereo output of `dough.wasm`, the WebAssembly build of dough's
+//! C that Strudel runs in the browser, for a few events. This plays the same
+//! events through `rudel_dough` and compares frame for frame.
 //!
-//! They are the same C, and the native build uses the browser build's own
-//! number parsing and rounding (src/dough.c), so the output must match bit for
-//! bit: [`TOLERANCE`] is zero. The cases run in the generator's order on one
-//! engine, reset between cases, so state a reset keeps (the noise seed,
-//! registered files) matches too.
+//! The port follows the C's arithmetic exactly, including its number parsing
+//! and rounding, so the output must match bit for bit: [`TOLERANCE`] is zero.
+//! The cases run in the generator's order on one engine, reset between cases,
+//! so state a reset keeps (the noise seed, registered files, the delay and
+//! reverb tails) matches too.
 //!
 //! Regenerate after updating the vendored engine:
 //!   cd tools/oracle && node gen_dough_oracle.mjs
@@ -38,12 +38,18 @@ fn the_native_engine_renders_what_the_browser_does() {
 
     let mut report = Vec::new();
     let mut failed = Vec::new();
-    for case in golden["cases"].as_array().expect("cases") {
+    let mut dough = Dough::new(rate);
+    for (i, case) in golden["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .enumerate()
+    {
         let id = case["id"].as_str().expect("id");
         let (left, right) = (floats(&case["left"]), floats(&case["right"]));
-        // A fresh holder each case: the first lays the engine out, the rest
-        // reset it, as the generator does.
-        let mut dough = Dough::acquire(rate).expect("the engine is free");
+        if i > 0 {
+            assert!(dough.evaluate("dough/reset"));
+        }
         if case["file"].as_bool() == Some(true) {
             assert_eq!(
                 dough.sample_file("smp:0", &pcm, 1),
@@ -61,7 +67,6 @@ fn the_native_engine_renders_what_the_browser_does() {
         for chunk in out.chunks_mut(block) {
             dough.render_into(chunk);
         }
-        drop(dough);
 
         let worst = out
             .iter()
